@@ -1,0 +1,7 @@
+id: f5-tmos
+name: F5 Tmos
+description: "TODO: Add platform description"
+reference_url: ""
+versions: []
+prompt_patterns: {}
+default_mode: shell

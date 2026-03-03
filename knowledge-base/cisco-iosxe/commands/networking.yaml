@@ -1,0 +1,80 @@
+commands:
+  - name: show ip interface brief
+    syntax: "show ip interface [brief | <interface-name>]"
+    description: |
+      Displays IP address, status, and protocol state for interfaces.
+
+      Use 'brief' for a compact summary of all interfaces.
+      Omit 'brief' and specify an interface name for full detail.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip int br
+      - show ip int brief
+    examples:
+      - command: show ip interface brief
+        description: Summary of all interfaces
+      - command: show ip interface GigabitEthernet0/0/0
+        description: Full detail for a specific interface
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - networking
+      - troubleshooting
+
+  - name: show ip route
+    syntax: "show ip route [<network>] [<mask>] [longer-prefixes]"
+    description: |
+      Displays the IP routing table.
+
+      Without arguments, shows the full routing table.
+      Specify a network to see routes for that prefix.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip ro
+    examples:
+      - command: show ip route
+        description: Full routing table
+      - command: show ip route 10.0.0.0 255.0.0.0
+        description: Routes for a specific network
+      - command: show ip route ospf
+        description: Only OSPF-learned routes
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - networking
+      - troubleshooting
+
+  - name: show running-config
+    syntax: "show running-config [interface <name> | section <regex>]"
+    description: |
+      Displays the current running configuration in memory.
+
+      Use 'interface' to see config for a specific interface.
+      Use 'section' to filter by regex pattern.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh run
+      - show run
+    examples:
+      - command: show running-config
+        description: Full running configuration
+      - command: show run interface GigabitEthernet0/0/0
+        description: Config for a specific interface
+      - command: show run | section router ospf
+        description: OSPF configuration section
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+      - troubleshooting

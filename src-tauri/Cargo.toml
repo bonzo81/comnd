@@ -1,0 +1,24 @@
+[package]
+name = "netsh"
+version = "0.1.0"
+description = "Cross-platform SSH client with context-aware command suggestions"
+authors = ["Andy Norwood"]
+edition = "2021"
+
+[lib]
+name = "netsh_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+russh = "0.46"
+russh-keys = "0.46"
+tokio = { version = "1", features = ["full"] }
+dirs = "6"
