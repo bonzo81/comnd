@@ -1,22 +1,23 @@
-## Knowledge Base
+# Knowledge Base
 
-### Design Principles
-- Human-readable and human-editable (YAML)
-- Version-aware — commands carry version applicability metadata
-- Platform-scoped — one file per platform
-- Shipped with the app, updatable independently of app releases
-- Community-extensible in future
+## Design Principles
 
-### Design Decision: Self-Contained Platform Files
+* Human-readable and human-editable (YAML)
+* Version-aware — commands carry version applicability metadata
+* Platform-scoped — one file per platform
+* Shipped with the app, updatable independently of app releases
+* Community-extensible in future
+
+## Design Decision: Self-Contained Platform Files
 
 Each platform is fully self-contained. Command descriptions are duplicated across platforms as needed — this is a knowledge base, not a codebase. Duplication is intentional:
 
-- No cross-references to resolve at runtime
-- Each platform file is independently editable
-- Easy for contributors to add new platforms without understanding shared structure
-- Platform-specific wording can diverge without affecting others
+* No cross-references to resolve at runtime
+* Each platform file is independently editable
+* Easy for contributors to add new platforms without understanding shared structure
+* Platform-specific wording can diverge without affecting others
 
-### File Structure
+## File Structure
 
 ```
 knowledge-base/
@@ -45,7 +46,7 @@ knowledge-base/
       ...
 ```
 
-### Platform Index Schema (`index.yaml`)
+## Platform Index Schema (`index.yaml`)
 
 ```yaml
 id: cisco-iosxe
@@ -68,7 +69,7 @@ default_mode: privileged-exec
 
 The `reference_url` is shown in the sidebar as "📖 Official docs →" — one link per platform pointing to the official command reference.
 
-### Command Schema
+## Command Schema
 
 All description/helper text lives inline in the command entry. This is what populates the sidebar when a user selects a suggestion. Use YAML block scalars (`|`) for multiline text.
 
@@ -101,51 +102,47 @@ commands:
       - troubleshooting
 ```
 
-### Canonical Mode Values
+## Canonical Mode Values
 
 Each platform defines its own mode values. Commands use these in the `mode` field.
 
-**Cisco IOS-XE / NX-OS:**
-`user-exec`, `privileged-exec`, `global-config`, `interface-config`, `routing-config`, `line-config`
+**Cisco IOS-XE / NX-OS:** `user-exec`, `privileged-exec`, `global-config`, `interface-config`, `routing-config`, `line-config`
 
-**F5 TMOS:**
-`tmsh-root`, `ltm`, `net`, `sys`, `bash`
+**F5 TMOS:** `tmsh-root`, `ltm`, `net`, `sys`, `bash`
 
-**Linux bash:**
-`shell` (single mode — no sub-modes in MVP)
+**Linux bash:** `shell` (single mode — no sub-modes in MVP)
 
-### Alias & Prefix Matching
+## Alias & Prefix Matching
 
 Both the command `name` and all `aliases` are prefix-matched against the user's input buffer. For example, typing `sh ip` would match:
-- `show ip interface brief` (via alias `sh ip int br`)
-- `show ip route` (via name prefix)
-- `show ip bgp summary` (via name prefix)
+
+* `show ip interface brief` (via alias `sh ip int br`)
+* `show ip route` (via name prefix)
+* `show ip bgp summary` (via name prefix)
 
 Matching is case-insensitive. Results ranked by: exact prefix match on name first, then alias matches, then by category relevance.
 
-### KB File Organisation
+## KB File Organisation
 
 Command YAML files within each platform are grouped by **command category** (not by command root). Categories map to functional areas a network engineer thinks in:
 
-- `networking.yaml` — interfaces, IP, ARP, MAC tables
-- `routing.yaml` — static routes, OSPF, BGP, EIGRP
-- `switching.yaml` — VLANs, STP, port-channels
-- `system.yaml` — hostname, NTP, logging, users
-- `security.yaml` — ACLs, AAA, crypto
-- `monitoring.yaml` — show commands for status, counters, logging
+* `networking.yaml` — interfaces, IP, ARP, MAC tables
+* `routing.yaml` — static routes, OSPF, BGP, EIGRP
+* `switching.yaml` — VLANs, STP, port-channels
+* `system.yaml` — hostname, NTP, logging, users
+* `security.yaml` — ACLs, AAA, crypto
+* `monitoring.yaml` — show commands for status, counters, logging
 
 Each platform uses whatever categories make sense for it. Not all platforms need the same files.
 
-### Version Filtering Logic
+## Version Filtering Logic
 
-- If host has no OS version set in saved host settings → show all commands for that platform
-- If host has OS version set → show commands where `introduced <= host_version` and `deprecated` is null or `deprecated > host_version`
-- Commands with version caveats shown with a ⚠️ indicator
+* If host has no OS version set in saved host settings → show all commands for that platform
+* If host has OS version set → show commands where `introduced <= host_version` and `deprecated` is null or `deprecated > host_version`
+* Commands with version caveats shown with a ⚠️ indicator
 
 **Version comparison (MVP): major version matching.** The user enters a version string (e.g. `"17.6"`, `"16.12.4a"`) in the saved host settings. For comparison purposes, only the **major version** is used (first numeric segment): `"17.6"` → major `17`, `"16.12.4a"` → major `16`. Command `introduced: "16.0"` → major `16`.
 
 A command is shown if its `introduced` major version ≤ host major version, and its `deprecated` major version (if set) > host major version.
 
 This avoids the rabbit hole of cross-platform version string semantics (Cisco, F5, and Linux all use different formats). Granular sub-version filtering is a post-MVP enhancement if needed.
-
----

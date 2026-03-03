@@ -1,22 +1,23 @@
-## Inline Suggestion Engine
+# Suggestion Engine
 
-### Behaviour
-- Triggers as user types in the terminal input line
-- Queries the local knowledge base filtered by: platform ID + OS version + **current CLI mode**
-- Shows top N matching commands as ghost text (accept with Tab) or dropdown (navigate with arrow keys)
-- Side panel (when open) updates in real time to show detail of the highlighted suggestion
-- Suggestions are prefix-matched and ranked by frequency/relevance (simple scoring, no ML)
+## Behaviour
 
-### Mode Detection (MVP)
+* Triggers as user types in the terminal input line
+* Queries the local knowledge base filtered by: platform ID + OS version + **current CLI mode**
+* Shows top N matching commands as ghost text (accept with Tab) or dropdown (navigate with arrow keys)
+* Side panel (when open) updates in real time to show detail of the highlighted suggestion
+* Suggestions are prefix-matched and ranked by frequency/relevance (simple scoring, no ML)
+
+## Mode Detection (MVP)
 
 The terminal monitors each line of output and parses the prompt to determine current CLI mode. Mode is used to filter suggestions to only those valid for the current context.
 
 **Cisco IOS / IOS-XE prompt patterns:**
 
 | Prompt pattern | Mode |
-|---|---|
-| `hostname>` | user-exec |
-| `hostname#` | privileged-exec |
+|----------------|------|
+| `hostname>`    | user-exec |
+| `hostname#`    | privileged-exec |
 | `hostname(config)#` | global-config |
 | `hostname(config-if)#` | interface-config |
 | `hostname(config-router)#` | routing-config |
@@ -25,8 +26,8 @@ The terminal monitors each line of output and parses the prompt to determine cur
 **Cisco NX-OS prompt patterns:**
 
 | Prompt pattern | Mode |
-|---|---|
-| `hostname#` | privileged-exec |
+|----------------|------|
+| `hostname#`    | privileged-exec |
 | `hostname(config)#` | global-config |
 | `hostname(config-if)#` | interface-config |
 | `hostname(config-router)#` | routing-config |
@@ -34,7 +35,7 @@ The terminal monitors each line of output and parses the prompt to determine cur
 **F5 BIG-IP TMOS prompt patterns:**
 
 | Prompt pattern | Mode |
-|---|---|
+|----------------|------|
 | `user@(hostname)(cfg-sync ...)(/partition)(tmos)#` | tmsh root |
 | `user@(hostname)(cfg-sync ...)(tmos.ltm)#` | ltm context |
 | `user@(hostname)(cfg-sync ...)(tmos.net)#` | net context |
@@ -46,35 +47,38 @@ F5 prompt parsing is more complex — the prompt contains cluster sync state, pa
 **Linux bash:**
 
 Bash prompts are user-configurable (`PS1`) and cannot be reliably parsed for mode. MVP approach:
-- Default mode: `shell` (all commands shown)
-- No sub-mode detection (e.g. inside vim, python REPL, etc.)
-- If the app detects a non-prompt interactive context (rapid output, no recognisable prompt), suggestions are disabled (raw pass-through mode)
+
+* Default mode: `shell` (all commands shown)
+* No sub-mode detection (e.g. inside vim, python REPL, etc.)
+* If the app detects a non-prompt interactive context (rapid output, no recognisable prompt), suggestions are disabled (raw pass-through mode)
 
 Other platforms define their own prompt patterns in `index.yaml`. If mode cannot be determined, suggestions default to showing all commands for the platform (unfiltered).
 
-### Suggestion UI
+## Suggestion UI
 
 Two complementary suggestion modes, matching modern IDE behaviour (e.g. VS Code):
 
 **Ghost text (primary)**
-- Top matching command appears as greyed-out text inline after the cursor
-- Accept with `Tab`
-- Always visible while typing — zero disruption
+
+* Top matching command appears as greyed-out text inline after the cursor
+* Accept with `Tab`
+* Always visible while typing — zero disruption
 
 **Dropdown (on demand)**
-- Triggered by `Ctrl+Space`
-- Shows top N matches as a popup list below the cursor
-- Navigate with arrow keys, accept with `Enter` or `Tab`
-- Dismiss with `Escape`
+
+* Triggered by `Ctrl+Space`
+* Shows top N matches as a popup list below the cursor
+* Navigate with arrow keys, accept with `Enter` or `Tab`
+* Dismiss with `Escape`
 
 Both update in real time as the user types, filtered by platform + version + current mode.
 
-### Suggestion Sources (MVP)
-- Local knowledge base only
-- Filtered by: platform ID + OS version (or all versions if unspecified)
+## Suggestion Sources (MVP)
 
-### Suggestion Sources (Post-MVP)
-- Command history (per host)
-- AI/LLM layer (optional, user-enabled)
+* Local knowledge base only
+* Filtered by: platform ID + OS version (or all versions if unspecified)
 
----
+## Suggestion Sources (Post-MVP)
+
+* Command history (per host)
+* AI/LLM layer (optional, user-enabled)

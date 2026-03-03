@@ -1,43 +1,44 @@
-## Technical Architecture
+# Technical Architecture
 
-### Process Model
+## Process Model
 
 Tauri v2 runs two layers:
-- **Rust backend** — manages SSH connections (byte pipe), credential access (OS keychain), KB loading/indexing, and file I/O. Exposes async Tauri commands for the frontend.
-- **Web frontend** (rendered in OS webview) — terminal UI (xterm.js), input handling, shadow buffer, suggestion rendering, connection manager, sidebar
+
+* **Rust backend** — manages SSH connections (byte pipe), credential access (OS keychain), KB loading/indexing, and file I/O. Exposes async Tauri commands for the frontend.
+* **Web frontend** (rendered in OS webview) — terminal UI (xterm.js), input handling, shadow buffer, suggestion rendering, connection manager, sidebar
 
 Communication between frontend and backend via Tauri v2's IPC command system (typed, async). Keystrokes are handled in the frontend for zero-latency input; KB queries go async to Rust.
 
-### SSH Connection Management
+## SSH Connection Management
 
-- **Library:** `russh` (pure Rust SSH2 implementation) — no dependency on system `ssh` binary
-- **YAML parsing:** `serde_yml` (successor to deprecated `serde_yaml`)
-- **Platform paths:** `dirs` crate for resolving OS-appropriate config/data directories
-- **Host key verification:** First-connect trust-on-first-use (TOFU) model. Known hosts stored in app data directory. User prompted on first connect and on key change (with clear MITM warning)
-- **Authentication flow:**
-  - Uses the method configured per saved host (password or SSH key)
-  - **Keyboard-interactive auth** supported — many network devices (Cisco, F5) use this instead of simple password auth. The app handles challenge/response prompts and passes the stored password.
-  - **Key formats:** OpenSSH and PEM (via `russh`). PKCS#8 support post-MVP if needed.
-  - **Passphrase-protected keys:** user prompted at connect time. Passphrase optionally stored in OS keychain.
-- **Connection lifecycle:**
-  - Connect → authenticate → open PTY channel → begin streaming I/O
-  - Heartbeat keepalive packets sent to prevent idle disconnects
-  - On network drop: detect via read timeout, show "Disconnected" overlay with reconnect button
-  - On intentional disconnect (user closes session or types `exit`): clean channel/session teardown
-- **SSH agent forwarding:** Not in MVP. Post-MVP consideration.
-- **Terminal size negotiation:** Initial terminal dimensions sent on channel open. On window resize (including sidebar open/close), a PTY resize request is sent to the remote host so output reformats correctly.
+* **Library:** `russh` (pure Rust SSH2 implementation) — no dependency on system `ssh` binary
+* **YAML parsing:** `serde_yml` (successor to deprecated `serde_yaml`)
+* **Platform paths:** `dirs` crate for resolving OS-appropriate config/data directories
+* **Host key verification:** First-connect trust-on-first-use (TOFU) model. Known hosts stored in app data directory. User prompted on first connect and on key change (with clear MITM warning)
+* **Authentication flow:**
+  * Uses the method configured per saved host (password or SSH key)
+  * **Keyboard-interactive auth** supported — many network devices (Cisco, F5) use this instead of simple password auth. The app handles challenge/response prompts and passes the stored password.
+  * **Key formats:** OpenSSH and PEM (via `russh`). PKCS#8 support post-MVP if needed.
+  * **Passphrase-protected keys:** user prompted at connect time. Passphrase optionally stored in OS keychain.
+* **Connection lifecycle:**
+  * Connect → authenticate → open PTY channel → begin streaming I/O
+  * Heartbeat keepalive packets sent to prevent idle disconnects
+  * On network drop: detect via read timeout, show "Disconnected" overlay with reconnect button
+  * On intentional disconnect (user closes session or types `exit`): clean channel/session teardown
+* **SSH agent forwarding:** Not in MVP. Post-MVP consideration.
+* **Terminal size negotiation:** Initial terminal dimensions sent on channel open. On window resize (including sidebar open/close), a PTY resize request is sent to the remote host so output reformats correctly.
 
-### Connection Error Handling
+## Connection Error Handling
 
 | Scenario | User experience |
-|---|---|
+|----------|-----------------|
 | Auth failure (wrong password / rejected key) | Error banner with reason. "Retry" button. Connection manager stays accessible. |
 | Host unreachable (timeout) | "Connection timed out" overlay after configurable timeout (default 10s). Retry button. |
 | Host key changed (potential MITM) | **Blocking warning** — "Host key has changed. This could indicate a man-in-the-middle attack." User must explicitly accept the new key or abort. Old key shown for comparison. |
 | Connection drops mid-session | "Disconnected" overlay with reconnect button. Terminal frozen (no input accepted). Last output preserved. |
 | Keyboard-interactive challenge unrecognised | Fall back to prompting user for input in a dialog box. |
 
-### Keystroke Flow & Input Interception
+## Keystroke Flow & Input Interception
 
 This is the core technical challenge. The app must observe user input to power suggestions while the remote device handles all actual echo and editing.
 
@@ -73,47 +74,44 @@ This is the core technical challenge. The app must observe user input to power s
 
 **How it works:**
 
+
 1. **xterm.js captures all keystrokes** via `onKey` handler. Each keystroke is:
-   - Added to the local shadow buffer (JavaScript, zero latency)
-   - Forwarded to the Rust backend via IPC, which writes it to the SSH channel immediately
-   - The remote device echoes the character back — xterm.js displays the echo as normal
-
+   * Added to the local shadow buffer (JavaScript, zero latency)
+   * Forwarded to the Rust backend via IPC, which writes it to the SSH channel immediately
+   * The remote device echoes the character back — xterm.js displays the echo as normal
 2. **The shadow buffer** tracks the current input line as the user types. It:
-   - Appends printable characters
-   - Handles backspace/delete (mirrors what the remote will do)
-   - Resets on Enter (new command line)
-   - Resets when a new prompt is detected (output from remote command has finished)
-
+   * Appends printable characters
+   * Handles backspace/delete (mirrors what the remote will do)
+   * Resets on Enter (new command line)
+   * Resets when a new prompt is detected (output from remote command has finished)
 3. **On each shadow buffer change**, the KB is queried asynchronously via a Tauri command:
-   - Buffer contents matched against KB for current platform + version + mode
-   - Top match returned → rendered as ghost text overlay in xterm.js (dimmed, after cursor)
-   - Full match list cached for Ctrl+Space dropdown
-
+   * Buffer contents matched against KB for current platform + version + mode
+   * Top match returned → rendered as ghost text overlay in xterm.js (dimmed, after cursor)
+   * Full match list cached for Ctrl+Space dropdown
 4. **On Tab (suggestion accept)**: if ghost text is showing, the ghost text completion is:
-   - Written to the shadow buffer
-   - Sent to the SSH channel as a string (as if the user typed it rapidly)
-   - The remote device echoes it — xterm.js displays the completed command
-   - If NO ghost text is showing, Tab is passed through to the remote device for native tab-completion
-
+   * Written to the shadow buffer
+   * Sent to the SSH channel as a string (as if the user typed it rapidly)
+   * The remote device echoes it — xterm.js displays the completed command
+   * If NO ghost text is showing, Tab is passed through to the remote device for native tab-completion
 5. **On Enter**: keystroke sent to remote, shadow buffer reset. Remote executes the command and sends output.
-
 6. **Pass-through keys**: these go straight to the SSH channel and update the shadow buffer as appropriate:
-   - `Ctrl+C` (interrupt) — also clears shadow buffer
-   - `Ctrl+Z` (suspend) — clears shadow buffer
-   - `Ctrl+D` (EOF)
-   - Arrow keys when dropdown is NOT open (remote history navigation — shadow buffer resets since we can't track remote history)
-
+   * `Ctrl+C` (interrupt) — also clears shadow buffer
+   * `Ctrl+Z` (suspend) — clears shadow buffer
+   * `Ctrl+D` (EOF)
+   * Arrow keys when dropdown is NOT open (remote history navigation — shadow buffer resets since we can't track remote history)
 7. **Paste handling**: pasted text is sent to the SSH channel and added to shadow buffer in full. Suggestion engine runs against the final buffer state.
 
 **Edge cases:**
-- **Interactive commands** (e.g. `more`, `vi`, `top`): When the prompt detector identifies a non-prompt interactive context (rapid output with no idle gap, or unrecognised output patterns), the app enters **raw pass-through mode** — shadow buffer and suggestions disabled until next prompt is detected
-- **Remote tab-completion output**: When the remote device responds to Tab with completion options (multi-line output), the prompt detector treats this as command output. Shadow buffer resets on next detected prompt.
-- **Multi-line input**: Not supported in MVP — shadow buffer is single-line, reset on Enter
-- **Cisco `?` key**: Sends `?` to remote immediately (pass-through), remote displays help. Shadow buffer keeps the text before `?` so suggestions resume after help output.
 
-### Prompt Detection
+* **Interactive commands** (e.g. `more`, `vi`, `top`): When the prompt detector identifies a non-prompt interactive context (rapid output with no idle gap, or unrecognised output patterns), the app enters **raw pass-through mode** — shadow buffer and suggestions disabled until next prompt is detected
+* **Remote tab-completion output**: When the remote device responds to Tab with completion options (multi-line output), the prompt detector treats this as command output. Shadow buffer resets on next detected prompt.
+* **Multi-line input**: Not supported in MVP — shadow buffer is single-line, reset on Enter
+* **Cisco** `**?**` **key**: Sends `?` to remote immediately (pass-through), remote displays help. Shadow buffer keeps the text before `?` so suggestions resume after help output.
+
+## Prompt Detection
 
 Prompt detection powers both mode awareness and the shadow buffer reset. It operates on the SSH output stream using a state machine:
+
 
 1. **ANSI stripping** — all escape sequences are stripped from the output stream before analysis
 2. **Idle detection** — a prompt is characterised by output that ends without a newline, followed by an idle gap (no new bytes for 200ms). This distinguishes a prompt from mid-output pauses.
@@ -122,20 +120,20 @@ Prompt detection powers both mode awareness and the shadow buffer reset. It oper
 
 If no pattern matches after an idle gap, mode remains unchanged (assumed same context). If no prompt is detected for an extended period (e.g. during `vi` or `more`), raw pass-through mode is activated.
 
-### KB Loading & Performance
+## KB Loading & Performance
 
-- The KB for the active platform is loaded into an in-memory index when a connection is established (not per-keystroke)
-- YAML files are parsed once via `serde_yml` into Rust structs, then indexed for prefix matching
-- For 4 platforms × ~500 commands each, initial load is sub-50ms — not a concern
-- The in-memory index supports fast prefix search (trie or sorted vec with binary search — implementation detail)
+* The KB for the active platform is loaded into an in-memory index when a connection is established (not per-keystroke)
+* YAML files are parsed once via `serde_yml` into Rust structs, then indexed for prefix matching
+* For 4 platforms × \~500 commands each, initial load is sub-50ms — not a concern
+* The in-memory index supports fast prefix search (trie or sorted vec with binary search — implementation detail)
 
-### Data Storage
+## Data Storage
 
 | Data | Location | Format |
-|---|---|---|
-| Saved hosts (non-secret fields) | App data directory (`~/.config/netsh/` on Linux, `%APPDATA%\netsh\` on Windows, `~/Library/Application Support/netsh/` on macOS) | JSON |
+|------|----------|--------|
+| Saved hosts (non-secret fields) | App data directory (`~/.config/netsh/` on Linux, `%APPDATA%\netsh\` on Windows, `~/Library/Application Support/netsh/` on macOS) | JSON   |
 | Credentials (passwords, key passphrases) | OS keychain (libsecret on Linux, Keychain on macOS, Credential Manager on Windows) | Managed by OS |
 | SSH private keys | User's filesystem — referenced by path only | Not copied |
-| Known hosts | App data directory | JSON |
-| Knowledge base | Bundled with app in install directory, user-editable copy in app data directory | YAML |
-| User preferences | App data directory | JSON |
+| Known hosts | App data directory | JSON   |
+| Knowledge base | Bundled with app in install directory, user-editable copy in app data directory | YAML   |
+| User preferences | App data directory | JSON   |

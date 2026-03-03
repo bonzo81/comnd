@@ -1,7 +1,9 @@
-## Future Features (Post-MVP Backlog)
+# Future Features & Open Questions
+
+## Post-MVP Backlog
 
 | Feature | Notes |
-|---|---|
+|---------|-------|
 | Tabbed / multi-session | Multiple concurrent SSH sessions |
 | Platform auto-detection | Parse SSH banner + prompt to suggest platform |
 | Command history per host | Personalised suggestions based on past usage |
@@ -10,23 +12,22 @@
 | Jump host / bastion support | SSH proxy/jump configuration |
 | Additional platforms | Junos, PAN-OS, Aruba AOS, EOS, etc. |
 | Session recording | Audit log of commands run |
-| Themes | Light/dark/custom terminal themes |
+| Themes  | Light/dark/custom terminal themes |
 | Plugin system | Third-party KB extensions |
-
----
+| Host import/export | Share device lists across machines and teams |
+| Connection groups | Collapsible groups by site, role, or custom tag |
 
 ## Open Questions
+
 
 1. **KB update mechanism** — ship updates via GitHub releases? In-app updater? Separate from app updates?
 2. **First KB content** — hand-crafted vs CrewAI-generated then reviewed by Andy?
 3. **Quick Connect** — should MVP include a connection bar for ad-hoc `user@host` connections (without saving), or is that post-MVP?
 
----
-
 ## Decision Log
 
 | Date | Decision | Rationale |
-|---|---|---|
+|------|----------|-----------|
 | 2026-03-03 | Tauri chosen as app framework | Native cross-platform, small binary, no bundled browser |
 | 2026-03-03 | Self-contained platform KB files | Simpler structure, easier contribution, intentional duplication |
 | 2026-03-03 | Descriptions inline in command YAML | Single source of truth per command, sidebar renders directly |
@@ -54,7 +55,3 @@
 | 2026-03-03 | Empty state with single CTA + tip | First-run experience must be frictionless. One button, one tip, no wizard. |
 | 2026-03-03 | Platform icons in connection manager | Visual scanning is faster than reading text labels for device type |
 | 2026-03-03 | Escape cascades: dropdown → panel → connection manager | Consistent "back out" behaviour across all contexts |
-
----
-
-*This document is the source of truth for net.sh scope and design. Update as decisions are made.*
