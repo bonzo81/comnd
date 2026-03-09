@@ -1,0 +1,277 @@
+commands:
+  - name: router ospf
+    syntax: "router ospf <process-id> [vrf <name>]"
+    description: |
+      Enters OSPF router configuration mode.
+
+      The process ID is locally significant and does not need to match
+      other routers. Use 'vrf' to associate with a VRF instance.
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: router ospf 1
+        description: Enter OSPF config for process 1
+      - command: router ospf 100 vrf CUSTOMER-A
+        description: OSPF process for a VRF
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ospf
+      - routing
+
+  - name: network (OSPF)
+    syntax: "network <ip-address> <wildcard-mask> area <area-id>"
+    description: |
+      Enables OSPF on interfaces matching the address/wildcard and
+      assigns them to the specified area.
+
+      The wildcard mask is the inverse of the subnet mask.
+    category: routing
+    mode: routing-config
+    aliases: []
+    examples:
+      - command: network 10.0.0.0 0.0.0.255 area 0
+        description: Enable OSPF on 10.0.0.0/24 in area 0
+      - command: network 192.168.1.0 0.0.0.3 area 1
+        description: Enable OSPF on a /30 link in area 1
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ospf
+      - routing
+
+  - name: router bgp
+    syntax: "router bgp <as-number>"
+    description: |
+      Enters BGP router configuration mode for the specified AS number.
+
+      Supports both 2-byte (1-65535) and 4-byte ASNs (65536-4294967295).
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: router bgp 65001
+        description: Enter BGP config for AS 65001
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing
+
+  - name: neighbor (BGP)
+    syntax: "neighbor <ip-address> remote-as <as-number>"
+    description: |
+      Defines a BGP neighbour and its remote AS number.
+
+      If the remote AS matches the local AS, the session is iBGP.
+      Otherwise it is eBGP.
+    category: routing
+    mode: routing-config
+    aliases: []
+    examples:
+      - command: neighbor 10.0.0.2 remote-as 65002
+        description: Define an eBGP peer
+      - command: neighbor 192.168.1.1 remote-as 65001
+        description: Define an iBGP peer (same AS)
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing
+
+  - name: ip route
+    syntax: "ip route <network> <mask> {<next-hop-ip> | <exit-interface>} [<distance>] [name <text>]"
+    description: |
+      Creates a static route entry in the routing table.
+
+      Specify either a next-hop IP or an exit interface.
+      Optional administrative distance changes route preference.
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: ip route 0.0.0.0 0.0.0.0 10.0.0.1
+        description: Default route via next-hop
+      - command: ip route 192.168.10.0 255.255.255.0 10.0.0.2 name TO-BRANCH
+        description: Named static route
+      - command: ip route 172.16.0.0 255.255.0.0 GigabitEthernet0/0/1 200
+        description: Floating static with AD 200
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - static
+
+  - name: redistribute
+    syntax: "redistribute {static | connected | ospf <pid> | bgp <asn>} [metric <value>] [route-map <name>] [subnets]"
+    description: |
+      Redistributes routes from one protocol into another.
+
+      Always use a route-map in production to control which routes
+      are injected and to set appropriate metrics.
+    category: routing
+    mode: routing-config
+    aliases: []
+    examples:
+      - command: redistribute static subnets
+        description: Redistribute static routes into OSPF
+      - command: redistribute connected route-map CONNECTED-TO-BGP
+        description: Redistribute connected with a route-map
+      - command: redistribute ospf 1 match internal
+        description: Redistribute OSPF internal routes into BGP
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - redistribution
+
+  - name: ip address
+    syntax: "ip address <ip-address> <subnet-mask> [secondary]"
+    description: |
+      Assigns an IP address and subnet mask to an interface.
+
+      Use 'secondary' to add additional addresses to the same interface.
+    category: routing
+    mode: interface-config
+    aliases: []
+    examples:
+      - command: ip address 10.0.0.1 255.255.255.0
+        description: Assign primary IP to interface
+      - command: ip address 172.16.0.1 255.255.255.0 secondary
+        description: Add a secondary IP address
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - ip
+
+  - name: interface
+    syntax: "interface <type><number>[.<subinterface>]"
+    description: |
+      Enters interface configuration mode for a specific interface.
+
+      Supports physical interfaces, loopbacks, VLANs, tunnels,
+      and sub-interfaces.
+    category: routing
+    mode: global-config
+    aliases:
+      - int
+    examples:
+      - command: interface GigabitEthernet0/0/0
+        description: Enter config for a physical interface
+      - command: interface Loopback0
+        description: Enter config for loopback
+      - command: interface Vlan100
+        description: Enter config for VLAN SVI
+      - command: interface GigabitEthernet0/0/0.100
+        description: Sub-interface for VLAN 100
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - configuration
+
+  - name: no shutdown
+    syntax: "no shutdown"
+    description: |
+      Administratively enables an interface.
+
+      By default, most interfaces on IOS-XE are in shutdown state.
+      This command brings the interface up.
+    category: routing
+    mode: interface-config
+    aliases:
+      - no shut
+    examples:
+      - command: no shutdown
+        description: Enable the interface
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+
+  - name: shutdown
+    syntax: "shutdown"
+    description: |
+      Administratively disables an interface.
+
+      The interface will show as 'administratively down'.
+    category: routing
+    mode: interface-config
+    aliases:
+      - shut
+    examples:
+      - command: shutdown
+        description: Disable the interface
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+
+  - name: description
+    syntax: "description <text>"
+    description: |
+      Assigns a text description to an interface.
+
+      Useful for documenting interface purpose, connected device,
+      circuit IDs, etc. Shown in 'show interfaces description'.
+    category: routing
+    mode: interface-config
+    aliases:
+      - desc
+    examples:
+      - command: description Uplink to Core-SW1 Gi0/1
+        description: Document the interface purpose
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - documentation
+
+  - name: route-map
+    syntax: "route-map <name> {permit | deny} [<sequence-number>]"
+    description: |
+      Creates or edits a route-map entry for route filtering
+      and attribute manipulation.
+
+      Route-maps are used in redistribution, BGP policy,
+      and PBR (policy-based routing).
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: route-map OSPF-TO-BGP permit 10
+        description: Create a permit entry at sequence 10
+      - command: route-map DENY-ALL deny 10
+        description: Create a deny-all route-map
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - policy
+      - redistribution

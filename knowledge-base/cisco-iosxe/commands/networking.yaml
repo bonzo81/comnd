@@ -78,3 +78,336 @@ commands:
     tags:
       - configuration
       - troubleshooting
+
+  - name: show interfaces
+    syntax: "show interfaces [<interface-name>] [status | description | trunk]"
+    description: |
+      Displays detailed information about interfaces including counters,
+      errors, MTU, bandwidth, and encapsulation.
+
+      Without arguments, shows all interfaces.
+      Use 'status' for a compact summary of link/protocol state.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh int
+      - show int
+    examples:
+      - command: show interfaces
+        description: All interface details
+      - command: show interfaces GigabitEthernet0/0/0
+        description: Specific interface detail
+      - command: show interfaces status
+        description: Compact link status table
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - troubleshooting
+
+  - name: show ip arp
+    syntax: "show ip arp [<ip-address>] [<interface-name>]"
+    description: |
+      Displays the ARP cache mapping IP addresses to MAC addresses.
+
+      Useful for verifying Layer 2 to Layer 3 address resolution.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip arp
+    examples:
+      - command: show ip arp
+        description: Full ARP table
+      - command: show ip arp 10.0.0.1
+        description: ARP entry for specific IP
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - arp
+      - networking
+      - troubleshooting
+
+  - name: show ip protocols
+    syntax: "show ip protocols"
+    description: |
+      Displays parameters and state of active routing protocol processes.
+
+      Shows timers, networks, neighbours, and redistribution for
+      protocols like OSPF, EIGRP, BGP, and RIP.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip proto
+    examples:
+      - command: show ip protocols
+        description: Active routing protocol summary
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - protocols
+
+  - name: show ip bgp summary
+    syntax: "show ip bgp summary"
+    description: |
+      Displays a summary of BGP neighbour sessions.
+
+      Shows each peer's AS, state, prefixes received, and uptime.
+      Essential for quickly assessing BGP peering health.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip bgp sum
+    examples:
+      - command: show ip bgp summary
+        description: BGP neighbour summary
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing
+
+  - name: show cdp neighbors
+    syntax: "show cdp neighbors [detail]"
+    description: |
+      Displays information about directly connected Cisco devices
+      discovered via Cisco Discovery Protocol (CDP).
+
+      Use 'detail' for full device info including IP addresses.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh cdp nei
+      - show cdp nei
+    examples:
+      - command: show cdp neighbors
+        description: Summary of connected CDP neighbours
+      - command: show cdp neighbors detail
+        description: Full CDP neighbour details with IPs
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - cdp
+      - discovery
+      - neighbours
+
+  - name: show mac address-table
+    syntax: "show mac address-table [dynamic | static] [address <mac>] [interface <name>] [vlan <id>]"
+    description: |
+      Displays the MAC address table (CAM table).
+
+      Shows which MAC addresses are learned on which interfaces and VLANs.
+      Use filters to narrow results.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh mac add
+      - show mac add
+    examples:
+      - command: show mac address-table
+        description: Full MAC address table
+      - command: show mac address-table dynamic
+        description: Only dynamically learned MACs
+      - command: show mac address-table vlan 100
+        description: MACs in a specific VLAN
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - switching
+      - mac
+      - troubleshooting
+
+  - name: show vlan brief
+    syntax: "show vlan [brief | id <vlan-id> | name <vlan-name>]"
+    description: |
+      Displays VLAN information including VLAN IDs, names, and assigned ports.
+
+      Use 'brief' for a compact summary. Use 'id' or 'name' to see a specific VLAN.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh vlan br
+      - show vlan br
+    examples:
+      - command: show vlan brief
+        description: Compact VLAN summary
+      - command: show vlan id 100
+        description: Details for VLAN 100
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - vlans
+      - switching
+
+  - name: show version
+    syntax: "show version"
+    description: |
+      Displays system hardware, software version, image name,
+      uptime, and configuration register.
+
+      One of the most commonly used commands for system identification.
+    category: networking
+    mode: user-exec
+    aliases:
+      - sh ver
+      - show ver
+    examples:
+      - command: show version
+        description: Full system version information
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - version
+      - troubleshooting
+
+  - name: show clock
+    syntax: "show clock [detail]"
+    description: |
+      Displays the current system clock time and date.
+
+      Use 'detail' to see the clock source and summer time settings.
+    category: networking
+    mode: user-exec
+    aliases:
+      - sh clock
+    examples:
+      - command: show clock
+        description: Current time and date
+      - command: show clock detail
+        description: Time with source details
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - time
+
+  - name: show users
+    syntax: "show users [all]"
+    description: |
+      Displays users currently logged into the device.
+
+      Shows the line (con, vty), user name, and idle time.
+    category: networking
+    mode: user-exec
+    aliases:
+      - sh users
+    examples:
+      - command: show users
+        description: Active user sessions
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - users
+      - security
+
+  - name: ping
+    syntax: "ping [<ip-address> | <hostname>] [repeat <count>] [size <bytes>] [source <interface>]"
+    description: |
+      Sends ICMP echo requests to test reachability.
+
+      In user-exec mode, uses defaults (5 pings, 100 bytes).
+      In privileged-exec, extended ping is available with more options.
+    category: networking
+    mode: user-exec
+    aliases: []
+    examples:
+      - command: ping 10.0.0.1
+        description: Ping an IP address
+      - command: ping 8.8.8.8 repeat 10
+        description: Ping with 10 repetitions
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - connectivity
+      - troubleshooting
+
+  - name: traceroute
+    syntax: "traceroute <ip-address> [source <interface>]"
+    description: |
+      Traces the route packets take to reach a destination.
+
+      Shows each hop along the path with round-trip times.
+      Useful for identifying where connectivity fails.
+    category: networking
+    mode: user-exec
+    aliases:
+      - tracert
+    examples:
+      - command: traceroute 10.0.0.1
+        description: Trace route to destination
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - connectivity
+      - troubleshooting
+
+  - name: show ip ospf neighbor
+    syntax: "show ip ospf neighbor [detail | <interface-name>]"
+    description: |
+      Displays OSPF neighbour adjacencies.
+
+      Shows neighbour ID, priority, state, dead time, address, and interface.
+      Essential for verifying OSPF peering.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip ospf nei
+    examples:
+      - command: show ip ospf neighbor
+        description: All OSPF neighbours
+      - command: show ip ospf neighbor detail
+        description: Detailed OSPF neighbour info
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ospf
+      - routing
+      - troubleshooting
+
+  - name: show ip ospf interface
+    syntax: "show ip ospf interface [brief | <interface-name>]"
+    description: |
+      Displays OSPF information for interfaces.
+
+      Shows area, cost, state, timers, and neighbour count per interface.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip ospf int
+    examples:
+      - command: show ip ospf interface brief
+        description: Compact OSPF interface summary
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ospf
+      - routing

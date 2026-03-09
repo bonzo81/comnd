@@ -1,0 +1,271 @@
+commands:
+  - name: hostname
+    syntax: "hostname <name>"
+    description: |
+      Sets the system hostname displayed in the CLI prompt.
+
+      The hostname is also used in syslog messages, SNMP, and
+      CDP/LLDP advertisements.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: hostname CORE-RTR-01
+        description: Set the device hostname
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - configuration
+
+  - name: enable secret
+    syntax: "enable secret [0 | 5 | 8 | 9] <password>"
+    description: |
+      Sets the encrypted enable-mode password.
+
+      Preferred over 'enable password' as it uses stronger hashing.
+      Type 9 (scrypt) is recommended on modern IOS-XE.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: enable secret 0 MyP@ssw0rd
+        description: Set enable secret (plaintext input, stored hashed)
+      - command: enable secret 9 $9$hash_value
+        description: Set with pre-hashed scrypt password
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - authentication
+
+  - name: copy running-config startup-config
+    syntax: "copy running-config startup-config"
+    description: |
+      Saves the running configuration to NVRAM so it persists
+      across reboots.
+
+      Equivalent to 'write memory'. Always save after making changes.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - copy run start
+      - wr mem
+      - write memory
+    examples:
+      - command: copy running-config startup-config
+        description: Save configuration to NVRAM
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+      - save
+
+  - name: write memory
+    syntax: "write memory"
+    description: |
+      Saves the running configuration to NVRAM.
+
+      Shorthand for 'copy running-config startup-config'.
+      Commonly abbreviated as 'wr' or 'wr mem'.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - wr
+      - wr mem
+    examples:
+      - command: write memory
+        description: Save running config
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+      - save
+
+  - name: reload
+    syntax: "reload [in <minutes> | at <hh:mm> [<month> <day>] | cancel]"
+    description: |
+      Restarts the device.
+
+      Use 'in' or 'at' to schedule a future reload.
+      Use 'cancel' to abort a scheduled reload.
+      Device will prompt to save config if unsaved changes exist.
+    category: system
+    mode: privileged-exec
+    aliases: []
+    examples:
+      - command: reload
+        description: Immediate reload
+      - command: reload in 30
+        description: Reload in 30 minutes
+      - command: reload at 02:00
+        description: Reload at 2 AM
+      - command: reload cancel
+        description: Cancel scheduled reload
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - maintenance
+
+  - name: show startup-config
+    syntax: "show startup-config"
+    description: |
+      Displays the startup configuration stored in NVRAM.
+
+      Compare with 'show running-config' to identify unsaved changes.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - sh start
+      - show start
+    examples:
+      - command: show startup-config
+        description: View saved configuration
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+
+  - name: configure terminal
+    syntax: "configure terminal"
+    description: |
+      Enters global configuration mode from privileged exec.
+
+      All configuration changes are made from this mode or its sub-modes.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - conf t
+      - config t
+    examples:
+      - command: configure terminal
+        description: Enter global config mode
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+      - mode
+
+  - name: enable
+    syntax: "enable [<privilege-level>]"
+    description: |
+      Enters privileged EXEC mode (enable mode).
+
+      Prompts for the enable secret/password if configured.
+      Optional privilege level (0-15) for granular access.
+    category: system
+    mode: user-exec
+    aliases:
+      - en
+    examples:
+      - command: enable
+        description: Enter privileged EXEC mode
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - mode
+      - authentication
+
+  - name: clock set
+    syntax: "clock set <hh:mm:ss> <day> <month> <year>"
+    description: |
+      Manually sets the system clock.
+
+      Use when NTP is not available. NTP configuration is preferred
+      for production environments.
+    category: system
+    mode: privileged-exec
+    aliases: []
+    examples:
+      - command: clock set 14:30:00 15 Jan 2025
+        description: Set clock to 2:30 PM on 15 Jan 2025
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - time
+
+  - name: ntp server
+    syntax: "ntp server <ip-address> [prefer] [key <key-id>] [source <interface>]"
+    description: |
+      Configures an NTP server for time synchronisation.
+
+      Use 'prefer' to mark a preferred source.
+      Use 'source' to specify the source interface for NTP packets.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: ntp server 10.0.0.1 prefer
+        description: Configure primary NTP server
+      - command: ntp server 10.0.0.2
+        description: Configure backup NTP server
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ntp
+      - time
+      - system
+
+  - name: banner motd
+    syntax: "banner motd <delimiter> <message> <delimiter>"
+    description: |
+      Sets the message-of-the-day banner displayed before login.
+
+      The delimiter character marks the start and end of the message.
+      Commonly used for legal notices and warnings.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: "banner motd # Authorized access only! #"
+        description: Set a simple MOTD banner
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - banner
+
+  - name: service password-encryption
+    syntax: "service password-encryption"
+    description: |
+      Enables weak (Type 7) encryption for all plaintext passwords
+      in the running configuration.
+
+      This is a minimum baseline — use Type 8/9 hashes where possible.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: service password-encryption
+        description: Enable basic password encryption
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - passwords

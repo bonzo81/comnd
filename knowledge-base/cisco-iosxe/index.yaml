@@ -14,3 +14,9 @@ prompt_patterns:
   routing-config: '^[\w\-]+\(config-router\)#'
   line-config: '^[\w\-]+\(config-line\)#'
 default_mode: privileged-exec
+command_files:
+  - commands/networking.yaml
+  - commands/routing.yaml
+  - commands/system.yaml
+  - commands/security.yaml
+  - commands/monitoring.yaml

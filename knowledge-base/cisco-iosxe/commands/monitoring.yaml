@@ -1,0 +1,271 @@
+commands:
+  - name: show logging
+    syntax: "show logging [history | buffered | trap]"
+    description: |
+      Displays the system log (syslog) buffer and logging configuration.
+
+      Shows recent log messages stored in the local buffer.
+      Also displays logging destinations and severity levels.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh logging
+      - sh log
+    examples:
+      - command: show logging
+        description: View syslog buffer and config
+      - command: show logging | include %LINK
+        description: Filter for link state changes
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - logging
+      - monitoring
+      - troubleshooting
+
+  - name: show processes cpu
+    syntax: "show processes cpu [sorted | history]"
+    description: |
+      Displays CPU utilisation statistics.
+
+      Shows 5-second, 1-minute, and 5-minute CPU averages,
+      plus per-process breakdown. Use 'sorted' for highest-first.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh proc cpu
+      - show proc cpu
+    examples:
+      - command: show processes cpu
+        description: CPU usage overview
+      - command: show processes cpu sorted
+        description: Processes sorted by CPU usage
+      - command: show processes cpu history
+        description: CPU usage graph over time
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - cpu
+      - performance
+      - monitoring
+
+  - name: show processes memory
+    syntax: "show processes memory [sorted]"
+    description: |
+      Displays memory usage statistics per process.
+
+      Shows total, used, and free memory for the processor pool.
+      Use 'sorted' to see processes by memory allocation.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh proc mem
+      - show proc mem
+    examples:
+      - command: show processes memory sorted
+        description: Processes sorted by memory usage
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - memory
+      - performance
+      - monitoring
+
+  - name: show environment
+    syntax: "show environment [all | temperature | power | fan]"
+    description: |
+      Displays environmental monitoring data.
+
+      Shows temperature sensors, power supply status, and fan state.
+      Available features vary by hardware platform.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh env
+      - show env
+    examples:
+      - command: show environment all
+        description: Full environmental status
+      - command: show environment temperature
+        description: Temperature sensor readings
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - hardware
+      - monitoring
+      - health
+
+  - name: show inventory
+    syntax: "show inventory [raw]"
+    description: |
+      Displays physical inventory of hardware components.
+
+      Shows product IDs, serial numbers, and descriptions for
+      chassis, modules, power supplies, and transceivers.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh inven
+      - show inven
+    examples:
+      - command: show inventory
+        description: Hardware component inventory
+    versions:
+      introduced: "12.2"
+      deprecated: null
+      notes: null
+    tags:
+      - hardware
+      - inventory
+
+  - name: snmp-server community
+    syntax: "snmp-server community <string> {ro | rw} [<acl-name-or-number>]"
+    description: |
+      Configures an SNMP community string for SNMPv2c access.
+
+      'ro' grants read-only access; 'rw' grants read-write.
+      Always apply an ACL to restrict SNMP access by source IP.
+    category: monitoring
+    mode: global-config
+    aliases: []
+    examples:
+      - command: snmp-server community public ro SNMP-ACL
+        description: Read-only community with ACL restriction
+      - command: snmp-server community private rw SNMP-ACL
+        description: Read-write community with ACL restriction
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - snmp
+      - monitoring
+      - security
+
+  - name: logging buffered
+    syntax: "logging buffered [<size>] [<severity-level>]"
+    description: |
+      Configures local syslog buffer size and severity level.
+
+      Default buffer is often small (4096 bytes). Increase for better
+      log retention. Severity levels: emergencies(0) to debugging(7).
+    category: monitoring
+    mode: global-config
+    aliases: []
+    examples:
+      - command: logging buffered 65536 informational
+        description: 64KB buffer at informational level
+      - command: logging buffered 131072 debugging
+        description: 128KB buffer at debug level
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - logging
+      - monitoring
+
+  - name: logging host
+    syntax: "logging host <ip-address> [transport {udp | tcp} port <number>]"
+    description: |
+      Sends syslog messages to a remote syslog server.
+
+      Default transport is UDP port 514. Use TCP for reliable delivery.
+      Multiple logging hosts can be configured.
+    category: monitoring
+    mode: global-config
+    aliases: []
+    examples:
+      - command: logging host 10.0.0.50
+        description: Send logs to syslog server via UDP
+      - command: logging host 10.0.0.50 transport tcp port 1514
+        description: Send logs via TCP on custom port
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - logging
+      - monitoring
+      - syslog
+
+  - name: show snmp
+    syntax: "show snmp [community | host | group | user]"
+    description: |
+      Displays SNMP statistics and configuration.
+
+      Shows packet counters, errors, community strings,
+      and configured trap destinations.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - sh snmp
+    examples:
+      - command: show snmp
+        description: SNMP statistics overview
+      - command: show snmp community
+        description: Configured community strings
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - snmp
+      - monitoring
+
+  - name: debug
+    syntax: "debug <feature> [<options>]"
+    description: |
+      Enables real-time debug output for troubleshooting.
+
+      WARNING: Debug output can be very verbose and impact device
+      performance. Always use 'undebug all' when finished.
+      Use 'terminal monitor' to see debug output on VTY sessions.
+    category: monitoring
+    mode: privileged-exec
+    aliases: []
+    examples:
+      - command: debug ip ospf adj
+        description: Debug OSPF adjacency events
+      - command: debug ip bgp updates
+        description: Debug BGP update messages
+      - command: debug ip packet detail
+        description: Debug IP packet processing (caution!)
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - debug
+      - troubleshooting
+
+  - name: undebug all
+    syntax: "undebug all"
+    description: |
+      Disables all active debugging.
+
+      Critical safety command — always run after finishing debug sessions
+      to prevent performance impact.
+    category: monitoring
+    mode: privileged-exec
+    aliases:
+      - u all
+      - no debug all
+    examples:
+      - command: undebug all
+        description: Turn off all debugging
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - debug
+      - troubleshooting

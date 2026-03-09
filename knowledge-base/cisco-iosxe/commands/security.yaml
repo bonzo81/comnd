@@ -1,0 +1,237 @@
+commands:
+  - name: access-list (standard)
+    syntax: "access-list <1-99 | 1300-1999> {permit | deny} <source> [<wildcard>] [log]"
+    description: |
+      Creates a numbered standard ACL entry.
+
+      Standard ACLs filter based on source address only.
+      Place standard ACLs close to the destination.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: access-list 10 permit 10.0.0.0 0.0.0.255
+        description: Permit 10.0.0.0/24
+      - command: access-list 10 deny any log
+        description: Deny all other traffic with logging
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - acl
+      - security
+      - filtering
+
+  - name: access-list (extended)
+    syntax: "access-list <100-199 | 2000-2699> {permit | deny} <protocol> <source> <wildcard> <dest> <wildcard> [eq <port>] [log]"
+    description: |
+      Creates a numbered extended ACL entry.
+
+      Extended ACLs filter on source, destination, protocol, and ports.
+      Place extended ACLs close to the source.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: access-list 100 permit tcp 10.0.0.0 0.0.0.255 any eq 443
+        description: Permit HTTPS from 10.0.0.0/24
+      - command: access-list 100 deny ip any any log
+        description: Deny all with logging
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - acl
+      - security
+      - filtering
+
+  - name: ip access-list
+    syntax: "ip access-list {standard | extended} <name>"
+    description: |
+      Creates a named ACL and enters ACL configuration mode.
+
+      Named ACLs are preferred over numbered — they support
+      sequence numbers and can be edited without full replacement.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: ip access-list extended BLOCK-TELNET
+        description: Create a named extended ACL
+      - command: ip access-list standard ALLOWED-NETS
+        description: Create a named standard ACL
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - acl
+      - security
+
+  - name: ip access-group
+    syntax: "ip access-group <acl-name-or-number> {in | out}"
+    description: |
+      Applies an ACL to an interface for traffic filtering.
+
+      'in' filters traffic entering the interface.
+      'out' filters traffic leaving the interface.
+    category: security
+    mode: interface-config
+    aliases: []
+    examples:
+      - command: ip access-group BLOCK-TELNET in
+        description: Apply ACL inbound on interface
+      - command: ip access-group 100 out
+        description: Apply numbered ACL outbound
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - acl
+      - security
+      - interfaces
+
+  - name: username
+    syntax: "username <name> privilege <0-15> secret [0 | 5 | 8 | 9] <password>"
+    description: |
+      Creates a local user account for device authentication.
+
+      Use 'secret' (not 'password') for stronger hashing.
+      Privilege level 15 gives full access.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: username admin privilege 15 secret 0 StrongP@ss
+        description: Create admin user with full privileges
+      - command: username readonly privilege 1 secret 0 ReadOnly123
+        description: Create read-only user
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - authentication
+      - users
+
+  - name: line vty
+    syntax: "line vty <first-line> <last-line>"
+    description: |
+      Enters VTY (virtual terminal) line configuration mode.
+
+      VTY lines handle SSH and Telnet sessions.
+      Typically configure lines 0-4 or 0-15.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: line vty 0 4
+        description: Configure VTY lines 0 through 4
+      - command: line vty 0 15
+        description: Configure all 16 VTY lines
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - vty
+      - access
+
+  - name: transport input
+    syntax: "transport input {ssh | telnet | all | none}"
+    description: |
+      Specifies which protocols are allowed for inbound connections
+      on a line (VTY, console, aux).
+
+      Best practice: use 'ssh' only for VTY lines.
+    category: security
+    mode: line-config
+    aliases: []
+    examples:
+      - command: transport input ssh
+        description: Allow SSH only (recommended)
+      - command: transport input none
+        description: Disable all inbound connections
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - ssh
+      - vty
+
+  - name: crypto key generate rsa
+    syntax: "crypto key generate rsa [modulus <bits>] [label <name>]"
+    description: |
+      Generates RSA key pairs for SSH server authentication.
+
+      Minimum 2048-bit modulus is recommended for security.
+      This command is required before SSH can be enabled.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: crypto key generate rsa modulus 2048
+        description: Generate 2048-bit RSA keys
+      - command: crypto key generate rsa modulus 4096
+        description: Generate 4096-bit RSA keys
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - ssh
+      - crypto
+
+  - name: ip ssh version
+    syntax: "ip ssh version {1 | 2}"
+    description: |
+      Sets the SSH protocol version the device will accept.
+
+      Always use version 2 — SSHv1 has known vulnerabilities.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: ip ssh version 2
+        description: Enforce SSH version 2 only
+    versions:
+      introduced: "12.3"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - ssh
+
+  - name: show access-lists
+    syntax: "show access-lists [<acl-name-or-number>]"
+    description: |
+      Displays all configured ACLs and their hit counts.
+
+      Specify a name or number to view a single ACL.
+      Hit counts show how many packets matched each entry.
+    category: security
+    mode: privileged-exec
+    aliases:
+      - sh access-lists
+      - sh access-list
+    examples:
+      - command: show access-lists
+        description: All ACLs with hit counts
+      - command: show access-lists BLOCK-TELNET
+        description: Specific named ACL details
+    versions:
+      introduced: "12.0"
+      deprecated: null
+      notes: null
+    tags:
+      - acl
+      - security
+      - troubleshooting
