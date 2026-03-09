@@ -5,6 +5,7 @@
 | Feature | Notes |
 |---------|-------|
 | Tabbed / multi-session | Multiple concurrent SSH sessions |
+| Host sidebar layout | Replace full-screen connection manager with a collapsible left sidebar showing hosts & search, always accessible alongside terminal tabs |
 | Platform auto-detection | Parse SSH banner + prompt to suggest platform |
 | Command history per host | Personalised suggestions based on past usage |
 | AI suggestion layer | Optional LLM enhancement, user-enabled |
@@ -13,6 +14,7 @@
 | Additional platforms | Junos, PAN-OS, Aruba AOS, EOS, etc. |
 | Session recording | Audit log of commands run |
 | Themes  | Light/dark/custom terminal themes |
+| Suggestion dropdown mode | User setting: auto-show dropdown while typing vs Ctrl+Space only (current default) |
 | Plugin system | Third-party KB extensions |
 | Host import/export | Share device lists across machines and teams |
 | Connection groups | Collapsible groups by site, role, or custom tag |
