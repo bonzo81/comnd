@@ -23,19 +23,19 @@ export interface SuggestionResult {
 
 export class SuggestionEngine {
   private commands: Command[] = [];
-  private platform: string = "";
-  private version: string = "";
+  private _platform: string = "";
+  private _version: string = "";
   private mode: string = "";
 
   /** Load commands for a platform (called on connect) */
   loadCommands(commands: Command[], platform: string) {
     this.commands = commands;
-    this.platform = platform;
+    this._platform = platform;
   }
 
   /** Set current version filter */
   setVersion(version: string) {
-    this.version = version;
+    this._version = version;
   }
 
   /** Update current mode (from prompt detection) */
@@ -45,14 +45,18 @@ export class SuggestionEngine {
 
   /** Query for matching commands based on input buffer */
   query(input: string): SuggestionResult[] {
-    if (!input.trim()) return [];
-
-    const lowerInput = input.toLowerCase();
+    const lowerInput = input.toLowerCase().trim();
     const results: SuggestionResult[] = [];
 
     for (const cmd of this.commands) {
       // Filter by mode if set
       if (this.mode && cmd.mode !== this.mode) continue;
+
+      // Empty input: return all commands for current mode
+      if (!lowerInput) {
+        results.push({ command: cmd, matchType: "name", matchedText: cmd.name });
+        continue;
+      }
 
       // Check name prefix match
       if (cmd.name.toLowerCase().startsWith(lowerInput)) {
