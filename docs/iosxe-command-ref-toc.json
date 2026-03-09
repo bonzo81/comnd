@@ -1,0 +1,4398 @@
+{
+  "Using the Command-Line Interface": [
+    {
+      "name": "Understanding Command Modes",
+      "page": 40
+    },
+    {
+      "name": "Understanding the Help System",
+      "page": 41
+    },
+    {
+      "name": "Understanding Abbreviated Commands",
+      "page": 42
+    },
+    {
+      "name": "Understanding no and default Forms of Commands",
+      "page": 42
+    },
+    {
+      "name": "Understanding CLI Error Messages",
+      "page": 42
+    },
+    {
+      "name": "Using Configuration Logging",
+      "page": 43
+    },
+    {
+      "name": "Using Command History",
+      "page": 43
+    },
+    {
+      "name": "Using Editing Features",
+      "page": 44
+    },
+    {
+      "name": "Searching and Filtering Output of show and more Commands",
+      "page": 47
+    },
+    {
+      "name": "Accessing the CLI",
+      "page": 48
+    }
+  ],
+  "Cisco SD-Access": [
+    {
+      "name": "broadcast-underlay",
+      "page": 55
+    },
+    {
+      "name": "database-mapping",
+      "page": 56
+    },
+    {
+      "name": "dynamic-eid",
+      "page": 59
+    },
+    {
+      "name": "dynamic-eid detection multiple-addr",
+      "page": 60
+    },
+    {
+      "name": "eid-record-provider",
+      "page": 61
+    },
+    {
+      "name": "eid-record-subscriber",
+      "page": 62
+    },
+    {
+      "name": "eid-table",
+      "page": 63
+    },
+    {
+      "name": "encapsulation",
+      "page": 65
+    },
+    {
+      "name": "etr",
+      "page": 66
+    },
+    {
+      "name": "etr map-server",
+      "page": 67
+    },
+    {
+      "name": "extranet",
+      "page": 69
+    },
+    {
+      "name": "extranet-config-from-transit",
+      "page": 70
+    },
+    {
+      "name": "fast-detection",
+      "page": 71
+    },
+    {
+      "name": "first-packet-petr",
+      "page": 74
+    },
+    {
+      "name": "import-database-publication locator-set",
+      "page": 76
+    },
+    {
+      "name": "instance-id",
+      "page": 79
+    },
+    {
+      "name": "ip pim lisp core-group-range",
+      "page": 80
+    },
+    {
+      "name": "ip pim lisp transport multicast",
+      "page": 81
+    },
+    {
+      "name": "ip pim rp-address",
+      "page": 82
+    },
+    {
+      "name": "ip pim sparse mode",
+      "page": 83
+    },
+    {
+      "name": "ipv4 multicast multitopology",
+      "page": 84
+    },
+    {
+      "name": "ip pim ssm",
+      "page": 85
+    },
+    {
+      "name": "ipv4-interface Loopback affinity-id",
+      "page": 86
+    },
+    {
+      "name": "itr",
+      "page": 88
+    },
+    {
+      "name": "itr map-resolver",
+      "page": 89
+    },
+    {
+      "name": "locator default-set",
+      "page": 90
+    },
+    {
+      "name": "locator-set",
+      "page": 91
+    },
+    {
+      "name": "map-cache",
+      "page": 92
+    },
+    {
+      "name": "map-cache extranet",
+      "page": 93
+    },
+    {
+      "name": "prefix-list",
+      "page": 94
+    },
+    {
+      "name": "route-export destinations-summary",
+      "page": 95
+    },
+    {
+      "name": "route-import database",
+      "page": 96
+    },
+    {
+      "name": "service",
+      "page": 98
+    },
+    {
+      "name": "sgt",
+      "page": 99
+    },
+    {
+      "name": "show lisp instance-id",
+      "page": 100
+    },
+    {
+      "name": "show lisp instance-id ipv4 database",
+      "page": 103
+    },
+    {
+      "name": "show lisp instance-id ipv6 database",
+      "page": 105
+    },
+    {
+      "name": "show lisp instance-id ipv4 publication config-propagation",
+      "page": 106
+    },
+    {
+      "name": "show lisp instance-id ipv4 publisher config-propagation",
+      "page": 107
+    },
+    {
+      "name": "show lisp instance-id ipv4 map-cache",
+      "page": 109
+    },
+    {
+      "name": "show lisp instance-id ipv6 map-cache",
+      "page": 115
+    },
+    {
+      "name": "show lisp instance-id ipv4 server",
+      "page": 117
+    },
+    {
+      "name": "show lisp instance-id ipv6 server",
+      "page": 120
+    },
+    {
+      "name": "show lisp instance-id ipv4 statistics",
+      "page": 122
+    },
+    {
+      "name": "show lisp instance-id ipv6 statistics",
+      "page": 125
+    },
+    {
+      "name": "show lisp prefix-list",
+      "page": 128
+    },
+    {
+      "name": "show lisp session",
+      "page": 129
+    },
+    {
+      "name": "use-petr",
+      "page": 130
+    }
+  ],
+  "Cisco TrustSec": [
+    {
+      "name": "address (CTS)",
+      "page": 137
+    },
+    {
+      "name": "clear cts environment-data",
+      "page": 138
+    },
+    {
+      "name": "clear cts policy-server statistics",
+      "page": 139
+    },
+    {
+      "name": "content-type json",
+      "page": 140
+    },
+    {
+      "name": "cts authorization list",
+      "page": 141
+    },
+    {
+      "name": "cts change-password",
+      "page": 142
+    },
+    {
+      "name": "cts credentials",
+      "page": 143
+    },
+    {
+      "name": "cts environment-data enable",
+      "page": 145
+    },
+    {
+      "name": "cts policy-server device-id",
+      "page": 146
+    },
+    {
+      "name": "cts policy-server name",
+      "page": 147
+    },
+    {
+      "name": "cts policy-server order random",
+      "page": 148
+    },
+    {
+      "name": "cts policy-server username",
+      "page": 149
+    },
+    {
+      "name": "cts refresh",
+      "page": 150
+    },
+    {
+      "name": "cts rekey",
+      "page": 152
+    },
+    {
+      "name": "cts role-based enforcement",
+      "page": 153
+    },
+    {
+      "name": "cts role-based l2-vrf",
+      "page": 154
+    },
+    {
+      "name": "cts role-based monitor",
+      "page": 156
+    },
+    {
+      "name": "cts role-based permissions",
+      "page": 157
+    },
+    {
+      "name": "cts role-based sgt-caching",
+      "page": 159
+    },
+    {
+      "name": "cts role-based sgt-map",
+      "page": 160
+    },
+    {
+      "name": "cts sxp connection peer",
+      "page": 162
+    },
+    {
+      "name": "cts sxp default password",
+      "page": 165
+    },
+    {
+      "name": "cts sxp default source-ip",
+      "page": 167
+    },
+    {
+      "name": "cts sxp export-import-group",
+      "page": 169
+    },
+    {
+      "name": "cts sxp export-list",
+      "page": 170
+    },
+    {
+      "name": "cts sxp filter-enable",
+      "page": 171
+    },
+    {
+      "name": "cts sxp filter-group",
+      "page": 172
+    },
+    {
+      "name": "cts sxp filter-list",
+      "page": 174
+    },
+    {
+      "name": "cts sxp import-list",
+      "page": 176
+    },
+    {
+      "name": "cts sxp log binding-changes",
+      "page": 177
+    },
+    {
+      "name": "cts sxp reconciliation period",
+      "page": 178
+    },
+    {
+      "name": "cts sxp retry period",
+      "page": 179
+    },
+    {
+      "name": "debug cts environment-data",
+      "page": 180
+    },
+    {
+      "name": "debug cts policy-server",
+      "page": 182
+    },
+    {
+      "name": "port (CTS)",
+      "page": 183
+    },
+    {
+      "name": "propagate sgt (cts manual)",
+      "page": 184
+    },
+    {
+      "name": "retransmit (CTS)",
+      "page": 186
+    },
+    {
+      "name": "sap mode-list (cts manual)",
+      "page": 187
+    },
+    {
+      "name": "show cts credentials",
+      "page": 189
+    },
+    {
+      "name": "show cts environment-data",
+      "page": 190
+    },
+    {
+      "name": "show cts interface",
+      "page": 191
+    },
+    {
+      "name": "show cts policy-server",
+      "page": 193
+    },
+    {
+      "name": "show cts role-based counters",
+      "page": 196
+    },
+    {
+      "name": "show cts role-based permissions",
+      "page": 198
+    },
+    {
+      "name": "show cts server-list",
+      "page": 200
+    },
+    {
+      "name": "show cts sxp",
+      "page": 202
+    },
+    {
+      "name": "show platform hardware fed switch active fwd-asic resource tcam utilization",
+      "page": 205
+    },
+    {
+      "name": "show platform hardware fed switch active sgacl resource usage",
+      "page": 207
+    },
+    {
+      "name": "show platform software classification switch active F0 class-group-manager class-group client acl all",
+      "page": 208
+    },
+    {
+      "name": "show platform software cts forwarding-manager switch active F0 port",
+      "page": 209
+    },
+    {
+      "name": "show platform software cts forwarding-manager switch active F0",
+      "page": 213
+    },
+    {
+      "name": "show platform software cts forwarding-manager switch active F0 permissions",
+      "page": 214
+    },
+    {
+      "name": "show platform software fed switch active acl counters hardware | inc SGACL",
+      "page": 216
+    },
+    {
+      "name": "show platform software fed switch active acl usage",
+      "page": 217
+    },
+    {
+      "name": "show platform software fed switch active ifm mappings",
+      "page": 218
+    },
+    {
+      "name": "show platform software fed switch active ip route",
+      "page": 220
+    },
+    {
+      "name": "show platform software fed switch active sgacl detail",
+      "page": 222
+    },
+    {
+      "name": "show platform software fed switch active sgacl port",
+      "page": 223
+    },
+    {
+      "name": "show platform software fed switch active sgacl vlan",
+      "page": 225
+    },
+    {
+      "name": "show platform software status control-processor brief",
+      "page": 226
+    },
+    {
+      "name": "show monitor capture <name> buffer",
+      "page": 227
+    },
+    {
+      "name": "timeout (CTS)",
+      "page": 228
+    },
+    {
+      "name": "tls server-trustpoint",
+      "page": 229
+    }
+  ],
+  "Interface and Hardware Components": [
+    {
+      "name": "bluetooth pin",
+      "page": 236
+    },
+    {
+      "name": "carrier-delay",
+      "page": 237
+    },
+    {
+      "name": "clear coap database",
+      "page": 239
+    },
+    {
+      "name": "clear macro auto configuration",
+      "page": 240
+    },
+    {
+      "name": "coap endpoint (coap-proxy configuration)",
+      "page": 241
+    },
+    {
+      "name": "debug coap",
+      "page": 242
+    },
+    {
+      "name": "device classifier",
+      "page": 243
+    },
+    {
+      "name": "debug ilpower",
+      "page": 244
+    },
+    {
+      "name": "debug interface",
+      "page": 245
+    },
+    {
+      "name": "debug lldp packets",
+      "page": 246
+    },
+    {
+      "name": "debug platform poe",
+      "page": 247
+    },
+    {
+      "name": "debug platform software fed switch active punt packet-capture start",
+      "page": 248
+    },
+    {
+      "name": "duplex",
+      "page": 249
+    },
+    {
+      "name": "errdisable detect cause",
+      "page": 251
+    },
+    {
+      "name": "errdisable recovery cause",
+      "page": 253
+    },
+    {
+      "name": "errdisable recovery cause",
+      "page": 255
+    },
+    {
+      "name": "hw-module beacon",
+      "page": 257
+    },
+    {
+      "name": "hw-module switch auto-off led",
+      "page": 258
+    },
+    {
+      "name": "hw-module switch auto-off optics",
+      "page": 259
+    },
+    {
+      "name": "interface",
+      "page": 260
+    },
+    {
+      "name": "interface range",
+      "page": 262
+    },
+    {
+      "name": "ip mtu",
+      "page": 264
+    },
+    {
+      "name": "ipv6 mtu",
+      "page": 265
+    },
+    {
+      "name": "list (coap-proxy configuration)",
+      "page": 266
+    },
+    {
+      "name": "lldp (interface configuration)",
+      "page": 267
+    },
+    {
+      "name": "logging event power-inline-status",
+      "page": 269
+    },
+    {
+      "name": "macro",
+      "page": 270
+    },
+    {
+      "name": "macro auto",
+      "page": 273
+    },
+    {
+      "name": "macro auto apply (Cisco IOS shell scripting capability)",
+      "page": 276
+    },
+    {
+      "name": "macro auto config (Cisco IOS shell scripting capability)",
+      "page": 278
+    },
+    {
+      "name": "macro auto control",
+      "page": 279
+    },
+    {
+      "name": "macro auto execute",
+      "page": 281
+    },
+    {
+      "name": "macro auto global control",
+      "page": 288
+    },
+    {
+      "name": "macro auto global processing",
+      "page": 290
+    },
+    {
+      "name": "macro auto mac-address-group",
+      "page": 291
+    },
+    {
+      "name": "macro auto processing",
+      "page": 293
+    },
+    {
+      "name": "macro auto sticky",
+      "page": 294
+    },
+    {
+      "name": "macro auto trigger",
+      "page": 295
+    },
+    {
+      "name": "macro description",
+      "page": 296
+    },
+    {
+      "name": "macro global",
+      "page": 297
+    },
+    {
+      "name": "macro global description",
+      "page": 299
+    },
+    {
+      "name": "max-endpoints (coap-proxy configuration)",
+      "page": 300
+    },
+    {
+      "name": "mdix auto",
+      "page": 301
+    },
+    {
+      "name": "monitoring",
+      "page": 302
+    },
+    {
+      "name": "network-policy",
+      "page": 303
+    },
+    {
+      "name": "network-policy profile (global configuration)",
+      "page": 304
+    },
+    {
+      "name": "platform usb disable",
+      "page": 305
+    },
+    {
+      "name": "port-dtls (coap-proxy configuration)",
+      "page": 306
+    },
+    {
+      "name": "port-settings",
+      "page": 307
+    },
+    {
+      "name": "port-unsecure (coap-proxy configuration)",
+      "page": 311
+    },
+    {
+      "name": "power-priority",
+      "page": 312
+    },
+    {
+      "name": "power inline",
+      "page": 314
+    },
+    {
+      "name": "power inline police",
+      "page": 317
+    },
+    {
+      "name": "power supply",
+      "page": 319
+    },
+    {
+      "name": "power supply autoLC shutdown",
+      "page": 321
+    },
+    {
+      "name": "resource directory (coap-proxy configuration)",
+      "page": 322
+    },
+    {
+      "name": "request tech-support",
+      "page": 323
+    },
+    {
+      "name": "security (coap-proxy configuration)",
+      "page": 324
+    },
+    {
+      "name": "shell trigger",
+      "page": 325
+    },
+    {
+      "name": "show beacon all",
+      "page": 326
+    },
+    {
+      "name": "show coap dtls endpoints",
+      "page": 327
+    },
+    {
+      "name": "show coap endpoints",
+      "page": 328
+    },
+    {
+      "name": "show coap globals",
+      "page": 329
+    },
+    {
+      "name": "show coap resources",
+      "page": 330
+    },
+    {
+      "name": "show coap stats",
+      "page": 331
+    },
+    {
+      "name": "show coap version",
+      "page": 332
+    },
+    {
+      "name": "show device classifier attached",
+      "page": 333
+    },
+    {
+      "name": "show device classifier clients",
+      "page": 335
+    },
+    {
+      "name": "show device classifier profile type",
+      "page": 336
+    },
+    {
+      "name": "show environment",
+      "page": 339
+    },
+    {
+      "name": "show errdisable detect",
+      "page": 341
+    },
+    {
+      "name": "show errdisable recovery",
+      "page": 343
+    },
+    {
+      "name": "show idprom tan",
+      "page": 344
+    },
+    {
+      "name": "show ip interface",
+      "page": 345
+    },
+    {
+      "name": "show interfaces",
+      "page": 350
+    },
+    {
+      "name": "show interfaces counters",
+      "page": 356
+    },
+    {
+      "name": "show interfaces switchport",
+      "page": 358
+    },
+    {
+      "name": "show interfaces transceiver",
+      "page": 360
+    },
+    {
+      "name": "show macro auto",
+      "page": 364
+    },
+    {
+      "name": "show memory platform",
+      "page": 367
+    },
+    {
+      "name": "show module",
+      "page": 370
+    },
+    {
+      "name": "show network-policy profile",
+      "page": 371
+    },
+    {
+      "name": "show parser macro",
+      "page": 372
+    },
+    {
+      "name": "show platform hardware bluetooth",
+      "page": 375
+    },
+    {
+      "name": "show platform hardware fed switch forward interface",
+      "page": 376
+    },
+    {
+      "name": "show platform hardware fed switch fwd-asic counters tla",
+      "page": 379
+    },
+    {
+      "name": "show platform hardware fed active fwd-asic resource tcam utilization",
+      "page": 383
+    },
+    {
+      "name": "show platform resources",
+      "page": 385
+    },
+    {
+      "name": "show platform software audit",
+      "page": 386
+    },
+    {
+      "name": "show platform software fed switch punt cpuq rates",
+      "page": 390
+    },
+    {
+      "name": "show platform software fed switch punt packet-capture display",
+      "page": 392
+    },
+    {
+      "name": "show platform software fed switch punt packet-capture cpu-top-talker",
+      "page": 394
+    },
+    {
+      "name": "show platform software fed switch punt rates interfaces",
+      "page": 397
+    },
+    {
+      "name": "show platform software ilpower",
+      "page": 400
+    },
+    {
+      "name": "show platform software memory",
+      "page": 402
+    },
+    {
+      "name": "show platform software process list",
+      "page": 408
+    },
+    {
+      "name": "show platform software process memory",
+      "page": 412
+    },
+    {
+      "name": "show platform software process slot switch",
+      "page": 415
+    },
+    {
+      "name": "show platform software status control-processor",
+      "page": 417
+    },
+    {
+      "name": "show platform software thread list",
+      "page": 420
+    },
+    {
+      "name": "show platform usb status",
+      "page": 422
+    },
+    {
+      "name": "show processes cpu platform",
+      "page": 423
+    },
+    {
+      "name": "show processes cpu platform history",
+      "page": 426
+    },
+    {
+      "name": "show processes cpu platform monitor",
+      "page": 429
+    },
+    {
+      "name": "show processes memory",
+      "page": 431
+    },
+    {
+      "name": "show processes memory platform",
+      "page": 434
+    },
+    {
+      "name": "show processes platform",
+      "page": 438
+    },
+    {
+      "name": "show power detail",
+      "page": 441
+    },
+    {
+      "name": "show power inline",
+      "page": 443
+    },
+    {
+      "name": "show shell",
+      "page": 449
+    },
+    {
+      "name": "show system mtu",
+      "page": 452
+    },
+    {
+      "name": "show tech-support",
+      "page": 453
+    },
+    {
+      "name": "show tech-support bgp",
+      "page": 455
+    },
+    {
+      "name": "show tech-support diagnostic",
+      "page": 458
+    },
+    {
+      "name": "speed",
+      "page": 460
+    },
+    {
+      "name": "start (coap-proxy configuration)",
+      "page": 462
+    },
+    {
+      "name": "stop (coap-proxy configuration)",
+      "page": 463
+    },
+    {
+      "name": "switchport block",
+      "page": 464
+    },
+    {
+      "name": "system mtu",
+      "page": 465
+    },
+    {
+      "name": "transport (coap-proxy configuration)",
+      "page": 466
+    },
+    {
+      "name": "voice-signaling vlan (network-policy configuration)",
+      "page": 467
+    },
+    {
+      "name": "voice vlan (network-policy configuration)",
+      "page": 469
+    }
+  ],
+  "IP Addressing Services": [
+    {
+      "name": "clear ipv6 access-list",
+      "page": 477
+    },
+    {
+      "name": "clear ipv6 dhcp",
+      "page": 478
+    },
+    {
+      "name": "clear ipv6 dhcp binding",
+      "page": 479
+    },
+    {
+      "name": "clear ipv6 dhcp client",
+      "page": 480
+    },
+    {
+      "name": "clear ipv6 dhcp conflict",
+      "page": 481
+    },
+    {
+      "name": "clear ipv6 dhcp relay binding",
+      "page": 482
+    },
+    {
+      "name": "clear ipv6 eigrp",
+      "page": 483
+    },
+    {
+      "name": "clear ipv6 mfib counters",
+      "page": 484
+    },
+    {
+      "name": "clear ipv6 mld counters",
+      "page": 485
+    },
+    {
+      "name": "clear ipv6 mld traffic",
+      "page": 486
+    },
+    {
+      "name": "clear ipv6 mtu",
+      "page": 487
+    },
+    {
+      "name": "clear ipv6 multicast aaa authorization",
+      "page": 488
+    },
+    {
+      "name": "clear ipv6 nd destination",
+      "page": 489
+    },
+    {
+      "name": "clear ipv6 nd on-link prefix",
+      "page": 490
+    },
+    {
+      "name": "clear ipv6 nd router",
+      "page": 491
+    },
+    {
+      "name": "clear ipv6 neighbors",
+      "page": 492
+    },
+    {
+      "name": "clear ipv6 ospf",
+      "page": 494
+    },
+    {
+      "name": "clear ipv6 ospf counters",
+      "page": 495
+    },
+    {
+      "name": "clear ipv6 ospf events",
+      "page": 497
+    },
+    {
+      "name": "clear ipv6 pim reset",
+      "page": 498
+    },
+    {
+      "name": "clear ipv6 pim topology",
+      "page": 499
+    },
+    {
+      "name": "clear ipv6 pim traffic",
+      "page": 500
+    },
+    {
+      "name": "clear ipv6 prefix-list",
+      "page": 501
+    },
+    {
+      "name": "clear ipv6 rip",
+      "page": 502
+    },
+    {
+      "name": "clear ipv6 route",
+      "page": 503
+    },
+    {
+      "name": "clear ipv6 spd",
+      "page": 504
+    },
+    {
+      "name": "fhrp delay",
+      "page": 505
+    },
+    {
+      "name": "fhrp version vrrp v3",
+      "page": 506
+    },
+    {
+      "name": "ip address dhcp",
+      "page": 507
+    },
+    {
+      "name": "ip address pool (DHCP)",
+      "page": 510
+    },
+    {
+      "name": "ip address",
+      "page": 511
+    },
+    {
+      "name": "ip domain lookup",
+      "page": 513
+    },
+    {
+      "name": "ip nat translation max-entries",
+      "page": 515
+    },
+    {
+      "name": "ip unnumbered",
+      "page": 516
+    },
+    {
+      "name": "ip wccp",
+      "page": 518
+    },
+    {
+      "name": "ipv6 access-list",
+      "page": 523
+    },
+    {
+      "name": "ipv6 address-validate",
+      "page": 526
+    },
+    {
+      "name": "ipv6 cef",
+      "page": 527
+    },
+    {
+      "name": "ipv6 cef accounting",
+      "page": 529
+    },
+    {
+      "name": "ipv6 cef distributed",
+      "page": 531
+    },
+    {
+      "name": "ipv6 cef load-sharing algorithm",
+      "page": 533
+    },
+    {
+      "name": "ipv6 cef optimize neighbor resolution",
+      "page": 534
+    },
+    {
+      "name": "ipv6 destination-guard policy",
+      "page": 535
+    },
+    {
+      "name": "ipv6 dhcp-relay bulk-lease",
+      "page": 536
+    },
+    {
+      "name": "ipv6 dhcp-relay option vpn",
+      "page": 537
+    },
+    {
+      "name": "ipv6 dhcp-relay source-interface",
+      "page": 538
+    },
+    {
+      "name": "ipv6 dhcp binding track ppp",
+      "page": 539
+    },
+    {
+      "name": "ipv6 dhcp database",
+      "page": 540
+    },
+    {
+      "name": "ipv6 dhcp iana-route-add",
+      "page": 542
+    },
+    {
+      "name": "ipv6 dhcp iapd-route-add",
+      "page": 543
+    },
+    {
+      "name": "ipv6 dhcp-ldra",
+      "page": 544
+    },
+    {
+      "name": "ipv6 dhcp ping packets",
+      "page": 545
+    },
+    {
+      "name": "ipv6 dhcp pool",
+      "page": 546
+    },
+    {
+      "name": "ipv6 dhcp server vrf enable",
+      "page": 548
+    },
+    {
+      "name": "ipv6 flow monitor",
+      "page": 549
+    },
+    {
+      "name": "ipv6 general-prefix",
+      "page": 550
+    },
+    {
+      "name": "ipv6 local policy route-map",
+      "page": 552
+    },
+    {
+      "name": "ipv6 local pool",
+      "page": 554
+    },
+    {
+      "name": "ipv6 mld snooping (global)",
+      "page": 556
+    },
+    {
+      "name": "ipv6 mld snooping",
+      "page": 557
+    },
+    {
+      "name": "ipv6 mld snooping vlan",
+      "page": 559
+    },
+    {
+      "name": "ipv6 mld ssm-map enable",
+      "page": 561
+    },
+    {
+      "name": "ipv6 mld state-limit",
+      "page": 562
+    },
+    {
+      "name": "ipv6 multicast-routing",
+      "page": 563
+    },
+    {
+      "name": "ipv6 multicast group-range",
+      "page": 564
+    },
+    {
+      "name": "ipv6 multicast pim-passive-enable",
+      "page": 566
+    },
+    {
+      "name": "ipv6 nd cache expire",
+      "page": 567
+    },
+    {
+      "name": "ipv6 nd cache interface-limit (global)",
+      "page": 568
+    },
+    {
+      "name": "ipv6 nd dad-proxy",
+      "page": 569
+    },
+    {
+      "name": "ipv6 nd host mode strict",
+      "page": 570
+    },
+    {
+      "name": "ipv6 nd na glean",
+      "page": 571
+    },
+    {
+      "name": "ipv6 nd ns-interval",
+      "page": 572
+    },
+    {
+      "name": "ipv6 nd nud retry",
+      "page": 573
+    },
+    {
+      "name": "ipv6 nd reachable-time",
+      "page": 575
+    },
+    {
+      "name": "ipv6 nd resolution data limit",
+      "page": 576
+    },
+    {
+      "name": "ipv6 nd route-owner",
+      "page": 577
+    },
+    {
+      "name": "ipv6 nd routing-proxy",
+      "page": 578
+    },
+    {
+      "name": "ipv6 neighbor",
+      "page": 579
+    },
+    {
+      "name": "ipv6 ospf name-lookup",
+      "page": 581
+    },
+    {
+      "name": "ipv6 pim",
+      "page": 582
+    },
+    {
+      "name": "ipv6 pim accept-register",
+      "page": 583
+    },
+    {
+      "name": "ipv6 pim allow-rp",
+      "page": 584
+    },
+    {
+      "name": "ipv6 pim neighbor-filter list",
+      "page": 585
+    },
+    {
+      "name": "ipv6 pim rp-address",
+      "page": 586
+    },
+    {
+      "name": "ipv6 pim rp embedded",
+      "page": 589
+    },
+    {
+      "name": "ipv6 pim spt-threshold infinity",
+      "page": 590
+    },
+    {
+      "name": "ipv6 prefix-list",
+      "page": 591
+    },
+    {
+      "name": "ipv6 source-guard attach-policy",
+      "page": 594
+    },
+    {
+      "name": "ipv6 source-route",
+      "page": 595
+    },
+    {
+      "name": "ipv6 spd mode",
+      "page": 597
+    },
+    {
+      "name": "ipv6 spd queue max-threshold",
+      "page": 598
+    },
+    {
+      "name": "ipv6 traffic interface-statistics",
+      "page": 599
+    },
+    {
+      "name": "ipv6 unicast-routing",
+      "page": 600
+    },
+    {
+      "name": "key chain",
+      "page": 601
+    },
+    {
+      "name": "key-string (authentication)",
+      "page": 602
+    },
+    {
+      "name": "key",
+      "page": 603
+    },
+    {
+      "name": "show ip ports all",
+      "page": 605
+    },
+    {
+      "name": "show ip wccp",
+      "page": 607
+    },
+    {
+      "name": "show ipv6 access-list",
+      "page": 621
+    },
+    {
+      "name": "show ipv6 destination-guard policy",
+      "page": 623
+    },
+    {
+      "name": "show ipv6 dhcp",
+      "page": 624
+    },
+    {
+      "name": "show ipv6 dhcp binding",
+      "page": 625
+    },
+    {
+      "name": "show ipv6 dhcp conflict",
+      "page": 628
+    },
+    {
+      "name": "show ipv6 dhcp database",
+      "page": 629
+    },
+    {
+      "name": "show ipv6 dhcp guard policy",
+      "page": 631
+    },
+    {
+      "name": "show ipv6 dhcp interface",
+      "page": 633
+    },
+    {
+      "name": "show ipv6 dhcp relay binding",
+      "page": 635
+    },
+    {
+      "name": "show ipv6 eigrp events",
+      "page": 637
+    },
+    {
+      "name": "show ipv6 eigrp interfaces",
+      "page": 639
+    },
+    {
+      "name": "show ipv6 eigrp topology",
+      "page": 641
+    },
+    {
+      "name": "show ipv6 eigrp traffic",
+      "page": 643
+    },
+    {
+      "name": "show ipv6 general-prefix",
+      "page": 645
+    },
+    {
+      "name": "show ipv6 interface",
+      "page": 646
+    },
+    {
+      "name": "show ipv6 mfib",
+      "page": 654
+    },
+    {
+      "name": "show ipv6 mld groups",
+      "page": 660
+    },
+    {
+      "name": "show ipv6 mld interface",
+      "page": 663
+    },
+    {
+      "name": "show ipv6 mld snooping",
+      "page": 665
+    },
+    {
+      "name": "show ipv6 mld ssm-map",
+      "page": 667
+    },
+    {
+      "name": "show ipv6 mld traffic",
+      "page": 669
+    },
+    {
+      "name": "show ipv6 mrib client",
+      "page": 671
+    },
+    {
+      "name": "show ipv6 mrib route",
+      "page": 673
+    },
+    {
+      "name": "show ipv6 mroute",
+      "page": 675
+    },
+    {
+      "name": "show ipv6 mtu",
+      "page": 679
+    },
+    {
+      "name": "show ipv6 nd destination",
+      "page": 681
+    },
+    {
+      "name": "show ipv6 nd on-link prefix",
+      "page": 682
+    },
+    {
+      "name": "show ipv6 nd routing-proxy",
+      "page": 683
+    },
+    {
+      "name": "show ipv6 neighbors",
+      "page": 684
+    },
+    {
+      "name": "show ipv6 ospf",
+      "page": 688
+    },
+    {
+      "name": "show ipv6 ospf border-routers",
+      "page": 692
+    },
+    {
+      "name": "show ipv6 ospf event",
+      "page": 694
+    },
+    {
+      "name": "show ipv6 ospf graceful-restart",
+      "page": 697
+    },
+    {
+      "name": "show ipv6 ospf interface",
+      "page": 699
+    },
+    {
+      "name": "show ipv6 ospf request-list",
+      "page": 704
+    },
+    {
+      "name": "show ipv6 ospf retransmission-list",
+      "page": 706
+    },
+    {
+      "name": "show ipv6 ospf statistics",
+      "page": 708
+    },
+    {
+      "name": "show ipv6 ospf summary-prefix",
+      "page": 710
+    },
+    {
+      "name": "show ipv6 ospf timers rate-limit",
+      "page": 711
+    },
+    {
+      "name": "show ipv6 ospf traffic",
+      "page": 712
+    },
+    {
+      "name": "show ipv6 ospf virtual-links",
+      "page": 716
+    },
+    {
+      "name": "show ipv6 pim anycast-RP",
+      "page": 718
+    },
+    {
+      "name": "show ipv6 pim bsr",
+      "page": 719
+    },
+    {
+      "name": "show ipv6 pim df",
+      "page": 721
+    },
+    {
+      "name": "show ipv6 pim group-map",
+      "page": 723
+    },
+    {
+      "name": "show ipv6 pim interface",
+      "page": 725
+    },
+    {
+      "name": "show ipv6 pim join-prune statistic",
+      "page": 727
+    },
+    {
+      "name": "show ipv6 pim limit",
+      "page": 728
+    },
+    {
+      "name": "show ipv6 pim neighbor",
+      "page": 729
+    },
+    {
+      "name": "show ipv6 pim range-list",
+      "page": 731
+    },
+    {
+      "name": "show ipv6 pim topology",
+      "page": 733
+    },
+    {
+      "name": "show ipv6 pim traffic",
+      "page": 735
+    },
+    {
+      "name": "show ipv6 pim tunnel",
+      "page": 737
+    },
+    {
+      "name": "show ipv6 policy",
+      "page": 739
+    },
+    {
+      "name": "show ipv6 prefix-list",
+      "page": 740
+    },
+    {
+      "name": "show ipv6 protocols",
+      "page": 742
+    },
+    {
+      "name": "show ipv6 rip",
+      "page": 744
+    },
+    {
+      "name": "show ipv6 routers",
+      "page": 749
+    },
+    {
+      "name": "show ipv6 rpf",
+      "page": 752
+    },
+    {
+      "name": "show ipv6 source-guard policy",
+      "page": 754
+    },
+    {
+      "name": "show ipv6 spd",
+      "page": 755
+    },
+    {
+      "name": "show ipv6 static",
+      "page": 756
+    },
+    {
+      "name": "show ipv6 traffic",
+      "page": 759
+    },
+    {
+      "name": "show key chain",
+      "page": 762
+    },
+    {
+      "name": "show track",
+      "page": 763
+    },
+    {
+      "name": "track",
+      "page": 765
+    },
+    {
+      "name": "vrrp",
+      "page": 767
+    },
+    {
+      "name": "vrrp description",
+      "page": 768
+    },
+    {
+      "name": "vrrp preempt",
+      "page": 769
+    },
+    {
+      "name": "vrrp priority",
+      "page": 770
+    },
+    {
+      "name": "vrrp timers advertise",
+      "page": 771
+    },
+    {
+      "name": "vrrs leader",
+      "page": 773
+    }
+  ],
+  "IP Multicast Routing": [
+    {
+      "name": "clear ip mfib counters",
+      "page": 779
+    },
+    {
+      "name": "clear ip mroute",
+      "page": 780
+    },
+    {
+      "name": "clear ip pim snooping vlan",
+      "page": 781
+    },
+    {
+      "name": "debug condition vrf",
+      "page": 782
+    },
+    {
+      "name": "debug ip pim",
+      "page": 783
+    },
+    {
+      "name": "debug ipv6 pim",
+      "page": 785
+    },
+    {
+      "name": "device tracking export oper data",
+      "page": 787
+    },
+    {
+      "name": "ip igmp filter",
+      "page": 788
+    },
+    {
+      "name": "ip igmp max-groups",
+      "page": 789
+    },
+    {
+      "name": "ip igmp profile",
+      "page": 791
+    },
+    {
+      "name": "ip igmp snooping",
+      "page": 792
+    },
+    {
+      "name": "ip igmp snooping last-member-query-count",
+      "page": 793
+    },
+    {
+      "name": "ip igmp snooping querier",
+      "page": 795
+    },
+    {
+      "name": "ip igmp snooping report-suppression",
+      "page": 797
+    },
+    {
+      "name": "ip igmp snooping tcn flood",
+      "page": 798
+    },
+    {
+      "name": "ip igmp snooping vlan mrouter",
+      "page": 800
+    },
+    {
+      "name": "ip igmp snooping vlan static",
+      "page": 801
+    },
+    {
+      "name": "ip mroute extend-timer",
+      "page": 802
+    },
+    {
+      "name": "ip multicast auto-enable",
+      "page": 803
+    },
+    {
+      "name": "ip multicast-routing",
+      "page": 804
+    },
+    {
+      "name": "ip pim accept-register",
+      "page": 805
+    },
+    {
+      "name": "ip pim bsr-candidate",
+      "page": 806
+    },
+    {
+      "name": "ip pim query-interval",
+      "page": 808
+    },
+    {
+      "name": "ip pim rp-candidate",
+      "page": 809
+    },
+    {
+      "name": "ip pim send-rp-announce",
+      "page": 810
+    },
+    {
+      "name": "ip pim snooping",
+      "page": 812
+    },
+    {
+      "name": "ip pim snooping dr-flood",
+      "page": 813
+    },
+    {
+      "name": "ip pim snooping vlan",
+      "page": 814
+    },
+    {
+      "name": "ip pim spt-threshold",
+      "page": 815
+    },
+    {
+      "name": "match message-type",
+      "page": 816
+    },
+    {
+      "name": "match service-type",
+      "page": 817
+    },
+    {
+      "name": "match service-instance",
+      "page": 818
+    },
+    {
+      "name": "mrinfo",
+      "page": 819
+    },
+    {
+      "name": "service-policy-query",
+      "page": 821
+    },
+    {
+      "name": "service-policy",
+      "page": 822
+    },
+    {
+      "name": "show ip igmp filter",
+      "page": 823
+    },
+    {
+      "name": "show ip igmp profile",
+      "page": 824
+    },
+    {
+      "name": "show ip igmp snooping",
+      "page": 825
+    },
+    {
+      "name": "show ip igmp snooping groups",
+      "page": 827
+    },
+    {
+      "name": "show ip igmp snooping mrouter",
+      "page": 828
+    },
+    {
+      "name": "show ip igmp snooping querier",
+      "page": 829
+    },
+    {
+      "name": "show ip mroute",
+      "page": 831
+    },
+    {
+      "name": "show ip pim autorp",
+      "page": 839
+    },
+    {
+      "name": "show ip pim bsr-router",
+      "page": 841
+    },
+    {
+      "name": "show ip pim bsr",
+      "page": 842
+    },
+    {
+      "name": "show ip pim snooping",
+      "page": 843
+    },
+    {
+      "name": "show ip pim tunnel",
+      "page": 846
+    },
+    {
+      "name": "show mvpn vrfri",
+      "page": 848
+    },
+    {
+      "name": "show platform software fed switch ip multicast",
+      "page": 849
+    }
+  ],
+  "Layer 2/3": [
+    {
+      "name": "channel-group",
+      "page": 856
+    },
+    {
+      "name": "channel-protocol",
+      "page": 859
+    },
+    {
+      "name": "clear l2protocol-tunnel counters",
+      "page": 860
+    },
+    {
+      "name": "clear lacp",
+      "page": 861
+    },
+    {
+      "name": "clear pagp",
+      "page": 862
+    },
+    {
+      "name": "clear spanning-tree counters",
+      "page": 863
+    },
+    {
+      "name": "clear spanning-tree detected-protocols",
+      "page": 864
+    },
+    {
+      "name": "debug etherchannel",
+      "page": 865
+    },
+    {
+      "name": "debug lacp",
+      "page": 866
+    },
+    {
+      "name": "debug pagp",
+      "page": 867
+    },
+    {
+      "name": "debug platform pm",
+      "page": 868
+    },
+    {
+      "name": "debug platform udld",
+      "page": 869
+    },
+    {
+      "name": "debug spanning-tree",
+      "page": 870
+    },
+    {
+      "name": "instance (VLAN)",
+      "page": 872
+    },
+    {
+      "name": "interface port-channel",
+      "page": 874
+    },
+    {
+      "name": "l2protocol-tunnel",
+      "page": 876
+    },
+    {
+      "name": "lacp fast-switchover",
+      "page": 879
+    },
+    {
+      "name": "lacp max-bundle",
+      "page": 881
+    },
+    {
+      "name": "lacp port-priority",
+      "page": 882
+    },
+    {
+      "name": "lacp rate",
+      "page": 883
+    },
+    {
+      "name": "lacp system-priority",
+      "page": 884
+    },
+    {
+      "name": "loopdetect",
+      "page": 885
+    },
+    {
+      "name": "name (MST)",
+      "page": 887
+    },
+    {
+      "name": "pagp learn-method",
+      "page": 888
+    },
+    {
+      "name": "pagp port-priority",
+      "page": 890
+    },
+    {
+      "name": "port-channel",
+      "page": 891
+    },
+    {
+      "name": "port-channel auto",
+      "page": 892
+    },
+    {
+      "name": "port-channel load-balance",
+      "page": 893
+    },
+    {
+      "name": "port-channel load-balance extended",
+      "page": 895
+    },
+    {
+      "name": "port-channel min-links",
+      "page": 897
+    },
+    {
+      "name": "rep admin vlan",
+      "page": 898
+    },
+    {
+      "name": "rep block port",
+      "page": 899
+    },
+    {
+      "name": "rep lsl-age-timer",
+      "page": 901
+    },
+    {
+      "name": "rep lsl-retries",
+      "page": 902
+    },
+    {
+      "name": "rep preempt delay",
+      "page": 903
+    },
+    {
+      "name": "rep preempt segment",
+      "page": 904
+    },
+    {
+      "name": "rep segment",
+      "page": 905
+    },
+    {
+      "name": "rep stcn",
+      "page": 907
+    },
+    {
+      "name": "revision",
+      "page": 908
+    },
+    {
+      "name": "show dot1q-tunnel",
+      "page": 909
+    },
+    {
+      "name": "show etherchannel",
+      "page": 910
+    },
+    {
+      "name": "show interfaces rep detail",
+      "page": 913
+    },
+    {
+      "name": "show l2protocol-tunnel",
+      "page": 914
+    },
+    {
+      "name": "show lacp",
+      "page": 916
+    },
+    {
+      "name": "show loopdetect",
+      "page": 920
+    },
+    {
+      "name": "show pagp",
+      "page": 921
+    },
+    {
+      "name": "show platform etherchannel",
+      "page": 923
+    },
+    {
+      "name": "show platform pm",
+      "page": 924
+    },
+    {
+      "name": "show rep topology",
+      "page": 925
+    },
+    {
+      "name": "show spanning-tree",
+      "page": 927
+    },
+    {
+      "name": "show spanning-tree mst",
+      "page": 933
+    },
+    {
+      "name": "show udld",
+      "page": 936
+    },
+    {
+      "name": "spanning-tree backbonefast",
+      "page": 940
+    },
+    {
+      "name": "spanning-tree bpdufilter",
+      "page": 941
+    },
+    {
+      "name": "spanning-tree bpduguard",
+      "page": 943
+    },
+    {
+      "name": "spanning-tree bpdu sender-conflict",
+      "page": 945
+    },
+    {
+      "name": "spanning-tree bridge assurance",
+      "page": 946
+    },
+    {
+      "name": "spanning-tree cost",
+      "page": 947
+    },
+    {
+      "name": "spanning-tree etherchannel guard misconfig",
+      "page": 949
+    },
+    {
+      "name": "spanning-tree extend system-id",
+      "page": 951
+    },
+    {
+      "name": "spanning-tree guard",
+      "page": 952
+    },
+    {
+      "name": "spanning-tree link-type",
+      "page": 953
+    },
+    {
+      "name": "spanning-tree loopguard default",
+      "page": 955
+    },
+    {
+      "name": "spanning-tree mode",
+      "page": 956
+    },
+    {
+      "name": "spanning-tree mst",
+      "page": 957
+    },
+    {
+      "name": "spanning-tree mst configuration",
+      "page": 958
+    },
+    {
+      "name": "spanning-tree mst forward-time",
+      "page": 960
+    },
+    {
+      "name": "spanning-tree mst hello-time",
+      "page": 961
+    },
+    {
+      "name": "spanning-tree mst max-age",
+      "page": 962
+    },
+    {
+      "name": "spanning-tree mst max-hops",
+      "page": 963
+    },
+    {
+      "name": "spanning-tree mst pre-standard",
+      "page": 964
+    },
+    {
+      "name": "spanning-tree mst priority",
+      "page": 966
+    },
+    {
+      "name": "spanning-tree mst root",
+      "page": 967
+    },
+    {
+      "name": "spanning-tree mst simulate pvst global",
+      "page": 968
+    },
+    {
+      "name": "spanning-tree pathcost method",
+      "page": 969
+    },
+    {
+      "name": "spanning-tree port-priority",
+      "page": 970
+    },
+    {
+      "name": "spanning-tree portfast default",
+      "page": 972
+    },
+    {
+      "name": "spanning-tree transmit hold-count",
+      "page": 974
+    },
+    {
+      "name": "spanning-tree uplinkfast",
+      "page": 975
+    },
+    {
+      "name": "spanning-tree vlan",
+      "page": 976
+    },
+    {
+      "name": "switchport",
+      "page": 979
+    },
+    {
+      "name": "switchport access vlan",
+      "page": 980
+    },
+    {
+      "name": "switchport dot1q ethertype",
+      "page": 981
+    },
+    {
+      "name": "switchport mode",
+      "page": 982
+    },
+    {
+      "name": "switchport nonegotiate",
+      "page": 984
+    },
+    {
+      "name": "switchport voice vlan",
+      "page": 985
+    },
+    {
+      "name": "udld",
+      "page": 988
+    },
+    {
+      "name": "udld port",
+      "page": 990
+    },
+    {
+      "name": "udld reset",
+      "page": 992
+    },
+    {
+      "name": "vlan dot1q tag native",
+      "page": 993
+    }
+  ],
+  "Network Management": [
+    {
+      "name": "cache",
+      "page": 1001
+    },
+    {
+      "name": "clear flow exporter",
+      "page": 1003
+    },
+    {
+      "name": "clear flow monitor",
+      "page": 1004
+    },
+    {
+      "name": "clear platform software fed switch swc connection",
+      "page": 1006
+    },
+    {
+      "name": "clear platform software fed switch swc statistics",
+      "page": 1007
+    },
+    {
+      "name": "clear snmp stats hosts",
+      "page": 1008
+    },
+    {
+      "name": "collect",
+      "page": 1009
+    },
+    {
+      "name": "collect counter",
+      "page": 1010
+    },
+    {
+      "name": "collect flow sampler",
+      "page": 1011
+    },
+    {
+      "name": "collect interface",
+      "page": 1012
+    },
+    {
+      "name": "collect ipv4 destination",
+      "page": 1013
+    },
+    {
+      "name": "collect ipv6 destination",
+      "page": 1014
+    },
+    {
+      "name": "collect ipv4 source",
+      "page": 1015
+    },
+    {
+      "name": "collect ipv6 source",
+      "page": 1017
+    },
+    {
+      "name": "collect policy firewall event",
+      "page": 1019
+    },
+    {
+      "name": "collect timestamp absolute",
+      "page": 1021
+    },
+    {
+      "name": "collect transport tcp flags",
+      "page": 1022
+    },
+    {
+      "name": "collect routing next-hop address",
+      "page": 1023
+    },
+    {
+      "name": "datalink flow monitor",
+      "page": 1024
+    },
+    {
+      "name": "debug flow exporter",
+      "page": 1025
+    },
+    {
+      "name": "debug flow monitor",
+      "page": 1026
+    },
+    {
+      "name": "debug flow record",
+      "page": 1027
+    },
+    {
+      "name": "debug sampler",
+      "page": 1028
+    },
+    {
+      "name": "description",
+      "page": 1029
+    },
+    {
+      "name": "destination",
+      "page": 1030
+    },
+    {
+      "name": "dscp",
+      "page": 1031
+    },
+    {
+      "name": "event manager applet",
+      "page": 1032
+    },
+    {
+      "name": "export-protocol netflow-v9",
+      "page": 1035
+    },
+    {
+      "name": "export-protocol netflow-v5",
+      "page": 1036
+    },
+    {
+      "name": "exporter",
+      "page": 1037
+    },
+    {
+      "name": "fconfigure",
+      "page": 1038
+    },
+    {
+      "name": "flow exporter",
+      "page": 1039
+    },
+    {
+      "name": "flow monitor",
+      "page": 1040
+    },
+    {
+      "name": "flow record",
+      "page": 1041
+    },
+    {
+      "name": "ip wccp",
+      "page": 1042
+    },
+    {
+      "name": "ip flow monitor",
+      "page": 1044
+    },
+    {
+      "name": "ipv6 flow monitor",
+      "page": 1046
+    },
+    {
+      "name": "ipv6 deny echo reply",
+      "page": 1048
+    },
+    {
+      "name": "match datalink ethertype",
+      "page": 1049
+    },
+    {
+      "name": "match datalink mac",
+      "page": 1050
+    },
+    {
+      "name": "match datalink vlan",
+      "page": 1051
+    },
+    {
+      "name": "match device-type",
+      "page": 1052
+    },
+    {
+      "name": "match flow cts",
+      "page": 1053
+    },
+    {
+      "name": "match flow direction",
+      "page": 1054
+    },
+    {
+      "name": "match interface",
+      "page": 1055
+    },
+    {
+      "name": "match ipv4",
+      "page": 1056
+    },
+    {
+      "name": "match ipv4 destination address",
+      "page": 1057
+    },
+    {
+      "name": "match ipv4 source address",
+      "page": 1058
+    },
+    {
+      "name": "match ipv4 ttl",
+      "page": 1059
+    },
+    {
+      "name": "match ipv6",
+      "page": 1060
+    },
+    {
+      "name": "match ipv6 destination address",
+      "page": 1061
+    },
+    {
+      "name": "match ipv6 hop-limit",
+      "page": 1062
+    },
+    {
+      "name": "match ipv6 source address",
+      "page": 1063
+    },
+    {
+      "name": "map platform-type",
+      "page": 1064
+    },
+    {
+      "name": "match transport",
+      "page": 1065
+    },
+    {
+      "name": "match transport icmp ipv4",
+      "page": 1066
+    },
+    {
+      "name": "match transport icmp ipv6",
+      "page": 1067
+    },
+    {
+      "name": "match platform-type",
+      "page": 1068
+    },
+    {
+      "name": "mode random 1 out-of",
+      "page": 1069
+    },
+    {
+      "name": "monitor capture (interface/control plane)",
+      "page": 1070
+    },
+    {
+      "name": "monitor capture buffer",
+      "page": 1072
+    },
+    {
+      "name": "monitor capture export",
+      "page": 1073
+    },
+    {
+      "name": "monitor capture limit",
+      "page": 1074
+    },
+    {
+      "name": "monitor capture start",
+      "page": 1075
+    },
+    {
+      "name": "monitor capture stop",
+      "page": 1076
+    },
+    {
+      "name": "monitor session destination",
+      "page": 1077
+    },
+    {
+      "name": "monitor session filter",
+      "page": 1081
+    },
+    {
+      "name": "monitor session source",
+      "page": 1083
+    },
+    {
+      "name": "option",
+      "page": 1085
+    },
+    {
+      "name": "pnpa service reset",
+      "page": 1087
+    },
+    {
+      "name": "record",
+      "page": 1088
+    },
+    {
+      "name": "sensor-name (stealthwatch-cloud-monitor)",
+      "page": 1089
+    },
+    {
+      "name": "service-key (stealthwatch-cloud-monitor)",
+      "page": 1090
+    },
+    {
+      "name": "sampler",
+      "page": 1091
+    },
+    {
+      "name": "show class-map type control subscriber",
+      "page": 1092
+    },
+    {
+      "name": "show flow exporter",
+      "page": 1093
+    },
+    {
+      "name": "show flow interface",
+      "page": 1095
+    },
+    {
+      "name": "show flow monitor",
+      "page": 1097
+    },
+    {
+      "name": "show flow record",
+      "page": 1099
+    },
+    {
+      "name": "show ip sla statistics",
+      "page": 1100
+    },
+    {
+      "name": "show monitor",
+      "page": 1102
+    },
+    {
+      "name": "show monitor capture",
+      "page": 1104
+    },
+    {
+      "name": "show parameter-map type subscriber attribute-to-service",
+      "page": 1106
+    },
+    {
+      "name": "show platform software fed switch ip wccp",
+      "page": 1107
+    },
+    {
+      "name": "show platform software fed switch swc connection",
+      "page": 1109
+    },
+    {
+      "name": "show platform software fed switch swc statistics",
+      "page": 1111
+    },
+    {
+      "name": "show platform software swspan",
+      "page": 1113
+    },
+    {
+      "name": "show sampler",
+      "page": 1115
+    },
+    {
+      "name": "show snmp stats",
+      "page": 1117
+    },
+    {
+      "name": "show stealth-watch-cloud detail",
+      "page": 1119
+    },
+    {
+      "name": "snmp ifmib ifindex persist",
+      "page": 1120
+    },
+    {
+      "name": "snmp-server community",
+      "page": 1121
+    },
+    {
+      "name": "snmp-server enable traps",
+      "page": 1123
+    },
+    {
+      "name": "snmp-server enable traps bridge",
+      "page": 1126
+    },
+    {
+      "name": "snmp-server enable traps bulkstat",
+      "page": 1127
+    },
+    {
+      "name": "snmp-server enable traps call-home",
+      "page": 1128
+    },
+    {
+      "name": "snmp-server enable traps cef",
+      "page": 1129
+    },
+    {
+      "name": "snmp-server enable traps envmon",
+      "page": 1130
+    },
+    {
+      "name": "snmp-server enable traps errdisable",
+      "page": 1131
+    },
+    {
+      "name": "snmp-server enable traps flash",
+      "page": 1132
+    },
+    {
+      "name": "snmp-server enable traps isis",
+      "page": 1133
+    },
+    {
+      "name": "snmp-server enable traps mac-notification",
+      "page": 1134
+    },
+    {
+      "name": "snmp-server enable traps ospf",
+      "page": 1135
+    },
+    {
+      "name": "snmp-server enable traps pim",
+      "page": 1136
+    },
+    {
+      "name": "snmp-server enable traps port-security",
+      "page": 1137
+    },
+    {
+      "name": "snmp-server enable traps power-ethernet",
+      "page": 1138
+    },
+    {
+      "name": "snmp-server enable traps snmp",
+      "page": 1139
+    },
+    {
+      "name": "snmp-server enable traps storm-control",
+      "page": 1140
+    },
+    {
+      "name": "snmp-server enable traps stpx",
+      "page": 1141
+    },
+    {
+      "name": "snmp-server enable traps transceiver",
+      "page": 1142
+    },
+    {
+      "name": "snmp-server enable traps vrfmib",
+      "page": 1143
+    },
+    {
+      "name": "snmp-server enable traps vstack",
+      "page": 1144
+    },
+    {
+      "name": "snmp-server engineID",
+      "page": 1145
+    },
+    {
+      "name": "snmp-server group",
+      "page": 1146
+    },
+    {
+      "name": "snmp-server host",
+      "page": 1150
+    },
+    {
+      "name": "snmp-server manager",
+      "page": 1155
+    },
+    {
+      "name": "snmp-server user",
+      "page": 1156
+    },
+    {
+      "name": "snmp-server view",
+      "page": 1160
+    },
+    {
+      "name": "source",
+      "page": 1162
+    },
+    {
+      "name": "socket",
+      "page": 1164
+    },
+    {
+      "name": "stealthwatch-cloud-monitor",
+      "page": 1165
+    },
+    {
+      "name": "switchport mode access",
+      "page": 1166
+    },
+    {
+      "name": "switchport voice vlan",
+      "page": 1167
+    },
+    {
+      "name": "ttl",
+      "page": 1168
+    },
+    {
+      "name": "transport",
+      "page": 1169
+    },
+    {
+      "name": "template data timeout",
+      "page": 1170
+    },
+    {
+      "name": "udp peek",
+      "page": 1171
+    },
+    {
+      "name": "url (stealthwatch-cloud-monitor)",
+      "page": 1172
+    }
+  ],
+  "QoS": [
+    {
+      "name": "auto qos classify",
+      "page": 1176
+    },
+    {
+      "name": "auto qos trust",
+      "page": 1178
+    },
+    {
+      "name": "auto qos video",
+      "page": 1185
+    },
+    {
+      "name": "auto qos voip",
+      "page": 1195
+    },
+    {
+      "name": "class",
+      "page": 1209
+    },
+    {
+      "name": "class-map",
+      "page": 1211
+    },
+    {
+      "name": "debug auto qos",
+      "page": 1213
+    },
+    {
+      "name": "match (class-map configuration)",
+      "page": 1214
+    },
+    {
+      "name": "policy-map",
+      "page": 1217
+    },
+    {
+      "name": "priority",
+      "page": 1219
+    },
+    {
+      "name": "qos queue-softmax-multiplier",
+      "page": 1221
+    },
+    {
+      "name": "queue-buffers ratio",
+      "page": 1222
+    },
+    {
+      "name": "queue-limit",
+      "page": 1223
+    },
+    {
+      "name": "random-detect cos",
+      "page": 1225
+    },
+    {
+      "name": "random-detect cos-based",
+      "page": 1226
+    },
+    {
+      "name": "random-detect dscp",
+      "page": 1227
+    },
+    {
+      "name": "random-detect dscp-based",
+      "page": 1229
+    },
+    {
+      "name": "random-detect precedence",
+      "page": 1230
+    },
+    {
+      "name": "random-detect precedence-based",
+      "page": 1232
+    },
+    {
+      "name": "service-policy (Wired)",
+      "page": 1233
+    },
+    {
+      "name": "set",
+      "page": 1235
+    },
+    {
+      "name": "show auto qos",
+      "page": 1241
+    },
+    {
+      "name": "show class-map",
+      "page": 1243
+    },
+    {
+      "name": "show platform hardware fed switch",
+      "page": 1244
+    },
+    {
+      "name": "show platform software fed switch qos",
+      "page": 1247
+    },
+    {
+      "name": "show platform software fed switch qos qsb",
+      "page": 1248
+    },
+    {
+      "name": "show policy-map",
+      "page": 1251
+    },
+    {
+      "name": "show tech-support qos",
+      "page": 1253
+    },
+    {
+      "name": "trust device",
+      "page": 1255
+    }
+  ],
+  "Routing": [
+    {
+      "name": "accept-lifetime",
+      "page": 1261
+    },
+    {
+      "name": "address-family ipv6 (OSPF)",
+      "page": 1264
+    },
+    {
+      "name": "area nssa",
+      "page": 1265
+    },
+    {
+      "name": "area virtual-link",
+      "page": 1267
+    },
+    {
+      "name": "authentication (BFD)",
+      "page": 1270
+    },
+    {
+      "name": "bfd",
+      "page": 1271
+    },
+    {
+      "name": "bfd all-interfaces",
+      "page": 1273
+    },
+    {
+      "name": "bfd check-ctrl-plane-failure",
+      "page": 1274
+    },
+    {
+      "name": "bfd echo",
+      "page": 1275
+    },
+    {
+      "name": "bfd slow-timers",
+      "page": 1277
+    },
+    {
+      "name": "bfd template",
+      "page": 1279
+    },
+    {
+      "name": "bfd-template single-hop",
+      "page": 1280
+    },
+    {
+      "name": "default-information originate (OSPF)",
+      "page": 1281
+    },
+    {
+      "name": "distance (OSPF)",
+      "page": 1283
+    },
+    {
+      "name": "eigrp log-neighbor-changes",
+      "page": 1286
+    },
+    {
+      "name": "eigrp log-neighbor-warnings",
+      "page": 1288
+    },
+    {
+      "name": "ip authentication key-chain eigrp",
+      "page": 1290
+    },
+    {
+      "name": "ip authentication mode eigrp",
+      "page": 1291
+    },
+    {
+      "name": "ip bandwidth-percent eigrp",
+      "page": 1292
+    },
+    {
+      "name": "ip cef load-sharing algorithm",
+      "page": 1293
+    },
+    {
+      "name": "ip prefix-list",
+      "page": 1294
+    },
+    {
+      "name": "ip hello-interval eigrp",
+      "page": 1297
+    },
+    {
+      "name": "ip hold-time eigrp",
+      "page": 1298
+    },
+    {
+      "name": "ip load-sharing",
+      "page": 1299
+    },
+    {
+      "name": "ip network-broadcast",
+      "page": 1300
+    },
+    {
+      "name": "ip ospf database-filter all out",
+      "page": 1301
+    },
+    {
+      "name": "ip ospf name-lookup",
+      "page": 1302
+    },
+    {
+      "name": "ip split-horizon eigrp",
+      "page": 1303
+    },
+    {
+      "name": "ip summary-address eigrp",
+      "page": 1304
+    },
+    {
+      "name": "ip route static bfd",
+      "page": 1306
+    },
+    {
+      "name": "ipv6 route static bfd",
+      "page": 1308
+    },
+    {
+      "name": "maximum paths (OSPF)",
+      "page": 1309
+    },
+    {
+      "name": "maximum-paths per-prefix-distribution",
+      "page": 1310
+    },
+    {
+      "name": "metric weights (EIGRP)",
+      "page": 1311
+    },
+    {
+      "name": "neighbor description",
+      "page": 1313
+    },
+    {
+      "name": "network (EIGRP)",
+      "page": 1314
+    },
+    {
+      "name": "nsf (EIGRP)",
+      "page": 1316
+    },
+    {
+      "name": "offset-list (EIGRP)",
+      "page": 1318
+    },
+    {
+      "name": "redistribute (IP)",
+      "page": 1320
+    },
+    {
+      "name": "redistribute (IPv6)",
+      "page": 1328
+    },
+    {
+      "name": "redistribute maximum-prefix (OSPF)",
+      "page": 1331
+    },
+    {
+      "name": "route-map",
+      "page": 1333
+    },
+    {
+      "name": "router-id",
+      "page": 1336
+    },
+    {
+      "name": "router eigrp",
+      "page": 1337
+    },
+    {
+      "name": "router ospfv3",
+      "page": 1338
+    },
+    {
+      "name": "send-lifetime",
+      "page": 1339
+    },
+    {
+      "name": "show ip bgp ipv6 unicast",
+      "page": 1342
+    },
+    {
+      "name": "show ip eigrp accounting",
+      "page": 1344
+    },
+    {
+      "name": "show ip eigrp interfaces",
+      "page": 1346
+    },
+    {
+      "name": "show ip eigrp neighbors",
+      "page": 1349
+    },
+    {
+      "name": "show ip eigrp topology",
+      "page": 1352
+    },
+    {
+      "name": "show ip eigrp traffic",
+      "page": 1358
+    },
+    {
+      "name": "show ip ospf",
+      "page": 1360
+    },
+    {
+      "name": "show ip ospf border-routers",
+      "page": 1368
+    },
+    {
+      "name": "show ip ospf database",
+      "page": 1369
+    },
+    {
+      "name": "show ip ospf interface",
+      "page": 1379
+    },
+    {
+      "name": "show ip ospf neighbor",
+      "page": 1382
+    },
+    {
+      "name": "show ip ospf virtual-links",
+      "page": 1388
+    },
+    {
+      "name": "summary-address (OSPF)",
+      "page": 1389
+    },
+    {
+      "name": "timers throttle spf",
+      "page": 1391
+    }
+  ],
+  "Security": [
+    {
+      "name": "aaa accounting",
+      "page": 1399
+    },
+    {
+      "name": "aaa accounting dot1x",
+      "page": 1402
+    },
+    {
+      "name": "aaa accounting identity",
+      "page": 1404
+    },
+    {
+      "name": "aaa authentication dot1x",
+      "page": 1406
+    },
+    {
+      "name": "aaa common-criteria policy",
+      "page": 1408
+    },
+    {
+      "name": "aaa new-model",
+      "page": 1410
+    },
+    {
+      "name": "access-session host-mode multi-host",
+      "page": 1412
+    },
+    {
+      "name": "api-key (Parameter Map)",
+      "page": 1414
+    },
+    {
+      "name": "authentication host-mode",
+      "page": 1415
+    },
+    {
+      "name": "authentication logging verbose",
+      "page": 1417
+    },
+    {
+      "name": "authentication mac-move permit",
+      "page": 1418
+    },
+    {
+      "name": "authentication priority",
+      "page": 1420
+    },
+    {
+      "name": "authentication timer reauthenticate",
+      "page": 1422
+    },
+    {
+      "name": "authentication violation",
+      "page": 1424
+    },
+    {
+      "name": "cisp enable",
+      "page": 1426
+    },
+    {
+      "name": "clear aaa cache group",
+      "page": 1427
+    },
+    {
+      "name": "clear device-tracking database",
+      "page": 1428
+    },
+    {
+      "name": "clear errdisable interface vlan",
+      "page": 1432
+    },
+    {
+      "name": "clear mac address-table",
+      "page": 1433
+    },
+    {
+      "name": "confidentiality-offset",
+      "page": 1435
+    },
+    {
+      "name": "crypto pki trustpool import",
+      "page": 1436
+    },
+    {
+      "name": "debug aaa cache group",
+      "page": 1439
+    },
+    {
+      "name": "debug aaa dead-criteria transaction",
+      "page": 1440
+    },
+    {
+      "name": "debug umbrella",
+      "page": 1442
+    },
+    {
+      "name": "delay-protection",
+      "page": 1443
+    },
+    {
+      "name": "deny (MAC access-list configuration)",
+      "page": 1444
+    },
+    {
+      "name": "device-role (IPv6 snooping)",
+      "page": 1447
+    },
+    {
+      "name": "device-role (IPv6 nd inspection)",
+      "page": 1448
+    },
+    {
+      "name": "device-tracking (interface config)",
+      "page": 1449
+    },
+    {
+      "name": "device-tracking (VLAN config)",
+      "page": 1452
+    },
+    {
+      "name": "device-tracking binding",
+      "page": 1455
+    },
+    {
+      "name": "device-tracking logging",
+      "page": 1475
+    },
+    {
+      "name": "device-tracking policy",
+      "page": 1479
+    },
+    {
+      "name": "device-tracking tracking",
+      "page": 1492
+    },
+    {
+      "name": "device-tracking upgrade-cli",
+      "page": 1496
+    },
+    {
+      "name": "device sensor filter list mdns",
+      "page": 1499
+    },
+    {
+      "name": "device sensor filter spec",
+      "page": 1500
+    },
+    {
+      "name": "dnscrypt (Parameter Map)",
+      "page": 1502
+    },
+    {
+      "name": "dot1x authenticator eap profile",
+      "page": 1503
+    },
+    {
+      "name": "dot1x critical (global configuration)",
+      "page": 1504
+    },
+    {
+      "name": "dot1x logging verbose",
+      "page": 1505
+    },
+    {
+      "name": "dot1x pae",
+      "page": 1506
+    },
+    {
+      "name": "dot1x supplicant controlled transient",
+      "page": 1507
+    },
+    {
+      "name": "dot1x supplicant force-multicast",
+      "page": 1508
+    },
+    {
+      "name": "dot1x test eapol-capable",
+      "page": 1509
+    },
+    {
+      "name": "dot1x test timeout",
+      "page": 1510
+    },
+    {
+      "name": "dot1x timeout",
+      "page": 1511
+    },
+    {
+      "name": "dscp",
+      "page": 1513
+    },
+    {
+      "name": "dtls",
+      "page": 1514
+    },
+    {
+      "name": "enable password",
+      "page": 1516
+    },
+    {
+      "name": "enable secret",
+      "page": 1519
+    },
+    {
+      "name": "epm access-control open",
+      "page": 1522
+    },
+    {
+      "name": "include-icv-indicator",
+      "page": 1523
+    },
+    {
+      "name": "ip access-list",
+      "page": 1524
+    },
+    {
+      "name": "ip access-list role-based",
+      "page": 1527
+    },
+    {
+      "name": "ip admission",
+      "page": 1528
+    },
+    {
+      "name": "ip admission name",
+      "page": 1529
+    },
+    {
+      "name": "ip dhcp restrict-next-hop",
+      "page": 1531
+    },
+    {
+      "name": "ip dhcp snooping database",
+      "page": 1532
+    },
+    {
+      "name": "ip dhcp snooping information option format remote-id",
+      "page": 1534
+    },
+    {
+      "name": "ip dhcp snooping verify no-relay-agent-address",
+      "page": 1535
+    },
+    {
+      "name": "ip http access-class",
+      "page": 1536
+    },
+    {
+      "name": "ip radius source-interface",
+      "page": 1538
+    },
+    {
+      "name": "ip source binding",
+      "page": 1540
+    },
+    {
+      "name": "ip ssh pubkey-chain",
+      "page": 1541
+    },
+    {
+      "name": "ip ssh source-interface",
+      "page": 1542
+    },
+    {
+      "name": "ip verify source",
+      "page": 1543
+    },
+    {
+      "name": "ipv6 access-list",
+      "page": 1544
+    },
+    {
+      "name": "ipv6 snooping policy",
+      "page": 1546
+    },
+    {
+      "name": "key chain macsec",
+      "page": 1547
+    },
+    {
+      "name": "key config-key password-encrypt",
+      "page": 1548
+    },
+    {
+      "name": "key-hash",
+      "page": 1550
+    },
+    {
+      "name": "key-server",
+      "page": 1551
+    },
+    {
+      "name": "limit address-count",
+      "page": 1552
+    },
+    {
+      "name": "local-domain (Parameter Map)",
+      "page": 1553
+    },
+    {
+      "name": "mab logging verbose",
+      "page": 1554
+    },
+    {
+      "name": "mab request format attribute 32",
+      "page": 1555
+    },
+    {
+      "name": "macsec-cipher-suite",
+      "page": 1557
+    },
+    {
+      "name": "macsec network-link",
+      "page": 1558
+    },
+    {
+      "name": "match (access-map configuration)",
+      "page": 1559
+    },
+    {
+      "name": "mka pre-shared-key",
+      "page": 1561
+    },
+    {
+      "name": "mka suppress syslogs sak-rekey",
+      "page": 1562
+    },
+    {
+      "name": "orgid (Parameter Map)",
+      "page": 1563
+    },
+    {
+      "name": "parameter-map type regex",
+      "page": 1564
+    },
+    {
+      "name": "parameter-map type umbrella global",
+      "page": 1567
+    },
+    {
+      "name": "password encryption aes",
+      "page": 1568
+    },
+    {
+      "name": "pattern (Parameter Map)",
+      "page": 1570
+    },
+    {
+      "name": "permit (MAC access-list configuration)",
+      "page": 1572
+    },
+    {
+      "name": "protocol (IPv6 snooping)",
+      "page": 1575
+    },
+    {
+      "name": "radius server",
+      "page": 1576
+    },
+    {
+      "name": "radius-server dscp",
+      "page": 1578
+    },
+    {
+      "name": "radius-server dead-criteria",
+      "page": 1579
+    },
+    {
+      "name": "radius-server deadtime",
+      "page": 1581
+    },
+    {
+      "name": "radius-server directed-request",
+      "page": 1583
+    },
+    {
+      "name": "radius-server domain-stripping",
+      "page": 1585
+    },
+    {
+      "name": "sak-rekey",
+      "page": 1589
+    },
+    {
+      "name": "secret (Parameter Map)",
+      "page": 1590
+    },
+    {
+      "name": "security level (IPv6 snooping)",
+      "page": 1591
+    },
+    {
+      "name": "send-secure-announcements",
+      "page": 1592
+    },
+    {
+      "name": "server-private (RADIUS)",
+      "page": 1593
+    },
+    {
+      "name": "server-private (TACACS+)",
+      "page": 1595
+    },
+    {
+      "name": "show aaa cache group",
+      "page": 1597
+    },
+    {
+      "name": "show aaa clients",
+      "page": 1599
+    },
+    {
+      "name": "show aaa command handler",
+      "page": 1600
+    },
+    {
+      "name": "show aaa common-criteria policy",
+      "page": 1601
+    },
+    {
+      "name": "show aaa dead-criteria",
+      "page": 1603
+    },
+    {
+      "name": "show aaa local",
+      "page": 1606
+    },
+    {
+      "name": "show aaa servers",
+      "page": 1608
+    },
+    {
+      "name": "show aaa sessions",
+      "page": 1609
+    },
+    {
+      "name": "show access-session",
+      "page": 1610
+    },
+    {
+      "name": "show authentication brief",
+      "page": 1615
+    },
+    {
+      "name": "show authentication sessions",
+      "page": 1618
+    },
+    {
+      "name": "show cisp",
+      "page": 1621
+    },
+    {
+      "name": "show device-tracking capture-policy",
+      "page": 1623
+    },
+    {
+      "name": "show device-tracking counters",
+      "page": 1625
+    },
+    {
+      "name": "show device-tracking database",
+      "page": 1627
+    },
+    {
+      "name": "show device-tracking events",
+      "page": 1632
+    },
+    {
+      "name": "show device-tracking features",
+      "page": 1634
+    },
+    {
+      "name": "show device-tracking messages",
+      "page": 1635
+    },
+    {
+      "name": "show device-tracking policies",
+      "page": 1636
+    },
+    {
+      "name": "show device-tracking policy",
+      "page": 1637
+    },
+    {
+      "name": "show dot1x",
+      "page": 1638
+    },
+    {
+      "name": "show eap pac peer",
+      "page": 1640
+    },
+    {
+      "name": "show ip access-lists",
+      "page": 1641
+    },
+    {
+      "name": "show ip dhcp snooping statistics",
+      "page": 1644
+    },
+    {
+      "name": "show platform software dns-umbrella statistics",
+      "page": 1647
+    },
+    {
+      "name": "show platform software umbrella switch F0",
+      "page": 1648
+    },
+    {
+      "name": "show radius server-group",
+      "page": 1650
+    },
+    {
+      "name": "show tech-support acl",
+      "page": 1652
+    },
+    {
+      "name": "show tech-support identity",
+      "page": 1656
+    },
+    {
+      "name": "show umbrella",
+      "page": 1665
+    },
+    {
+      "name": "show vlan access-map",
+      "page": 1667
+    },
+    {
+      "name": "show vlan filter",
+      "page": 1668
+    },
+    {
+      "name": "show vlan group",
+      "page": 1669
+    },
+    {
+      "name": "ssci-based-on-sci",
+      "page": 1670
+    },
+    {
+      "name": "switchport port-security aging",
+      "page": 1671
+    },
+    {
+      "name": "switchport port-security mac-address",
+      "page": 1673
+    },
+    {
+      "name": "switchport port-security maximum",
+      "page": 1676
+    },
+    {
+      "name": "switchport port-security violation",
+      "page": 1678
+    },
+    {
+      "name": "tacacs server",
+      "page": 1680
+    },
+    {
+      "name": "tls",
+      "page": 1681
+    },
+    {
+      "name": "tlv (mDNS)",
+      "page": 1683
+    },
+    {
+      "name": "token (Parameter Map)",
+      "page": 1684
+    },
+    {
+      "name": "tracking (IPv6 snooping)",
+      "page": 1685
+    },
+    {
+      "name": "trusted-port",
+      "page": 1687
+    },
+    {
+      "name": "umbrella",
+      "page": 1688
+    },
+    {
+      "name": "use-updated-eth-header",
+      "page": 1689
+    },
+    {
+      "name": "username",
+      "page": 1690
+    },
+    {
+      "name": "vlan access-map",
+      "page": 1695
+    },
+    {
+      "name": "vlan dot1Q tag native",
+      "page": 1697
+    },
+    {
+      "name": "vlan filter",
+      "page": 1698
+    },
+    {
+      "name": "vlan group",
+      "page": 1699
+    }
+  ],
+  "Stack Manager and High Availability": [
+    {
+      "name": "main-cpu",
+      "page": 1704
+    },
+    {
+      "name": "mode sso",
+      "page": 1705
+    },
+    {
+      "name": "policy config-sync prc reload",
+      "page": 1706
+    },
+    {
+      "name": "redundancy",
+      "page": 1707
+    },
+    {
+      "name": "redundancy config-sync mismatched-commands",
+      "page": 1708
+    },
+    {
+      "name": "redundancy force-switchover",
+      "page": 1710
+    },
+    {
+      "name": "redundancy reload",
+      "page": 1711
+    },
+    {
+      "name": "reload",
+      "page": 1712
+    },
+    {
+      "name": "show redundancy",
+      "page": 1713
+    },
+    {
+      "name": "show redundancy config-sync",
+      "page": 1717
+    },
+    {
+      "name": "show switch",
+      "page": 1719
+    },
+    {
+      "name": "show switch stack-mode",
+      "page": 1722
+    },
+    {
+      "name": "stack-mac persistent timer",
+      "page": 1723
+    },
+    {
+      "name": "stack-mac update force",
+      "page": 1725
+    },
+    {
+      "name": "standby console enable",
+      "page": 1726
+    },
+    {
+      "name": "switch clear stack-mode",
+      "page": 1727
+    },
+    {
+      "name": "switch priority",
+      "page": 1728
+    },
+    {
+      "name": "switch provision",
+      "page": 1729
+    },
+    {
+      "name": "switch renumber",
+      "page": 1731
+    },
+    {
+      "name": "switch renumber",
+      "page": 1732
+    },
+    {
+      "name": "switch stack port",
+      "page": 1733
+    },
+    {
+      "name": "switch switch-number role",
+      "page": 1734
+    }
+  ],
+  "System Management": [
+    {
+      "name": "arp",
+      "page": 1740
+    },
+    {
+      "name": "boot",
+      "page": 1741
+    },
+    {
+      "name": "boot system",
+      "page": 1742
+    },
+    {
+      "name": "cat",
+      "page": 1743
+    },
+    {
+      "name": "copy",
+      "page": 1744
+    },
+    {
+      "name": "copy startup-config tftp:",
+      "page": 1745
+    },
+    {
+      "name": "copy tftp: startup-config",
+      "page": 1746
+    },
+    {
+      "name": "debug voice diagnostics mac-address",
+      "page": 1747
+    },
+    {
+      "name": "debug platform condition feature multicast controlplane",
+      "page": 1748
+    },
+    {
+      "name": "debug platform condition mac",
+      "page": 1750
+    },
+    {
+      "name": "debug platform rep",
+      "page": 1751
+    },
+    {
+      "name": "debug ilpower powerman",
+      "page": 1752
+    },
+    {
+      "name": "delete",
+      "page": 1755
+    },
+    {
+      "name": "dir",
+      "page": 1756
+    },
+    {
+      "name": "exit",
+      "page": 1758
+    },
+    {
+      "name": "factory-reset",
+      "page": 1759
+    },
+    {
+      "name": "flash_init",
+      "page": 1764
+    },
+    {
+      "name": "help",
+      "page": 1765
+    },
+    {
+      "name": "hostname",
+      "page": 1766
+    },
+    {
+      "name": "install",
+      "page": 1768
+    },
+    {
+      "name": "ip http banner",
+      "page": 1781
+    },
+    {
+      "name": "ip http banner-path",
+      "page": 1782
+    },
+    {
+      "name": "ip ssh bulk-mode",
+      "page": 1783
+    },
+    {
+      "name": "l2 traceroute",
+      "page": 1784
+    },
+    {
+      "name": "license air level",
+      "page": 1785
+    },
+    {
+      "name": "license boot level",
+      "page": 1787
+    },
+    {
+      "name": "license smart (global config)",
+      "page": 1790
+    },
+    {
+      "name": "license smart (privileged EXEC)",
+      "page": 1802
+    },
+    {
+      "name": "line auto-consolidation",
+      "page": 1811
+    },
+    {
+      "name": "location",
+      "page": 1813
+    },
+    {
+      "name": "location plm calibrating",
+      "page": 1816
+    },
+    {
+      "name": "mgmt_init",
+      "page": 1817
+    },
+    {
+      "name": "mkdir",
+      "page": 1818
+    },
+    {
+      "name": "more",
+      "page": 1819
+    },
+    {
+      "name": "no debug all",
+      "page": 1820
+    },
+    {
+      "name": "rename",
+      "page": 1821
+    },
+    {
+      "name": "request consent-token accept-response shell-access",
+      "page": 1822
+    },
+    {
+      "name": "request consent-token generate-challenge shell-access",
+      "page": 1823
+    },
+    {
+      "name": "request consent-token terminate-auth",
+      "page": 1824
+    },
+    {
+      "name": "request platform software console attach switch",
+      "page": 1825
+    },
+    {
+      "name": "reset",
+      "page": 1827
+    },
+    {
+      "name": "rmdir",
+      "page": 1828
+    },
+    {
+      "name": "sdm prefer",
+      "page": 1829
+    },
+    {
+      "name": "service private-config-encryption",
+      "page": 1830
+    },
+    {
+      "name": "set",
+      "page": 1831
+    },
+    {
+      "name": "show avc client",
+      "page": 1834
+    },
+    {
+      "name": "show bootflash:",
+      "page": 1835
+    },
+    {
+      "name": "show consistency-checker mcast",
+      "page": 1838
+    },
+    {
+      "name": "show consistency-checker mcast l3m",
+      "page": 1840
+    },
+    {
+      "name": "show consistency-checker objects",
+      "page": 1844
+    },
+    {
+      "name": "show consistency-checker run-id",
+      "page": 1846
+    },
+    {
+      "name": "show debug",
+      "page": 1848
+    },
+    {
+      "name": "show env xps",
+      "page": 1849
+    },
+    {
+      "name": "show flow monitor",
+      "page": 1853
+    },
+    {
+      "name": "show install",
+      "page": 1855
+    },
+    {
+      "name": "show license all",
+      "page": 1857
+    },
+    {
+      "name": "show license authorization",
+      "page": 1865
+    },
+    {
+      "name": "show license data conversion",
+      "page": 1870
+    },
+    {
+      "name": "show license eventlog",
+      "page": 1871
+    },
+    {
+      "name": "show license history message",
+      "page": 1873
+    },
+    {
+      "name": "show license reservation",
+      "page": 1874
+    },
+    {
+      "name": "show license rum",
+      "page": 1875
+    },
+    {
+      "name": "show license status",
+      "page": 1883
+    },
+    {
+      "name": "show license summary",
+      "page": 1892
+    },
+    {
+      "name": "show license tech",
+      "page": 1896
+    },
+    {
+      "name": "show license udi",
+      "page": 1914
+    },
+    {
+      "name": "show license usage",
+      "page": 1915
+    },
+    {
+      "name": "show location",
+      "page": 1919
+    },
+    {
+      "name": "show logging onboard switch uptime",
+      "page": 1921
+    },
+    {
+      "name": "show mac address-table",
+      "page": 1924
+    },
+    {
+      "name": "show mac address-table move update",
+      "page": 1929
+    },
+    {
+      "name": "show parser encrypt file status",
+      "page": 1930
+    },
+    {
+      "name": "show platform integrity",
+      "page": 1931
+    },
+    {
+      "name": "show platform software audit",
+      "page": 1932
+    },
+    {
+      "name": "show platform software fed switch punt cause",
+      "page": 1936
+    },
+    {
+      "name": "show platform software fed switch punt cpuq",
+      "page": 1938
+    },
+    {
+      "name": "show platform software sl-infra",
+      "page": 1941
+    },
+    {
+      "name": "show platform sudi certificate",
+      "page": 1942
+    },
+    {
+      "name": "show reload history",
+      "page": 1944
+    },
+    {
+      "name": "show running-config",
+      "page": 1946
+    },
+    {
+      "name": "show sdm prefer",
+      "page": 1952
+    },
+    {
+      "name": "show tech-support confidential",
+      "page": 1954
+    },
+    {
+      "name": "show tech-support monitor",
+      "page": 1955
+    },
+    {
+      "name": "show tech-support platform",
+      "page": 1956
+    },
+    {
+      "name": "show tech-support platform evpn_vxlan",
+      "page": 1960
+    },
+    {
+      "name": "show tech-support platform fabric",
+      "page": 1962
+    },
+    {
+      "name": "show tech-support platform igmp_snooping",
+      "page": 1966
+    },
+    {
+      "name": "show tech-support platform layer3",
+      "page": 1969
+    },
+    {
+      "name": "show tech-support platform mld_snooping",
+      "page": 1977
+    },
+    {
+      "name": "show tech-support port",
+      "page": 1984
+    },
+    {
+      "name": "show tech-support pvlan",
+      "page": 1987
+    },
+    {
+      "name": "show version",
+      "page": 1988
+    },
+    {
+      "name": "system env temperature threshold yellow",
+      "page": 1995
+    },
+    {
+      "name": "tftp-server",
+      "page": 1996
+    },
+    {
+      "name": "traceroute mac",
+      "page": 1998
+    },
+    {
+      "name": "traceroute mac ip",
+      "page": 2001
+    },
+    {
+      "name": "type",
+      "page": 2003
+    },
+    {
+      "name": "unset",
+      "page": 2004
+    },
+    {
+      "name": "version",
+      "page": 2006
+    },
+    {
+      "name": "Information About Tracing",
+      "page": 2008
+    },
+    {
+      "name": "set platform software trace",
+      "page": 2010
+    },
+    {
+      "name": "show platform software trace level",
+      "page": 2014
+    },
+    {
+      "name": "request platform software trace archive",
+      "page": 2017
+    },
+    {
+      "name": "show platform software btrace-manager",
+      "page": 2018
+    },
+    {
+      "name": "set logging",
+      "page": 2019
+    },
+    {
+      "name": "set logging marker",
+      "page": 2021
+    },
+    {
+      "name": "show logging",
+      "page": 2022
+    },
+    {
+      "name": "show logging process",
+      "page": 2027
+    },
+    {
+      "name": "show logging process-helper",
+      "page": 2030
+    },
+    {
+      "name": "show logging profile",
+      "page": 2032
+    },
+    {
+      "name": "show logging profile wireless",
+      "page": 2035
+    },
+    {
+      "name": "show logging profile wireless end",
+      "page": 2038
+    },
+    {
+      "name": "show logging profile wireless filter",
+      "page": 2039
+    },
+    {
+      "name": "show logging profile wireless fru",
+      "page": 2041
+    },
+    {
+      "name": "show logging profile wireless internal",
+      "page": 2043
+    },
+    {
+      "name": "show logging profile wireless level",
+      "page": 2046
+    },
+    {
+      "name": "show logging profile wireless module",
+      "page": 2048
+    },
+    {
+      "name": "show logging profile wireless reverse",
+      "page": 2050
+    },
+    {
+      "name": "show logging profile wireless start",
+      "page": 2053
+    },
+    {
+      "name": "show logging profile wireless switch",
+      "page": 2056
+    },
+    {
+      "name": "show logging profile wireless to-file",
+      "page": 2058
+    },
+    {
+      "name": "show logging profile sdwan",
+      "page": 2059
+    },
+    {
+      "name": "show logging profile sdwan internal",
+      "page": 2062
+    },
+    {
+      "name": "show log file",
+      "page": 2065
+    },
+    {
+      "name": "monitor logging",
+      "page": 2066
+    },
+    {
+      "name": "monitor logging filter",
+      "page": 2067
+    },
+    {
+      "name": "monitor logging level",
+      "page": 2068
+    },
+    {
+      "name": "monitor logging metadata",
+      "page": 2069
+    },
+    {
+      "name": "monitor logging process-helper",
+      "page": 2070
+    },
+    {
+      "name": "monitor logging",
+      "page": 2071
+    }
+  ],
+  "VLAN": [
+    {
+      "name": "clear vtp counters",
+      "page": 2076
+    },
+    {
+      "name": "access-session voice skip-data-vlan",
+      "page": 2077
+    },
+    {
+      "name": "debug sw-vlan",
+      "page": 2078
+    },
+    {
+      "name": "debug sw-vlan ifs",
+      "page": 2080
+    },
+    {
+      "name": "debug sw-vlan notification",
+      "page": 2081
+    },
+    {
+      "name": "debug sw-vlan vtp",
+      "page": 2082
+    },
+    {
+      "name": "private-vlan",
+      "page": 2084
+    },
+    {
+      "name": "private-vlan mapping",
+      "page": 2086
+    },
+    {
+      "name": "show interfaces private-vlan mapping",
+      "page": 2088
+    },
+    {
+      "name": "show vlan",
+      "page": 2089
+    },
+    {
+      "name": "show vtp",
+      "page": 2093
+    },
+    {
+      "name": "switchport mode private-vlan",
+      "page": 2098
+    },
+    {
+      "name": "switchport priority extend",
+      "page": 2100
+    },
+    {
+      "name": "switchport trunk",
+      "page": 2101
+    },
+    {
+      "name": "vlan",
+      "page": 2104
+    },
+    {
+      "name": "vlan dot1q tag native",
+      "page": 2110
+    },
+    {
+      "name": "vtp (global configuration)",
+      "page": 2111
+    },
+    {
+      "name": "vtp (interface configuration)",
+      "page": 2116
+    },
+    {
+      "name": "vtp primary",
+      "page": 2117
+    }
+  ]
+}
