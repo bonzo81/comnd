@@ -9,4 +9,9 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
+  // Prevent Vite from scanning the massive Rust build output
+  optimizeDeps: {
+    exclude: [],
+    entries: ["index.html"],
+  },
 });
