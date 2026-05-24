@@ -1,0 +1,18 @@
+﻿TASK 10 - Error Path QA Evidence
+
+## Build Verification
+- bun run tsc --noEmit: PASS (exit 0)
+
+## showError() Pane Preservation (lines 628-637)
+- Line 628: Comment "Show output pane if buffer has content (preserve for debugging)" ✓
+- Lines 630-636: Checks outputBuffer.length > 0, shows/hides #overlay-output ✓
+- Line 639-645: Error actions (Retry/Back buttons) rendered AFTER pane check ✓
+- ssh-error handler: calls showError() without clearOutputBuffer() — buffer preserved ✓
+
+## Retry Clears Stale Data
+- Line 732: reconnect() calls clearOutputBuffer() before hideOverlay() ✓
+- Line 738: reconnect() calls connect() which again calls clearOutputBuffer() at line 424 ✓
+- Result: Retry starts with completely fresh buffer ✓
+
+## Cancel Clears Buffer
+- Line 720: cancelConnect() calls clearOutputBuffer() before disconnect ✓
