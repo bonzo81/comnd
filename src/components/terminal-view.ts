@@ -29,6 +29,7 @@ import { GhostText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
 import { CommandPalette } from "./command-palette";
+import { stripAnsi } from "../lib/ansi";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -83,6 +84,7 @@ export class TerminalView {
   private receivingOutput = false;
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private outputBuffer: string[] = [];
   private fontSize = 14;
 
   // Event listener cleanup
@@ -418,6 +420,9 @@ export class TerminalView {
     // Update top bar
     this.updateHostInfo();
 
+    // Clear stale output from previous connection attempt
+    this.clearOutputBuffer();
+
     // Show connecting overlay
     this.setState("connecting");
     this.updateStatusBar("connecting");
@@ -480,15 +485,22 @@ export class TerminalView {
     // SSH output → xterm.js + prompt detector
     this.unlistenOutput = await listen<{ data: string }>("ssh-output", (event) => {
       const bytes = this.base64ToUint8Array(event.payload.data);
-      this.terminal?.write(bytes);
-      // Feed to prompt detector
       const text = new TextDecoder().decode(bytes);
-      this.promptDetector.feed(text);
+
+      if (this.state === "connected") {
+        this.terminal?.write(bytes);
+        this.promptDetector.feed(text);
+      } else {
+        // Connection phase — capture output for the output pane
+        const cleanText = stripAnsi(text);
+        this.outputBuffer.push(cleanText);
+        this.renderOutputPane();
+      }
 
       // Only suppress ghost text for substantial output (command results),
       // not for single-character echoes from the remote device.
       // Echoed keystrokes are typically 1-3 bytes; real output is longer.
-      if (text.length > 3 || text.includes("\n") || text.includes("\r\n")) {
+      if (this.state === "connected" && (text.length > 3 || text.includes("\n") || text.includes("\r\n"))) {
         this.receivingOutput = true;
         this.ghostText?.hide();
         this.dropdown?.hide();
@@ -506,6 +518,7 @@ export class TerminalView {
 
     // SSH connected
     this.unlistenConnected = await listen<{ reason: string }>("ssh-connected", () => {
+      this.clearOutputBuffer();
       log.info("terminal", "SSH connected event received");
       this.setState("connected");
       // Update last_connected timestamp
@@ -542,6 +555,7 @@ export class TerminalView {
 
     // SSH disconnected
     this.unlistenDisconnected = await listen<{ reason: string }>("ssh-disconnected", (event) => {
+      this.clearOutputBuffer();
       log.info("terminal", `SSH disconnected event: ${event.payload.reason}`);
       if (this.cleanDisconnect) return; // User initiated — handled elsewhere
       this.setState("disconnected");
@@ -587,6 +601,7 @@ export class TerminalView {
     if (fillEl) fillEl.style.width = `${percent}%`;
     if (titleEl) titleEl.textContent = `Connecting to ${this.host?.display_name ?? "host"}`;
     errorEl?.classList.add("hidden");
+    // Replaces action buttons; does NOT affect sibling elements like #overlay-output
     if (actionsEl) {
       actionsEl.innerHTML = `<button class="btn-text" id="overlay-cancel">Cancel</button>`;
       document.getElementById("overlay-cancel")?.addEventListener("click", () => this.cancelConnect());
@@ -609,6 +624,16 @@ export class TerminalView {
     if (errorEl) {
       errorEl.textContent = message;
       errorEl.classList.remove("hidden");
+    }
+    // Show output pane if buffer has content (preserve for debugging),
+    // hide it otherwise so stale data doesn't persist on next connect.
+    const outputPane = document.getElementById("overlay-output");
+    if (outputPane) {
+      if (this.outputBuffer.length > 0) {
+        outputPane.classList.remove("hidden");
+      } else {
+        outputPane.classList.add("hidden");
+      }
     }
     if (actionsEl) {
       actionsEl.innerHTML = `
@@ -692,6 +717,7 @@ export class TerminalView {
   }
 
   private async cancelConnect() {
+    this.clearOutputBuffer();
     this.cleanDisconnect = true;
     try {
       await sshDisconnect();
@@ -703,6 +729,7 @@ export class TerminalView {
   }
 
   private async reconnect() {
+    this.clearOutputBuffer();
     if (!this.host) return;
     this.hideOverlay();
     this.hideDisconnectBanner();
@@ -972,6 +999,26 @@ export class TerminalView {
     this.fitAddon = null;
     this.host = null;
     this.state = "idle";
+  }
+
+  // ─── Output pane ─────────────────────────────────────────────────
+
+  private renderOutputPane(): void {
+    const outputEl = document.getElementById("overlay-output");
+    const textEl = document.getElementById("output-text");
+    if (!outputEl || !textEl) return;
+    outputEl.classList.remove("hidden");
+    textEl.textContent = this.outputBuffer.join("");
+    outputEl.scrollTop = outputEl.scrollHeight;
+  }
+
+  /** Empties the output buffer and hides the output pane overlay. */
+  clearOutputBuffer(): void {
+    this.outputBuffer = [];
+    const outputEl = document.getElementById("overlay-output");
+    if (outputEl) {
+      outputEl.classList.add("hidden");
+    }
   }
 
   // ─── Util ────────────────────────────────────────────────────────
