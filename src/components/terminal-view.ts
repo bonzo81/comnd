@@ -135,8 +135,8 @@ export class TerminalView {
                   <div class="tv-progress-bar"><div class="tv-progress-fill" id="progress-fill"></div></div>
                 </div>
                 <div class="tv-overlay-stage" id="overlay-stage"></div>
-                <div class="tv-overlay-output hidden" id="overlay-output"><pre class="tv-output-text" id="output-text"></pre></div>
                 <div class="tv-overlay-error hidden" id="overlay-error"></div>
+                <div class="tv-overlay-output hidden" id="overlay-output"><pre class="tv-output-text" id="output-text"></pre></div>
                 <div class="tv-overlay-actions" id="overlay-actions">
                   <button class="btn-text" id="overlay-cancel">Cancel</button>
                 </div>
