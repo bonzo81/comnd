@@ -395,11 +395,17 @@ impl SshSession {
 
 pub struct SshManager {
     session: Option<SshSession>,
+    #[cfg(debug_assertions)]
+    test_server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
-        SshManager { session: None }
+        SshManager {
+            session: None,
+            #[cfg(debug_assertions)]
+            test_server_handle: None,
+        }
     }
 
     pub fn set_session(&mut self, session: SshSession) {
@@ -416,5 +422,15 @@ impl SshManager {
 
     pub fn is_connected(&self) -> bool {
         self.session.is_some()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn set_test_server_handle(&mut self, handle: tokio::task::JoinHandle<()>) {
+        self.test_server_handle = Some(handle);
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn take_test_server_handle(&mut self) -> Option<tokio::task::JoinHandle<()>> {
+        self.test_server_handle.take()
     }
 }

@@ -28,6 +28,7 @@ import { SuggestionEngine, Command as SuggestionCommand } from "../lib/suggestio
 import { GhostText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
+import { CommandPalette } from "./command-palette";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -35,6 +36,20 @@ const PLATFORM_LABELS: Record<string, string> = {
   "cisco-nxos": "Cisco NX-OS",
   "f5-tmos": "F5 TMOS",
   "linux-bash": "Linux Bash",
+};
+
+// Ambient chrome tint per platform mode
+const MODE_TINTS: Record<string, string> = {
+  "cisco-iosxe": "var(--tint-iosxe)",
+  "cisco-nxos": "var(--tint-nxos)",
+  "f5-tmos": "var(--tint-tmos)",
+  "linux-bash": "var(--tint-bash)",
+  "config": "var(--tint-iosxe)",
+  "exec": "var(--tint-iosxe)",
+  "enable": "var(--tint-iosxe)",
+  "configure": "var(--tint-nxos)",
+  "bash": "var(--tint-bash)",
+  "tmsh": "var(--tint-tmos)",
 };
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
@@ -61,6 +76,7 @@ export class TerminalView {
   private ghostText: GhostText | null = null;
   private dropdown: Dropdown | null = null;
   private sidebarContent: SidebarContent | null = null;
+  private commandPalette: CommandPalette | null = null;
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
   private currentInput = "";
@@ -117,6 +133,7 @@ export class TerminalView {
                   <div class="tv-progress-bar"><div class="tv-progress-fill" id="progress-fill"></div></div>
                 </div>
                 <div class="tv-overlay-stage" id="overlay-stage"></div>
+                <div class="tv-overlay-output hidden" id="overlay-output"><pre class="tv-output-text" id="output-text"></pre></div>
                 <div class="tv-overlay-error hidden" id="overlay-error"></div>
                 <div class="tv-overlay-actions" id="overlay-actions">
                   <button class="btn-text" id="overlay-cancel">Cancel</button>
@@ -137,6 +154,11 @@ export class TerminalView {
             </div>
           </div>
         </div>
+        <div class="tv-suggestion-bar hidden" id="suggestion-bar">
+          <span class="sb-label">Suggestion</span>
+          <span class="sb-command" id="sb-command"></span>
+          <span class="sb-remainder" id="sb-remainder"></span>
+        </div>
         <div class="tv-statusbar" id="statusbar">
           <span class="sb-indicator sb-connecting" id="sb-dot">●</span>
           <span id="sb-host">—</span>
@@ -153,10 +175,10 @@ export class TerminalView {
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: 14,
       theme: {
-        background: "#1e1e2e",
-        foreground: "#cdd6f4",
-        cursor: "#f5e0dc",
-        selectionBackground: "#585b70",
+        background: "#212225",
+        foreground: "#E4E5E7",
+        cursor: "#F2726B",
+        selectionBackground: "#3A3B3D",
       },
       cursorBlink: true,
     });
@@ -235,6 +257,15 @@ export class TerminalView {
         return false; // block xterm from also processing this key
       }
 
+      // Ctrl+K → open command palette
+      if (e.ctrlKey && e.key === "k" && e.type === "keydown") {
+        e.preventDefault();
+        if (this.commandPalette) {
+          this.commandPalette.show();
+        }
+        return false;
+      }
+
       return true; // let all other keys through
     });
 
@@ -262,6 +293,7 @@ export class TerminalView {
             }
             this.dropdown.hide();
             this.ghostText?.hide();
+            this.hideSuggestionBar();
             return;
           } else if (this.ghostText?.isShowing()) {
             // Accept ghost text suggestion
@@ -271,6 +303,7 @@ export class TerminalView {
               this.shadowBuffer.reset();
             }
             this.ghostText.hide();
+            this.hideSuggestionBar();
             return;
           }
           // No suggestion visible — pass Tab through to remote
@@ -281,8 +314,13 @@ export class TerminalView {
 
         // Check for Escape — cascade dismiss
         if (data === "\x1b") {
+          if (this.commandPalette?.isVisible()) {
+            this.commandPalette.hide();
+            return;
+          }
           if (this.dropdown?.isVisible()) {
             this.dropdown.hide();
+            this.hideSuggestionBar();
             return;
           }
           if (this.sidePanelOpen) {
@@ -291,6 +329,7 @@ export class TerminalView {
           }
           if (this.ghostText?.isShowing()) {
             this.ghostText.hide();
+            this.hideSuggestionBar();
             return;
           }
           // Final escape: back to hosts
@@ -319,6 +358,7 @@ export class TerminalView {
             }
             this.dropdown.hide();
             this.ghostText?.hide();
+            this.hideSuggestionBar();
             return;
           }
         }
@@ -332,6 +372,7 @@ export class TerminalView {
           this.shadowBuffer.reset();
           this.ghostText?.hide();
           this.dropdown?.hide();
+          this.hideSuggestionBar();
         } else if (data === "\x7f" || data === "\b") {
           // Backspace
           this.shadowBuffer.backspace();
@@ -340,10 +381,12 @@ export class TerminalView {
           this.shadowBuffer.reset();
           this.ghostText?.hide();
           this.dropdown?.hide();
+          this.hideSuggestionBar();
         } else if (data === "\x1b[A" || data === "\x1b[B") {
           // Arrow up/down — history navigation, reset
           this.shadowBuffer.reset();
           this.ghostText?.hide();
+          this.hideSuggestionBar();
         } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
           // Printable character
           this.shadowBuffer.append(data);
@@ -449,6 +492,7 @@ export class TerminalView {
         this.receivingOutput = true;
         this.ghostText?.hide();
         this.dropdown?.hide();
+        this.hideSuggestionBar();
         if (this.outputTimer) clearTimeout(this.outputTimer);
         this.outputTimer = setTimeout(() => {
           this.receivingOutput = false;
@@ -473,7 +517,7 @@ export class TerminalView {
       this.updateStatusBar("connected");
       this.updateModeDisplay(this.currentMode);
 
-      // Initialize ghost text overlay and dropdown
+      // Initialize ghost text overlay, dropdown, and command palette
       const termContainer = document.getElementById("terminal-container")!;
       if (this.terminal) {
         this.ghostText = new GhostText(this.terminal, termContainer);
@@ -487,6 +531,7 @@ export class TerminalView {
           this.ghostText?.hide();
         });
         this.sidebarContent = new SidebarContent();
+        this.commandPalette = new CommandPalette();
       }
 
       // Load KB commands into frontend suggestion engine
@@ -677,6 +722,30 @@ export class TerminalView {
     }, 250);
   }
 
+  // ─── Inline Suggestion Bar ───────────────────────────────────────
+
+  private showSuggestionBar(input: string, commandName: string, remainder: string) {
+    const bar = document.getElementById("suggestion-bar");
+    const cmdEl = document.getElementById("sb-command");
+    const remEl = document.getElementById("sb-remainder");
+    if (bar && cmdEl && remEl) {
+      bar.classList.remove("hidden");
+      cmdEl.textContent = input;
+      remEl.textContent = remainder;
+    }
+    // Refit terminal when bar visibility changes
+    this.fitAddon?.fit();
+  }
+
+  private hideSuggestionBar() {
+    const bar = document.getElementById("suggestion-bar");
+    if (bar) {
+      bar.classList.add("hidden");
+    }
+    // Refit terminal when bar visibility changes
+    this.fitAddon?.fit();
+  }
+
   // ─── Mode display ────────────────────────────────────────────────
 
   private updateModeDisplay(mode: string) {
@@ -684,6 +753,10 @@ export class TerminalView {
     if (modeEl) {
       modeEl.textContent = this.formatModeName(mode);
     }
+
+    // Apply ambient chrome tint based on platform/mode
+    const tint = MODE_TINTS[mode] ?? MODE_TINTS[this.host?.platform ?? ""] ?? "transparent";
+    document.documentElement.style.setProperty("--chrome-tint", tint);
   }
 
   private formatModeName(mode: string): string {
@@ -727,6 +800,7 @@ export class TerminalView {
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
     if (!text || this.receivingOutput || this.state !== "connected") {
       this.ghostText?.hide();
+      this.hideSuggestionBar();
       if (this.dropdown?.isVisible()) {
         this.dropdown.updateResults([]);
       }
@@ -744,6 +818,7 @@ export class TerminalView {
 
     if (results.length === 0) {
       this.ghostText?.hide();
+      this.hideSuggestionBar();
       if (this.dropdown?.isVisible()) {
         this.dropdown.updateResults([]);
       }
@@ -756,8 +831,10 @@ export class TerminalView {
     const remainder = this.getCommandRemainder(top.command.name, text);
     if (remainder && this.terminal) {
       this.ghostText?.show(remainder, results.length - 1);
+      this.showSuggestionBar(text, top.command.name, remainder);
     } else {
       this.ghostText?.hide();
+      this.hideSuggestionBar();
     }
 
     // Update dropdown if open
@@ -878,10 +955,13 @@ export class TerminalView {
       this.ctrlWHandler = null;
     }
 
+    this.hideSuggestionBar();
     this.ghostText?.destroy();
     this.ghostText = null;
     this.dropdown?.destroy();
     this.dropdown = null;
+    this.commandPalette?.destroy();
+    this.commandPalette = null;
     this.sidebarContent = null;
     this.platformIndex = null;
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);

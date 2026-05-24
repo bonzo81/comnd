@@ -1,0 +1,199 @@
+/* ─── Connecting Overlay ───────────────────────────────────────────── */
+.tv-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(33, 34, 37, 0.92);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 50;
+}
+
+.tv-overlay.hidden {
+  display: none;
+}
+
+.tv-overlay-content {
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+  padding: var(--space-8);
+}
+
+.tv-overlay-title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--fg-primary);
+  margin-bottom: var(--space-6);
+}
+
+.tv-overlay-progress {
+  margin-bottom: var(--space-4);
+}
+
+.tv-progress-bar {
+  height: var(--space-1);
+  background: var(--color-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tv-progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.tv-overlay-stage {
+  font-size: var(--font-size-base);
+  color: var(--fg-muted);
+  margin-bottom: var(--space-4);
+  min-height: var(--space-5);
+}
+
+.tv-overlay-error {
+  font-size: var(--font-size-base);
+  color: var(--error);
+  margin-bottom: var(--space-4);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.tv-overlay-error.hidden {
+  display: none;
+}
+
+.tv-overlay-output {
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: calc(var(--spacing) * 3) 0;
+  padding: calc(var(--spacing) * 2);
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  text-align: left;
+}
+
+.tv-overlay-output:not(.hidden) {
+  display: block;
+}
+
+.tv-overlay-output.hidden {
+  display: none;
+}
+
+.tv-output-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted, #9A9B9D);
+  word-break: break-all;
+}
+
+.tv-overlay-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+/* ─── Disconnect Banner ────────────────────────────────────────────── */
+.tv-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  background: rgba(243, 139, 168, 0.15);
+  border-bottom: 1px solid var(--error);
+  font-size: var(--font-size-base);
+  color: var(--error);
+  z-index: 40;
+}
+
+.tv-banner.hidden {
+  display: none;
+}
+
+.tv-banner-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ─── Toast Notifications ──────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  min-width: 280px;
+  max-width: 420px;
+  pointer-events: auto;
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast-success { border-left: 3px solid var(--success); }
+.toast-error { border-left: 3px solid var(--error); }
+.toast-info { border-left: 3px solid var(--accent); }
+
+.toast-icon {
+  flex-shrink: 0;
+  font-size: var(--font-size-xl);
+}
+
+.toast-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xl);
+  padding: 0;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  color: var(--fg-primary);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -23,6 +23,18 @@ export interface Host {
   last_connected: string | null;
   created_at: string;
   sort_order: number;
+  tags: string[];
+  group_id: string | null;
+}
+
+export interface HostGroup {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+  color: string | null;
+  icon: string | null;
+  created_at: string;
 }
 
 export interface PlatformIndex {
@@ -97,6 +109,30 @@ export async function touchHost(id: string): Promise<void> {
   return invoke<void>("touch_host", { id });
 }
 
+// ─── Host Group Commands ─────────────────────────────────────────────
+
+export async function getHostGroups(): Promise<HostGroup[]> {
+  return invoke<HostGroup[]>("get_host_groups");
+}
+
+export async function saveHostGroup(
+  id: string | null,
+  name: string,
+  parentId: string | null,
+  color: string | null,
+  icon: string | null,
+): Promise<HostGroup> {
+  return invoke<HostGroup>("save_host_group", { id, name, parentId, color, icon });
+}
+
+export async function deleteHostGroup(id: string): Promise<void> {
+  return invoke<void>("delete_host_group", { id });
+}
+
+export async function reorderHostGroups(ids: string[]): Promise<void> {
+  return invoke<void>("reorder_host_groups", { ids });
+}
+
 // ─── Credential Commands ────────────────────────────────────────────
 
 export async function saveCredential(
@@ -148,4 +184,111 @@ export async function sshResize(cols: number, rows: number): Promise<void> {
 
 export async function sshAuthResponse(response: string): Promise<void> {
   return invoke<void>("ssh_auth_response", { response });
+}
+
+// ─── Config Commands ────────────────────────────────────────────────
+
+export interface AppConfig {
+  ollama_base_url: string;
+  ollama_model: string;
+  ollama_api_key: string | null;
+  ollama_context_length: number;
+  import_history: ImportRecord[];
+}
+
+export interface ImportRecord {
+  url: string;
+  platform: string;
+  category: string;
+  commands_imported: number;
+  timestamp: string;
+}
+
+export async function getAppConfig(): Promise<AppConfig> {
+  return invoke<AppConfig>("get_app_config");
+}
+
+export async function saveOllamaSettings(
+  baseUrl: string,
+  model: string,
+  apiKey: string | null,
+  contextLength: number,
+): Promise<void> {
+  return invoke<void>("save_ollama_settings", {
+    baseUrl,
+    model,
+    apiKey,
+    contextLength,
+  });
+}
+
+// ─── KB Import Commands ─────────────────────────────────────────────
+
+export interface ImportResult {
+  commands_imported: number;
+  target_file: string;
+  platform: string;
+  category: string;
+  source_url: string;
+  errors: string[];
+}
+
+export interface ImportProgress {
+  stage: string;
+  detail?: string | number;
+}
+
+export async function importKbUrl(
+  url: string,
+  platform: string,
+  category: string,
+): Promise<ImportResult> {
+  return invoke<ImportResult>("import_kb_url", { url, platform, category });
+}
+
+export async function testOllamaConnection(): Promise<string[]> {
+  return invoke<string[]>("test_ollama_connection");
+}
+
+export async function listKbPlatforms(): Promise<string[]> {
+  return invoke<string[]>("list_kb_platforms");
+}
+
+export async function getAllKbCommands(platform: string): Promise<Command[]> {
+  return invoke<Command[]>("get_all_kb_commands", { platform });
+}
+
+export async function saveKbCommand(
+  platform: string,
+  category: string,
+  name: string,
+  syntax: string,
+  description: string,
+  mode: string,
+  aliases: string[],
+  tags: string[],
+): Promise<void> {
+  return invoke<void>("save_kb_command", { platform, category, name, syntax, description, mode, aliases, tags });
+}
+
+export async function deleteKbCommand(
+  platform: string,
+  category: string,
+  commandName: string,
+): Promise<void> {
+  return invoke<void>("delete_kb_command", { platform, category, commandName });
+}
+
+export async function reloadKb(): Promise<void> {
+  return invoke<void>("reload_kb");
+}
+
+// ─── Test Helpers (debug builds only) ───────────────────────────────
+
+export async function testStartMockServer(): Promise<number> {
+  return invoke<number>("test_mock_server");
+}
+
+export async function testStopMockServer(): Promise<void> {
+  return invoke<void>("test_stop_mock_server");
 }

@@ -5,6 +5,8 @@
  * Pipeline: SSH output → ANSI strip → idle detection → regex match → mode update
  */
 
+import { stripAnsi } from "../lib/ansi";
+
 export interface PromptPatterns {
   [mode: string]: string; // mode name → regex pattern
 }
@@ -39,7 +41,7 @@ export class PromptDetector {
   /** Feed SSH output data through the detector */
   feed(data: string) {
     // Strip ANSI escape sequences
-    const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+    const clean = stripAnsi(data);
 
     // Accumulate trailing text (after last newline)
     const lastNewline = clean.lastIndexOf("\n");
