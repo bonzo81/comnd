@@ -14,7 +14,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `↑` / `↓` | Navigate dropdown (if open) / pass through to remote (if closed) | Terminal |
 | `Enter`  | Select dropdown item (if open) / send command to remote (if closed) | Terminal |
 | ``` Ctrl+``  ``` | Toggle side panel | Terminal |
-| `Ctrl+Shift+W` | Disconnect current session | Terminal |
+| `Ctrl+Shift+W` | Close active tab (with confirm) | Terminal |
 | `Ctrl++` / `Ctrl+-` | Zoom terminal font | Terminal |
 
 **Note:** `Ctrl+W` is NOT used — it is "delete previous word" in most shells and must pass through to the remote device.

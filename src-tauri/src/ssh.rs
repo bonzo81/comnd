@@ -6,12 +6,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use base64::Engine as _;
 use russh::keys::key::PublicKey;
 use russh::{client, ChannelId, Disconnect};
-use russh::client::DisconnectReason;
+use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
@@ -60,17 +61,51 @@ fn key_type_name(key: &PublicKey) -> String {
     key.name().to_string()
 }
 
+// ─── Auth URL Detection ─────────────────────────────────────────────
+
+// ponytail: first https token wins; upgrade to regex if gateways wrap URLs oddly
+fn extract_https_url(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|w| w.starts_with("https://"))
+        .map(|url| {
+            url.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | '>' | ';' | '\'' | '"'))
+                .to_string()
+        })
+}
+
+fn try_open_auth_url(
+    app_handle: &tauri::AppHandle,
+    auth_url_opened: &AtomicBool,
+    text: &str,
+    session_id: u64,
+) {
+    if auth_url_opened.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(url) = extract_https_url(text) {
+        auth_url_opened.store(true, Ordering::Relaxed);
+        log::info!("Auth URL detected: {}", url);
+        let _ = app_handle.emit("ssh-auth-url", SshAuthUrlPayload {
+            url: url.clone(),
+            session_id,
+        });
+        crate::open_url(&url);
+    }
+}
+
 // ─── Client Handler ─────────────────────────────────────────────────
 
 /// Tauri event payloads
 #[derive(Clone, Serialize)]
 pub struct SshOutputPayload {
     pub data: String, // base64 encoded bytes
+    pub session_id: u64,
 }
 
 #[derive(Clone, Serialize)]
 pub struct SshEventPayload {
     pub reason: String,
+    pub session_id: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -80,9 +115,17 @@ pub struct SshAuthPromptPayload {
     pub prompts: Vec<String>,
 }
 
+#[derive(Clone, Serialize)]
+pub struct SshAuthUrlPayload {
+    pub url: String,
+    pub session_id: u64,
+}
+
 struct ClientHandler {
     app_handle: tauri::AppHandle,
     host_key: String, // "hostname:port"
+    session_id: u64,
+    auth_url_opened: Arc<AtomicBool>,
 }
 
 #[async_trait]
@@ -109,6 +152,7 @@ impl client::Handler for ClientHandler {
                          Previous key type: {}, new key type: {}. Connection rejected.",
                         self.host_key, entry.key_type, key_type
                     ),
+                    session_id: self.session_id,
                 });
                 return Ok(false);
             }
@@ -116,6 +160,7 @@ impl client::Handler for ClientHandler {
 
         // First time — TOFU: accept and save
         log::info!("TOFU: accepting new host key for {} ({})", self.host_key, key_type);
+        let fingerprint = format!("SHA256:{}", &key_b64[..16.min(key_b64.len())]);
         known.insert(
             self.host_key.clone(),
             KnownHostEntry {
@@ -125,6 +170,10 @@ impl client::Handler for ClientHandler {
             },
         );
         let _ = save_known_hosts(&known);
+        let _ = self.app_handle.emit("ssh-tofu", SshEventPayload {
+            reason: format!("New host key accepted for {} — fingerprint: {}", self.host_key, fingerprint),
+            session_id: self.session_id,
+        });
         Ok(true)
     }
 
@@ -135,7 +184,7 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded });
+        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         Ok(())
     }
 
@@ -148,7 +197,7 @@ impl client::Handler for ClientHandler {
     ) -> Result<(), Self::Error> {
         // stderr output — forward the same way
         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded });
+        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         Ok(())
     }
 
@@ -158,8 +207,9 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         if !banner.is_empty() {
+            try_open_auth_url(&self.app_handle, &self.auth_url_opened, banner, self.session_id);
             let encoded = base64::engine::general_purpose::STANDARD.encode(banner.as_bytes());
-            let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded });
+            let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         }
         Ok(())
     }
@@ -172,6 +222,7 @@ impl client::Handler for ClientHandler {
         log::info!("SSH channel closed for {}", self.host_key);
         let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
             reason: "channel_closed".to_string(),
+            session_id: self.session_id,
         });
         Ok(())
     }
@@ -184,6 +235,7 @@ impl client::Handler for ClientHandler {
         log::info!("SSH channel EOF for {}", self.host_key);
         let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
             reason: "channel_eof".to_string(),
+            session_id: self.session_id,
         });
         Ok(())
     }
@@ -195,6 +247,7 @@ impl client::Handler for ClientHandler {
         log::info!("SSH disconnected for {}", self.host_key);
         let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
             reason: "connection_lost".to_string(),
+            session_id: self.session_id,
         });
         match reason {
             DisconnectReason::ReceivedDisconnect(_) => Ok(()),
@@ -208,6 +261,7 @@ impl client::Handler for ClientHandler {
 pub struct SshSession {
     session: client::Handle<ClientHandler>,
     channel: russh::Channel<client::Msg>,
+    pub session_id: u64,
 }
 
 impl SshSession {
@@ -220,6 +274,7 @@ impl SshSession {
         key_path: Option<&str>,
         cols: u32,
         rows: u32,
+        session_id: u64,
     ) -> Result<Self, String> {
         log::info!("SSH connecting to {}:{} as '{}' ({}x{})", hostname, port, username, cols, rows);
 
@@ -231,10 +286,13 @@ impl SshSession {
         });
 
         let host_key = format!("{}:{}", hostname, port);
+        let auth_url_opened = Arc::new(AtomicBool::new(false));
 
         let handler = ClientHandler {
             app_handle: app_handle.clone(),
             host_key,
+            session_id,
+            auth_url_opened: auth_url_opened.clone(),
         };
 
         // Connect
@@ -250,18 +308,20 @@ impl SshSession {
 
         log::info!("SSH TCP connected to {}", addr);
 
-        // Authenticate (with timeout to prevent indefinite hangs)
+        // Authenticate (with timeout to prevent indefinite hangs).
+        // 120s: browser-auth gateways (Tailscale check mode) hold auth open while
+        // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
-            std::time::Duration::from_secs(15),
-            Self::authenticate(&mut session, username, password, key_path),
+            std::time::Duration::from_secs(120),
+            Self::authenticate(&app_handle, &mut session, username, password, key_path, session_id, &auth_url_opened),
         )
         .await
-        .map_err(|_| format!("Authentication timed out after 15s for {}@{}", username, addr))?
+        .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
         ?;
 
         if !auth_success {
             log::warn!("SSH authentication failed for {}@{}", username, addr);
-            return Err("Authentication failed".to_string());
+            return Err("Authentication failed — server rejected all offered methods (default SSH keys, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
         log::info!("SSH authenticated successfully as {}@{}", username, addr);
@@ -304,22 +364,27 @@ impl SshSession {
 
         log::info!("SSH session ready for {}", addr);
 
-        // Emit connected event
+        // Emit connected event with session_id
         let _ = app_handle.emit("ssh-connected", SshEventPayload {
             reason: "ok".to_string(),
+            session_id,
         });
 
         Ok(SshSession {
             session,
             channel,
+            session_id,
         })
     }
 
     async fn authenticate(
+        app_handle: &tauri::AppHandle,
         session: &mut client::Handle<ClientHandler>,
         username: &str,
         password: Option<&str>,
         key_path: Option<&str>,
+        session_id: u64,
+        auth_url_opened: &Arc<AtomicBool>,
     ) -> Result<bool, String> {
         // Try SSH key auth first if key path provided
         if let Some(key_path) = key_path {
@@ -344,6 +409,42 @@ impl SshSession {
             }
         }
 
+        // Default keys (OpenSSH behavior) when no explicit key configured:
+        // ~/.ssh/id_ed25519, id_rsa, id_ecdsa
+        // ponytail: gated on key_path.is_none(); also run after explicit-key failure if that ever confuses users
+        if key_path.is_none() {
+            if let Some(home) = dirs::home_dir() {
+                for name in ["id_ed25519", "id_rsa", "id_ecdsa"] {
+                    let path = home.join(".ssh").join(name);
+                    if !path.exists() {
+                        continue;
+                    }
+                    log::info!("Attempting default SSH key {}", path.display());
+                    match russh_keys::load_secret_key(&path, None) {
+                        Ok(key) => {
+                            match session
+                                .authenticate_publickey(username, Arc::new(key))
+                                .await
+                            {
+                                Ok(true) => return Ok(true),
+                                Ok(false) => {
+                                    log::info!("Default key {} rejected by server", path.display())
+                                }
+                                Err(e) => {
+                                    log::warn!("Default key {} auth error: {}", path.display(), e)
+                                }
+                            }
+                        }
+                        Err(e) => log::warn!(
+                            "Failed to load default key {}: {} (passphrase-protected keys unsupported)",
+                            path.display(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+
         // Try password auth
         if let Some(password) = password {
             log::info!("Attempting password auth");
@@ -353,6 +454,46 @@ impl SshSession {
                 .map_err(|e| format!("Password auth error: {}", e))?;
             if auth_result {
                 return Ok(true);
+            }
+        }
+
+        // Fallback: try keyboard-interactive auth
+        // Some servers (e.g. Tailscale) send auth URLs or instructions via
+        // keyboard-interactive prompts rather than rejecting auth outright.
+        // We attempt it to capture those prompts for the user, even though
+        // we can't complete the interactive flow.
+        log::info!("Attempting keyboard-interactive auth as fallback");
+        match session
+            .authenticate_keyboard_interactive_start(username, None::<String>)
+            .await
+        {
+            Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
+                try_open_auth_url(app_handle, auth_url_opened, &instructions, session_id);
+                for prompt in &prompts {
+                    try_open_auth_url(app_handle, auth_url_opened, &prompt.prompt, session_id);
+                }
+                // Forward the server's instructions/prompts to the frontend as ssh-output
+                // so the user can see any auth URLs or instructions
+                if !instructions.is_empty() {
+                    log::info!("Keyboard-interactive instructions: {}", instructions);
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(instructions.as_bytes());
+                    let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                }
+                for prompt in &prompts {
+                    if !prompt.prompt.is_empty() {
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
+                        let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                    }
+                }
+                // Don't attempt to respond — auth will fail, but the user saw the prompts
+                log::warn!("Keyboard-interactive auth started but no interactive handler — auth will fail");
+            }
+            Ok(_) => {
+                // Success or Failure with no info request — nothing to forward
+                log::info!("Keyboard-interactive auth returned {:?}; no prompts to show", "non-info");
+            }
+            Err(e) => {
+                log::info!("Keyboard-interactive auth not available: {}", e);
             }
         }
 
@@ -381,20 +522,12 @@ impl SshSession {
             .await
             .map_err(|e| format!("Disconnect error: {}", e))
     }
-
-    /// Send a keyboard-interactive auth response from the frontend
-    /// (placeholder for future keyboard-interactive support)
-    pub async fn send_auth_response(&self, _response: String) -> Result<(), String> {
-        // Keyboard-interactive auth responses will be implemented
-        // when full challenge/response flow is added
-        Ok(())
-    }
 }
 
 // ─── Session Manager (app state) ───────────────────────────────────
 
 pub struct SshManager {
-    session: Option<SshSession>,
+    sessions: HashMap<u64, SshSession>,
     #[cfg(debug_assertions)]
     test_server_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -402,26 +535,26 @@ pub struct SshManager {
 impl SshManager {
     pub fn new() -> Self {
         SshManager {
-            session: None,
+            sessions: HashMap::new(),
             #[cfg(debug_assertions)]
             test_server_handle: None,
         }
     }
 
-    pub fn set_session(&mut self, session: SshSession) {
-        self.session = Some(session);
+    pub fn insert_session(&mut self, session: SshSession) {
+        self.sessions.insert(session.session_id, session);
     }
 
-    pub fn take_session(&mut self) -> Option<SshSession> {
-        self.session.take()
+    pub fn take_session(&mut self, session_id: u64) -> Option<SshSession> {
+        self.sessions.remove(&session_id)
     }
 
-    pub fn get_session(&self) -> Option<&SshSession> {
-        self.session.as_ref()
+    pub fn get_session(&self, session_id: u64) -> Option<&SshSession> {
+        self.sessions.get(&session_id)
     }
 
     pub fn is_connected(&self) -> bool {
-        self.session.is_some()
+        !self.sessions.is_empty()
     }
 
     #[cfg(debug_assertions)]

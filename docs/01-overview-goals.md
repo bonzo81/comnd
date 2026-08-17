@@ -29,7 +29,6 @@ Unlike generic SSH clients, net.sh understands *what you're connected to* and su
 
 * AI/LLM-powered suggestions (post-MVP)
 * Auto-detection of platform from SSH banner (post-MVP)
-* Multi-tab / multi-session (post-MVP)
 * Mobile support (out of scope)
 * Built-in file transfer (out of scope for now)
 

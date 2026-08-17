@@ -6,6 +6,7 @@
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -18,18 +19,20 @@ import {
   touchHost,
   loadPlatformIndex,
   queryKb,
+  openUrl,
   PlatformIndex,
-  Command as TauriCommand,
+  Command,
 } from "../lib/tauri-api";
 import { log } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
 import { ShadowBuffer } from "../lib/shadow-buffer";
-import { SuggestionEngine, Command as SuggestionCommand } from "../lib/suggestion-engine";
+import { SuggestionEngine } from "../lib/suggestion-engine";
 import { GhostText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
 import { CommandPalette } from "./command-palette";
 import { stripAnsi } from "../lib/ansi";
+import { formatMode } from "../lib/format";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -61,9 +64,13 @@ interface ConnectProgress {
 }
 
 export class TerminalView {
+  private root: HTMLElement | null = null;
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
-  private onDisconnectCb: () => void;
+  private onDetachCb: () => void;
+  private onDisconnectCb: (hostId: string) => void;
+  private onSessionDiedCb: (hostId: string) => void;
+  private onRequestCloseCb: (hostId: string) => void;
   private sidePanelOpen = false;
   private host: Host | null = null;
   private state: ConnectionState = "idle";
@@ -87,16 +94,29 @@ export class TerminalView {
   private outputBuffer: string[] = [];
   private fontSize = 14;
 
+  // Session ID for event correlation — stale events from old connections are ignored
+  private sessionId = 0;
+
   // Event listener cleanup
   private unlistenOutput: UnlistenFn | null = null;
   private unlistenConnected: UnlistenFn | null = null;
   private unlistenDisconnected: UnlistenFn | null = null;
   private unlistenError: UnlistenFn | null = null;
+  private unlistenTofu: UnlistenFn | null = null;
+  private unlistenAuthUrl: UnlistenFn | null = null;
   private resizeHandler: (() => void) | null = null;
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
 
-  constructor(onDisconnect: () => void) {
+  constructor(
+    onDetach: () => void,
+    onDisconnect: (hostId: string) => void,
+    onSessionDied: (hostId: string) => void,
+    onRequestClose: (hostId: string) => void,
+  ) {
+    this.onDetachCb = onDetach;
     this.onDisconnectCb = onDisconnect;
+    this.onSessionDiedCb = onSessionDied;
+    this.onRequestCloseCb = onRequestClose;
     this.suggestionEngine = new SuggestionEngine();
     this.promptDetector = new PromptDetector(
       (mode) => {
@@ -117,114 +137,38 @@ export class TerminalView {
     });
   }
 
-  mount(container: HTMLElement) {
-    container.innerHTML = `
-      <div class="terminal-view">
-        <div class="tv-topbar">
-          <button class="btn-text" id="back-btn">← Back</button>
-          <span class="tv-host-info" id="host-info">Connecting...</span>
-          <button class="btn-text" id="panel-btn">≡ Panel</button>
-        </div>
-        <div class="tv-main">
-          <div class="tv-terminal-wrap">
-            <div class="tv-terminal" id="terminal-container"></div>
-            <div class="tv-overlay hidden" id="connect-overlay">
-              <div class="tv-overlay-content">
-                <div class="tv-overlay-title" id="overlay-title">Connecting...</div>
-                <div class="tv-overlay-progress">
-                  <div class="tv-progress-bar"><div class="tv-progress-fill" id="progress-fill"></div></div>
-                </div>
-                <div class="tv-overlay-stage" id="overlay-stage"></div>
-                <div class="tv-overlay-error hidden" id="overlay-error"></div>
-                <div class="tv-overlay-output hidden" id="overlay-output"><pre class="tv-output-text" id="output-text"></pre></div>
-                <div class="tv-overlay-actions" id="overlay-actions">
-                  <button class="btn-text" id="overlay-cancel">Cancel</button>
-                </div>
-              </div>
-            </div>
-            <div class="tv-banner hidden" id="disconnect-banner">
-              <span id="banner-msg">Connection lost</span>
-              <div class="tv-banner-actions">
-                <button class="btn-primary btn-sm" id="banner-reconnect">Reconnect</button>
-                <button class="btn-text" id="banner-back">Back to hosts</button>
-              </div>
-            </div>
-          </div>
-          <div class="tv-sidebar hidden" id="sidebar">
-            <div class="sb-content">
-              <p class="sb-placeholder">Select a suggestion to see command details</p>
-            </div>
-          </div>
-        </div>
-        <div class="tv-suggestion-bar hidden" id="suggestion-bar">
-          <span class="sb-label">Suggestion</span>
-          <span class="sb-command" id="sb-command"></span>
-          <span class="sb-remainder" id="sb-remainder"></span>
-        </div>
-        <div class="tv-statusbar" id="statusbar">
-          <span class="sb-indicator sb-connecting" id="sb-dot">●</span>
-          <span id="sb-host">—</span>
-          <span class="sb-divider">│</span>
-          <span id="sb-platform">—</span>
-          <span class="sb-divider">│</span>
-          <span id="sb-mode">—</span>
-        </div>
-      </div>
-    `;
+  private $<T extends HTMLElement = HTMLElement>(sel: string): T | null {
+    return this.root?.querySelector(sel) as T | null;
+  }
 
-    // Init xterm.js
+  private initTerminal() {
+    if (this.terminal) return;
     this.terminal = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 14,
+      fontSize: this.fontSize,
       theme: {
-        background: "#212225",
-        foreground: "#E4E5E7",
-        cursor: "#F2726B",
-        selectionBackground: "#3A3B3D",
+        background: "#0F172A",
+        foreground: "#F8FAFC",
+        cursor: "#22C55E",
+        selectionBackground: "#1E293B",
       },
       cursorBlink: true,
     });
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
+    this.terminal.loadAddon(new WebLinksAddon((_event, uri) => {
+      openUrl(uri).catch(() => {});
+    }));
 
-    const termContainer = document.getElementById("terminal-container")!;
+    const termContainer = this.$(".tv-terminal")!;
     this.terminal.open(termContainer);
     this.fitAddon.fit();
 
-    // Back button
-    document.getElementById("back-btn")!.addEventListener("click", () => {
-      this.backToHosts();
-    });
-
-    // Panel toggle
-    document.getElementById("panel-btn")!.addEventListener("click", () => {
-      this.toggleSidebar();
-    });
-
-    // Overlay cancel
-    document.getElementById("overlay-cancel")!.addEventListener("click", () => {
-      this.cancelConnect();
-    });
-
-    // Disconnect banner actions
-    document.getElementById("banner-reconnect")!.addEventListener("click", () => {
-      this.reconnect();
-    });
-    document.getElementById("banner-back")!.addEventListener("click", () => {
-      this.backToHosts();
-    });
-
-    // Window resize → fit terminal → resize PTY
-    this.resizeHandler = () => {
-      this.fitAddon?.fit();
-    };
-    window.addEventListener("resize", this.resizeHandler);
-
     // xterm.js resize event → send PTY resize to remote
     this.terminal.onResize(({ cols, rows }) => {
-      if (this.state === "connected") {
-        sshResize(cols, rows).catch(() => {});
+      if (this.state === "connected" && this.sessionId) {
+        sshResize(this.sessionId, cols, rows).catch(() => {});
       }
     });
 
@@ -246,8 +190,8 @@ export class TerminalView {
       if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
         e.preventDefault(); // block browser paste event to avoid double-paste
         navigator.clipboard.readText().then((text) => {
-          if (text && this.state === "connected") {
-            sshSend(text).catch(() => {});
+          if (text && this.state === "connected" && this.sessionId) {
+            sshSend(this.sessionId, text).catch(() => {});
             // Feed pasted text to shadow buffer
             for (const ch of text) {
               if (ch.charCodeAt(0) >= 32) {
@@ -271,13 +215,6 @@ export class TerminalView {
       return true; // let all other keys through
     });
 
-    // Block xterm's internal paste handler — we handle paste manually above
-    const termEl = document.getElementById("terminal-container")!;
-    termEl.addEventListener("paste", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }, true);
-
     // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
     this.terminal.onData((data) => {
       if (this.state === "connected") {
@@ -289,7 +226,7 @@ export class TerminalView {
             if (selected) {
               const remainder = this.getCommandRemainder(selected.command.name, this.currentInput);
               if (remainder) {
-                sshSend(remainder).catch(() => {});
+                this.sendData(remainder);
                 this.shadowBuffer.reset();
               }
             }
@@ -301,7 +238,7 @@ export class TerminalView {
             // Accept ghost text suggestion
             const remainder = this.ghostText.getCurrentRemainder();
             if (remainder) {
-              sshSend(remainder).catch(() => {});
+              this.sendData(remainder);
               this.shadowBuffer.reset();
             }
             this.ghostText.hide();
@@ -309,7 +246,7 @@ export class TerminalView {
             return;
           }
           // No suggestion visible — pass Tab through to remote
-          sshSend(data).catch(() => {});
+          this.sendData(data);
           this.shadowBuffer.reset();
           return;
         }
@@ -354,7 +291,7 @@ export class TerminalView {
             if (selected) {
               const remainder = this.getCommandRemainder(selected.command.name, this.currentInput);
               if (remainder) {
-                sshSend(remainder).catch(() => {});
+                this.sendData(remainder);
                 this.shadowBuffer.reset();
               }
             }
@@ -366,7 +303,7 @@ export class TerminalView {
         }
 
         // Send to SSH
-        sshSend(data).catch(() => {});
+        this.sendData(data);
 
         // Update shadow buffer based on input
         if (data === "\r") {
@@ -402,6 +339,109 @@ export class TerminalView {
         }
       }
     });
+  }
+
+  /** Send data to the current session (no-op when not connected). */
+  private sendData(data: string) {
+    if (this.state === "connected" && this.sessionId) {
+      sshSend(this.sessionId, data).catch(() => {});
+    }
+  }
+
+  mount(container: HTMLElement) {
+    container.innerHTML = `
+      <div class="terminal-view">
+        <div class="tv-topbar">
+          <div class="tv-topbar-left">
+            <button class="btn-text tv-back-btn">← Back</button>
+            <button class="btn-text tv-close-btn">✕ Close</button>
+          </div>
+          <span class="tv-host-info">Connecting...</span>
+          <button class="btn-text tv-panel-btn">≡ Panel</button>
+        </div>
+        <div class="tv-main">
+          <div class="tv-terminal-wrap">
+            <div class="tv-terminal"></div>
+            <div class="tv-overlay hidden">
+              <div class="tv-overlay-content">
+                <div class="tv-overlay-title">Connecting...</div>
+                <div class="tv-overlay-progress">
+                  <div class="tv-progress-bar"><div class="tv-progress-fill"></div></div>
+                </div>
+                <div class="tv-overlay-stage"></div>
+                <div class="tv-overlay-error hidden"></div>
+                <div class="tv-overlay-output hidden"><pre class="tv-output-text"></pre></div>
+                <div class="tv-overlay-actions">
+                  <button class="btn-text tv-overlay-cancel">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="tv-banner hidden">
+              <span class="tv-banner-msg">Connection lost</span>
+              <div class="tv-banner-actions">
+                <button class="btn-primary btn-sm tv-banner-reconnect">Reconnect</button>
+                <button class="btn-text tv-banner-back">Back to hosts</button>
+              </div>
+            </div>
+          </div>
+          <div class="tv-sidebar hidden">
+            <div class="sb-content">
+              <p class="sb-placeholder">Select a suggestion to see command details</p>
+            </div>
+          </div>
+        </div>
+        <div class="tv-suggestion-bar hidden">
+          <span class="sb-label">Suggestion</span>
+          <span class="sb-command"></span>
+          <span class="sb-remainder"></span>
+        </div>
+        <div class="tv-statusbar">
+          <span class="sb-indicator sb-connecting tv-sb-dot">●</span>
+          <span class="tv-sb-host">—</span>
+          <span class="sb-divider">│</span>
+          <span class="tv-sb-platform">—</span>
+          <span class="sb-divider">│</span>
+          <span class="tv-sb-mode">—</span>
+        </div>
+      </div>
+    `;
+    this.root = container.firstElementChild as HTMLElement;
+
+    this.initTerminal();
+
+    // Back button — detach (keep session alive)
+    this.$(".tv-back-btn")!.addEventListener("click", () => {
+      this.backToHosts();
+    });
+
+    // Close button — request close via App (shows confirmation)
+    this.$(".tv-close-btn")!.addEventListener("click", () => {
+      this.onRequestCloseCb(this.host?.id ?? "");
+    });
+
+    // Panel toggle
+    this.$(".tv-panel-btn")!.addEventListener("click", () => {
+      this.toggleSidebar();
+    });
+
+    // Overlay cancel
+    this.$(".tv-overlay-cancel")!.addEventListener("click", () => {
+      this.cancelConnect();
+    });
+
+    // Disconnect banner actions
+    this.$(".tv-banner-reconnect")!.addEventListener("click", () => {
+      this.reconnect();
+    });
+    this.$(".tv-banner-back")!.addEventListener("click", () => {
+      this.onRequestCloseCb(this.host?.id ?? "");
+    });
+
+    // Window resize → fit terminal → resize PTY
+    this.resizeHandler = () => {
+      this.fitAddon?.fit();
+    };
+    window.addEventListener("resize", this.resizeHandler);
 
     // Prevent Ctrl+W from closing browser tab — must pass through to remote
     this.ctrlWHandler = (e: KeyboardEvent) => {
@@ -413,8 +453,18 @@ export class TerminalView {
   }
 
   async connect(host: Host) {
+    // If we're already connected to this host, just reattach — no reconnect needed
+    if (this.state === "connected" && this.host?.id === host.id) {
+      log.info("terminal", `Reattaching to existing session for '${host.display_name}'`);
+      this.hideOverlay();
+      this.hideDisconnectBanner();
+      this.updateHostInfo();
+      this.updateStatusBar("connected");
+      this.terminal?.focus();
+      return;
+    }
+
     this.host = host;
-    this.cleanDisconnect = false;
     log.info("terminal", `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
 
     // Update top bar
@@ -464,6 +514,9 @@ export class TerminalView {
       // Initiate SSH connection
       this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
 
+      // Generate unique session_id BEFORE sshConnect so all events are correlated correctly
+      this.sessionId = Date.now();
+
       await sshConnect({
         hostname: host.hostname,
         port: host.port,
@@ -472,9 +525,10 @@ export class TerminalView {
         keyPath: host.auth_type === "ssh_key" ? (host.ssh_key_path ?? undefined) : undefined,
         cols,
         rows,
+        sessionId: this.sessionId,
       });
 
-      log.info("terminal", "sshConnect resolved successfully");
+      log.info("terminal", `sshConnect resolved successfully (session_id=${this.sessionId})`);
     } catch (err) {
       log.error("terminal", `Connection failed: ${err}`);
       this.showError(String(err));
@@ -483,7 +537,10 @@ export class TerminalView {
 
   private async registerSshListeners() {
     // SSH output → xterm.js + prompt detector
-    this.unlistenOutput = await listen<{ data: string }>("ssh-output", (event) => {
+    this.unlistenOutput = await listen<{ data: string; session_id: number }>("ssh-output", (event) => {
+      // Ignore stale output from old connections
+      if (event.payload.session_id !== this.sessionId) return;
+
       const bytes = this.base64ToUint8Array(event.payload.data);
       const text = new TextDecoder().decode(bytes);
 
@@ -517,9 +574,11 @@ export class TerminalView {
     });
 
     // SSH connected
-    this.unlistenConnected = await listen<{ reason: string }>("ssh-connected", () => {
-      this.clearOutputBuffer();
-      log.info("terminal", "SSH connected event received");
+    this.unlistenConnected = await listen<{ reason: string; session_id: number }>("ssh-connected", (event) => {
+      // Capture session_id — all subsequent events must match this
+      this.sessionId = event.payload.session_id;
+      this.cleanDisconnect = false; // Reset — stale disconnects before this are ignored
+      log.info("terminal", `SSH connected event received (session_id=${this.sessionId})`);
       this.setState("connected");
       // Update last_connected timestamp
       if (this.host) {
@@ -531,14 +590,14 @@ export class TerminalView {
       this.updateModeDisplay(this.currentMode);
 
       // Initialize ghost text overlay, dropdown, and command palette
-      const termContainer = document.getElementById("terminal-container")!;
+      const termContainer = this.$(".tv-terminal")!;
       if (this.terminal) {
         this.ghostText = new GhostText(this.terminal, termContainer);
         this.dropdown = new Dropdown(termContainer, (cmd) => {
           // On dropdown accept
           const remainder = this.getCommandRemainder(cmd.name, this.currentInput);
           if (remainder) {
-            sshSend(remainder).catch(() => {});
+            this.sendData(remainder);
             this.shadowBuffer.reset();
           }
           this.ghostText?.hide();
@@ -553,20 +612,68 @@ export class TerminalView {
       }
     });
 
-    // SSH disconnected
-    this.unlistenDisconnected = await listen<{ reason: string }>("ssh-disconnected", (event) => {
+    // SSH disconnected — session ended (user typed exit, server closed, timeout, etc.)
+    this.unlistenDisconnected = await listen<{ reason: string; session_id: number }>("ssh-disconnected", (event) => {
+      // Ignore stale disconnect events from old connections
+      if (event.payload.session_id !== this.sessionId) {
+        log.debug("terminal", `Ignoring stale ssh-disconnected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
+        return;
+      }
+
       this.clearOutputBuffer();
       log.info("terminal", `SSH disconnected event: ${event.payload.reason}`);
       if (this.cleanDisconnect) return; // User initiated — handled elsewhere
+
+      const wasConnected = this.state === "connected";
       this.setState("disconnected");
-      this.showDisconnectBanner(event.payload.reason);
-      this.updateStatusBar("disconnected");
+
+      // Check if terminal is visible (user is looking at it)
+      const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
+      const terminalVisible = wrapper && wrapper.style.display !== "none";
+
+      if (terminalVisible && wasConnected && this.host) {
+        // Session ended while user was in the terminal — close the terminal
+        // and return to host list (no banner, no reconnect prompt)
+        this.onDisconnectCb(this.host.id);
+      } else if (wasConnected && this.host) {
+        // Session died while user was in host list — silently clean up green dot
+        this.onSessionDiedCb(this.host.id);
+      }
     });
 
     // SSH error
-    this.unlistenError = await listen<{ reason: string }>("ssh-error", (event) => {
+    this.unlistenError = await listen<{ reason: string; session_id: number }>("ssh-error", (event) => {
+      // Ignore stale error events from old connections
+      if (event.payload.session_id !== this.sessionId) return;
       log.error("terminal", `SSH error event: ${event.payload.reason}`);
       this.showError(event.payload.reason);
+    });
+
+    // TOFU: new host key accepted (visibility only, no dialog)
+    this.unlistenTofu = await listen<{ reason: string; session_id: number }>("ssh-tofu", (event) => {
+      if (event.payload.session_id !== this.sessionId) return;
+      log.info("terminal", event.payload.reason);
+    });
+
+    // Auth URL: browser-auth gateway detected — browser already opened in backend
+    this.unlistenAuthUrl = await listen<{ url: string; session_id: number }>("ssh-auth-url", (event) => {
+      if (event.payload.session_id !== this.sessionId) return;
+      const url = event.payload.url;
+      log.info("terminal", `Auth URL opened in browser: ${url}`);
+      // Update overlay stage text
+      const stageEl = this.$(".tv-overlay-stage");
+      if (stageEl) {
+        stageEl.textContent = `Authentication required — opened ${url} in browser`;
+      }
+      // Add "Open again" button next to Cancel
+      const actionsEl = this.$(".tv-overlay-actions");
+      if (actionsEl) {
+        const openBtn = document.createElement("button");
+        openBtn.className = "btn-text";
+        openBtn.textContent = "Open again";
+        openBtn.addEventListener("click", () => openUrl(url));
+        actionsEl.insertBefore(openBtn, actionsEl.firstChild);
+      }
     });
   }
 
@@ -575,10 +682,14 @@ export class TerminalView {
     this.unlistenConnected?.();
     this.unlistenDisconnected?.();
     this.unlistenError?.();
+    this.unlistenTofu?.();
+    this.unlistenAuthUrl?.();
     this.unlistenOutput = null;
     this.unlistenConnected = null;
     this.unlistenDisconnected = null;
     this.unlistenError = null;
+    this.unlistenTofu = null;
+    this.unlistenAuthUrl = null;
   }
 
   // ─── Overlay / Banner UI ─────────────────────────────────────────
@@ -589,33 +700,33 @@ export class TerminalView {
 
   private setProgress(stage: string, percent: number) {
     this.progress.stage = stage;
-    const overlay = document.getElementById("connect-overlay");
-    const stageEl = document.getElementById("overlay-stage");
-    const fillEl = document.getElementById("progress-fill");
-    const errorEl = document.getElementById("overlay-error");
-    const actionsEl = document.getElementById("overlay-actions");
-    const titleEl = document.getElementById("overlay-title");
+    const overlay = this.$(".tv-overlay");
+    const stageEl = this.$(".tv-overlay-stage");
+    const fillEl = this.$(".tv-progress-fill");
+    const errorEl = this.$(".tv-overlay-error");
+    const actionsEl = this.$(".tv-overlay-actions");
+    const titleEl = this.$(".tv-overlay-title");
 
     overlay?.classList.remove("hidden");
     if (stageEl) stageEl.textContent = stage;
     if (fillEl) fillEl.style.width = `${percent}%`;
     if (titleEl) titleEl.textContent = `Connecting to ${this.host?.display_name ?? "host"}`;
     errorEl?.classList.add("hidden");
-    // Replaces action buttons; does NOT affect sibling elements like #overlay-output
+    // Replaces action buttons; does NOT affect sibling elements like .tv-overlay-output
     if (actionsEl) {
-      actionsEl.innerHTML = `<button class="btn-text" id="overlay-cancel">Cancel</button>`;
-      document.getElementById("overlay-cancel")?.addEventListener("click", () => this.cancelConnect());
+      actionsEl.innerHTML = `<button class="btn-text tv-overlay-cancel">Cancel</button>`;
+      this.$(".tv-overlay-cancel")?.addEventListener("click", () => this.cancelConnect());
     }
   }
 
   private showError(message: string) {
     this.setState("error");
-    const overlay = document.getElementById("connect-overlay");
-    const stageEl = document.getElementById("overlay-stage");
-    const fillEl = document.getElementById("progress-fill");
-    const errorEl = document.getElementById("overlay-error");
-    const actionsEl = document.getElementById("overlay-actions");
-    const titleEl = document.getElementById("overlay-title");
+    const overlay = this.$(".tv-overlay");
+    const stageEl = this.$(".tv-overlay-stage");
+    const fillEl = this.$(".tv-progress-fill");
+    const errorEl = this.$(".tv-overlay-error");
+    const actionsEl = this.$(".tv-overlay-actions");
+    const titleEl = this.$(".tv-overlay-title");
 
     overlay?.classList.remove("hidden");
     if (titleEl) titleEl.textContent = "Connection Failed";
@@ -627,7 +738,7 @@ export class TerminalView {
     }
     // Show output pane if buffer has content (preserve for debugging),
     // hide it otherwise so stale data doesn't persist on next connect.
-    const outputPane = document.getElementById("overlay-output");
+    const outputPane = this.$(".tv-overlay-output");
     if (outputPane) {
       if (this.outputBuffer.length > 0) {
         outputPane.classList.remove("hidden");
@@ -637,22 +748,22 @@ export class TerminalView {
     }
     if (actionsEl) {
       actionsEl.innerHTML = `
-        <button class="btn-primary btn-sm" id="overlay-retry">Retry</button>
-        <button class="btn-text" id="overlay-back">Back to hosts</button>
+        <button class="btn-primary btn-sm tv-overlay-retry">Retry</button>
+        <button class="btn-text tv-overlay-back">Back to hosts</button>
       `;
-      document.getElementById("overlay-retry")?.addEventListener("click", () => this.reconnect());
-      document.getElementById("overlay-back")?.addEventListener("click", () => this.backToHosts());
+      this.$(".tv-overlay-retry")?.addEventListener("click", () => this.reconnect());
+      this.$(".tv-overlay-back")?.addEventListener("click", () => this.disconnect());
     }
     this.updateStatusBar("error");
   }
 
   private hideOverlay() {
-    document.getElementById("connect-overlay")?.classList.add("hidden");
+    this.$(".tv-overlay")?.classList.add("hidden");
   }
 
   private showDisconnectBanner(reason: string) {
-    const banner = document.getElementById("disconnect-banner");
-    const msgEl = document.getElementById("banner-msg");
+    const banner = this.$(".tv-banner");
+    const msgEl = this.$(".tv-banner-msg");
     banner?.classList.remove("hidden");
     if (msgEl) {
       const reasonText = reason === "channel_closed" ? "Session ended"
@@ -663,13 +774,13 @@ export class TerminalView {
   }
 
   private hideDisconnectBanner() {
-    document.getElementById("disconnect-banner")?.classList.add("hidden");
+    this.$(".tv-banner")?.classList.add("hidden");
   }
 
   // ─── Status bar ──────────────────────────────────────────────────
 
   private updateHostInfo() {
-    const infoEl = document.getElementById("host-info");
+    const infoEl = this.$(".tv-host-info");
     if (infoEl && this.host) {
       const platformLabel = PLATFORM_LABELS[this.host.platform] ?? this.host.platform;
       const version = this.host.os_version ? ` ${this.host.os_version}` : "";
@@ -678,9 +789,9 @@ export class TerminalView {
   }
 
   private updateStatusBar(status: "connecting" | "connected" | "disconnected" | "error") {
-    const dot = document.getElementById("sb-dot");
-    const hostEl = document.getElementById("sb-host");
-    const platformEl = document.getElementById("sb-platform");
+    const dot = this.$(".tv-sb-dot");
+    const hostEl = this.$(".tv-sb-host");
+    const platformEl = this.$(".tv-sb-platform");
 
     if (dot) {
       dot.className = "sb-indicator";
@@ -704,28 +815,47 @@ export class TerminalView {
 
   // ─── Navigation / lifecycle ──────────────────────────────────────
 
+  /**
+   * Back button — detach view without disconnecting SSH.
+   * Session stays alive; host card shows green dot.
+   */
   private async backToHosts() {
-    log.info("terminal", "Back to hosts requested");
+    log.info("terminal", "Detaching from terminal (session stays active)");
+    this.onDetachCb();
+  }
+
+  /**
+   * Full disconnect — terminate SSH session and clean up.
+   * Called on Ctrl+Shift+W or programmatic disconnect.
+   */
+  async disconnect() {
+    log.info("terminal", "Full disconnect requested");
     this.cleanDisconnect = true;
-    try {
-      await sshDisconnect();
-    } catch {
-      // Already disconnected or no session
+    const hostId = this.host?.id ?? "";
+    if (this.sessionId) {
+      try {
+        await sshDisconnect(this.sessionId);
+      } catch {
+        // Already disconnected or no session
+      }
     }
     this.cleanup();
-    this.onDisconnectCb();
+    this.onDisconnectCb(hostId);
   }
 
   private async cancelConnect() {
     this.clearOutputBuffer();
     this.cleanDisconnect = true;
-    try {
-      await sshDisconnect();
-    } catch {
-      // Ignore
+    const hostId = this.host?.id ?? "";
+    if (this.sessionId) {
+      try {
+        await sshDisconnect(this.sessionId);
+      } catch {
+        // Ignore
+      }
     }
     this.cleanup();
-    this.onDisconnectCb();
+    this.onDisconnectCb(hostId);
   }
 
   private async reconnect() {
@@ -740,7 +870,7 @@ export class TerminalView {
 
   private toggleSidebar() {
     this.sidePanelOpen = !this.sidePanelOpen;
-    const sidebar = document.getElementById("sidebar")!;
+    const sidebar = this.$(".tv-sidebar")!;
     sidebar.classList.toggle("hidden", !this.sidePanelOpen);
     // Refit terminal after sidebar transition
     setTimeout(() => {
@@ -752,9 +882,9 @@ export class TerminalView {
   // ─── Inline Suggestion Bar ───────────────────────────────────────
 
   private showSuggestionBar(input: string, commandName: string, remainder: string) {
-    const bar = document.getElementById("suggestion-bar");
-    const cmdEl = document.getElementById("sb-command");
-    const remEl = document.getElementById("sb-remainder");
+    const bar = this.$(".tv-suggestion-bar");
+    const cmdEl = this.$(".sb-command");
+    const remEl = this.$(".sb-remainder");
     if (bar && cmdEl && remEl) {
       bar.classList.remove("hidden");
       cmdEl.textContent = input;
@@ -765,7 +895,7 @@ export class TerminalView {
   }
 
   private hideSuggestionBar() {
-    const bar = document.getElementById("suggestion-bar");
+    const bar = this.$(".tv-suggestion-bar");
     if (bar) {
       bar.classList.add("hidden");
     }
@@ -776,19 +906,19 @@ export class TerminalView {
   // ─── Mode display ────────────────────────────────────────────────
 
   private updateModeDisplay(mode: string) {
-    const modeEl = document.getElementById("sb-mode");
+    const modeEl = this.$(".tv-sb-mode");
     if (modeEl) {
-      modeEl.textContent = this.formatModeName(mode);
+      modeEl.textContent = mode ? formatMode(mode) : "—";
     }
 
     // Apply ambient chrome tint based on platform/mode
-    const tint = MODE_TINTS[mode] ?? MODE_TINTS[this.host?.platform ?? ""] ?? "transparent";
-    document.documentElement.style.setProperty("--chrome-tint", tint);
+    this.applyChromeTint();
   }
 
-  private formatModeName(mode: string): string {
-    if (!mode) return "—";
-    return mode.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  /** Re-assert this view's chrome tint (called by App on tab activation). */
+  applyChromeTint() {
+    const tint = MODE_TINTS[this.currentMode] ?? MODE_TINTS[this.host?.platform ?? ""] ?? "transparent";
+    document.documentElement.style.setProperty("--chrome-tint", tint);
   }
 
   // ─── KB loading ──────────────────────────────────────────────────
@@ -798,24 +928,8 @@ export class TerminalView {
       log.info("kb", `Loading commands for platform=${platform}, version=${version}`);
       const commands = await queryKb("", platform, null, version);
       log.info("kb", `queryKb returned ${commands.length} commands`);
-      // Convert TauriCommand[] to SuggestionCommand[]
-      const mapped: SuggestionCommand[] = commands.map((c: TauriCommand) => ({
-        name: c.name,
-        syntax: c.syntax,
-        description: c.description,
-        category: c.category,
-        mode: c.mode,
-        aliases: c.aliases,
-        examples: c.examples,
-        versions: {
-          introduced: c.versions.introduced ?? "",
-          deprecated: c.versions.deprecated ?? null,
-          notes: c.versions.notes ?? null,
-        },
-        tags: c.tags,
-      }));
-      this.suggestionEngine.loadCommands(mapped, platform);
-      log.info("terminal", `Loaded ${mapped.length} commands for ${platform}`);
+      this.suggestionEngine.loadCommands(commands, platform);
+      log.info("terminal", `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
       log.warn("terminal", `Failed to load KB commands: ${e}`);
     }
@@ -906,11 +1020,11 @@ export class TerminalView {
     const results = this.suggestionEngine.query(this.currentInput || "");
     if (results.length === 0) return;
     if (!this.dropdown && this.terminal) {
-      const termContainer = document.getElementById("terminal-container")!;
+      const termContainer = this.$(".tv-terminal")!;
       this.dropdown = new Dropdown(termContainer, (cmd) => {
         const remainder = this.getCommandRemainder(cmd.name, this.currentInput);
         if (remainder) {
-          sshSend(remainder).catch(() => {});
+          this.sendData(remainder);
           this.shadowBuffer.reset();
         }
         this.ghostText?.hide();
@@ -922,8 +1036,8 @@ export class TerminalView {
 
   // ─── Sidebar content ─────────────────────────────────────────────
 
-  private updateSidebarDetail(command: SuggestionCommand) {
-    const content = document.querySelector(".sb-content");
+  private updateSidebarDetail(command: Command) {
+    const content = this.$(".sb-content");
     if (!content || !this.sidePanelOpen) return;
     if (!this.sidebarContent) this.sidebarContent = new SidebarContent();
     content.innerHTML = this.sidebarContent.render(command, this.platformIndex?.reference_url ?? null);
@@ -932,7 +1046,7 @@ export class TerminalView {
       el.addEventListener("click", () => {
         const cmd = (el as HTMLElement).dataset.command;
         if (cmd && this.state === "connected") {
-          sshSend(cmd + "\r").catch(() => {});
+          this.sendData(cmd + "\r");
           this.terminal?.focus();
         }
       });
@@ -940,12 +1054,20 @@ export class TerminalView {
   }
 
   private updateSidebarPlaceholder() {
-    const content = document.querySelector(".sb-content");
+    const content = this.$(".sb-content");
     if (!content || !this.sidePanelOpen) return;
     content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
   }
 
   // ─── Zoom ────────────────────────────────────────────────────────
+
+  fit() {
+    this.fitAddon?.fit();
+  }
+
+  focus() {
+    this.terminal?.focus();
+  }
 
   zoomIn() {
     if (!this.terminal) return;
@@ -1004,8 +1126,8 @@ export class TerminalView {
   // ─── Output pane ─────────────────────────────────────────────────
 
   private renderOutputPane(): void {
-    const outputEl = document.getElementById("overlay-output");
-    const textEl = document.getElementById("output-text");
+    const outputEl = this.$(".tv-overlay-output");
+    const textEl = this.$(".tv-output-text");
     if (!outputEl || !textEl) return;
     outputEl.classList.remove("hidden");
     textEl.textContent = this.outputBuffer.join("");
@@ -1015,7 +1137,7 @@ export class TerminalView {
   /** Empties the output buffer and hides the output pane overlay. */
   clearOutputBuffer(): void {
     this.outputBuffer = [];
-    const outputEl = document.getElementById("overlay-output");
+    const outputEl = this.$(".tv-overlay-output");
     if (outputEl) {
       outputEl.classList.add("hidden");
     }

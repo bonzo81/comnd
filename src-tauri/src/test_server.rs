@@ -76,7 +76,7 @@ impl server::Handler for MockServer {
         session.channel_success(channel);
         session.data(
             channel,
-            "Welcome to mock device\r\n$ ".as_bytes().to_vec().into(),
+            "Welcome to mock device\nDocs: https://example.com\r\n$ ".as_bytes().to_vec().into(),
         );
         Ok(())
     }

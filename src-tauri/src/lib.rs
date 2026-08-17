@@ -4,6 +4,7 @@
 //! credential management, config, and KB import.
 
 mod ssh;
+#[cfg(debug_assertions)]
 pub mod test_server;
 mod kb;
 mod hosts;
@@ -11,6 +12,7 @@ mod config;
 mod ollama;
 mod import;
 
+use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::Manager;
 use kb::{KbManager, Command, PlatformIndex};
@@ -18,6 +20,27 @@ use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use ssh::SshManager;
 use config::{AppConfig, ConfigStore};
 use import::{ImportRequest, ImportResult};
+
+// ─── Browser URL Opener ─────────────────────────────────────────────
+
+fn open_url(url: &str) {
+    let _ = if cfg!(target_os = "windows") {
+        StdCommand::new("cmd").args(["/C", "start", "", url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        StdCommand::new("open").arg(url).spawn()
+    } else {
+        StdCommand::new("xdg-open").arg(url).spawn()
+    };
+}
+
+#[tauri::command]
+async fn open_url_cmd(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("Only HTTP/HTTPS URLs are allowed".to_string());
+    }
+    open_url(&url);
+    Ok(())
+}
 
 // ─── App State ──────────────────────────────────────────────────────
 
@@ -33,17 +56,15 @@ struct AppState {
 
 #[tauri::command]
 async fn query_kb(
-    prefix: String,
+    _prefix: String,
     platform: String,
-    mode: Option<String>,
+    _mode: Option<String>,
     version: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Command>, String> {
     let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
     kb.query(
         &platform,
-        &prefix,
-        mode.as_deref(),
         version.as_deref(),
     )
 }
@@ -90,15 +111,6 @@ async fn delete_host(
     // Also delete credential
     hosts::delete_credential(&id).ok();
     Ok(())
-}
-
-#[tauri::command]
-async fn reorder_hosts(
-    ids: Vec<String>,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
-    hosts.reorder(&ids)
 }
 
 #[tauri::command]
@@ -191,15 +203,6 @@ async fn delete_host_group(
     groups.delete(&id)
 }
 
-#[tauri::command]
-async fn reorder_host_groups(
-    ids: Vec<String>,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
-    groups.reorder(&ids)
-}
-
 // ─── SSH Commands ───────────────────────────────────────────────────
 
 #[tauri::command]
@@ -212,16 +215,9 @@ async fn ssh_connect(
     key_path: Option<String>,
     cols: u32,
     rows: u32,
+    session_id: u64,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // Disconnect existing session if any
-    {
-        let mut mgr = state.ssh.lock().await;
-        if let Some(old) = mgr.take_session() {
-            let _ = old.disconnect().await;
-        }
-    }
-
     let session = ssh::SshSession::connect(
         app_handle,
         &hostname,
@@ -231,32 +227,35 @@ async fn ssh_connect(
         key_path.as_deref(),
         cols,
         rows,
+        session_id,
     )
     .await?;
 
     let mut mgr = state.ssh.lock().await;
-    mgr.set_session(session);
+    mgr.insert_session(session);
     Ok(())
 }
 
 #[tauri::command]
 async fn ssh_send(
+    session_id: u64,
     data: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
-    match mgr.get_session() {
+    match mgr.get_session(session_id) {
         Some(session) => session.send(data.as_bytes()).await,
-        None => Err("No active SSH session".to_string()),
+        None => Err("No such session".to_string()),
     }
 }
 
 #[tauri::command]
 async fn ssh_disconnect(
+    session_id: u64,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mut mgr = state.ssh.lock().await;
-    match mgr.take_session() {
+    match mgr.take_session(session_id) {
         Some(session) => session.disconnect().await,
         None => Ok(()),
     }
@@ -264,26 +263,15 @@ async fn ssh_disconnect(
 
 #[tauri::command]
 async fn ssh_resize(
+    session_id: u64,
     cols: u32,
     rows: u32,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
-    match mgr.get_session() {
+    match mgr.get_session(session_id) {
         Some(session) => session.resize(cols, rows).await,
-        None => Err("No active SSH session".to_string()),
-    }
-}
-
-#[tauri::command]
-async fn ssh_auth_response(
-    response: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mgr = state.ssh.lock().await;
-    match mgr.get_session() {
-        Some(session) => session.send_auth_response(response).await,
-        None => Err("No active SSH session".to_string()),
+        None => Err("No such session".to_string()),
     }
 }
 
@@ -337,21 +325,6 @@ async fn import_kb_url(
         &app_handle,
     ).await?;
 
-    // Record import in config history
-    {
-        let mut config = state.config.lock().map_err(|e| e.to_string())?;
-        let record = config::ImportRecord {
-            url: result.source_url.clone(),
-            platform: result.platform.clone(),
-            category: result.category.clone(),
-            commands_imported: result.commands_imported as u32,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        };
-        if let Err(e) = config.add_import_record(record) {
-            log::warn!("Failed to record import history: {}", e);
-        }
-    }
-
     // Reload KB stores so new commands are immediately available
     {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
@@ -396,15 +369,6 @@ async fn get_all_kb_commands(
 ) -> Result<Vec<Command>, String> {
     let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
     kb.get_all_commands(&platform)
-}
-
-#[tauri::command]
-async fn reload_kb(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-    kb.reload_all();
-    Ok(())
 }
 
 #[tauri::command]
@@ -506,7 +470,6 @@ pub fn run() {
     log::info!("net.sh v{} starting", env!("CARGO_PKG_VERSION"));
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // Resolve KB path — in dev, it's relative to project root
             let kb_path = app.path()
@@ -574,72 +537,36 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler({
-            #[cfg(debug_assertions)]
-            {
-                tauri::generate_handler![
-                    query_kb,
-                    load_platform_index,
-                    get_hosts,
-                    save_host,
-                    delete_host,
-                    reorder_hosts,
-                    touch_host,
-                    save_credential,
-                    get_credential,
-                    ssh_connect,
-                    ssh_send,
-                    ssh_disconnect,
-                    ssh_resize,
-                    ssh_auth_response,
-                    get_app_config,
-                    save_ollama_settings,
-                    import_kb_url,
-                    test_ollama_connection,
-                    list_kb_platforms,
-                    reload_kb,
-                    get_all_kb_commands,
-                    save_kb_command,
-                    delete_kb_command,
-                    get_host_groups,
-                    save_host_group,
-                    delete_host_group,
-                    reorder_host_groups,
-                    test_mock_server,
-                    test_stop_mock_server,
-                ]
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                tauri::generate_handler![
-                    query_kb,
-                    load_platform_index,
-                    get_hosts,
-                    save_host,
-                    delete_host,
-                    reorder_hosts,
-                    touch_host,
-                    save_credential,
-                    get_credential,
-                    ssh_connect,
-                    ssh_send,
-                    ssh_disconnect,
-                    ssh_resize,
-                    ssh_auth_response,
-                    get_app_config,
-                    save_ollama_settings,
-                    import_kb_url,
-                    test_ollama_connection,
-                    list_kb_platforms,
-                    reload_kb,
-                    get_all_kb_commands,
-                    save_kb_command,
-                    delete_kb_command,
-                    get_host_groups,
-                    save_host_group,
-                    delete_host_group,
-                    reorder_host_groups,
-                ]
-            }
+            tauri::generate_handler![
+                query_kb,
+                load_platform_index,
+                get_hosts,
+                save_host,
+                delete_host,
+                touch_host,
+                save_credential,
+                get_credential,
+                ssh_connect,
+                ssh_send,
+                ssh_disconnect,
+                ssh_resize,
+                get_app_config,
+                save_ollama_settings,
+                import_kb_url,
+                test_ollama_connection,
+                list_kb_platforms,
+                get_all_kb_commands,
+                save_kb_command,
+                delete_kb_command,
+                get_host_groups,
+                save_host_group,
+                open_url_cmd,
+                delete_host_group,
+                #[cfg(debug_assertions)]
+                test_mock_server,
+                #[cfg(debug_assertions)]
+                test_stop_mock_server,
+            ]
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -101,10 +101,6 @@ export async function deleteHost(id: string): Promise<void> {
   return invoke<void>("delete_host", { id });
 }
 
-export async function reorderHosts(ids: string[]): Promise<void> {
-  return invoke<void>("reorder_hosts", { ids });
-}
-
 export async function touchHost(id: string): Promise<void> {
   return invoke<void>("touch_host", { id });
 }
@@ -127,10 +123,6 @@ export async function saveHostGroup(
 
 export async function deleteHostGroup(id: string): Promise<void> {
   return invoke<void>("delete_host_group", { id });
-}
-
-export async function reorderHostGroups(ids: string[]): Promise<void> {
-  return invoke<void>("reorder_host_groups", { ids });
 }
 
 // ─── Credential Commands ────────────────────────────────────────────
@@ -158,6 +150,7 @@ export async function sshConnect(params: {
   keyPath?: string;
   cols: number;
   rows: number;
+  sessionId: number;
 }): Promise<void> {
   return invoke<void>("ssh_connect", {
     hostname: params.hostname,
@@ -167,23 +160,24 @@ export async function sshConnect(params: {
     keyPath: params.keyPath ?? null,
     cols: params.cols,
     rows: params.rows,
+    sessionId: params.sessionId,
   });
 }
 
-export async function sshSend(data: string): Promise<void> {
-  return invoke<void>("ssh_send", { data });
+export async function sshSend(sessionId: number, data: string): Promise<void> {
+  return invoke<void>("ssh_send", { sessionId, data });
 }
 
-export async function sshDisconnect(): Promise<void> {
-  return invoke<void>("ssh_disconnect");
+export async function sshDisconnect(sessionId: number): Promise<void> {
+  return invoke<void>("ssh_disconnect", { sessionId });
 }
 
-export async function sshResize(cols: number, rows: number): Promise<void> {
-  return invoke<void>("ssh_resize", { cols, rows });
+export async function sshResize(sessionId: number, cols: number, rows: number): Promise<void> {
+  return invoke<void>("ssh_resize", { sessionId, cols, rows });
 }
 
-export async function sshAuthResponse(response: string): Promise<void> {
-  return invoke<void>("ssh_auth_response", { response });
+export async function openUrl(url: string): Promise<void> {
+  return invoke<void>("open_url_cmd", { url });
 }
 
 // ─── Config Commands ────────────────────────────────────────────────
@@ -193,15 +187,6 @@ export interface AppConfig {
   ollama_model: string;
   ollama_api_key: string | null;
   ollama_context_length: number;
-  import_history: ImportRecord[];
-}
-
-export interface ImportRecord {
-  url: string;
-  platform: string;
-  category: string;
-  commands_imported: number;
-  timestamp: string;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -277,10 +262,6 @@ export async function deleteKbCommand(
   commandName: string,
 ): Promise<void> {
   return invoke<void>("delete_kb_command", { platform, category, commandName });
-}
-
-export async function reloadKb(): Promise<void> {
-  return invoke<void>("reload_kb");
 }
 
 // ─── Test Helpers (debug builds only) ───────────────────────────────

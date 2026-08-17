@@ -4,7 +4,6 @@
 
 | Feature | Notes |
 |---------|-------|
-| Tabbed / multi-session | Multiple concurrent SSH sessions |
 | Host sidebar layout | Replace full-screen connection manager with a collapsible left sidebar showing hosts & search, always accessible alongside terminal tabs |
 | Platform auto-detection | Parse SSH banner + prompt to suggest platform |
 | Command history per host | Personalised suggestions based on past usage |
