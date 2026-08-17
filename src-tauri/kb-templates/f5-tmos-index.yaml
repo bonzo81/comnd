@@ -1,0 +1,15 @@
+id: f5-tmos
+name: F5 TMOS
+description: F5 BIG-IP TMOS for load balancers
+reference_url: "https://clouddocs.f5.com/"
+versions:
+  - "15.x"
+  - "16.x"
+  - "17.x"
+prompt_patterns:
+  tmsh-root: '^\S+@\S+\(.*\)\(tmos\)#'
+  ltm: '^\S+@\S+\(.*\)\(tmos.ltm\)#'
+  net: '^\S+@\S+\(.*\)\(tmos.net\)#'
+  sys: '^\S+@\S+\(.*\)\(tmos.sys\)#'
+  bash: '^\S+:\S+:\S+@'
+default_mode: tmsh-root
