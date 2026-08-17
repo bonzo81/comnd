@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Logger — structured frontend logging for net.sh
  *
