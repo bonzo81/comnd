@@ -1,45 +1,56 @@
-# net.sh
+# net.sh — Smart SSH Client for Network Engineers
 
-A cross-platform desktop SSH client with context-aware, platform-intelligent command suggestions.
+net.sh is a desktop SSH client that shows you relevant commands as you type, based on what device you're connected to.
 
-Built for network engineers who work across multiple device types and OS dialects daily.
+Instead of memorizing commands for different network devices, net.sh suggests the right commands inline — like a smart autocomplete that understands networking equipment.
 
-## What is this?
+## Why net.sh?
 
-Unlike generic SSH clients, net.sh understands *what you're connected to* and surfaces relevant commands inline — from a structured, version-aware knowledge base.
+Network engineers typically work with multiple device types daily (Cisco routers, F5 load balancers, Linux servers, etc.). Each has its own command syntax and modes.
 
-## Target Platforms
+**net.sh solves this by:**
+- Automatically detecting what device you're connected to
+- Showing relevant commands as you type (ghost text suggestions)
+- Adapting suggestions based on the device's operating mode
+- Supporting version-aware commands (commands change between software versions)
 
-**App:** Windows, macOS, Linux (built with Tauri v2)
+## Supported Devices
 
-**Device Knowledge Base:**
-- Linux / bash
-- Cisco IOS-XE
-- Cisco NX-OS
-- F5 BIG-IP TMOS
+net.sh includes built-in command knowledge for:
+- **Linux / bash** — Standard Linux shell commands
+- **Cisco IOS-XE** — Cisco enterprise routers and switches
+- **Cisco NX-OS** — Cisco Nexus data center switches
+- **F5 BIG-IP TMOS** — F5 load balancer operating system
 
-## Tech Stack
+## How It Works
 
-- **Backend:** Rust (Tauri v2, russh)
-- **Frontend:** Web (xterm.js, TypeScript)
-- **Knowledge Base:** YAML (self-contained per platform)
+1. **Connect** — Use the sidebar to manage your SSH connections
+2. **Type** — Start typing commands in the terminal
+3. **See suggestions** — Relevant commands appear as ghost text (like IDE autocomplete)
+4. **Accept** — Press Tab to accept a suggestion, or keep typing
+
+The suggestion engine runs locally on your machine — no cloud dependencies or AI models.
+
+## Technology
+
+net.sh is built as a cross-platform desktop application:
+- **Rust backend** — Handles SSH connections and command knowledge base
+- **TypeScript frontend** — Terminal emulator and user interface
+- **YAML knowledge base** — Human-readable command definitions per device type
+
+Runs on Windows, macOS, and Linux.
 
 ## Documentation
 
-Full specification in [`docs/`](docs/):
+For detailed specifications and implementation plans:
+- [Overview & Goals](docs/01-overview-goals.md) — What net.sh aims to achieve
+- [Technical Architecture](docs/02-technical-architecture.md) — How SSH connections and suggestions work
+- [Knowledge Base](docs/06-knowledge-base.md) — Command definition format and structure
+- [Implementation Plan](implementation/README.md) — Development stages and progress
 
-1. [Overview & Goals](docs/01-overview-goals.md)
-2. [Technical Architecture](docs/02-technical-architecture.md)
-3. [UI & Visual Design](docs/03-ui-visual-design.md)
-4. [Connection Manager](docs/04-connection-manager.md)
-5. [Suggestion Engine](docs/05-suggestion-engine.md)
-6. [Knowledge Base](docs/06-knowledge-base.md)
-7. [Keyboard & Shortcuts](docs/07-keyboard-shortcuts.md)
-8. [Future & Open Questions](docs/08-future-open-questions.md)
+## Current Status
 
-## Status
-
-🟡 **Specification complete** — development not yet started.
+🟡 **Specification complete** — Development has not yet begun.
 
 ## License
 
