@@ -1,0 +1,68 @@
+/* ─── Surface colors (Linear-inspired neutral grays) ─── */
+:root {
+  --color-surface-primary: #0F172A;    /* Main app background — slate-900 */
+  --color-surface-secondary: #111827;  /* Chrome: topbar, sidebar, statusbar */
+  --color-surface-elevated: #1E293B;  /* Cards, modals, dropdown, inputs — slate-800 */
+  --color-surface-hover: rgba(255,255,255,0.04);
+  --color-surface-selected: rgba(34, 197, 94, 0.12);
+
+  /* Text */
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #94A3B8;
+  --color-text-tertiary: #64748B;
+
+  /* Accent & semantic */
+  --color-accent: #22C55E;
+  --color-accent-hover: #4ADE80;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+
+  /* Borders — Linear-style subtle */
+  --color-border: rgba(255,255,255,0.08);
+  --color-border-hover: rgba(255,255,255,0.14);
+
+  /* Spacing (8px grid) */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-16: 64px;
+
+  /* Backward compat alias */
+  --spacing: 4px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+
+  /* Ambient chrome tint (platform-specific, set via JS) */
+  --chrome-tint: transparent;
+
+  /* Platform tint presets */
+  --tint-iosxe: rgba(34, 197, 94, 0.06);
+  --tint-nxos: rgba(56, 189, 248, 0.06);
+  --tint-tmos: rgba(245, 158, 11, 0.06);
+  --tint-bash: rgba(34, 197, 94, 0.04);
+
+  /* Typography */
+  --font-ui: 'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 20px;
+}

@@ -1,0 +1,124 @@
+/* ─── App Tab Bar ─────────────────────────────────────────────────── */
+.app-tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-secondary);
+  gap: var(--space-1);
+}
+
+.app-tab {
+  padding: var(--space-1-5) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.app-tab:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.app-tab.active {
+  color: var(--color-text-primary);
+  border-bottom: 2px solid var(--color-accent);
+  font-weight: 500;
+}
+
+/* ─── KB Screen ───────────────────────────────────────────────────── */
+.kb-screen {
+  height: 100%;
+  display: flex;
+  background: var(--color-surface-primary);
+  overflow: hidden;
+}
+
+/* ─── KB Sidebar (Left Panel) ─────────────────────────────────────── */
+.kb-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.kb-sidebar-title {
+  padding: var(--space-4);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+}
+
+.kb-sidebar-item {
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  transition: background 0.1s;
+  border-left: 2px solid transparent;
+}
+
+.kb-sidebar-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.kb-sidebar-item.kb-sidebar-selected {
+  background: var(--color-surface-selected);
+  color: var(--color-accent);
+  border-left-color: var(--color-accent);
+}
+
+/* ─── KB Content (Right Panel) ────────────────────────────────────── */
+.kb-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.kb-content-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-4);
+  flex-shrink: 0;
+  background: var(--color-surface-secondary);
+}
+
+.kb-content-tab {
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.kb-content-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.kb-content-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  font-weight: 500;
+}
+
+.kb-content-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.kb-content-panel.hidden {
+  display: none;
+}

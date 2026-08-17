@@ -1,0 +1,201 @@
+/* Connection Manager */
+.connection-manager {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-secondary);
+}
+
+.cm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cm-header h1 {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--color-accent);
+  letter-spacing: -0.01em;
+}
+
+.cm-search {
+  padding: var(--space-3) var(--space-6);
+}
+
+.cm-search input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-1-5);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  outline: none;
+}
+
+.cm-search input:focus {
+  border-color: var(--color-accent);
+}
+
+.cm-host-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-6);
+}
+
+.cm-empty-state {
+  text-align: center;
+  padding: var(--space-16) var(--space-8);
+}
+
+.cm-empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-4);
+}
+
+.cm-empty-state h2 {
+  font-size: var(--font-size-2xl);
+  margin-bottom: var(--space-3);
+}
+
+.cm-empty-state p {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+  line-height: 1.6;
+}
+
+.cm-platforms {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-4) !important;
+}
+
+.cm-tip {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+  margin-top: var(--space-4) !important;
+}
+
+/* ─── Host list items ──────────────────────────────────────────────── */
+
+.cm-host-count {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+.cm-no-results {
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: var(--space-8);
+  font-style: italic;
+}
+
+.cm-host-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  height: 48px;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.cm-host-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.cm-host-selected {
+  background: var(--color-surface-selected);
+}
+
+.cm-host-badge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-accent);
+  min-width: 44px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cm-host-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cm-host-name {
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-host-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-host-time {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cm-host-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-ok {
+  background: var(--color-accent);
+}
+
+.dot-never {
+  background: var(--color-text-secondary);
+}
+
+.dot-error {
+  background: var(--color-error);
+}
+
+/* ─── Host Section Grouping ────────────────────────────────────────── */
+
+.cm-section-header {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.cm-section-header:first-of-type {
+  margin-top: 0;
+}
+
+.cm-section-header .cm-section-count {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.6;
+  margin-left: var(--space-1);
+}

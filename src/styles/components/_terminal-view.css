@@ -1,0 +1,347 @@
+/* ─── Session Tab Bar ─────────────────────────────────────────────── */
+.session-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4) 0;
+  background: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.session-tab:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.session-tab.active {
+  color: var(--color-text-primary);
+  border-bottom: 2px solid var(--color-accent);
+  font-weight: 500;
+}
+
+.session-tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 var(--space-1);
+  opacity: 0.6;
+}
+
+.session-tab-close:hover {
+  opacity: 1;
+  color: var(--color-error);
+}
+
+.session-tab-wrapper {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Terminal View */
+.terminal-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-primary);
+}
+
+.tv-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 var(--space-4);
+  background: linear-gradient(180deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background-color: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 44px;
+  transition: background 0.3s ease;
+}
+
+.tv-topbar-left {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.tv-close-btn {
+  color: var(--color-error);
+  opacity: 0.7;
+}
+
+.tv-close-btn:hover {
+  opacity: 1;
+}
+
+.tv-host-info {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+}
+
+.tv-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.tv-terminal-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tv-terminal {
+  flex: 1;
+  overflow: hidden;
+}
+
+.tv-sidebar {
+  width: 320px;
+  min-width: 240px;
+  background: var(--color-surface-secondary);
+  border-left: none;
+  padding: var(--space-6);
+  overflow-y: auto;
+  transition: width 0.2s ease;
+}
+
+.tv-sidebar.hidden {
+  display: none;
+}
+
+.sb-placeholder {
+  color: var(--color-text-secondary);
+  font-style: italic;
+  text-align: center;
+  padding-top: var(--space-8);
+}
+
+.tv-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  background: linear-gradient(0deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background-color: var(--color-surface-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  min-height: 28px;
+  transition: background 0.3s ease;
+}
+
+.sb-divider {
+  display: none;
+}
+
+.sb-connecting { color: var(--color-warning); }
+.sb-connected { color: var(--color-success); }
+.sb-disconnected { color: var(--color-error); }
+
+/* ─── Sidebar Command Detail ───────────────────────────────────────── */
+
+.cmd-detail {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+}
+
+.cmd-name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-bottom: var(--space-3);
+}
+
+.syntax-block {
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-1-5);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-3);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.syntax-block code {
+  font-family: inherit;
+}
+
+.syntax-required {
+  color: var(--color-accent);
+}
+
+.syntax-optional {
+  color: var(--color-warning);
+  opacity: 0.8;
+}
+
+.cmd-description {
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-3);
+  white-space: pre-wrap;
+}
+
+.cmd-examples {
+  margin-bottom: var(--space-3);
+}
+
+.cmd-examples h4 {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-2);
+}
+
+.example-item {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--space-1);
+  cursor: pointer;
+  margin-bottom: var(--space-1);
+}
+
+.example-item:hover {
+  background: var(--color-surface-selected);
+}
+
+.example-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.example-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.cmd-meta {
+  margin-bottom: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.meta-row {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-0-5) 0;
+  font-size: var(--font-size-sm);
+}
+
+.meta-label {
+  color: var(--color-text-secondary);
+  min-width: 80px;
+}
+
+.meta-value {
+  color: var(--color-text-primary);
+}
+
+.cmd-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.tag-badge {
+  display: inline-block;
+  background: var(--color-surface-selected);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 1px var(--space-2);
+  border-radius: var(--space-2);
+}
+
+.cmd-ref-link {
+  display: inline-block;
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  margin-top: var(--space-2);
+}
+
+.cmd-ref-link:hover {
+  text-decoration: underline;
+}
+
+/* ─── Platform Badge Colors ────────────────────────────────────────── */
+.badge-iosxe { color: var(--color-accent) !important; }
+.badge-nxos { color: #38BDF8 !important; }
+.badge-tmos { color: var(--color-warning) !important; }
+.badge-bash { color: var(--color-success) !important; }
+
+/* ─── Inline Suggestion Bar ──────────────────────────────────────── */
+.tv-suggestion-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  min-height: 28px;
+  transition: opacity 0.15s ease;
+}
+
+.tv-suggestion-bar.hidden {
+  display: none;
+}
+
+.tv-suggestion-bar .sb-label {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: var(--font-size-xs);
+}
+
+.tv-suggestion-bar .sb-command {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.tv-suggestion-bar .sb-remainder {
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+/* ─── Credential Badge ─────────────────────────────────────────────── */
+.cred-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-success);
+  background: rgba(34, 197, 94, 0.1);
+  padding: 1px var(--space-2);
+  border-radius: var(--space-2);
+  margin-left: var(--space-2);
+  font-weight: 600;
+}

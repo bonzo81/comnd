@@ -2,7 +2,7 @@
 .tv-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(33, 34, 37, 0.92);
+  background: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
@@ -25,7 +25,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
   font-weight: 600;
-  color: var(--fg-primary);
+  color: var(--color-text-primary);
   margin-bottom: var(--space-6);
 }
 
@@ -50,14 +50,14 @@
 
 .tv-overlay-stage {
   font-size: var(--font-size-base);
-  color: var(--fg-muted);
+  color: var(--color-text-secondary);
   margin-bottom: var(--space-4);
   min-height: var(--space-5);
 }
 
 .tv-overlay-error {
   font-size: var(--font-size-base);
-  color: var(--error);
+  color: var(--color-error);
   margin-bottom: var(--space-4);
   line-height: 1.5;
   word-break: break-word;
@@ -71,8 +71,8 @@
   width: 100%;
   max-height: 200px;
   overflow-y: auto;
-  margin: calc(var(--spacing) * 3) 0;
-  padding: calc(var(--spacing) * 2);
+  margin: var(--space-3) 0;
+  padding: var(--space-2);
   background: rgba(0, 0, 0, 0.3);
   border-radius: 4px;
   text-align: left;
@@ -92,7 +92,7 @@
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--fg-muted, #9A9B9D);
+  color: var(--color-text-secondary, #9A9B9D);
   word-break: break-all;
 }
 
@@ -113,9 +113,9 @@
   justify-content: space-between;
   padding: var(--space-2) var(--space-4);
   background: rgba(243, 139, 168, 0.15);
-  border-bottom: 1px solid var(--error);
+  border-bottom: 1px solid var(--color-error);
   font-size: var(--font-size-base);
-  color: var(--error);
+  color: var(--color-error);
   z-index: 40;
 }
 
@@ -158,9 +158,9 @@
   animation: toast-in 0.25s ease-out;
 }
 
-.toast-success { border-left: 3px solid var(--success); }
-.toast-error { border-left: 3px solid var(--error); }
-.toast-info { border-left: 3px solid var(--accent); }
+.toast-success { border-left: 3px solid var(--color-success); }
+.toast-error { border-left: 3px solid var(--color-error); }
+.toast-info { border-left: 3px solid var(--color-accent); }
 
 .toast-icon {
   flex-shrink: 0;
@@ -176,7 +176,7 @@
   flex-shrink: 0;
   background: none;
   border: none;
-  color: var(--fg-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
   font-size: var(--font-size-xl);
   padding: 0;
@@ -184,7 +184,7 @@
 }
 
 .toast-close:hover {
-  color: var(--fg-primary);
+  color: var(--color-text-primary);
 }
 
 @keyframes toast-in {

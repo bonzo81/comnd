@@ -1,0 +1,220 @@
+/* ─── Modal / Form ─────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8vh;
+  z-index: 100;
+}
+
+.modal-panel {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-panel h2,
+.modal-panel h3 {
+  margin-bottom: var(--space-4);
+  font-size: 18px;
+}
+
+.host-form label {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.host-form label span {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.host-form label em {
+  color: var(--color-error);
+  font-style: normal;
+}
+
+.host-form input[type="text"],
+.host-form input[type="number"],
+.host-form input[type="password"],
+.host-form select,
+.host-form textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.host-form input:focus,
+.host-form select:focus,
+.host-form textarea:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.host-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.host-form select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.form-auth-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-1-5);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.form-auth-group legend {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: 0 var(--space-1);
+}
+
+.radio-label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: var(--space-4);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+.radio-label input[type="radio"] {
+  accent-color: var(--color-accent);
+}
+
+.form-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.form-errors {
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
+  min-height: var(--space-4);
+}
+
+.delete-confirm p {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+  line-height: 1.5;
+}
+
+.delete-confirm strong {
+  color: var(--color-text-primary);
+}
+
+/* ─── Keyboard Shortcuts Modal ─────────────────────────────────────── */
+.shortcuts-modal {
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-3);
+  padding: var(--space-6);
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.shortcuts-modal h2 {
+  font-size: 18px;
+  margin-bottom: var(--space-4);
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+}
+
+.shortcuts-section {
+  grid-column: 1 / -1;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.shortcuts-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.shortcut-key {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 1px var(--space-1-5);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-1);
+  color: var(--color-accent);
+  white-space: nowrap;
+  min-width: 28px;
+  text-align: center;
+}
+
+.shortcut-action {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+/* ─── Auth Type Transition ─────────────────────────────────────────── */
+.auth-conditional {
+  margin-bottom: var(--space-1);
+  overflow: hidden;
+  transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease, padding 0.2s ease;
+  max-height: 120px;
+  opacity: 1;
+}
+
+.auth-conditional-hidden {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+}

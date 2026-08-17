@@ -1,0 +1,80 @@
+/* ─── Ghost text (suggestion hint) ─────────────────────────────────── */
+.btn-sm {
+  position: absolute;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre;
+  z-index: 10;
+  display: none;
+  background: var(--color-surface-secondary);
+  padding: 0 var(--space-1);
+  border-radius: 3px;
+}
+
+/* ─── Suggestion Dropdown ──────────────────────────────────────────── */
+.suggestion-dropdown {
+  position: absolute;
+  bottom: var(--space-8);
+  left: var(--space-2);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  min-width: 320px;
+  max-width: 500px;
+  max-height: calc(8 * var(--space-8) + var(--space-1));
+  overflow: hidden;
+  z-index: 20;
+  box-shadow: var(--shadow-lg);
+  display: none;
+}
+
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  font-family: var(--font-mono);
+  height: var(--space-8);
+}
+
+.suggestion-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.suggestion-item.selected {
+  background: var(--color-surface-selected);
+  outline: none;
+}
+
+.suggestion-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prefix-match {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.suggestion-category {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  margin-left: var(--space-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.scroll-indicator {
+  text-align: center;
+  padding: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: linear-gradient(transparent, rgba(24, 24, 37, 0.8));
+}
