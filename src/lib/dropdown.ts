@@ -4,6 +4,7 @@
  */
 
 import { SuggestionResult, Command } from "./suggestion-engine";
+import { escHtml } from "./format";
 
 export class Dropdown {
   private container: HTMLElement;
@@ -91,7 +92,7 @@ export class Dropdown {
       const category = item.command.category;
       return `<div class="suggestion-item${isSelected ? " selected" : ""}" data-index="${i}">
         <span class="suggestion-name">${name}</span>
-        <span class="suggestion-category">${this.escapeHtml(category)}</span>
+        <span class="suggestion-category">${escHtml(category)}</span>
       </div>`;
     }).join("");
 
@@ -113,20 +114,14 @@ export class Dropdown {
   }
 
   private highlightPrefix(name: string, prefix: string): string {
-    if (!prefix) return this.escapeHtml(name);
+    if (!prefix) return escHtml(name);
     const lower = name.toLowerCase();
     const lowerPrefix = prefix.toLowerCase();
     if (lower.startsWith(lowerPrefix)) {
       const matched = name.substring(0, prefix.length);
       const rest = name.substring(prefix.length);
-      return `<span class="prefix-match">${this.escapeHtml(matched)}</span>${this.escapeHtml(rest)}`;
+      return `<span class="prefix-match">${escHtml(matched)}</span>${escHtml(rest)}`;
     }
-    return this.escapeHtml(name);
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+    return escHtml(name);
   }
 }

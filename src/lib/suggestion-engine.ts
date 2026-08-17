@@ -3,17 +3,9 @@
  * Frontend-side matching against in-memory KB (loaded from Rust backend)
  */
 
-export interface Command {
-  name: string;
-  syntax: string;
-  description: string;
-  category: string;
-  mode: string;
-  aliases: string[];
-  examples: { command: string; description: string }[];
-  versions: { introduced: string; deprecated: string | null; notes: string | null };
-  tags: string[];
-}
+import type { Command } from "./tauri-api";
+
+export type { Command };
 
 export interface SuggestionResult {
   command: Command;
