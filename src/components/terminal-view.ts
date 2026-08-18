@@ -58,6 +58,11 @@ const MODE_TINTS: Record<string, string> = {
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
+// ponytail: monotonic counter — Date.now() collides when two hosts connect in same ms,
+// causing both tabs to share a session_id and display the same remote host.
+// Module-level so it never repeats across tabs within a session.
+let nextSessionId = 1;
+
 interface ConnectProgress {
   stage: string;
   error?: string;
@@ -515,7 +520,7 @@ export class TerminalView {
       this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
 
       // Generate unique session_id BEFORE sshConnect so all events are correlated correctly
-      this.sessionId = Date.now();
+      this.sessionId = nextSessionId++;
 
       await sshConnect({
         hostname: host.hostname,
@@ -575,8 +580,14 @@ export class TerminalView {
 
     // SSH connected
     this.unlistenConnected = await listen<{ reason: string; session_id: number }>("ssh-connected", (event) => {
-      // Capture session_id — all subsequent events must match this
-      this.sessionId = event.payload.session_id;
+      // Ignore connected events for other tabs' sessions — each TerminalView
+      // keeps the session_id it issued before sshConnect; the backend echoes
+      // it back. Without this filter, opening host2 overwrites host1's view
+      // state and both tabs display host2's stream.
+      if (event.payload.session_id !== this.sessionId) {
+        log.debug("terminal", `Ignoring foreign ssh-connected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
+        return;
+      }
       this.cleanDisconnect = false; // Reset — stale disconnects before this are ignored
       log.info("terminal", `SSH connected event received (session_id=${this.sessionId})`);
       this.setState("connected");
