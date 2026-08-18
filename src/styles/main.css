@@ -15,6 +15,50 @@
 
 @layer tokens, base, components, utilities;
 
+/* ─── Custom title bar (frameless window) ─── */
+.title-bar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.title-bar-title {
+  padding-left: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.title-bar-controls {
+  margin-left: auto;
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-btn {
+  width: 44px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.title-bar-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.title-bar-btn:last-child:hover {
+  background: var(--color-error);
+  color: #fff;
+}
+
 /* ─── Global focus indicators ─── */
 .btn-primary:focus-visible,
 .btn-text:focus-visible,

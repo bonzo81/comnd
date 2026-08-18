@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HostScreen } from "./components/host-screen";
 import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
@@ -76,7 +77,44 @@ class App {
 
     log.info("app", "Initialized");
     this.registerGlobalShortcuts();
+    this.renderTitleBar();
     this.renderTabBar();
+  }
+
+  private renderTitleBar() {
+    const bar = document.createElement("div");
+    bar.className = "title-bar";
+    bar.id = "title-bar";
+
+    const title = document.createElement("span");
+    title.className = "title-bar-title";
+    title.textContent = "net.sh";
+
+    const controls = document.createElement("div");
+    controls.className = "title-bar-controls";
+
+    const makeBtn = (label: string, action: () => void) => {
+      const b = document.createElement("button");
+      b.className = "title-bar-btn";
+      b.style.setProperty("-webkit-app-region", "no-drag");
+      b.textContent = label;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try {
+          action();
+        } catch (err) {
+          console.error("title-bar action failed:", err);
+        }
+      });
+      controls.appendChild(b);
+    };
+    makeBtn("–", () => void getCurrentWindow().minimize());
+    makeBtn("□", () => void getCurrentWindow().toggleMaximize());
+    makeBtn("×", () => void getCurrentWindow().close());
+
+    bar.appendChild(title);
+    bar.appendChild(controls);
+    this.container.insertBefore(bar, this.container.firstChild);
   }
 
   private renderTabBar() {
@@ -120,8 +158,13 @@ class App {
       }
     });
 
-    // Insert before the first wrapper
-    this.container.insertBefore(tabBar, this.container.firstChild);
+    // Insert after the title bar (title bar is always the first child)
+    const titleBar = this.container.querySelector("#title-bar");
+    if (titleBar && titleBar.nextSibling) {
+      this.container.insertBefore(tabBar, titleBar.nextSibling);
+    } else {
+      this.container.appendChild(tabBar);
+    }
   }
 
   private updateTabBar(view: AppView) {
