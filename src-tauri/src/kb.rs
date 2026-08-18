@@ -106,21 +106,7 @@ impl KbStore {
         }
 
         // Load deleted-commands list
-        let deleted_path = platform_dir.join("_deleted.yaml");
-        let mut deleted_commands: HashSet<String> = HashSet::new();
-        if deleted_path.exists() {
-            #[derive(serde::Deserialize)]
-            struct DeletedFile {
-                deleted: Vec<String>,
-            }
-            if let Ok(content) = std::fs::read_to_string(&deleted_path) {
-                if let Ok(file) = serde_yml::from_str::<DeletedFile>(&content) {
-                    for name in file.deleted {
-                        deleted_commands.insert(name);
-                    }
-                }
-            }
-        }
+        let deleted_commands = read_deleted_list(&platform_dir);
 
         // Filter out deleted commands
         commands.retain(|c| !deleted_commands.contains(&c.name));
@@ -398,6 +384,226 @@ impl KbManager {
     }
 }
 
+// ─── User KB Command Editing ────────────────────────────────────────
+
+/// Read the set of deleted command names for a platform (`_deleted.yaml`).
+fn read_deleted_list(platform_dir: &Path) -> HashSet<String> {
+    #[derive(serde::Deserialize)]
+    struct DeletedFile {
+        deleted: Vec<String>,
+    }
+    let deleted_path = platform_dir.join("_deleted.yaml");
+    if deleted_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&deleted_path) {
+            if let Ok(file) = serde_yml::from_str::<DeletedFile>(&content) {
+                return file.deleted.into_iter().collect();
+            }
+        }
+    }
+    HashSet::new()
+}
+
+/// Write the set of deleted command names to `_deleted.yaml` (sorted).
+fn write_deleted_list(deleted_path: &Path, names: &HashSet<String>) -> Result<(), String> {
+    use serde_yml::Value;
+    let mut list: Vec<&String> = names.iter().collect();
+    list.sort();
+    let yaml_content = serde_yml::to_string(&Value::Mapping({
+        let mut map = serde_yml::Mapping::new();
+        map.insert(
+            Value::String("deleted".to_string()),
+            serde_yml::to_value(&list).unwrap_or_default(),
+        );
+        map
+    }))
+    .map_err(|e| format!("Failed to serialize deleted list: {}", e))?;
+
+    std::fs::write(deleted_path, yaml_content)
+        .map_err(|e| format!("Failed to write {}: {}", deleted_path.display(), e))
+}
+
+/// Serialize commands under a top-level `commands:` key.
+fn serialize_commands(commands: &[Command]) -> Result<String, String> {
+    use serde_yml::Value;
+    serde_yml::to_string(&Value::Mapping({
+        let mut map = serde_yml::Mapping::new();
+        map.insert(
+            Value::String("commands".to_string()),
+            serde_yml::to_value(commands).unwrap_or_default(),
+        );
+        map
+    }))
+    .map_err(|e| format!("Failed to serialize commands to YAML: {}", e))
+}
+
+/// Get the target YAML file path for commands.
+pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> PathBuf {
+    user_kb_path.join(platform).join("commands").join(format!("{}.yaml", category))
+}
+
+/// Write commands to a YAML file, merging with existing content if the file already exists.
+pub fn write_commands_to_yaml(commands: &[Command], path: &Path, _category: &str) -> Result<(), String> {
+    let mut existing_commands = Vec::new();
+
+    // Load existing commands if file exists
+    if path.exists() {
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                match serde_yml::from_str::<CommandFile>(&content) {
+                    Ok(file) => {
+                        existing_commands = file.commands;
+                        log::info!("Loaded {} existing commands from {}", existing_commands.len(), path.display());
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse existing YAML at {}, will overwrite: {}", path.display(), e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read existing file at {}, will create new: {}", path.display(), e);
+            }
+        }
+    }
+
+    // Merge: add new commands, update existing ones by name
+    let mut merged: Vec<Command> = existing_commands;
+    let mut added = 0;
+    let mut updated = 0;
+
+    for cmd in commands {
+        if let Some(existing) = merged.iter_mut().find(|c| c.name == cmd.name) {
+            // Update existing command with richer data if the new one has more info
+            if !cmd.description.is_empty() && existing.description.is_empty() {
+                existing.description = cmd.description.clone();
+                updated += 1;
+            }
+            if !cmd.syntax.is_empty() && existing.syntax.is_empty() {
+                existing.syntax = cmd.syntax.clone();
+            }
+            if !cmd.examples.is_empty() && existing.examples.is_empty() {
+                existing.examples = cmd.examples.clone();
+            }
+            if !cmd.aliases.is_empty() && existing.aliases.is_empty() {
+                existing.aliases = cmd.aliases.clone();
+            }
+            if !cmd.tags.is_empty() && existing.tags.is_empty() {
+                existing.tags = cmd.tags.clone();
+            }
+        } else {
+            merged.push(cmd.clone());
+            added += 1;
+        }
+    }
+
+    // Sort alphabetically
+    merged.sort_by(|a, b| a.name.cmp(&b.name));
+
+    log::info!("KB merge: {} added, {} updated, {} total commands in {}", added, updated, merged.len(), path.display());
+
+    let yaml_content = serialize_commands(&merged)?;
+
+    std::fs::write(path, yaml_content)
+        .map_err(|e| format!("Failed to write YAML file {}: {}", path.display(), e))?;
+
+    log::info!("Wrote {} commands to {}", merged.len(), path.display());
+    Ok(())
+}
+
+/// Save (create or update) a single command in the user KB path.
+///
+/// If the category YAML exists, the command is merged (updated by name or added).
+/// If the category YAML doesn't exist, it's created.
+/// Also removes the command from _deleted.yaml if it was previously deleted.
+pub fn save_kb_command(
+    user_kb_path: &Path,
+    platform: &str,
+    category: &str,
+    command: &Command,
+) -> Result<(), String> {
+    let path = get_target_yaml_path(user_kb_path, platform, category);
+
+    // Ensure the directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
+    }
+
+    write_commands_to_yaml(&[command.clone()], &path, category)?;
+
+    // Remove from _deleted.yaml if it was previously deleted
+    let platform_dir = user_kb_path.join(platform);
+    let deleted_path = platform_dir.join("_deleted.yaml");
+    let mut names = read_deleted_list(&platform_dir);
+    if names.remove(&command.name) {
+        write_deleted_list(&deleted_path, &names)?;
+        log::info!("Removed '{}' from deleted list in {}", command.name, deleted_path.display());
+    }
+
+    log::info!("Saved command '{}' to {}", command.name, path.display());
+    Ok(())
+}
+
+/// Delete a single command from the user KB path by name.
+///
+/// If the category YAML exists in the user KB path, removes the command from it.
+/// Always records the command name in _deleted.yaml in the user KB platform dir,
+/// which the KbStore loader uses to filter out deleted bundled commands.
+pub fn delete_kb_command(
+    user_kb_path: &Path,
+    platform: &str,
+    category: &str,
+    command_name: &str,
+) -> Result<(), String> {
+    let path = get_target_yaml_path(user_kb_path, platform, category);
+
+    // 1. Remove from category file if it exists
+    if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+        let mut cmd_file: CommandFile = serde_yml::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+
+        let len_before = cmd_file.commands.len();
+        cmd_file.commands.retain(|c| c.name != command_name);
+        let removed = len_before - cmd_file.commands.len();
+
+        if removed > 0 {
+            if cmd_file.commands.is_empty() {
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("Failed to remove {}: {}", path.display(), e))?;
+                log::info!("Removed empty file {}", path.display());
+
+                if let Some(commands_dir) = path.parent() {
+                    let _ = std::fs::remove_dir(commands_dir);
+                    if let Some(platform_dir) = commands_dir.parent() {
+                        let _ = std::fs::remove_dir(platform_dir);
+                    }
+                }
+            } else {
+                let yaml_content = serialize_commands(&cmd_file.commands)?;
+                std::fs::write(&path, yaml_content)
+                    .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+            }
+
+            log::info!("Removed command '{}' from {}", command_name, path.display());
+        }
+    }
+
+    // 2. Always record in _deleted.yaml so bundled commands stay hidden
+    let platform_dir = user_kb_path.join(platform);
+    std::fs::create_dir_all(&platform_dir)
+        .map_err(|e| format!("Failed to create {}: {}", platform_dir.display(), e))?;
+
+    let deleted_path = platform_dir.join("_deleted.yaml");
+    let mut names = read_deleted_list(&platform_dir);
+    names.insert(command_name.to_string());
+    write_deleted_list(&deleted_path, &names)?;
+
+    log::info!("Deleted command '{}' (recorded in {})", command_name, deleted_path.display());
+    Ok(())
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -443,6 +649,13 @@ mod tests {
         let upper = store.query(None, 50);
         let lower = store.query(None, 50);
         assert_eq!(upper.len(), lower.len());
+    }
+
+    #[test]
+    fn test_get_target_yaml_path() {
+        let kb_path = PathBuf::from("/data/kb");
+        let path = get_target_yaml_path(&kb_path, "cisco-iosxe", "networking");
+        assert_eq!(path, PathBuf::from("/data/kb/cisco-iosxe/commands/networking.yaml"));
     }
 
     #[test]

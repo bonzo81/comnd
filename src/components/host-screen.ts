@@ -21,24 +21,8 @@ import {
 } from "../lib/tauri-api";
 import { log } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
-import { escHtml } from "../lib/format";
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "Never";
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-// ─── All Hosts virtual group ID ───────────────────────────────────
-
-const ALL_GROUP_ID = "__all__";
+import { escAttr, escHtml, relativeTime } from "../lib/format";
+import { ALL_GROUP_ID, filterHosts } from "../lib/host-filters";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -117,81 +101,18 @@ export class HostScreen {
       this.groups = [];
     }
     // Build tree: ensure groups have parent relationships accounted for
-    // and sort by sort_order
-    this.rebuildGroupTree();
+    // Sort groups by sort_order
+    this.groups.sort((a, b) => a.sort_order - b.sort_order);
     this.applyFilter();
   }
 
-  private rebuildGroupTree() {
-    this.groups.sort((a, b) => a.sort_order - b.sort_order);
-    // Filter groups: only those that actually exist
-    // Build tree structure for rendering
-    const rootGroups = this.groups.filter((g) => !g.parent_id);
-    const childMap = new Map<string, HostGroup[]>();
-    for (const g of this.groups) {
-      if (g.parent_id) {
-        const children = childMap.get(g.parent_id) || [];
-        children.push(g);
-        childMap.set(g.parent_id, children);
-      }
-    }
-    // Sort children
-    for (const [, children] of childMap) {
-      children.sort((a, b) => a.sort_order - b.sort_order);
-    }
-  }
-
   private applyFilter() {
-    const q = this.searchQuery.toLowerCase().trim();
-
-    // Filter hosts
-    let hosts = [...this.hosts];
-
-    // Filter by group
-    if (this.selectedGroupId !== ALL_GROUP_ID) {
-      // Include hosts in this group and any sub-groups
-      const groupIds = this.getGroupAndDescendantIds(this.selectedGroupId);
-      hosts = hosts.filter((h) => h.group_id && groupIds.has(h.group_id));
-    }
-
-    // Filter by search
-    if (q) {
-      hosts = hosts.filter(
-        (h) =>
-          h.display_name.toLowerCase().includes(q) ||
-          h.hostname.toLowerCase().includes(q) ||
-          h.username.toLowerCase().includes(q) ||
-          h.platform.toLowerCase().includes(q) ||
-          (h.notes ?? "").toLowerCase().includes(q) ||
-          h.tags.some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-
-    // Sort: recently connected first, then by sort_order
-    hosts.sort((a, b) => {
-      const aTime = a.last_connected ? new Date(a.last_connected).getTime() : 0;
-      const bTime = b.last_connected ? new Date(b.last_connected).getTime() : 0;
-      if (aTime !== bTime) return bTime - aTime;
-      return a.sort_order - b.sort_order;
-    });
-
-    this.filteredHosts = hosts;
+    this.filteredHosts = filterHosts(this.hosts, this.groups, this.selectedGroupId, this.searchQuery);
 
     // Clamp selection
     if (this.selectedHostIndex >= this.filteredHosts.length) {
       this.selectedHostIndex = Math.max(0, this.filteredHosts.length - 1);
     }
-  }
-
-  private getGroupAndDescendantIds(groupId: string): Set<string> {
-    const ids = new Set<string>();
-    ids.add(groupId);
-    for (const g of this.groups) {
-      if (g.parent_id && ids.has(g.parent_id)) {
-        ids.add(g.id);
-      }
-    }
-    return ids;
   }
 
   // ─── Render ──────────────────────────────────────────────────────
@@ -232,7 +153,7 @@ export class HostScreen {
           <div class="hs-host-panel">
             <div class="hs-search">
               <div class="hs-search-row">
-                <input type="text" placeholder="Search hosts, tags… ( / )" id="hs-search" value="${this.escAttr(this.searchQuery)}" />
+                <input type="text" placeholder="Search hosts, tags… ( / )" id="hs-search" value="${escAttr(this.searchQuery)}" />
                 ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge">${escHtml(this.getGroupName(this.selectedGroupId))} ✕</span>` : ""}
               </div>
               <span class="hs-host-count">${countText}</span>
@@ -391,12 +312,12 @@ export class HostScreen {
             <label>
               <span>Display Name <em>*</em></span>
               <input type="text" name="display_name" required placeholder="e.g. Core Router - LON"
-                     value="${this.escAttr(h?.display_name ?? "")}" />
+                     value="${escAttr(h?.display_name ?? "")}" />
             </label>
             <label>
               <span>Hostname / IP <em>*</em></span>
               <input type="text" name="hostname" required placeholder="e.g. 192.168.1.1 or router.example.com"
-                     value="${this.escAttr(h?.hostname ?? "")}" />
+                     value="${escAttr(h?.hostname ?? "")}" />
             </label>
             <label>
               <span>Port</span>
@@ -406,7 +327,7 @@ export class HostScreen {
             <label>
               <span>Username <em>*</em></span>
               <input type="text" name="username" required placeholder="admin"
-                     value="${this.escAttr(h?.username ?? "")}" />
+                     value="${escAttr(h?.username ?? "")}" />
             </label>
 
             <!-- Group -->
@@ -422,7 +343,7 @@ export class HostScreen {
             <label>
               <span>Tags (comma-separated)</span>
               <input type="text" name="tags" placeholder="e.g. core, london, production"
-                     value="${this.escAttr((h?.tags ?? []).join(", "))}" />
+                     value="${escAttr((h?.tags ?? []).join(", "))}" />
             </label>
 
             <fieldset class="form-auth-group">
@@ -449,7 +370,7 @@ export class HostScreen {
               <label>
                 <span>SSH Key Path</span>
                 <input type="text" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
-                       value="${this.escAttr(h?.ssh_key_path ?? "")}" />
+                       value="${escAttr(h?.ssh_key_path ?? "")}" />
               </label>
             </div>
             <label>
@@ -466,7 +387,7 @@ export class HostScreen {
             <label>
               <span>OS Version</span>
               <input type="text" name="os_version" placeholder="e.g. 17.6 — Leave blank to show all commands"
-                     value="${this.escAttr(h?.os_version ?? "")}" />
+                     value="${escAttr(h?.os_version ?? "")}" />
             </label>
             <label>
               <span>Notes</span>
@@ -1270,9 +1191,5 @@ export class HostScreen {
   private getGroupName(groupId: string): string {
     if (groupId === ALL_GROUP_ID) return "All Hosts";
     return this.groups.find((g) => g.id === groupId)?.name ?? groupId;
-  }
-
-  private escAttr(s: string): string {
-    return escHtml(s).replace(/'/g, "&#39;");
   }
 }

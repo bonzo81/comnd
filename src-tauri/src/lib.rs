@@ -402,7 +402,7 @@ async fn save_kb_command(
         tags,
     };
 
-    import::save_kb_command(&user_kb_path, &platform, &category, &command)?;
+    kb::save_kb_command(&user_kb_path, &platform, &category, &command)?;
 
     // Reload KB so changes are reflected immediately
     {
@@ -425,7 +425,7 @@ async fn delete_kb_command(
         config.user_kb_path()
     };
 
-    import::delete_kb_command(&user_kb_path, &platform, &category, &command_name)?;
+    kb::delete_kb_command(&user_kb_path, &platform, &category, &command_name)?;
 
     // Reload KB so changes are reflected immediately
     {
