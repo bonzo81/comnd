@@ -1,17 +1,28 @@
 /* ─── Ghost text (suggestion hint) ─────────────────────────────────── */
-.btn-sm {
+.ghost-text {
   position: absolute;
   color: var(--color-text-secondary);
   opacity: 0.6;
   pointer-events: none;
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-base);
   white-space: pre;
   z-index: 10;
   display: none;
   background: var(--color-surface-secondary);
   padding: 0 var(--space-1);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.match-count-badge {
+  position: absolute;
+  color: var(--color-accent);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  z-index: 10;
+  display: none;
 }
 
 /* ─── Suggestion Dropdown ──────────────────────────────────────────── */

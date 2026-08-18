@@ -29,6 +29,7 @@ import { ALL_GROUP_ID, filterHosts } from "../lib/host-filters";
 export class HostScreen {
   private _onConnect: (host: Host) => void;
   private _getActiveSessions: () => Set<string>;
+  private _onGroupsChanged?: (selectedGroupId: string) => void;
   private container: HTMLElement | null = null;
 
   // Data
@@ -57,9 +58,14 @@ export class HostScreen {
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
 
-  constructor(onConnect: (host: Host) => void, getActiveSessions: () => Set<string>) {
+  constructor(
+    onConnect: (host: Host) => void,
+    getActiveSessions: () => Set<string>,
+    onGroupsChanged?: (selectedGroupId: string) => void,
+  ) {
     this._onConnect = onConnect;
     this._getActiveSessions = getActiveSessions;
+    this._onGroupsChanged = onGroupsChanged;
   }
 
   async mount(container: HTMLElement) {
@@ -73,6 +79,8 @@ export class HostScreen {
   async refresh() {
     await this.loadData();
     this.render();
+    // connectToHost() unmounts key handlers; rebind on return
+    this.bindGlobalKeys();
   }
 
   /** Select a group (driven by the nav panel). */
@@ -87,6 +95,37 @@ export class HostScreen {
   /** Open the new-connection form (driven by the nav panel). */
   openNewConnection() {
     void this.openForm();
+  }
+
+  /** Current search query (read by the nav panel to restore input state). */
+  getSearchQuery(): string {
+    return this.searchQuery;
+  }
+
+  /** Set the search query (driven by the nav panel search box). */
+  setSearchQuery(query: string) {
+    if (this.searchQuery === query) return;
+    this.searchQuery = query;
+    this.applyFilter();
+    this.render();
+  }
+
+  /** Focus the nav panel search box (global "/" shortcut). */
+  focusNavSearch() {
+    const input = document.getElementById("nav-host-search") as HTMLInputElement | null;
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  /** Clear the nav panel search box (global Escape). */
+  clearNavSearch() {
+    const input = document.getElementById("nav-host-search") as HTMLInputElement | null;
+    if (input) {
+      input.value = "";
+      this.setSearchQuery("");
+    }
   }
 
   /** Open the new-connection form pre-scoped to a group (driven by the nav panel). */
@@ -149,7 +188,6 @@ export class HostScreen {
         <div class="hs-host-panel">
           <div class="hs-search">
             <div class="hs-search-row">
-              <input type="text" placeholder="Search hosts, tags… ( / )" id="hs-search" value="${escAttr(this.searchQuery)}" />
               ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge">${escHtml(this.getGroupName(this.selectedGroupId))} ✕</span>` : ""}
             </div>
             <span class="hs-host-count">${countText}</span>
@@ -438,27 +476,12 @@ export class HostScreen {
       }
     });
 
-    // Search
-    const searchInput = this.container.querySelector("#hs-search") as HTMLInputElement | null;
-    if (searchInput) {
-      searchInput.addEventListener("input", () => {
-        this.searchQuery = searchInput.value;
-        this.applyFilter();
-        this.render();
-        // Re-focus search after render and set cursor to end
-        const input = this.container?.querySelector("#hs-search") as HTMLInputElement;
-        if (input) {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        }
-      });
-    }
-
     // Group filter badge click (deselect group)
     this.container.querySelector(".hs-group-filter-badge")?.addEventListener("click", () => {
       this.selectedGroupId = ALL_GROUP_ID;
       this.applyFilter();
       this.render();
+      this._onGroupsChanged?.(ALL_GROUP_ID);
     });
 
     // Host items
@@ -644,7 +667,21 @@ export class HostScreen {
       return;
     }
 
-    const isSearchFocused = document.activeElement?.id === "hs-search";
+    // Global shortcuts work even when focus is in the nav panel (e.g. search box)
+    if (e.key === "/") {
+      e.preventDefault();
+      this.focusNavSearch();
+      return;
+    }
+    if (e.key === "Escape" && this.searchQuery) {
+      e.preventDefault();
+      this.clearNavSearch();
+      return;
+    }
+
+    // Ignore other keys when focus is outside the host screen (terminal, title bar)
+    const ae = document.activeElement;
+    if (ae instanceof HTMLElement && ae !== document.body && !this.container?.contains(ae)) return;
 
     switch (e.key) {
       case "ArrowDown":
@@ -652,9 +689,6 @@ export class HostScreen {
         if (this.filteredHosts.length > 0) {
           this.selectedHostIndex = Math.min(this.selectedHostIndex + 1, this.filteredHosts.length - 1);
           this.render();
-          if (isSearchFocused) {
-            (this.container?.querySelector("#hs-search") as HTMLInputElement)?.focus();
-          }
           this.scrollSelectedIntoView();
         }
         break;
@@ -663,40 +697,18 @@ export class HostScreen {
         if (this.filteredHosts.length > 0) {
           this.selectedHostIndex = Math.max(this.selectedHostIndex - 1, 0);
           this.render();
-          if (isSearchFocused) {
-            (this.container?.querySelector("#hs-search") as HTMLInputElement)?.focus();
-          }
           this.scrollSelectedIntoView();
         }
         break;
       case "Enter":
-        if (!isSearchFocused && this.filteredHosts[this.selectedHostIndex]) {
+        if (this.filteredHosts[this.selectedHostIndex]) {
           e.preventDefault();
           this.connectToHost(this.filteredHosts[this.selectedHostIndex].id);
         }
         break;
-      case "/":
-        if (!isSearchFocused) {
-          e.preventDefault();
-          (this.container?.querySelector("#hs-search") as HTMLInputElement)?.focus();
-        }
-        break;
-      case "Escape":
-        if (isSearchFocused) {
-          e.preventDefault();
-          if (this.searchQuery) {
-            this.searchQuery = "";
-            this.applyFilter();
-            this.render();
-            (this.container?.querySelector("#hs-search") as HTMLInputElement)?.focus();
-          } else {
-            (this.container?.querySelector("#hs-search") as HTMLInputElement)?.blur();
-          }
-        }
-        break;
       case "Delete":
       case "Backspace":
-        if (!isSearchFocused && this.filteredHosts[this.selectedHostIndex]) {
+        if (this.filteredHosts[this.selectedHostIndex]) {
           e.preventDefault();
           this.deleteConfirmId = this.filteredHosts[this.selectedHostIndex].id;
           this.deleteConfirmType = "host";
@@ -766,6 +778,7 @@ export class HostScreen {
       this.editingGroupId = null;
       await this.loadData();
       this.render();
+      this._onGroupsChanged?.(this.selectedGroupId);
     } catch (e) {
       log.error("host-screen", `Failed to save group: ${e}`);
     }
@@ -780,6 +793,7 @@ export class HostScreen {
       }
       await this.loadData();
       this.render();
+      this._onGroupsChanged?.(this.selectedGroupId);
     } catch (e) {
       log.error("host-screen", `Failed to delete group: ${e}`);
     }

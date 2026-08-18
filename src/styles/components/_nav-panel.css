@@ -2,7 +2,8 @@
 .app-nav {
   width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-secondary);
   overflow-y: auto;
   overflow-x: hidden;
@@ -44,7 +45,7 @@
 
 .nav-chevron {
   width: 12px;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
@@ -62,7 +63,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  width: 100%;
+  width: auto;
   padding: var(--space-2) var(--space-3);
   margin: 0 var(--space-2) var(--space-0-5);
   background: none;
@@ -98,7 +99,31 @@
 .nav-action-wrap {
   display: flex;
   justify-content: center;
-  padding: var(--space-1) var(--space-2) var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1);
+}
+
+.nav-search-wrap {
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.nav-search-input {
+  width: 100%;
+  padding: var(--space-1-5) var(--space-3);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  outline: none;
+}
+
+.nav-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.nav-search-input:focus {
+  border-color: var(--color-accent);
 }
 
 .nav-action {
@@ -203,7 +228,7 @@
 .nav-toggle {
   width: 12px;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   color: var(--color-text-tertiary);
   text-align: center;
 }
@@ -216,10 +241,10 @@
 .nav-create-input {
   width: 100%;
   padding: 5px var(--space-2);
-  background: var(--color-surface);
+  background: var(--color-surface-primary);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
-  color: var(--color-text);
+  color: var(--color-text-primary);
   font-family: inherit;
   font-size: var(--font-size-sm);
   outline: none;

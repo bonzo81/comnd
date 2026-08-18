@@ -10,13 +10,15 @@ import { getAppTheme, setAppTheme, Theme } from "./lib/theme";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./styles/tokens.css";
 import "./styles/main.css";
 
 // App state
-type AppView = "connections" | "terminal" | "knowledge-base";
+type AppView = "connections" | "terminal" | "knowledge-base" | "settings";
 
 interface SessionTab {
   host: Host;
@@ -34,6 +36,8 @@ class App {
   private hostScreenWrapper: HTMLElement;
   private kbScreen: KbScreen;
   private kbScreenWrapper: HTMLElement;
+  private settingsWrapper: HTMLElement;
+  private settingsItemId = "general";
   private contentCol: HTMLElement;
   private bodyRow: HTMLElement;
   private navPanel: NavPanel;
@@ -76,19 +80,33 @@ class App {
     this.kbScreenWrapper.style.display = "none";
     this.contentCol.appendChild(this.kbScreenWrapper);
 
+    // Settings view wrapper (placeholder content)
+    this.settingsWrapper = document.createElement("div");
+    this.settingsWrapper.className = "app-view";
+    this.settingsWrapper.style.display = "none";
+    this.contentCol.appendChild(this.settingsWrapper);
+
     // Body row — nav panel left, content right
     this.bodyRow = document.createElement("div");
     this.bodyRow.className = "app-body";
     this.container.appendChild(this.bodyRow);
     this.bodyRow.appendChild(this.contentCol);
 
-    this.kbScreen = new KbScreen(() => this.showView("connections"));
+    this.kbScreen = new KbScreen(
+      () => this.showView("connections"),
+      () => void this.navPanel.refresh(),
+    );
     this.kbScreen.mount(this.kbScreenWrapper);
 
     // Mount host screen
     this.hostScreen = new HostScreen(
       this.onConnect.bind(this),
       () => this.activeSessions,
+      (selectedGroupId) => {
+        // Host screen changed groups or selection → sync nav panel
+        this.navPanel.setSelectedGroup(selectedGroupId);
+        void this.navPanel.refresh();
+      },
     );
     this.hostScreen.mount(this.hostScreenWrapper);
 
@@ -97,6 +115,9 @@ class App {
     navContainer.className = "app-nav";
     this.bodyRow.insertBefore(navContainer, this.contentCol);
     this.navPanel = new NavPanel(navContainer, {
+      onSelectSection: (section) => {
+        this.showView(section === "kb" ? "knowledge-base" : section);
+      },
       onSelectGroup: (groupId) => {
         this.showView("connections");
         this.hostScreen.setGroup(groupId);
@@ -114,8 +135,14 @@ class App {
         this.hostScreen.openAddHost(groupId);
       },
       onSelectSettings: (id) => {
-        log.info("app", `Settings requested (placeholder): ${id}`);
+        this.showView("settings");
+        this.renderSettingsView(id);
       },
+      onSearchInput: (query) => {
+        this.showView("connections");
+        this.hostScreen.setSearchQuery(query);
+      },
+      getSearchQuery: () => this.hostScreen.getSearchQuery(),
     });
     void this.navPanel.mount();
 
@@ -179,17 +206,38 @@ class App {
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
     this.kbScreenWrapper.style.display = view === "knowledge-base" ? "" : "none";
+    this.settingsWrapper.style.display = view === "settings" ? "" : "none";
     // Nav panel: no section active while in terminal
     if (view === "terminal") {
       this.navPanel.clearActiveSection();
     } else if (view === "connections") {
       this.navPanel.setSection("connections");
-    } else {
+    } else if (view === "knowledge-base") {
       this.navPanel.setSection("kb");
+    } else {
+      this.navPanel.setSection("settings");
+    }
+    if (view === "settings") {
+      this.renderSettingsView(this.settingsItemId);
     }
     if (view === "terminal") {
       this.renderSessionTabBar();
     }
+  }
+
+  private renderSettingsView(id: string) {
+    this.settingsItemId = id;
+    const labels: Record<string, string> = {
+      general: "General",
+      ollama: "Ollama / KB Import",
+      shortcuts: "Shortcuts",
+    };
+    const label = labels[id] ?? "Settings";
+    this.settingsWrapper.innerHTML = `
+      <div style="max-width:480px;margin:calc(var(--spacing) * 8) auto 0;padding:0 var(--spacing);text-align:center;color:var(--color-text-secondary)">
+        <h2 style="color:var(--color-text-primary);margin-bottom:var(--spacing)">${label}</h2>
+        <p>Coming soon — this section is a placeholder.</p>
+      </div>`;
   }
 
   private onConnect(host: Host) {
@@ -420,9 +468,6 @@ class App {
       { key: "Shift+F10", action: "Open context menu" },
       { key: "Delete", action: "Delete selected host" },
       { key: "?", action: "Toggle shortcuts" },
-      { section: "Groups" },
-      { key: "Ctrl+G", action: "New group" },
-      { key: "Alt+← / Alt+→", action: "Previous / Next group" },
       { section: "Terminal" },
       { key: "Tab", action: "Accept ghost suggestion / pass through" },
       { key: "Ctrl+Space", action: "Open suggestion dropdown" },
@@ -486,10 +531,10 @@ class App {
         return;
       }
 
-      // Ctrl+, — expand Settings section (placeholder)
+      // Ctrl+, — open Settings (placeholder)
       if (e.ctrlKey && !e.shiftKey && e.key === ",") {
         e.preventDefault();
-        this.navPanel.setSection("settings");
+        this.showView("settings");
         return;
       }
 
@@ -537,9 +582,9 @@ class App {
         return;
       }
 
-      // Escape — from KB view, return to connections
+      // Escape — from KB / settings view, return to connections
       if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        if (this.currentView === "knowledge-base") {
+        if (this.currentView === "knowledge-base" || this.currentView === "settings") {
           e.preventDefault();
           this.showView("connections");
           return;

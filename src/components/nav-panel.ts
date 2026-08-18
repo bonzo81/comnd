@@ -15,11 +15,14 @@ import { log } from "../lib/logger";
 export type NavSection = "connections" | "kb" | "settings";
 
 export interface NavCallbacks {
+  onSelectSection: (section: NavSection) => void;
   onSelectGroup: (groupId: string) => void;
   onSelectPlatform: (platform: string) => void;
   onNewConnection: () => void;
   onAddHostToGroup: (groupId: string) => void;
   onSelectSettings: (id: string) => void;
+  onSearchInput: (query: string) => void;
+  getSearchQuery: () => string;
 }
 
 const SETTINGS_ITEMS = [
@@ -33,7 +36,7 @@ export class NavPanel {
   private cb: NavCallbacks;
   private activeSection: NavSection | null = "connections";
   private expandedGroups = new Set<string>([ALL_GROUP_ID]);
-  private groups: { id: string; name: string; icon: string | null; parent_id: string | null }[] = [];
+  private groups: { id: string; name: string; icon: string | null; parent_id: string | null; sort_order: number }[] = [];
   private platforms: string[] = [];
   private selectedGroupId = ALL_GROUP_ID;
   private selectedPlatform = "";
@@ -67,7 +70,7 @@ export class NavPanel {
   /** No section expanded (terminal view). */
   clearActiveSection() {
     if (this.activeSection === null) return;
-    this.activeSection = null as unknown as NavSection;
+    this.activeSection = null;
     this.render();
   }
 
@@ -75,7 +78,7 @@ export class NavPanel {
   setSelectedGroup(groupId: string) {
     if (this.selectedGroupId === groupId) return;
     this.selectedGroupId = groupId;
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-group-id]").forEach((el) => {
+    this.container.querySelectorAll<HTMLElement>(".nav-group-row[data-group-id]").forEach((el) => {
       el.classList.toggle("nav-selected", el.dataset.groupId === groupId);
     });
   }
@@ -92,8 +95,12 @@ export class NavPanel {
   private async loadData() {
     try {
       const gs = await getHostGroups();
-      this.groups = gs.map((g) => ({ id: g.id, name: g.name, icon: g.icon, parent_id: g.parent_id }));
-      this.groups.sort((a, b) => a.id.localeCompare(b.id));
+      this.groups = gs.map((g) => ({ id: g.id, name: g.name, icon: g.icon, parent_id: g.parent_id, sort_order: g.sort_order }));
+      this.groups.sort((a, b) => a.sort_order - b.sort_order);
+      // Selected group deleted elsewhere → fall back to All Hosts
+      if (this.selectedGroupId !== ALL_GROUP_ID && !this.groups.some((g) => g.id === this.selectedGroupId)) {
+        this.selectedGroupId = ALL_GROUP_ID;
+      }
     } catch {
       this.groups = [];
     }
@@ -105,6 +112,11 @@ export class NavPanel {
   }
 
   private render() {
+    // Preserve focused element across the innerHTML rebuild
+    const ae = document.activeElement;
+    const prevFocus = ae instanceof HTMLElement && this.container.contains(ae)
+      ? this.focusables().indexOf(ae)
+      : -1;
     this.container.innerHTML = `
       <div class="nav-panel">
         ${this.renderSection("connections", "Connections", this.renderConnectionsItems())}
@@ -114,6 +126,11 @@ export class NavPanel {
     `;
     this.bindEvents();
     this.applyRovingTabindex();
+    if (prevFocus >= 0) {
+      const els = this.focusables();
+      const el = els[Math.min(prevFocus, els.length - 1)];
+      if (el) this.focusEl(el);
+    }
   }
 
   private renderSection(section: NavSection, label: string, itemsHtml: string): string {
@@ -140,6 +157,9 @@ export class NavPanel {
           </span>
           <span class="nav-item-label">New Connection</span>
         </button>
+      </div>
+      <div class="nav-search-wrap">
+        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts… ( / )" value="${escHtml(this.cb.getSearchQuery())}" />
       </div>
       <div class="nav-group-row ${this.selectedGroupId === ALL_GROUP_ID ? "nav-selected" : ""}" data-group-id="${ALL_GROUP_ID}">
         <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">
@@ -279,9 +299,10 @@ export class NavPanel {
         const section = el.dataset.section as NavSection;
         if (this.activeSection === section) {
           // Clicking the open section toggles it closed
-          this.activeSection = null as unknown as NavSection;
+          this.activeSection = null;
         } else {
           this.activeSection = section;
+          this.cb.onSelectSection(section);
         }
         this.render();
       });
@@ -350,6 +371,14 @@ export class NavPanel {
         this.render();
       });
     });
+
+    // Search input (filters the host list in the content panel)
+    const searchInput = this.container.querySelector<HTMLInputElement>("#nav-host-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        this.cb.onSearchInput(searchInput.value);
+      });
+    }
 
     // Action items
     this.container.querySelector<HTMLElement>('[data-action="new-connection"]')?.addEventListener("click", () => {
@@ -439,20 +468,23 @@ export class NavPanel {
           e.preventDefault();
           const ae = document.activeElement as HTMLElement | null;
           if (ae?.classList.contains("nav-section-header")) {
-            // Move to first item of this section
-            const section = ae.closest<HTMLElement>(".nav-section");
-            const first = section?.querySelector<HTMLElement>(".nav-item:not(.nav-disabled)");
-            if (first) this.focusEl(first);
-          } else if (!this.activeSection) {
-            // Collapsed state: expand section below the focused header
-            const headers = Array.from(this.container.querySelectorAll<HTMLElement>(".nav-section-header"));
-            const idx = headers.findIndex((h) => h === ae);
-            const next = headers[(idx + 1) % headers.length];
-            if (next) {
-              this.activeSection = next.dataset.section as NavSection;
+            // Closed section: expand it and switch view, then enter it
+            const section = ae.dataset.section as NavSection;
+            if (this.activeSection !== section) {
+              this.activeSection = section;
+              this.cb.onSelectSection(section);
               this.render();
-              const first = this.container.querySelector<HTMLElement>(".nav-item:not(.nav-disabled)");
-              if (first) first.focus();
+            }
+            const first = this.container.querySelector<HTMLElement>(
+              `.nav-section[data-section="${section}"] .nav-item:not(.nav-disabled)`,
+            );
+            if (first) this.focusEl(first);
+          } else if (ae?.classList.contains("nav-item")) {
+            // Closed group with children: expand it
+            const groupId = ae.dataset.groupId;
+            if (groupId && !this.expandedGroups.has(groupId) && this.groups.some((g) => g.parent_id === groupId)) {
+              this.expandedGroups.add(groupId);
+              this.render();
             }
           }
           break;
@@ -461,21 +493,20 @@ export class NavPanel {
           e.preventDefault();
           const ae = document.activeElement as HTMLElement | null;
           if (ae?.classList.contains("nav-section-header")) {
-            // Collapse current section, focus header above
-            if (this.activeSection) {
-              this.activeSection = null as unknown as NavSection;
-              this.render();
-            }
+            // Move to previous header (no wrap)
             const headers = Array.from(this.container.querySelectorAll<HTMLElement>(".nav-section-header"));
             const idx = headers.findIndex((h) => h === ae);
-            const prev = headers[(idx - 1 + headers.length) % headers.length];
+            const prev = headers[Math.max(0, idx - 1)];
             if (prev) this.focusEl(prev);
           } else if (this.activeSection) {
             // From an item: collapse section, focus its header
-            this.activeSection = null as unknown as NavSection;
+            const section = this.activeSection;
+            this.activeSection = null;
             this.render();
-            const header = this.container.querySelector<HTMLElement>(".nav-section-header");
-            if (header) header.focus();
+            const header = this.container.querySelector<HTMLElement>(
+              `.nav-section[data-section="${section}"] .nav-section-header`,
+            );
+            if (header) this.focusEl(header);
           }
           break;
         }

@@ -39,14 +39,18 @@ export class KbViewerDialog {
     this.embedMode = embedMode;
   }
 
-  async mount(container: HTMLElement) {
+  async mount(container: HTMLElement, platform?: string) {
     this.container = container;
     this.renderLoading();
 
     try {
       this.platforms = await listKbPlatforms();
-      if (this.platforms.length > 0) {
+      if (platform && this.platforms.includes(platform)) {
+        this.selectedPlatform = platform;
+      } else if (!this.selectedPlatform && this.platforms.length > 0) {
         this.selectedPlatform = this.platforms[0];
+      }
+      if (this.platforms.length > 0) {
         await this.loadPlatform();
       }
     } catch (err) {

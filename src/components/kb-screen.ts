@@ -16,6 +16,7 @@ import { listKbPlatforms } from "../lib/tauri-api";
 
 export class KbScreen {
   private onBackToConnections: () => void;
+  private onPlatformsChanged?: () => void;
   private container: HTMLElement | null = null;
   private platforms: string[] = [];
   private selectedPlatform: string = "";
@@ -24,8 +25,9 @@ export class KbScreen {
   private importDialog: KbImportDialog | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
-  constructor(onBackToConnections: () => void) {
+  constructor(onBackToConnections: () => void, onPlatformsChanged?: () => void) {
     this.onBackToConnections = onBackToConnections;
+    this.onPlatformsChanged = onPlatformsChanged;
   }
 
   // ─── Mount / Unmount ─────────────────────────────────────────────
@@ -59,8 +61,9 @@ export class KbScreen {
   private async loadPlatforms() {
     try {
       this.platforms = await listKbPlatforms();
-      if (this.platforms.length > 0) {
-        this.selectedPlatform = this.platforms[0];
+      // Keep the current selection; only reset if it's gone or never set
+      if (!this.selectedPlatform || !this.platforms.includes(this.selectedPlatform)) {
+        this.selectedPlatform = this.platforms[0] ?? "";
       }
     } catch (err) {
       console.error("Failed to load KB platforms:", err);
@@ -152,7 +155,7 @@ export class KbScreen {
     }
 
     this.viewerDialog = new KbViewerDialog(true); // embedMode=true
-    this.viewerDialog.mount(panel);
+    this.viewerDialog.mount(panel, this.selectedPlatform || undefined);
   }
 
   private loadImportTab() {
@@ -166,7 +169,9 @@ export class KbScreen {
     }
 
     this.importDialog = new KbImportDialog(() => {
-      // on complete callback — no-op for now (toast handles feedback)
+      // Import may have added platforms — reload list and refresh the nav panel
+      void this.loadPlatforms();
+      this.onPlatformsChanged?.();
     }, true); // embedMode=true
     this.importDialog.mount(panel);
   }
@@ -175,6 +180,9 @@ export class KbScreen {
 
   private bindKeys() {
     this.keyHandler = (e: KeyboardEvent) => {
+      // Ignore keys when focus is outside the KB screen (nav panel, terminal, host list)
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement && ae !== document.body && !this.container?.contains(ae)) return;
       // Escape — back to connections
       if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
