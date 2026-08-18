@@ -43,8 +43,6 @@ struct ChatOptions {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     message: ChatMessageResponse,
-    #[serde(default)]
-    done: bool,
 }
 
 #[derive(Debug, Deserialize)]

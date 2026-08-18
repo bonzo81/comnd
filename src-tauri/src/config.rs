@@ -91,12 +91,6 @@ impl ConfigStore {
         &self.config
     }
 
-    /// Update the entire config and persist.
-    pub fn save(&mut self, config: AppConfig) -> Result<(), String> {
-        self.config = config;
-        self.persist()
-    }
-
     /// Update Ollama settings and persist.
     pub fn save_ollama_settings(
         &mut self,

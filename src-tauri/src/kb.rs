@@ -62,8 +62,6 @@ struct CommandFile {
 pub struct KbStore {
     pub platform: PlatformIndex,
     pub commands: Vec<Command>,
-    /// Command names that the user has deleted (to hide bundled commands).
-    pub deleted_commands: HashSet<String>,
 }
 
 impl KbStore {
@@ -121,7 +119,7 @@ impl KbStore {
             deleted_commands.len()
         );
 
-        Ok(KbStore { platform, commands, deleted_commands })
+        Ok(KbStore { platform, commands })
     }
 
     /// Merge commands from another store into this one.
@@ -221,14 +219,6 @@ pub struct KbManager {
 }
 
 impl KbManager {
-    pub fn new(kb_path: PathBuf) -> Self {
-        KbManager {
-            stores: HashMap::new(),
-            kb_path,
-            user_kb_path: None,
-        }
-    }
-
     /// Create a KbManager with both bundled and user KB paths.
     pub fn with_user_path(kb_path: PathBuf, user_kb_path: PathBuf) -> Self {
         KbManager {
@@ -236,11 +226,6 @@ impl KbManager {
             kb_path,
             user_kb_path: Some(user_kb_path),
         }
-    }
-
-    /// Get the user KB path.
-    pub fn user_kb_path(&self) -> Option<&PathBuf> {
-        self.user_kb_path.as_ref()
     }
 
     /// Read deleted command names from a user KB platform directory.

@@ -195,7 +195,7 @@ impl HostGroupStore {
 
     pub fn get_all(&self) -> Result<Vec<HostGroup>, String> {
         let mut sorted = self.groups.clone();
-        sorted.sort_by_key(|g| (g.sort_order));
+        sorted.sort_by_key(|g| g.sort_order);
         Ok(sorted)
     }
 

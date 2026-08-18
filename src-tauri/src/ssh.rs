@@ -109,13 +109,6 @@ pub struct SshEventPayload {
 }
 
 #[derive(Clone, Serialize)]
-pub struct SshAuthPromptPayload {
-    pub name: String,
-    pub instructions: String,
-    pub prompts: Vec<String>,
-}
-
-#[derive(Clone, Serialize)]
 pub struct SshAuthUrlPayload {
     pub url: String,
     pub session_id: u64,
@@ -554,14 +547,6 @@ impl<S> SessionMap<S> {
         self.sessions.contains_key(&id)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.sessions.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.sessions.len()
-    }
-
     /// Routing guard for ssh_send / ssh_resize — the Tauri command locks
     /// state, calls this, then performs the real send/resize on the session.
     pub fn route_send(&self, id: u64) -> Result<(), String> {
@@ -570,12 +555,6 @@ impl<S> SessionMap<S> {
 
     pub fn route_resize(&self, id: u64, _cols: u32, _rows: u32) -> Result<(), String> {
         if self.contains(id) { Ok(()) } else { Err("No such session".to_string()) }
-    }
-
-    /// Routing guard for ssh_disconnect — takes the session out of the map;
-    /// the caller performs the async disconnect on the returned value.
-    pub fn route_disconnect(&mut self, id: u64) -> Result<S, String> {
-        self.take(id).ok_or_else(|| "No such session".to_string())
     }
 }
 
@@ -606,10 +585,6 @@ impl SshManager {
 
     pub fn get_session(&self, session_id: u64) -> Option<&SshSession> {
         self.sessions.get(session_id)
-    }
-
-    pub fn is_connected(&self) -> bool {
-        !self.sessions.is_empty()
     }
 
     pub fn route_send(&self, session_id: u64) -> Result<(), String> {
@@ -667,7 +642,6 @@ mod tests {
         let m = map_with(&[1, 2]);
         assert!(m.get(1).is_some());
         assert!(m.get(2).is_some());
-        assert_eq!(m.len(), 2);
     }
 
     #[test]
@@ -678,18 +652,9 @@ mod tests {
         let mut m = SessionMap::new();
         m.insert_with(1, DummySession);
         m.insert_with(1, DummySession);
-        assert!(m.get(1).is_some());
-        assert_eq!(m.len(), 1);
-    }
-
-    #[test]
-    fn test_is_empty() {
-        let mut m = SessionMap::<DummySession>::new();
-        assert!(m.is_empty());
-        m.insert_with(1, DummySession);
-        assert!(!m.is_empty());
-        m.take(1);
-        assert!(m.is_empty());
+        // Exactly one entry: second take yields nothing.
+        assert!(m.take(1).is_some());
+        assert!(m.take(1).is_none());
     }
 
     #[test]
@@ -705,14 +670,5 @@ mod tests {
         let m = map_with(&[1]);
         assert!(m.route_resize(1, 80, 24).is_ok());
         assert!(m.route_resize(99, 80, 24).is_err());
-    }
-
-    #[test]
-    fn test_route_disconnect_takes_session() {
-        let mut m = map_with(&[1, 2]);
-        assert!(m.route_disconnect(1).is_ok());
-        assert!(m.get(1).is_none());
-        assert!(m.get(2).is_some());
-        assert!(m.route_disconnect(1).is_err());
     }
 }
