@@ -76,5 +76,5 @@
   padding: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  background: linear-gradient(transparent, rgba(24, 24, 37, 0.8));
+  background: linear-gradient(transparent, var(--suggestion-fade));
 }

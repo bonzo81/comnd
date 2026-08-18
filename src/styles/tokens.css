@@ -65,4 +65,40 @@
   --font-size-lg: 14px;
   --font-size-xl: 16px;
   --font-size-2xl: 20px;
+
+  /* Overlays & tints (theme-aware) */
+  --overlay-backdrop: rgba(0, 0, 0, 0.6);
+  --overlay-solid: rgba(15, 23, 42, 0.92);
+  --suggestion-fade: rgba(24, 24, 37, 0.8);
+  --badge-nxos: #38BDF8;
+  --accent-tint-soft: rgba(34, 197, 94, 0.12);
+}
+
+/* ─── Light theme ─── */
+[data-theme="light"] {
+  --color-surface-primary: #F8FAFC;
+  --color-surface-secondary: #F1F5F9;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-hover: rgba(0, 0, 0, 0.05);
+  --color-surface-selected: rgba(22, 163, 74, 0.12);
+
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #94A3B8;
+
+  --color-accent: #16A34A;
+  --color-accent-hover: #15803D;
+
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  --overlay-backdrop: rgba(15, 23, 42, 0.4);
+  --overlay-solid: rgba(248, 250, 252, 0.92);
+  --suggestion-fade: rgba(248, 250, 252, 0.8);
+  --badge-nxos: #0284C7;
+  --accent-tint-soft: rgba(22, 163, 74, 0.12);
 }

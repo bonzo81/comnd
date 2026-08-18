@@ -2,7 +2,7 @@
 .cmd-palette-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-backdrop);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-start;
@@ -82,7 +82,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--color-accent);
-  background: rgba(34, 197, 94, 0.12);
+  background: var(--accent-tint-soft);
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
   white-space: nowrap;

@@ -4,6 +4,7 @@ import { KbScreen } from "./components/kb-screen";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
+import { getAppTheme, setAppTheme, Theme } from "./lib/theme";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -43,6 +44,7 @@ class App {
 
   constructor() {
     this.container = document.getElementById("app")!;
+    setAppTheme(getAppTheme());
 
     // Create persistent wrapper divs for views
     this.hostScreenWrapper = document.createElement("div");
@@ -94,6 +96,19 @@ class App {
 
     tabBar.appendChild(connectionsTab);
     tabBar.appendChild(kbTab);
+
+    const themeBtn = document.createElement("button");
+    themeBtn.className = "btn-text app-theme-btn";
+    themeBtn.addEventListener("click", () => {
+      setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
+    });
+    tabBar.appendChild(themeBtn);
+
+    const syncThemeIcon = () => {
+      themeBtn.textContent = getAppTheme() === "dark" ? "☀" : "🌙";
+    };
+    syncThemeIcon();
+    window.addEventListener("netsh:theme", syncThemeIcon);
 
     tabBar.addEventListener("click", (e: MouseEvent) => {
       const target = e.target as HTMLElement;

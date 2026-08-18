@@ -2,7 +2,7 @@
 .tv-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.92);
+  background: var(--overlay-solid);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;

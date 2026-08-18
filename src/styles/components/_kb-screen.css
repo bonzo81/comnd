@@ -28,6 +28,10 @@
   font-weight: 500;
 }
 
+.app-theme-btn {
+  margin-left: auto;
+}
+
 /* ─── KB Screen ───────────────────────────────────────────────────── */
 .kb-screen {
   height: 100%;

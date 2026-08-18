@@ -291,7 +291,7 @@
 
 /* ─── Platform Badge Colors ────────────────────────────────────────── */
 .badge-iosxe { color: var(--color-accent) !important; }
-.badge-nxos { color: #38BDF8 !important; }
+.badge-nxos { color: var(--badge-nxos) !important; }
 .badge-tmos { color: var(--color-warning) !important; }
 .badge-bash { color: var(--color-success) !important; }
 
@@ -339,7 +339,7 @@
   gap: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-success);
-  background: rgba(34, 197, 94, 0.1);
+  background: var(--accent-tint-soft);
   padding: 1px var(--space-2);
   border-radius: var(--space-2);
   margin-left: var(--space-2);

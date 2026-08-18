@@ -5,6 +5,7 @@
  */
 
 import { Terminal } from "@xterm/xterm";
+import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, Theme } from "../lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -148,12 +149,7 @@ export class TerminalView {
     this.terminal = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: this.fontSize,
-      theme: {
-        background: "#0F172A",
-        foreground: "#F8FAFC",
-        cursor: "#22C55E",
-        selectionBackground: "#1E293B",
-      },
+      theme: TERMINAL_THEMES[getTerminalTheme()],
       cursorBlink: true,
     });
 
@@ -359,6 +355,7 @@ export class TerminalView {
             <button class="btn-text tv-close-btn">✕ Close</button>
           </div>
           <span class="tv-host-info">Connecting...</span>
+          <button class="btn-text tv-theme-btn">🌙</button>
           <button class="btn-text tv-panel-btn">≡ Panel</button>
         </div>
         <div class="tv-main">
@@ -420,6 +417,19 @@ export class TerminalView {
     this.$(".tv-close-btn")!.addEventListener("click", () => {
       this.onRequestCloseCb(this.host?.id ?? "");
     });
+
+    // Terminal theme toggle
+    const themeBtn = this.$(".tv-theme-btn")!;
+    const syncThemeIcon = () => {
+      themeBtn.textContent = getTerminalTheme() === "dark" ? "☀" : "🌙";
+    };
+    themeBtn.addEventListener("click", () => {
+      const next: Theme = getTerminalTheme() === "dark" ? "light" : "dark";
+      setTerminalTheme(next);
+      this.applyTerminalTheme(next);
+    });
+    window.addEventListener("netsh:terminal-theme", syncThemeIcon);
+    syncThemeIcon();
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
@@ -1065,6 +1075,10 @@ export class TerminalView {
   }
 
   // ─── Zoom ────────────────────────────────────────────────────────
+
+  applyTerminalTheme(t: Theme) {
+    if (this.terminal) this.terminal.options.theme = TERMINAL_THEMES[t];
+  }
 
   fit() {
     this.fitAddon?.fit();
