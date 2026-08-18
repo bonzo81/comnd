@@ -37,6 +37,12 @@ import { formatMode } from "../lib/format";
 import { mintSessionId } from "../lib/session-id";
 import { shouldAcceptEvent } from "../lib/session-filter";
 import { icons } from "../lib/icons";
+import {
+  getTimestampsEnabled,
+  setTimestampsEnabled,
+  getTimestampFormat,
+  TimestampGutter,
+} from "../lib/timestamps";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -116,6 +122,9 @@ export class TerminalView {
   private resizeHandler: (() => void) | null = null;
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
   private themeChangeHandler: (() => void) | null = null;
+  private timestampsChangeHandler: (() => void) | null = null;
+  private timestampsFormatHandler: (() => void) | null = null;
+  private timestampGutter: TimestampGutter | null = null;
 
   constructor(
     onDetach: () => void,
@@ -158,6 +167,7 @@ export class TerminalView {
       fontSize: this.fontSize,
       theme: TERMINAL_THEMES[getTerminalTheme()],
       cursorBlink: true,
+      allowProposedApi: true, // required for registerDecoration (line timestamps)
     });
 
     this.fitAddon = new FitAddon();
@@ -168,6 +178,9 @@ export class TerminalView {
 
     const termContainer = this.$(".tv-terminal")!;
     this.terminal.open(termContainer);
+    this.timestampGutter = new TimestampGutter(this.terminal);
+    this.syncTerminalChrome();
+    this.syncTimestamps();
     this.fitAddon.fit();
 
     // xterm.js resize event → send PTY resize to remote
@@ -362,6 +375,7 @@ export class TerminalView {
             <button class="btn-text tv-close-btn">${icons.x} Close</button>
           </div>
           <span class="tv-host-info">Connecting...</span>
+          <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
           <button class="btn-text tv-panel-btn">≡ Panel</button>
         </div>
@@ -440,6 +454,16 @@ export class TerminalView {
     };
     window.addEventListener("netsh:terminal-theme", this.themeChangeHandler);
     syncThemeIcon();
+
+    // Line timestamps toggle
+    this.$(".tv-timestamps-btn")!.addEventListener("click", () => {
+      setTimestampsEnabled(!getTimestampsEnabled());
+    });
+    // Events apply to THIS terminal — keeps every session tab in sync
+    this.timestampsChangeHandler = () => this.syncTimestamps();
+    this.timestampsFormatHandler = () => this.syncTimestamps();
+    window.addEventListener("netsh:timestamps", this.timestampsChangeHandler);
+    window.addEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
@@ -567,7 +591,12 @@ export class TerminalView {
       const text = new TextDecoder().decode(bytes);
 
       if (this.state === "connected") {
-        this.terminal?.write(bytes);
+        const buf = this.terminal!.buffer.active;
+        const lineBefore = buf.baseY + buf.cursorY;
+        this.terminal?.write(bytes, () => {
+          const b = this.terminal?.buffer.active;
+          if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
+        });
         this.promptDetector.feed(text);
       } else {
         // Connection phase — capture output for the output pane
@@ -899,6 +928,7 @@ export class TerminalView {
     this.hideDisconnectBanner();
     this.unregisterSshListeners();
     this.terminal?.clear();
+    this.timestampGutter?.reset();
     await this.connect(this.host);
   }
 
@@ -1093,10 +1123,41 @@ export class TerminalView {
     content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
   }
 
+  // ─── Line timestamps ─────────────────────────────────────────────
+
+  /**
+   * Container font-size drives the ch-based gutter width; background keeps
+   * the gutter seamless when terminal theme differs from app theme.
+   */
+  private syncTerminalChrome() {
+    const container = this.$(".tv-terminal");
+    if (!container) return;
+    container.style.fontSize = `${this.fontSize}px`;
+    const bg = TERMINAL_THEMES[getTerminalTheme()].background;
+    if (bg) container.style.backgroundColor = bg;
+  }
+
+  private syncTimestamps() {
+    const on = getTimestampsEnabled();
+    const format = getTimestampFormat();
+    const container = this.$(".tv-terminal");
+    container?.classList.toggle("timestamps-on", on);
+    if (container) container.dataset.tsFormat = format;
+    this.timestampGutter?.applyFormat(format);
+    const btn = this.$(".tv-timestamps-btn");
+    if (btn) {
+      btn.innerHTML = icons.clock;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-label", on ? "Hide line timestamps" : "Show line timestamps");
+    }
+    this.fitAddon?.fit();
+  }
+
   // ─── Zoom ────────────────────────────────────────────────────────
 
   applyTerminalTheme(t: Theme) {
     if (this.terminal) this.terminal.options.theme = TERMINAL_THEMES[t];
+    this.syncTerminalChrome();
   }
 
   fit() {
@@ -1111,6 +1172,7 @@ export class TerminalView {
     if (!this.terminal) return;
     this.fontSize = Math.min(this.fontSize + 2, 32);
     this.terminal.options.fontSize = this.fontSize;
+    this.syncTerminalChrome();
     this.fitAddon?.fit();
   }
 
@@ -1118,6 +1180,7 @@ export class TerminalView {
     if (!this.terminal) return;
     this.fontSize = Math.max(this.fontSize - 2, 8);
     this.terminal.options.fontSize = this.fontSize;
+    this.syncTerminalChrome();
     this.fitAddon?.fit();
   }
 
@@ -1125,6 +1188,7 @@ export class TerminalView {
     if (!this.terminal) return;
     this.fontSize = 14;
     this.terminal.options.fontSize = this.fontSize;
+    this.syncTerminalChrome();
     this.fitAddon?.fit();
   }
 
@@ -1145,8 +1209,18 @@ export class TerminalView {
       window.removeEventListener("netsh:terminal-theme", this.themeChangeHandler);
       this.themeChangeHandler = null;
     }
+    if (this.timestampsChangeHandler) {
+      window.removeEventListener("netsh:timestamps", this.timestampsChangeHandler);
+      this.timestampsChangeHandler = null;
+    }
+    if (this.timestampsFormatHandler) {
+      window.removeEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
+      this.timestampsFormatHandler = null;
+    }
 
     this.hideSuggestionBar();
+    this.timestampGutter?.dispose();
+    this.timestampGutter = null;
     this.ghostText?.destroy();
     this.ghostText = null;
     this.dropdown?.destroy();

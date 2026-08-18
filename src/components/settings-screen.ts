@@ -9,6 +9,13 @@ import { getAppConfig, saveOllamaSettings, testOllamaConnection, AppConfig } fro
 import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
+import {
+  getTimestampsEnabled,
+  setTimestampsEnabled,
+  getTimestampFormat,
+  setTimestampFormat,
+  TimestampFormat,
+} from "../lib/timestamps";
 
 const LABELS: Record<string, string> = {
   general: "General",
@@ -46,7 +53,10 @@ export class SettingsScreen {
   private render() {
     if (!this.container) return;
     const label = LABELS[this.itemId] ?? "Settings";
-    const body = this.itemId === "ollama" ? this.renderOllama() : this.renderPlaceholder(label);
+    const body =
+      this.itemId === "ollama" ? this.renderOllama()
+      : this.itemId === "general" ? this.renderGeneral()
+      : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
         <div class="settings-page">
@@ -108,11 +118,50 @@ export class SettingsScreen {
     `;
   }
 
+  private renderGeneral(): string {
+    const tsOn = getTimestampsEnabled();
+    const fmt = getTimestampFormat();
+    const opt = (value: TimestampFormat, label: string) =>
+      `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
+    return `
+      <div class="settings-form">
+        <h3 class="settings-section-title">Terminal</h3>
+        <label class="settings-toggle">
+          <input type="checkbox" id="ts-enabled" ${tsOn ? "checked" : ""} />
+          <span>
+            Show line timestamps
+            <span class="import-hint">            Timestamps are recorded continuously; toggle to show them in the terminal gutter</span>
+          </span>
+        </label>
+        <div class="import-field">
+          <label for="ts-format">Timestamp format</label>
+          <select id="ts-format" ${tsOn ? "" : "disabled"}>
+            ${opt("24h", "24-hour — 14:32:05")}
+            ${opt("12h", "12-hour — 2:32:05 PM")}
+            ${opt("24h-ms", "24-hour with ms — 14:32:05.123")}
+          </select>
+          <span class="import-hint">Re-renders timestamps in open terminals immediately</span>
+        </div>
+      </div>
+    `;
+  }
+
   private renderPlaceholder(label: string): string {
     return `<p class="settings-placeholder">Coming soon — ${escHtml(label)} settings are not implemented yet.</p>`;
   }
 
   private bindEvents() {
+    this.container?.querySelector<HTMLInputElement>("#ts-enabled")?.addEventListener("change", (e) => {
+      const on = (e.target as HTMLInputElement).checked;
+      setTimestampsEnabled(on);
+      const select = this.container?.querySelector<HTMLSelectElement>("#ts-format");
+      if (select) select.disabled = !on;
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#ts-format")?.addEventListener("change", (e) => {
+      setTimestampFormat((e.target as HTMLSelectElement).value as TimestampFormat);
+    });
+
     const form = this.container?.querySelector<HTMLElement>("#ollama-settings-form");
     if (form) {
       form.addEventListener("submit", (e) => {

@@ -332,6 +332,47 @@
   opacity: 0.7;
 }
 
+/* ─── Line Timestamps (iTerm-style gutter) ─────────────────────────── */
+.tv-timestamps-btn.active {
+  color: var(--color-accent);
+}
+
+/* Stamps are recorded continuously; hidden unless the gutter is shown */
+.xterm-decoration.ts-stamp {
+  display: none;
+}
+
+/* Padding reserves the gutter; FitAddon subtracts it so cols shrink to fit.
+   Gutter width tracks the configured format's max stamp width. */
+.tv-terminal.timestamps-on {
+  font-family: var(--font-mono);
+  --ts-gutter: calc(8ch + 12px);
+  padding-left: var(--ts-gutter);
+}
+
+.tv-terminal.timestamps-on[data-ts-format="12h"] {
+  --ts-gutter: calc(11ch + 12px);
+}
+
+.tv-terminal.timestamps-on[data-ts-format="24h-ms"] {
+  --ts-gutter: calc(12ch + 12px);
+}
+
+/* Decorations anchor at col 0 and shift left into the gutter */
+.tv-terminal.timestamps-on .xterm-decoration.ts-stamp {
+  width: var(--ts-gutter) !important;
+  transform: translateX(calc(-1 * var(--ts-gutter)));
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--space-2);
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ─── Credential Badge ─────────────────────────────────────────────── */
 .cred-badge {
   display: inline-flex;
