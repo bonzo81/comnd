@@ -3,6 +3,7 @@ import { HostScreen } from "./components/host-screen";
 import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
 import { NavPanel } from "./components/nav-panel";
+import { GlobalSearch } from "./components/global-search";
 import { SettingsScreen } from "./components/settings-screen";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
@@ -56,6 +57,7 @@ class App {
 
   // Global shortcuts modal (lives in app tab bar, visible in all views)
   private showShortcuts = false;
+  private globalSearch: GlobalSearch | null = null;
 
   constructor() {
     this.container = document.getElementById("app")!;
@@ -200,6 +202,20 @@ class App {
     window.addEventListener("netsh:theme", syncThemeIcon);
 
     bar.appendChild(title);
+
+    // Global search — between title and window controls
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "title-bar-search-wrap";
+    this.globalSearch = new GlobalSearch(
+      searchWrap,
+      (h) => this.onConnect(h),
+      (p, c) => {
+        this.showView("knowledge-base");
+        this.kbScreen.openCommand(p, c);
+      },
+    );
+    bar.appendChild(searchWrap);
+
     bar.appendChild(controls);
     this.container.insertBefore(bar, this.container.firstChild);
   }
@@ -450,7 +466,7 @@ class App {
       { section: "Navigation" },
       { key: "↑ / ↓", action: "Navigate host list" },
       { key: "Enter", action: "Connect to selected host" },
-      { key: "/", action: "Focus search box" },
+      { key: "/", action: "Focus global search" },
       { key: "Escape", action: "Clear search / close modals" },
       { section: "Actions" },
       { key: "Ctrl+N", action: "New connection" },
@@ -592,6 +608,15 @@ class App {
         e.preventDefault();
         this.showShortcuts = !this.showShortcuts;
         this.renderShortcutsModal();
+        return;
+      }
+
+      // / — focus global search (not while typing in another input)
+      if (e.key === "/" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const t = document.activeElement;
+        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        this.globalSearch?.focus();
       }
     });
   }

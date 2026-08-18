@@ -101,15 +101,6 @@ export class NavPanel {
     return this.hosts.find((h) => h.id === hostId);
   }
 
-  /** Focus the search box (global "/" shortcut). */
-  focusSearch() {
-    const input = this.container.querySelector<HTMLInputElement>("#nav-host-search");
-    if (input) {
-      input.focus();
-      input.select();
-    }
-  }
-
   /** Clear the search box (global Escape). */
   clearSearch() {
     const input = this.container.querySelector<HTMLInputElement>("#nav-host-search");
@@ -237,7 +228,7 @@ export class NavPanel {
         </button>
       </div>
       <div class="nav-search-wrap">
-        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts… ( / )" value="${escHtml(this.searchQuery)}" />
+        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts…" value="${escHtml(this.searchQuery)}" />
       </div>
       <div class="nav-group-row nav-root-zone${this.searchQuery ? " hidden" : ""}" data-drop-root>
         <button class="nav-item nav-sub">

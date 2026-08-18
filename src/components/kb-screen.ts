@@ -10,7 +10,7 @@
 
 import { KbViewerDialog } from "./kb-viewer-dialog";
 import { KbImportDialog } from "./kb-import-dialog";
-import { listKbPlatforms } from "../lib/tauri-api";
+import { Command, listKbPlatforms } from "../lib/tauri-api";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ export class KbScreen {
   private viewerDialog: KbViewerDialog | null = null;
   private importDialog: KbImportDialog | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private pendingCommand: { platform: string; cmd: Command } | null = null;
 
   constructor(onBackToConnections: () => void, onPlatformsChanged?: () => void) {
     this.onBackToConnections = onBackToConnections;
@@ -113,6 +114,33 @@ export class KbScreen {
     return this.activeTab;
   }
 
+  /** Deep-link: switch to browse tab, select platform, show command detail. */
+  openCommand(platform: string, cmd: Command) {
+    if (!this.platforms.includes(platform)) {
+      void this.loadPlatforms().then(() => {
+        if (this.platforms.includes(platform)) this.openCommand(platform, cmd);
+      });
+      return;
+    }
+    if (this.activeTab !== "browse") {
+      this.switchTab("browse");
+    }
+    if (this.selectedPlatform !== platform) {
+      this.selectedPlatform = platform;
+      const select = this.container?.querySelector<HTMLSelectElement>("#kb-platform-filter-select");
+      if (select) select.value = platform;
+      this.pendingCommand = { platform, cmd };
+      this.loadBrowseTab();
+      return;
+    }
+    if (this.viewerDialog) {
+      this.viewerDialog.selectCommandByName(cmd.name);
+    } else {
+      this.pendingCommand = { platform, cmd };
+      this.loadBrowseTab();
+    }
+  }
+
   // ─── Platform Selection ──────────────────────────────────────────
 
   /** Select a platform (driven by the nav panel or the top filter). */
@@ -160,7 +188,13 @@ export class KbScreen {
     }
 
     this.viewerDialog = new KbViewerDialog(true); // embedMode=true
-    this.viewerDialog.mount(panel, this.selectedPlatform || undefined);
+    this.viewerDialog.mount(panel, this.selectedPlatform || undefined).then(() => {
+      const pending = this.pendingCommand;
+      this.pendingCommand = null;
+      if (pending && pending.platform === this.selectedPlatform) {
+        this.viewerDialog?.selectCommandByName(pending.cmd.name);
+      }
+    });
   }
 
   private loadImportTab() {

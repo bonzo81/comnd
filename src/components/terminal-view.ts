@@ -31,7 +31,6 @@ import { SuggestionEngine } from "../lib/suggestion-engine";
 import { GhostText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
-import { CommandPalette } from "./command-palette";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { mintSessionId } from "../lib/session-id";
@@ -99,7 +98,6 @@ export class TerminalView {
   private ghostText: GhostText | null = null;
   private dropdown: Dropdown | null = null;
   private sidebarContent: SidebarContent | null = null;
-  private commandPalette: CommandPalette | null = null;
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
   private currentInput = "";
@@ -221,15 +219,6 @@ export class TerminalView {
         return false; // block xterm from also processing this key
       }
 
-      // Ctrl+K → open command palette
-      if (e.ctrlKey && e.key === "k" && e.type === "keydown") {
-        e.preventDefault();
-        if (this.commandPalette) {
-          this.commandPalette.show();
-        }
-        return false;
-      }
-
       return true; // let all other keys through
     });
 
@@ -271,10 +260,6 @@ export class TerminalView {
 
         // Check for Escape — cascade dismiss
         if (data === "\x1b") {
-          if (this.commandPalette?.isVisible()) {
-            this.commandPalette.hide();
-            return;
-          }
           if (this.dropdown?.isVisible()) {
             this.dropdown.hide();
             this.hideSuggestionBar();
@@ -644,7 +629,7 @@ export class TerminalView {
       this.updateStatusBar("connected");
       this.updateModeDisplay(this.currentMode);
 
-      // Initialize ghost text overlay, dropdown, and command palette
+      // Initialize ghost text overlay, dropdown, and sidebar content
       const termContainer = this.$(".tv-terminal")!;
       if (this.terminal) {
         this.ghostText = new GhostText(this.terminal, termContainer);
@@ -658,7 +643,6 @@ export class TerminalView {
           this.ghostText?.hide();
         });
         this.sidebarContent = new SidebarContent();
-        this.commandPalette = new CommandPalette();
       }
 
       // Load KB commands into frontend suggestion engine
@@ -1225,8 +1209,6 @@ export class TerminalView {
     this.ghostText = null;
     this.dropdown?.destroy();
     this.dropdown = null;
-    this.commandPalette?.destroy();
-    this.commandPalette = null;
     this.sidebarContent = null;
     this.platformIndex = null;
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);

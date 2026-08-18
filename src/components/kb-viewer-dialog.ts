@@ -186,6 +186,19 @@ export class KbViewerDialog {
     this.bindEvents();
   }
 
+  /** Deep-link: select a command by name so the detail panel shows it. */
+  selectCommandByName(name: string): boolean {
+    const idx = this.commands.findIndex((c) => c.name === name);
+    if (idx < 0) return false;
+    this.searchQuery = "";
+    this.filteredCommands = this.commands;
+    this.selectedIndex = idx;
+    this.selectedCommand = this.commands[idx];
+    this.editing = false;
+    this.render();
+    return true;
+  }
+
   /** Switch the displayed platform (driven by the nav panel). */
   setPlatform(platform: string) {
     if (!this.platforms.includes(platform) || platform === this.selectedPlatform) return;
