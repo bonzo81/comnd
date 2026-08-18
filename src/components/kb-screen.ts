@@ -78,9 +78,9 @@ export class KbScreen {
     this.container.innerHTML = `
       <div class="kb-screen">
         <div class="kb-content">
-          <div class="kb-content-tabs">
-            <div class="kb-content-tab${this.activeTab === "browse" ? " active" : ""}" data-tab="browse">Browse KB</div>
-            <div class="kb-content-tab${this.activeTab === "import" ? " active" : ""}" data-tab="import">Import KB</div>
+          <div class="kb-platform-filter${this.activeTab !== "browse" ? " hidden" : ""}" id="kb-platform-filter">
+            <span class="kb-platform-filter-label">Platform:</span>
+            <select id="kb-platform-filter-select" class="kb-platform-select"></select>
           </div>
           <div class="kb-content-panel${this.activeTab !== "browse" ? " hidden" : ""}" id="kb-browse-panel"></div>
           <div class="kb-content-panel${this.activeTab !== "import" ? " hidden" : ""}" id="kb-import-panel"></div>
@@ -88,31 +88,40 @@ export class KbScreen {
       </div>
     `;
 
-    this.bindEvents();
+    this.bindPlatformFilter();
   }
 
-  // ─── Event Binding ───────────────────────────────────────────────
-
-  private bindEvents() {
-    if (!this.container) return;
-
-    // Tab clicks
-    this.container.querySelectorAll(".kb-content-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const tabName = (tab as HTMLElement).dataset.tab as "browse" | "import";
-        if (tabName) {
-          this.switchTab(tabName);
-        }
-      });
+  private bindPlatformFilter() {
+    const select = this.container?.querySelector<HTMLSelectElement>("#kb-platform-filter-select");
+    if (!select) return;
+    select.innerHTML = this.platforms
+      .map((p) => `<option value="${p}" ${p === this.selectedPlatform ? "selected" : ""}>${p}</option>`)
+      .join("");
+    select.addEventListener("change", () => {
+      this.selectPlatform(select.value);
     });
+  }
+
+  /** Switch the active tab (driven by the nav panel). */
+  setTab(tab: "browse" | "import") {
+    if (this.activeTab === tab) return;
+    this.switchTab(tab);
+  }
+
+  /** Current active tab (for nav panel highlighting). */
+  getActiveTab(): "browse" | "import" {
+    return this.activeTab;
   }
 
   // ─── Platform Selection ──────────────────────────────────────────
 
-  /** Select a platform (driven by the nav panel). */
+  /** Select a platform (driven by the nav panel or the top filter). */
   selectPlatform(platform: string) {
     if (!this.platforms.includes(platform)) return;
     this.selectedPlatform = platform;
+    // Keep the top filter select in sync
+    const select = this.container?.querySelector<HTMLSelectElement>("#kb-platform-filter-select");
+    if (select) select.value = platform;
     // If browse tab is active, reload the viewer for the new platform
     if (this.activeTab === "browse") {
       this.loadBrowseTab();
@@ -124,15 +133,11 @@ export class KbScreen {
   private switchTab(tab: "browse" | "import") {
     this.activeTab = tab;
 
-    // Update tab header active states
-    this.container?.querySelectorAll(".kb-content-tab").forEach((t) => {
-      const isActive = (t as HTMLElement).dataset.tab === tab;
-      t.classList.toggle("active", isActive);
-    });
-
-    // Toggle panel visibility
+    // Toggle panel + filter visibility
+    const filter = document.getElementById("kb-platform-filter");
     const browsePanel = document.getElementById("kb-browse-panel");
     const importPanel = document.getElementById("kb-import-panel");
+    if (filter) filter.classList.toggle("hidden", tab !== "browse");
     if (browsePanel) browsePanel.classList.toggle("hidden", tab !== "browse");
     if (importPanel) importPanel.classList.toggle("hidden", tab !== "import");
 

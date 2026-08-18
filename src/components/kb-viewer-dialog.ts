@@ -5,7 +5,6 @@
 
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, PlatformIndex, loadPlatformIndex } from "../lib/tauri-api";
 import { SidebarContent } from "../lib/sidebar-content";
-import { getPlatformMeta } from "../lib/platforms";
 import { escHtml, formatMode } from "../lib/format";
 
 interface KbCategory {
@@ -141,17 +140,9 @@ export class KbViewerDialog {
   private render() {
     if (!this.container) return;
 
-    const platformLabel = this.platforms.map((p) => {
-      const meta = getPlatformMeta(p);
-      return `<option value="${p}" ${p === this.selectedPlatform ? "selected" : ""}>${meta.label}</option>`;
-    }).join("");
-
     if (this.embedMode) {
       this.container.innerHTML = `
         <div class="kb-viewer-toolbar">
-          <select id="kb-platform-select" class="kb-platform-select">
-            ${platformLabel}
-          </select>
           <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" value="${this.escAttr(this.searchQuery)}" />
           <span class="kb-count">${this.filteredCommands.length} commands</span>
         </div>
@@ -174,9 +165,6 @@ export class KbViewerDialog {
               <button class="import-close-btn" id="kb-viewer-close">&times;</button>
             </div>
             <div class="kb-viewer-toolbar">
-              <select id="kb-platform-select" class="kb-platform-select">
-                ${platformLabel}
-              </select>
               <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" value="${this.escAttr(this.searchQuery)}" />
               <span class="kb-count">${this.filteredCommands.length} commands</span>
             </div>
@@ -195,6 +183,15 @@ export class KbViewerDialog {
     }
 
     this.bindEvents();
+  }
+
+  /** Switch the displayed platform (driven by the nav panel). */
+  setPlatform(platform: string) {
+    if (!this.platforms.includes(platform) || platform === this.selectedPlatform) return;
+    this.selectedPlatform = platform;
+    this.editing = false;
+    this.deleteConfirmName = null;
+    this.loadPlatform();
   }
 
   private renderDetailPanel(): string {
@@ -316,14 +313,6 @@ export class KbViewerDialog {
       if ((e.target as HTMLElement).id === "kb-viewer-overlay") {
         this.close();
       }
-    });
-
-    // Platform select
-    this.container.querySelector("#kb-platform-select")?.addEventListener("change", (e) => {
-      this.selectedPlatform = (e.target as HTMLSelectElement).value;
-      this.editing = false;
-      this.deleteConfirmName = null;
-      this.loadPlatform();
     });
 
     // Search

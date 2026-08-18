@@ -15,34 +15,6 @@
   min-width: 0;
 }
 
-.kb-content-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--color-border);
-  padding: 0 var(--space-4);
-  flex-shrink: 0;
-  background: var(--color-surface-secondary);
-}
-
-.kb-content-tab {
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  font-size: var(--font-size-base);
-  color: var(--color-text-secondary);
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
-  user-select: none;
-}
-
-.kb-content-tab:hover {
-  color: var(--color-text-primary);
-}
-
-.kb-content-tab.active {
-  color: var(--color-text-primary);
-  border-bottom-color: var(--color-accent);
-  font-weight: 500;
-}
-
 .kb-content-panel {
   flex: 1;
   overflow-y: auto;
@@ -51,4 +23,25 @@
 
 .kb-content-panel.hidden {
   display: none;
+}
+
+/* ─── KB Platform Filter (browse mode top bar) ────────────────────── */
+.kb-platform-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-secondary);
+  flex-shrink: 0;
+}
+
+.kb-platform-filter.hidden {
+  display: none;
+}
+
+.kb-platform-filter-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }

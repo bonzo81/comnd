@@ -119,9 +119,9 @@ class App {
         this.showView("connections");
         this.hostScreen.setGroup(groupId);
       },
-      onSelectPlatform: (platform) => {
+      onKbTab: (tab) => {
         this.showView("knowledge-base");
-        this.kbScreen.selectPlatform(platform);
+        this.kbScreen.setTab(tab);
       },
       onNewConnection: () => {
         this.showView("connections");
@@ -211,6 +211,7 @@ class App {
       this.navPanel.setSection("connections");
     } else if (view === "knowledge-base") {
       this.navPanel.setSection("kb");
+      this.navPanel.setActiveKbTab(this.kbScreen.getActiveTab());
     } else {
       this.navPanel.setSection("settings");
     }

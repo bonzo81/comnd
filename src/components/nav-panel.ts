@@ -6,9 +6,8 @@
  * Roving tabindex + arrow/Enter/Left/Right keyboard navigation.
  */
 
-import { getHostGroups, listKbPlatforms, saveHostGroup } from "../lib/tauri-api";
+import { getHostGroups, saveHostGroup } from "../lib/tauri-api";
 import { ALL_GROUP_ID } from "../lib/host-filters";
-import { PLATFORM_META, platformColorClass } from "../lib/platforms";
 import { escHtml } from "../lib/format";
 import { log } from "../lib/logger";
 
@@ -16,7 +15,7 @@ export type NavSection = "connections" | "kb" | "settings";
 
 export interface NavCallbacks {
   onSelectGroup: (groupId: string) => void;
-  onSelectPlatform: (platform: string) => void;
+  onKbTab: (tab: "browse" | "import") => void;
   onNewConnection: () => void;
   onAddHostToGroup: (groupId: string) => void;
   onSelectSettings: (id: string) => void;
@@ -36,9 +35,8 @@ export class NavPanel {
   private activeSection: NavSection | null = "connections";
   private expandedGroups = new Set<string>([ALL_GROUP_ID]);
   private groups: { id: string; name: string; icon: string | null; parent_id: string | null; sort_order: number }[] = [];
-  private platforms: string[] = [];
   private selectedGroupId = ALL_GROUP_ID;
-  private selectedPlatform = "";
+  private activeKbTab: "browse" | "import" = "browse";
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
 
@@ -82,12 +80,12 @@ export class NavPanel {
     });
   }
 
-  /** Update the highlighted platform (driven by KbScreen). */
-  setSelectedPlatform(platform: string) {
-    if (this.selectedPlatform === platform) return;
-    this.selectedPlatform = platform;
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-platform]").forEach((el) => {
-      el.classList.toggle("nav-selected", el.dataset.platform === platform);
+  /** Update the highlighted KB tab (driven by KbScreen). */
+  setActiveKbTab(tab: "browse" | "import") {
+    if (this.activeKbTab === tab) return;
+    this.activeKbTab = tab;
+    this.container.querySelectorAll<HTMLElement>(".nav-item[data-kb-tab]").forEach((el) => {
+      el.classList.toggle("nav-selected", el.dataset.kbTab === tab);
     });
   }
 
@@ -102,11 +100,6 @@ export class NavPanel {
       }
     } catch {
       this.groups = [];
-    }
-    try {
-      this.platforms = await listKbPlatforms();
-    } catch {
-      this.platforms = [];
     }
   }
 
@@ -263,21 +256,14 @@ export class NavPanel {
   }
 
   private renderKbItems(): string {
-    if (this.platforms.length === 0) {
-      return `<div class="nav-item nav-disabled"><span class="nav-item-label">No platforms</span></div>`;
-    }
-    return this.platforms
-      .map((p) => {
-        const meta = PLATFORM_META[p] ?? { badge: p.slice(0, 4).toUpperCase(), label: p };
-        const selected = this.selectedPlatform === p;
-        return `
-          <button class="nav-item nav-sub ${selected ? "nav-selected" : ""}" data-platform="${p}">
-            <span class="nav-badge ${platformColorClass(p)}">${meta.badge}</span>
-            <span class="nav-item-label">${escHtml(meta.label)}</span>
-          </button>
-        `;
-      })
-      .join("");
+    return `
+      <button class="nav-item nav-sub ${this.activeKbTab === "browse" ? "nav-selected" : ""}" data-kb-tab="browse">
+        <span class="nav-item-label">Browse KB</span>
+      </button>
+      <button class="nav-item nav-sub ${this.activeKbTab === "import" ? "nav-selected" : ""}" data-kb-tab="import">
+        <span class="nav-item-label">Import KB</span>
+      </button>
+    `;
   }
 
   private renderSettingsItems(): string {
@@ -359,13 +345,13 @@ export class NavPanel {
       });
     }
 
-    // Platform items
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-platform]").forEach((el) => {
+    // KB tab items (Browse KB / Import KB)
+    this.container.querySelectorAll<HTMLElement>(".nav-item[data-kb-tab]").forEach((el) => {
       el.addEventListener("click", () => {
-        const platform = el.dataset.platform ?? "";
-        if (!platform) return;
-        this.selectedPlatform = platform;
-        this.cb.onSelectPlatform(platform);
+        const tab = el.dataset.kbTab as "browse" | "import";
+        if (!tab) return;
+        this.activeKbTab = tab;
+        this.cb.onKbTab(tab);
         this.render();
       });
     });
