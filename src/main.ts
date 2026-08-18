@@ -3,6 +3,7 @@ import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
+import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -167,9 +168,11 @@ class App {
     this.activeTabId = hostId;
     this.activeHost = tab.host;
 
-    // Hide other wrappers, show active
-    for (const [id, t] of this.tabs) {
-      t.wrapper.style.display = id === hostId ? "" : "none";
+    // Pure transition — exactly one tab active (see tab-state.ts)
+    const order = activateTabState(this.tabStates(), hostId);
+    for (const t of order) {
+      const entry = this.tabs.get(t.hostId);
+      if (entry) entry.wrapper.style.display = t.active ? "" : "none";
     }
 
     // Fit terminal after showing
@@ -220,9 +223,10 @@ class App {
     }
     if (this.activeTabId === hostId) {
       this.activeTabId = null;
-      const remaining = [...this.tabs.keys()];
-      if (remaining.length > 0) {
-        this.activateTab(remaining[remaining.length - 1]);
+      // Pure transition — activate last remaining tab (see tab-state.ts)
+      const next = closeTabState(this.tabStates(), hostId);
+      if (next.length > 0) {
+        this.activateTab(next[next.length - 1].hostId);
       } else {
         this.showView("connections");
       }
@@ -244,9 +248,9 @@ class App {
     this.activeSessions.delete(hostId);
     if (this.activeTabId === hostId) {
       this.activeTabId = null;
-      const remaining = [...this.tabs.keys()];
-      if (remaining.length > 0) {
-        this.activateTab(remaining[remaining.length - 1]);
+      const next = closeTabState(this.tabStates(), hostId);
+      if (next.length > 0) {
+        this.activateTab(next[next.length - 1].hostId);
       } else if (this.currentView === "terminal") {
         this.showView("connections");
       }
@@ -256,6 +260,13 @@ class App {
   }
 
   // ─── Session Tab Bar ─────────────────────────────────────────────
+
+  private tabStates(): TabState[] {
+    return [...this.tabs.keys()].map((hostId) => ({
+      hostId,
+      active: hostId === this.activeTabId,
+    }));
+  }
 
   private renderSessionTabBar() {
     if (!this.sessionTabBar) {

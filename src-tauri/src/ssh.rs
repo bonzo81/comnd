@@ -524,10 +524,65 @@ impl SshSession {
     }
 }
 
+// ─── Session Map (testable core) ────────────────────────────────────
+
+/// Keyed session registry. Generic so unit tests can exercise the
+/// insert/take/get/route logic without constructing a real SshSession
+/// (whose russh handles need a live TCP connection).
+pub struct SessionMap<S> {
+    sessions: HashMap<u64, S>,
+}
+
+impl<S> SessionMap<S> {
+    pub fn new() -> Self {
+        Self { sessions: HashMap::new() }
+    }
+
+    pub fn insert_with(&mut self, id: u64, s: S) {
+        self.sessions.insert(id, s);
+    }
+
+    pub fn get(&self, id: u64) -> Option<&S> {
+        self.sessions.get(&id)
+    }
+
+    pub fn take(&mut self, id: u64) -> Option<S> {
+        self.sessions.remove(&id)
+    }
+
+    pub fn contains(&self, id: u64) -> bool {
+        self.sessions.contains_key(&id)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
+    /// Routing guard for ssh_send / ssh_resize — the Tauri command locks
+    /// state, calls this, then performs the real send/resize on the session.
+    pub fn route_send(&self, id: u64) -> Result<(), String> {
+        if self.contains(id) { Ok(()) } else { Err("No such session".to_string()) }
+    }
+
+    pub fn route_resize(&self, id: u64, _cols: u32, _rows: u32) -> Result<(), String> {
+        if self.contains(id) { Ok(()) } else { Err("No such session".to_string()) }
+    }
+
+    /// Routing guard for ssh_disconnect — takes the session out of the map;
+    /// the caller performs the async disconnect on the returned value.
+    pub fn route_disconnect(&mut self, id: u64) -> Result<S, String> {
+        self.take(id).ok_or_else(|| "No such session".to_string())
+    }
+}
+
 // ─── Session Manager (app state) ───────────────────────────────────
 
 pub struct SshManager {
-    sessions: HashMap<u64, SshSession>,
+    sessions: SessionMap<SshSession>,
     #[cfg(debug_assertions)]
     test_server_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -535,26 +590,34 @@ pub struct SshManager {
 impl SshManager {
     pub fn new() -> Self {
         SshManager {
-            sessions: HashMap::new(),
+            sessions: SessionMap::new(),
             #[cfg(debug_assertions)]
             test_server_handle: None,
         }
     }
 
     pub fn insert_session(&mut self, session: SshSession) {
-        self.sessions.insert(session.session_id, session);
+        self.sessions.insert_with(session.session_id, session);
     }
 
     pub fn take_session(&mut self, session_id: u64) -> Option<SshSession> {
-        self.sessions.remove(&session_id)
+        self.sessions.take(session_id)
     }
 
     pub fn get_session(&self, session_id: u64) -> Option<&SshSession> {
-        self.sessions.get(&session_id)
+        self.sessions.get(session_id)
     }
 
     pub fn is_connected(&self) -> bool {
         !self.sessions.is_empty()
+    }
+
+    pub fn route_send(&self, session_id: u64) -> Result<(), String> {
+        self.sessions.route_send(session_id)
+    }
+
+    pub fn route_resize(&self, session_id: u64, cols: u32, rows: u32) -> Result<(), String> {
+        self.sessions.route_resize(session_id, cols, rows)
     }
 
     #[cfg(debug_assertions)]
@@ -565,5 +628,91 @@ impl SshManager {
     #[cfg(debug_assertions)]
     pub fn take_test_server_handle(&mut self) -> Option<tokio::task::JoinHandle<()>> {
         self.test_server_handle.take()
+    }
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummySession;
+
+    fn map_with(ids: &[u64]) -> SessionMap<DummySession> {
+        let mut m = SessionMap::new();
+        for &id in ids {
+            m.insert_with(id, DummySession);
+        }
+        m
+    }
+
+    #[test]
+    fn test_insert_and_get() {
+        let m = map_with(&[1]);
+        assert!(m.get(1).is_some());
+        assert!(m.get(2).is_none());
+    }
+
+    #[test]
+    fn test_take_removes() {
+        let mut m = map_with(&[1]);
+        assert!(m.take(1).is_some());
+        assert!(m.get(1).is_none());
+        assert!(m.take(1).is_none());
+    }
+
+    #[test]
+    fn test_distinct_ids_coexist() {
+        let m = map_with(&[1, 2]);
+        assert!(m.get(1).is_some());
+        assert!(m.get(2).is_some());
+        assert_eq!(m.len(), 2);
+    }
+
+    #[test]
+    fn test_duplicate_id_overwrites() {
+        // Pins the contract: duplicate ids overwrite (HashMap semantics).
+        // The frontend must mint unique ids; a future "reject duplicate"
+        // guard in the backend would fail this test loudly.
+        let mut m = SessionMap::new();
+        m.insert_with(1, DummySession);
+        m.insert_with(1, DummySession);
+        assert!(m.get(1).is_some());
+        assert_eq!(m.len(), 1);
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut m = SessionMap::<DummySession>::new();
+        assert!(m.is_empty());
+        m.insert_with(1, DummySession);
+        assert!(!m.is_empty());
+        m.take(1);
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn test_route_send_by_session_id() {
+        let m = map_with(&[1, 2]);
+        assert!(m.route_send(1).is_ok());
+        assert!(m.route_send(2).is_ok());
+        assert!(m.route_send(3).is_err());
+    }
+
+    #[test]
+    fn test_route_resize_unknown_id_errors() {
+        let m = map_with(&[1]);
+        assert!(m.route_resize(1, 80, 24).is_ok());
+        assert!(m.route_resize(99, 80, 24).is_err());
+    }
+
+    #[test]
+    fn test_route_disconnect_takes_session() {
+        let mut m = map_with(&[1, 2]);
+        assert!(m.route_disconnect(1).is_ok());
+        assert!(m.get(1).is_none());
+        assert!(m.get(2).is_some());
+        assert!(m.route_disconnect(1).is_err());
     }
 }

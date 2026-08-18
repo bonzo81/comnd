@@ -243,10 +243,9 @@ async fn ssh_send(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
-    match mgr.get_session(session_id) {
-        Some(session) => session.send(data.as_bytes()).await,
-        None => Err("No such session".to_string()),
-    }
+    mgr.route_send(session_id)?;
+    let session = mgr.get_session(session_id).unwrap();
+    session.send(data.as_bytes()).await
 }
 
 #[tauri::command]
@@ -269,10 +268,9 @@ async fn ssh_resize(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
-    match mgr.get_session(session_id) {
-        Some(session) => session.resize(cols, rows).await,
-        None => Err("No such session".to_string()),
-    }
+    mgr.route_resize(session_id, cols, rows)?;
+    let session = mgr.get_session(session_id).unwrap();
+    session.resize(cols, rows).await
 }
 
 // ─── Config Commands ────────────────────────────────────────────────

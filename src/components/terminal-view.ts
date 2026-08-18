@@ -33,6 +33,8 @@ import { SidebarContent } from "../lib/sidebar-content";
 import { CommandPalette } from "./command-palette";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
+import { mintSessionId } from "../lib/session-id";
+import { shouldAcceptEvent } from "../lib/session-filter";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -57,11 +59,6 @@ const MODE_TINTS: Record<string, string> = {
 };
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
-
-// ponytail: monotonic counter — Date.now() collides when two hosts connect in same ms,
-// causing both tabs to share a session_id and display the same remote host.
-// Module-level so it never repeats across tabs within a session.
-let nextSessionId = 1;
 
 interface ConnectProgress {
   stage: string;
@@ -520,7 +517,7 @@ export class TerminalView {
       this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
 
       // Generate unique session_id BEFORE sshConnect so all events are correlated correctly
-      this.sessionId = nextSessionId++;
+      this.sessionId = mintSessionId();
 
       await sshConnect({
         hostname: host.hostname,
@@ -544,7 +541,7 @@ export class TerminalView {
     // SSH output → xterm.js + prompt detector
     this.unlistenOutput = await listen<{ data: string; session_id: number }>("ssh-output", (event) => {
       // Ignore stale output from old connections
-      if (event.payload.session_id !== this.sessionId) return;
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
 
       const bytes = this.base64ToUint8Array(event.payload.data);
       const text = new TextDecoder().decode(bytes);
@@ -580,11 +577,8 @@ export class TerminalView {
 
     // SSH connected
     this.unlistenConnected = await listen<{ reason: string; session_id: number }>("ssh-connected", (event) => {
-      // Ignore connected events for other tabs' sessions — each TerminalView
-      // keeps the session_id it issued before sshConnect; the backend echoes
-      // it back. Without this filter, opening host2 overwrites host1's view
-      // state and both tabs display host2's stream.
-      if (event.payload.session_id !== this.sessionId) {
+      // Ignore connected events for other tabs' sessions — see session-filter.ts
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
         log.debug("terminal", `Ignoring foreign ssh-connected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
         return;
       }
@@ -626,7 +620,7 @@ export class TerminalView {
     // SSH disconnected — session ended (user typed exit, server closed, timeout, etc.)
     this.unlistenDisconnected = await listen<{ reason: string; session_id: number }>("ssh-disconnected", (event) => {
       // Ignore stale disconnect events from old connections
-      if (event.payload.session_id !== this.sessionId) {
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
         log.debug("terminal", `Ignoring stale ssh-disconnected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
         return;
       }
@@ -655,20 +649,20 @@ export class TerminalView {
     // SSH error
     this.unlistenError = await listen<{ reason: string; session_id: number }>("ssh-error", (event) => {
       // Ignore stale error events from old connections
-      if (event.payload.session_id !== this.sessionId) return;
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
       log.error("terminal", `SSH error event: ${event.payload.reason}`);
       this.showError(event.payload.reason);
     });
 
     // TOFU: new host key accepted (visibility only, no dialog)
     this.unlistenTofu = await listen<{ reason: string; session_id: number }>("ssh-tofu", (event) => {
-      if (event.payload.session_id !== this.sessionId) return;
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
       log.info("terminal", event.payload.reason);
     });
 
     // Auth URL: browser-auth gateway detected — browser already opened in backend
     this.unlistenAuthUrl = await listen<{ url: string; session_id: number }>("ssh-auth-url", (event) => {
-      if (event.payload.session_id !== this.sessionId) return;
+      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
       const url = event.payload.url;
       log.info("terminal", `Auth URL opened in browser: ${url}`);
       // Update overlay stage text
