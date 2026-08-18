@@ -13,6 +13,7 @@
 @import './components/_command-palette.css';
 @import './components/_kb-screen.css';
 @import './components/_nav-panel.css';
+@import './components/_settings-screen.css';
 
 /* ─── Custom title bar (frameless window) ─── */
 .title-bar {

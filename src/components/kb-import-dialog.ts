@@ -3,66 +3,17 @@
  *
  * Steps:
  * 1. Enter URL and select platform/category
- * 2. Optionally configure Ollama settings
- * 3. Import → shows progress → shows results
+ * 2. Import → shows progress → shows results
+ *
+ * Ollama connection settings live in the Settings view (Ollama / KB Import).
  */
 
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { escHtml } from "../lib/format";
-import {
-  importKbUrl,
-  testOllamaConnection,
-  getAppConfig,
-  saveOllamaSettings,
-  ImportResult,
-  AppConfig,
-} from "../lib/tauri-api";
+import { importKbUrl, getAppConfig, ImportResult, AppConfig } from "../lib/tauri-api";
 import { log } from "../lib/logger";
 import { icons } from "../lib/icons";
-
-// ─── Toast Notifications ──────────────────────────────────────────
-
-let toastContainer: HTMLElement | null = null;
-
-function getToastContainer(): HTMLElement {
-  if (!toastContainer || !document.body.contains(toastContainer)) {
-    const existing = document.getElementById("toast-container");
-    if (existing) {
-      toastContainer = existing;
-      return toastContainer;
-    }
-    const container = document.createElement("div");
-    container.id = "toast-container";
-    container.className = "toast-container";
-    container.setAttribute("role", "status");
-    container.setAttribute("aria-live", "polite");
-    document.body.appendChild(container);
-    toastContainer = container;
-  }
-  return toastContainer;
-}
-
-function showToast(message: string, type: "success" | "error" | "info" = "info", duration = 4000) {
-  const container = getToastContainer();
-  const toast = document.createElement("div");
-  toast.className = `toast toast-${type}`;
-  if (type === "error") toast.setAttribute("role", "alert");
-  const iconsByType: Record<string, string> = { success: icons.check, error: icons.x, info: icons.info };
-  toast.innerHTML = `
-    <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
-    <span class="toast-message">${escHtml(message)}</span>
-    <button class="toast-close" aria-label="Dismiss notification">&times;</button>
-  `;
-  toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
-  container.appendChild(toast);
-  const remove = () => {
-    if (!document.body.contains(toast)) return;
-    toast.style.opacity = "0";
-    toast.style.transition = "opacity 0.3s ease";
-    setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 300);
-  };
-  setTimeout(remove, duration);
-}
+import { showToast } from "../lib/toast";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -105,9 +56,7 @@ export class KbImportDialog {
   private progressDetail: string = "";
   private result: ImportResult | null = null;
   private errorMessage: string = "";
-  private settingsOpen = false;
   private config: AppConfig | null = null;
-  private availableModels: string[] = [];
   private startTime: number | null = null;
   private elapsedInterval: ReturnType<typeof setInterval> | null = null;
   private embedMode: boolean;
@@ -199,8 +148,6 @@ export class KbImportDialog {
       ${this.stage === "error" ? this.renderError() : ""}
       ${isImporting ? this.renderProgress() : ""}
       ${this.stage === "idle" || (this.stage !== "complete" && this.stage !== "error" && !isImporting) ? this.renderForm(base_url, model, isImporting) : ""}
-
-      ${this.settingsOpen ? this.renderSettings(base_url, model) : ""}
     `;
 
     if (this.embedMode) {
@@ -254,11 +201,7 @@ export class KbImportDialog {
 
         <div class="import-config-row">
           <span class="import-model-info">${icons.bot} ${escHtml(model)} @ ${escHtml(baseUrl)}</span>
-          <button class="btn-small" id="import-settings-btn" ${isImporting ? 'disabled' : ''}>${icons.settings} Settings</button>
-          <button class="btn-small" id="import-test-btn" ${isImporting ? 'disabled' : ''}>Test Connection</button>
         </div>
-
-        ${this.availableModels.length > 0 ? this.renderModelSelect() : ""}
 
         <button class="btn-primary import-submit" id="import-submit-btn" ${isImporting ? 'disabled' : ''}>
           ${isImporting ? "Importing…" : "Import Commands"}
@@ -330,51 +273,6 @@ export class KbImportDialog {
     `;
   }
 
-  private renderModelSelect(): string {
-    const currentModel = this.config?.ollama_model ?? "";
-    return `
-      <div class="import-models">
-        <label for="import-model-select">Switch Model</label>
-        <select id="import-model-select">
-          ${this.availableModels.map(m => `<option value="${this.escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
-        </select>
-      </div>
-    `;
-  }
-
-  private renderSettings(baseUrl: string, model: string): string {
-    const apiKey = this.config?.ollama_api_key ?? "";
-    const ctxLen = this.config?.ollama_context_length ?? 64000;
-    return `
-      <div class="import-settings">
-        <h4>Ollama Settings</h4>
-        <div class="import-field">
-          <label for="ollama-url">Base URL</label>
-          <input type="url" id="ollama-url" value="${this.escAttr(baseUrl)}" />
-          <span class="import-hint">http://localhost:11434 for local, https://ollama.com/api for cloud</span>
-        </div>
-        <div class="import-field">
-          <label for="ollama-model">Model</label>
-          <input type="text" id="ollama-model" value="${this.escAttr(model)}" />
-          <span class="import-hint">e.g., gemma4:26b, llama3.2, mistral</span>
-        </div>
-        <div class="import-field">
-          <label for="ollama-key">API Key (cloud only)</label>
-          <input type="password" id="ollama-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local Ollama" />
-        </div>
-        <div class="import-field">
-          <label for="ollama-ctx">Context Length</label>
-          <input type="number" id="ollama-ctx" value="${ctxLen}" min="4096" step="1024" />
-          <span class="import-hint">Higher = can process longer pages, but uses more memory</span>
-        </div>
-        <div class="import-settings-actions">
-          <button class="btn-primary" id="settings-save-btn">Save Settings</button>
-          <button class="btn-secondary" id="settings-cancel-btn">Cancel</button>
-        </div>
-      </div>
-    `;
-  }
-
   // ─── Event Binding ──────────────────────────────────────────────────
 
   private bindEvents() {
@@ -384,35 +282,8 @@ export class KbImportDialog {
       if ((e.target as HTMLElement).id === "import-overlay") this.close();
     });
 
-    // Settings toggle
-    document.getElementById("import-settings-btn")?.addEventListener("click", () => {
-      this.settingsOpen = !this.settingsOpen;
-      this.render();
-    });
-
-    // Test connection
-    document.getElementById("import-test-btn")?.addEventListener("click", () => this.testConnection());
-
-    // Settings save/cancel
-    document.getElementById("settings-save-btn")?.addEventListener("click", () => this.saveSettings());
-    document.getElementById("settings-cancel-btn")?.addEventListener("click", () => {
-      this.settingsOpen = false;
-      this.render();
-    });
-
     // Try URL
     document.getElementById("import-try-url-btn")?.addEventListener("click", () => this.tryUrl());
-
-    // Model select
-    document.getElementById("import-model-select")?.addEventListener("change", (e) => {
-      const model = (e.target as HTMLSelectElement).value;
-      if (this.config) {
-        this.config.ollama_model = model;
-        saveOllamaSettings(this.config.ollama_base_url, model, this.config.ollama_api_key, this.config.ollama_context_length)
-          .then(() => { showToast(`Switched to ${model}`, "info"); })
-          .catch(() => {});
-      }
-    });
 
     // Submit
     document.getElementById("import-submit-btn")?.addEventListener("click", () => this.startImport());
@@ -441,28 +312,6 @@ export class KbImportDialog {
     this.unmount();
     if (this.container) {
       this.container.innerHTML = "";
-    }
-  }
-
-  private async testConnection() {
-    const btn = document.getElementById("import-test-btn") as HTMLButtonElement;
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Testing…";
-    }
-    try {
-      const models = await testOllamaConnection();
-      this.availableModels = models;
-      showToast(`Connected! ${models.length} model${models.length !== 1 ? "s" : ""} available`, "success");
-      this.render();
-    } catch (e) {
-      this.availableModels = [];
-      showToast(`Connection failed: ${e}`, "error");
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "Test Connection";
-      }
     }
   }
 
@@ -500,30 +349,6 @@ export class KbImportDialog {
       showToast("URL could not be reached", "error");
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = "Try URL"; }
-    }
-  }
-
-  private async saveSettings() {
-    const urlInput = document.getElementById("ollama-url") as HTMLInputElement;
-    const modelInput = document.getElementById("ollama-model") as HTMLInputElement;
-    const keyInput = document.getElementById("ollama-key") as HTMLInputElement;
-    const ctxInput = document.getElementById("ollama-ctx") as HTMLInputElement;
-
-    if (!urlInput || !modelInput) return;
-
-    try {
-      await saveOllamaSettings(
-        urlInput.value.trim(),
-        modelInput.value.trim(),
-        keyInput.value.trim() || null,
-        parseInt(ctxInput?.value ?? "64000") || 64000,
-      );
-      this.config = await getAppConfig();
-      this.settingsOpen = false;
-      this.render();
-      showToast("Settings saved", "success");
-    } catch (e) {
-      showToast(`Failed to save settings: ${e}`, "error");
     }
   }
 

@@ -25,9 +25,9 @@ export interface NavCallbacks {
 }
 
 const SETTINGS_ITEMS = [
-  { id: "general", label: "General" },
-  { id: "ollama", label: "Ollama / KB Import" },
-  { id: "shortcuts", label: "Shortcuts" },
+  { id: "general", label: "General", ready: false },
+  { id: "ollama", label: "Ollama / KB Import", ready: true },
+  { id: "shortcuts", label: "Shortcuts", ready: false },
 ];
 
 export class NavPanel {
@@ -270,10 +270,10 @@ export class NavPanel {
   private renderSettingsItems(): string {
     return SETTINGS_ITEMS.map(
       (s) => `
-        <div class="nav-item nav-disabled" data-settings-id="${s.id}">
+        <button class="nav-item nav-sub${s.ready ? "" : " nav-disabled"}" data-settings-id="${s.id}">
           <span class="nav-item-label">${s.label}</span>
-          <span class="nav-soon">soon</span>
-        </div>
+          ${s.ready ? "" : '<span class="nav-soon">soon</span>'}
+        </button>
       `,
     ).join("");
   }

@@ -3,6 +3,7 @@ import { HostScreen } from "./components/host-screen";
 import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
 import { NavPanel } from "./components/nav-panel";
+import { SettingsScreen } from "./components/settings-screen";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
@@ -38,7 +39,8 @@ class App {
   private kbScreen: KbScreen;
   private kbScreenWrapper: HTMLElement;
   private settingsWrapper: HTMLElement;
-  private settingsItemId = "general";
+  private settingsScreen: SettingsScreen;
+  private settingsItemId = "ollama";
   private contentCol: HTMLElement;
   private bodyRow: HTMLElement;
   private navPanel: NavPanel;
@@ -81,11 +83,14 @@ class App {
     this.kbScreenWrapper.style.display = "none";
     this.contentCol.appendChild(this.kbScreenWrapper);
 
-    // Settings view wrapper (placeholder content)
+    // Settings view wrapper (persistent — settings form state survives view switches)
     this.settingsWrapper = document.createElement("div");
     this.settingsWrapper.className = "app-view";
     this.settingsWrapper.style.display = "none";
     this.contentCol.appendChild(this.settingsWrapper);
+
+    this.settingsScreen = new SettingsScreen();
+    void this.settingsScreen.mount(this.settingsWrapper);
 
     // Body row — nav panel left, content right
     this.bodyRow = document.createElement("div");
@@ -133,8 +138,8 @@ class App {
         this.hostScreen.openAddHost(groupId);
       },
       onSelectSettings: (id) => {
+        this.settingsItemId = id;
         this.showView("settings");
-        this.renderSettingsView(id);
       },
       onSearchInput: (query) => {
         this.showView("connections");
@@ -220,26 +225,11 @@ class App {
       this.navPanel.setSection("settings");
     }
     if (view === "settings") {
-      this.renderSettingsView(this.settingsItemId);
+      this.settingsScreen.setItem(this.settingsItemId);
     }
     if (view === "terminal") {
       this.renderSessionTabBar();
     }
-  }
-
-  private renderSettingsView(id: string) {
-    this.settingsItemId = id;
-    const labels: Record<string, string> = {
-      general: "General",
-      ollama: "Ollama / KB Import",
-      shortcuts: "Shortcuts",
-    };
-    const label = labels[id] ?? "Settings";
-    this.settingsWrapper.innerHTML = `
-      <div style="max-width:480px;margin:calc(var(--spacing) * 8) auto 0;padding:0 var(--spacing);text-align:center;color:var(--color-text-secondary)">
-        <h2 style="color:var(--color-text-primary);margin-bottom:var(--spacing)">${label}</h2>
-        <p>Coming soon — this section is a placeholder.</p>
-      </div>`;
   }
 
   private onConnect(host: Host) {

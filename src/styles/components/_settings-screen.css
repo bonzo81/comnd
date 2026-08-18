@@ -1,0 +1,83 @@
+/* ─── Settings Screen ─────────────────────────────────────────────── */
+.settings-screen {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-surface-primary);
+}
+
+.settings-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-16);
+}
+
+.settings-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-6);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-form .import-field {
+  margin-bottom: var(--space-4);
+}
+
+.settings-form .import-field input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  outline: none;
+}
+
+.settings-form .import-field input:focus {
+  border-color: var(--color-accent);
+}
+
+.settings-form .import-models select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.settings-form .import-models select:focus {
+  border-color: var(--color-accent);
+}
+
+.settings-form .import-models select option {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.settings-form .import-config-row {
+  margin-bottom: var(--space-4);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+.import-test-ok { color: var(--color-success); }
+.import-test-err { color: var(--color-error); }
+.import-test-progress { color: var(--color-text-secondary); }
+
+.settings-placeholder {
+  color: var(--color-text-secondary);
+}
