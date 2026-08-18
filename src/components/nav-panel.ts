@@ -6,10 +6,11 @@
  * Roving tabindex + arrow/Enter/Left/Right keyboard navigation.
  */
 
-import { getHostGroups, listKbPlatforms } from "../lib/tauri-api";
+import { getHostGroups, listKbPlatforms, saveHostGroup } from "../lib/tauri-api";
 import { ALL_GROUP_ID } from "../lib/host-filters";
 import { PLATFORM_META, platformColorClass } from "../lib/platforms";
 import { escHtml } from "../lib/format";
+import { log } from "../lib/logger";
 
 export type NavSection = "connections" | "kb" | "settings";
 
@@ -17,7 +18,7 @@ export interface NavCallbacks {
   onSelectGroup: (groupId: string) => void;
   onSelectPlatform: (platform: string) => void;
   onNewConnection: () => void;
-  onAddGroup: () => void;
+  onAddHostToGroup: (groupId: string) => void;
   onSelectSettings: (id: string) => void;
 }
 
@@ -37,6 +38,7 @@ export class NavPanel {
   private selectedGroupId = ALL_GROUP_ID;
   private selectedPlatform = "";
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private creatingIn: string | null = null;
 
   constructor(container: HTMLElement, callbacks: NavCallbacks) {
     this.container = container;
@@ -131,19 +133,33 @@ export class NavPanel {
 
   private renderConnectionsItems(): string {
     let html = `
-      <button class="nav-item nav-action" data-action="new-connection">
-        <span class="nav-action-icon">+</span>
-        <span class="nav-item-label">New Connection</span>
-      </button>
-      <button class="nav-item nav-action" data-action="add-group">
-        <span class="nav-action-icon">⊞</span>
-        <span class="nav-item-label">New Group</span>
-      </button>
-      <button class="nav-item nav-sub ${this.selectedGroupId === ALL_GROUP_ID ? "nav-selected" : ""}" data-group-id="${ALL_GROUP_ID}">
-        <span class="nav-sub-icon">📁</span>
-        <span class="nav-item-label">All Hosts</span>
-      </button>
+      <div class="nav-action-wrap">
+        <button class="nav-item nav-action" data-action="new-connection">
+          <span class="nav-action-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </span>
+          <span class="nav-item-label">New Connection</span>
+        </button>
+      </div>
+      <div class="nav-group-row ${this.selectedGroupId === ALL_GROUP_ID ? "nav-selected" : ""}" data-group-id="${ALL_GROUP_ID}">
+        <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">
+          <span class="nav-toggle"></span>
+          <span class="nav-sub-icon">📁</span>
+          <span class="nav-item-label">All Hosts</span>
+        </button>
+        <span class="nav-row-actions">
+          <button class="nav-row-btn" data-action="add-host" data-parent="${ALL_GROUP_ID}" title="Add host here" aria-label="Add host">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </button>
+          <button class="nav-row-btn" data-action="add-subgroup" data-parent="${ALL_GROUP_ID}" title="New group here" aria-label="New group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.2a1 1 0 0 1 .7.3l1 1a1 1 0 0 0 .7.3H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/><path d="M12 11v4M10 13h4"/></svg>
+          </button>
+        </span>
+      </div>
     `;
+    if (this.creatingIn === ALL_GROUP_ID) {
+      html += this.renderCreateRow(0);
+    }
     const roots = this.groups.filter((g) => !g.parent_id);
     for (const g of roots) {
       html += this.renderGroupNode(g, 0);
@@ -158,19 +174,73 @@ export class NavPanel {
     const selected = this.selectedGroupId === group.id;
     const indent = 12 + depth * 14;
 
+    // Inline "new group" row appears directly under the group being created in
+    const creatingHere = this.creatingIn === group.id;
+
     let html = `
-      <button class="nav-item nav-sub ${selected ? "nav-selected" : ""}" data-group-id="${group.id}" style="padding-left:${indent}px">
-        <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
-        <span class="nav-sub-icon">${group.icon ?? "📁"}</span>
-        <span class="nav-item-label">${escHtml(group.name)}</span>
-      </button>
+      <div class="nav-group-row ${selected ? "nav-selected" : ""}" data-group-id="${group.id}">
+        <button class="nav-item nav-sub" data-group-id="${group.id}" style="padding-left:${indent}px">
+          <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
+          <span class="nav-sub-icon">${group.icon ?? "📁"}</span>
+          <span class="nav-item-label">${escHtml(group.name)}</span>
+        </button>
+        <span class="nav-row-actions">
+          <button class="nav-row-btn" data-action="add-host" data-parent="${group.id}" title="Add host here" aria-label="Add host">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </button>
+          <button class="nav-row-btn" data-action="add-subgroup" data-parent="${group.id}" title="New group here" aria-label="New group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.2a1 1 0 0 1 .7.3l1 1a1 1 0 0 0 .7.3H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/><path d="M12 11v4M10 13h4"/></svg>
+          </button>
+        </span>
+      </div>
     `;
+    if (creatingHere) {
+      html += this.renderCreateRow(depth + 1);
+    }
     if (hasChildren && expanded) {
       for (const child of children) {
         html += this.renderGroupNode(child, depth + 1);
       }
     }
     return html;
+  }
+
+  private renderCreateRow(depth: number): string {
+    const indent = 12 + depth * 14;
+    return `
+      <div class="nav-group-row nav-creating" data-creating>
+        <input type="text" class="nav-create-input" placeholder="New group" style="margin-left:${indent}px" />
+      </div>
+    `;
+  }
+
+  private focusCreateInput() {
+    const input = this.container.querySelector<HTMLInputElement>(".nav-create-input");
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  private async commitCreate(rawName: string) {
+    const parentId = this.creatingIn;
+    this.creatingIn = null;
+    const name = rawName.trim();
+    if (!parentId) return;
+    if (!name) {
+      this.render();
+      return;
+    }
+    const resolvedParent = parentId === ALL_GROUP_ID ? null : parentId;
+    try {
+      const created = await saveHostGroup(null, name, resolvedParent, null, null);
+      this.expandedGroups.add(created.id);
+      this.selectedGroupId = created.id;
+      await this.refresh();
+      this.cb.onSelectGroup(created.id);
+    } catch (err) {
+      log.error("nav-panel", `Failed to create group: ${err}`);
+    }
   }
 
   private renderKbItems(): string {
@@ -217,8 +287,8 @@ export class NavPanel {
       });
     });
 
-    // Group items
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-group-id]").forEach((el) => {
+    // Group items (the label button inside each row)
+    this.container.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id]").forEach((el) => {
       el.addEventListener("click", () => {
         const groupId = el.dataset.groupId ?? ALL_GROUP_ID;
         const toggle = el.querySelector(".nav-toggle");
@@ -232,6 +302,43 @@ export class NavPanel {
         this.render();
       });
     });
+
+    // Per-row hover actions: add host / add subgroup (inline)
+    this.container.querySelectorAll<HTMLElement>(".nav-row-btn").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const action = el.dataset.action;
+        const parent = el.dataset.parent ?? ALL_GROUP_ID;
+        if (action === "add-host") {
+          this.cb.onAddHostToGroup(parent);
+        } else if (action === "add-subgroup") {
+          this.creatingIn = parent;
+          this.expandedGroups.add(parent);
+          this.render();
+          this.focusCreateInput();
+        }
+      });
+    });
+
+    // Inline "new group" input
+    const createInput = this.container.querySelector<HTMLInputElement>(".nav-create-input");
+    if (createInput) {
+      createInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void this.commitCreate(createInput.value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          this.creatingIn = null;
+          this.render();
+        }
+      });
+      createInput.addEventListener("blur", () => {
+        if (this.creatingIn !== null) {
+          void this.commitCreate(createInput.value);
+        }
+      });
+    }
 
     // Platform items
     this.container.querySelectorAll<HTMLElement>(".nav-item[data-platform]").forEach((el) => {
@@ -247,9 +354,6 @@ export class NavPanel {
     // Action items
     this.container.querySelector<HTMLElement>('[data-action="new-connection"]')?.addEventListener("click", () => {
       this.cb.onNewConnection();
-    });
-    this.container.querySelector<HTMLElement>('[data-action="add-group"]')?.addEventListener("click", () => {
-      this.cb.onAddGroup();
     });
 
     // Settings placeholders — fire callback, no state change

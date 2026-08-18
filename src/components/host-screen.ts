@@ -48,6 +48,7 @@ export class HostScreen {
   private editingHasCredential = false;
   private addGroupMode = false;
   private editingGroupId: string | null = null;
+  private pendingGroupId: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
   private deleteConfirmId: string | null = null;
   private deleteConfirmType: "host" | "group" = "host";
@@ -88,11 +89,10 @@ export class HostScreen {
     void this.openForm();
   }
 
-  /** Open the add-group form (driven by the nav panel). */
-  openAddGroup() {
-    this.addGroupMode = true;
-    this.editingGroupId = null;
-    this.render();
+  /** Open the new-connection form pre-scoped to a group (driven by the nav panel). */
+  openAddHost(groupId: string) {
+    this.pendingGroupId = groupId === ALL_GROUP_ID ? null : groupId;
+    void this.openForm();
   }
 
   unmount() {
@@ -706,9 +706,6 @@ export class HostScreen {
       case "n":
         if (e.ctrlKey) { e.preventDefault(); this.openForm(); }
         break;
-      case "g":
-        if (e.ctrlKey) { e.preventDefault(); this.openAddGroup(); }
-        break;
       case "F10":
         if (e.shiftKey && this.filteredHosts[this.selectedHostIndex]) {
           e.preventDefault();
@@ -743,7 +740,8 @@ export class HostScreen {
     const name = nameInput.value.trim();
     if (!name) return;
 
-    const parentId = parentSelect?.value || null;
+    const parentId = parentSelect?.value || this.pendingGroupId || null;
+    this.pendingGroupId = null;
 
     // If editing, get the existing group data
     let existingColor: string | null = null;
@@ -865,6 +863,11 @@ export class HostScreen {
     this.formOpen = true;
     this.render();
     setTimeout(() => {
+      if (this.pendingGroupId) {
+        const sel = this.container?.querySelector('select[name="group_id"]') as HTMLSelectElement | null;
+        if (sel) sel.value = this.pendingGroupId;
+        this.pendingGroupId = null;
+      }
       (this.container?.querySelector('input[name="display_name"]') as HTMLInputElement)?.focus();
     }, 50);
   }

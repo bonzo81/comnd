@@ -109,9 +109,9 @@ class App {
         this.showView("connections");
         this.hostScreen.openNewConnection();
       },
-      onAddGroup: () => {
+      onAddHostToGroup: (groupId) => {
         this.showView("connections");
-        this.hostScreen.openAddGroup();
+        this.hostScreen.openAddHost(groupId);
       },
       onSelectSettings: (id) => {
         log.info("app", `Settings requested (placeholder): ${id}`);
