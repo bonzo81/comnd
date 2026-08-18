@@ -104,26 +104,25 @@ class App {
     );
     this.kbScreen.mount(this.kbScreenWrapper);
 
-    // Mount host screen
+    // Mount host screen (recent sessions list)
     this.hostScreen = new HostScreen(
       this.onConnect.bind(this),
       () => this.activeSessions,
-      (selectedGroupId) => {
-        // Host screen changed groups or selection → sync nav panel
-        this.navPanel.setSelectedGroup(selectedGroupId);
-        void this.navPanel.refresh();
-      },
     );
     this.hostScreen.mount(this.hostScreenWrapper);
 
-    // Left nav panel (accordion sections)
+    // Left nav panel (accordion sections + host tree)
     const navContainer = document.createElement("div");
     navContainer.className = "app-nav";
     this.bodyRow.insertBefore(navContainer, this.contentCol);
     this.navPanel = new NavPanel(navContainer, {
-      onSelectGroup: (groupId) => {
+      onSelectHost: (hostId) => {
         this.showView("connections");
-        this.hostScreen.setGroup(groupId);
+        this.hostScreen.selectHost(hostId);
+      },
+      onConnectHost: (hostId) => {
+        const host = this.navPanel.getHost(hostId);
+        if (host) this.onConnect(host);
       },
       onKbTab: (tab) => {
         this.showView("knowledge-base");
@@ -141,11 +140,9 @@ class App {
         this.settingsItemId = id;
         this.showView("settings");
       },
-      onSearchInput: (query) => {
-        this.showView("connections");
-        this.hostScreen.setSearchQuery(query);
+      onTreeChanged: () => {
+        void this.hostScreen.refresh();
       },
-      getSearchQuery: () => this.hostScreen.getSearchQuery(),
     });
     void this.navPanel.mount();
 

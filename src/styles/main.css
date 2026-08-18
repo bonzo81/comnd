@@ -94,8 +94,7 @@
   height: 36px;
 }
 
-.cred-badge svg,
-.hs-group-filter-badge svg {
+.cred-badge svg {
   width: 12px;
   height: 12px;
 }

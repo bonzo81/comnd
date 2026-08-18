@@ -1,9 +1,9 @@
 /**
- * Host Screen — home screen for browsing, creating, and organising saved hosts.
+ * Host Screen — "Recent Sessions" content area.
  *
- * Left panel: hierarchical group tree (folders with nesting).
- * Right panel: host list filtered by selected group.
- * Search bar: searches hosts + tags across all groups.
+ * Lists recently connected hosts (last_connected desc).
+ * The group tree with hosts now lives in the nav panel.
+ * Keeps: host form modal, delete confirm, context menu, connect flow.
  */
 
 import {
@@ -16,13 +16,11 @@ import {
   saveCredential,
   getCredential,
   getHostGroups,
-  saveHostGroup,
-  deleteHostGroup,
 } from "../lib/tauri-api";
 import { log } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
-import { ALL_GROUP_ID, filterHosts } from "../lib/host-filters";
+import { ALL_GROUP_ID, recentHosts } from "../lib/host-filters";
 import { icons } from "../lib/icons";
 
 // ─── Main Class ────────────────────────────────────────────────────
@@ -30,25 +28,20 @@ import { icons } from "../lib/icons";
 export class HostScreen {
   private _onConnect: (host: Host) => void;
   private _getActiveSessions: () => Set<string>;
-  private _onGroupsChanged?: (selectedGroupId: string) => void;
   private container: HTMLElement | null = null;
 
   // Data
   private hosts: Host[] = [];
   private groups: HostGroup[] = [];
-  private filteredHosts: Host[] = [];
-  private filteredGroups: HostGroup[] = [];
+  private recent: Host[] = [];
 
   // Selection
-  private selectedGroupId: string = ALL_GROUP_ID;
   private selectedHostIndex = 0;
-  private searchQuery = "";
 
   // UI state
   private formOpen = false;
   private editingHost: Host | null = null;
   private editingHasCredential = false;
-  private addGroupMode = false;
   private editingGroupId: string | null = null;
   private pendingGroupId: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -62,11 +55,9 @@ export class HostScreen {
   constructor(
     onConnect: (host: Host) => void,
     getActiveSessions: () => Set<string>,
-    onGroupsChanged?: (selectedGroupId: string) => void,
   ) {
     this._onConnect = onConnect;
     this._getActiveSessions = getActiveSessions;
-    this._onGroupsChanged = onGroupsChanged;
   }
 
   async mount(container: HTMLElement) {
@@ -76,7 +67,7 @@ export class HostScreen {
     this.bindGlobalKeys();
   }
 
-  /** Re-render the host list (e.g., after returning from a detached session). */
+  /** Re-render the recents list (e.g., after returning from a detached session). */
   async refresh() {
     await this.loadData();
     this.render();
@@ -84,49 +75,18 @@ export class HostScreen {
     this.bindGlobalKeys();
   }
 
-  /** Select a group (driven by the nav panel). */
-  setGroup(groupId: string) {
-    if (this.selectedGroupId === groupId) return;
-    this.selectedGroupId = groupId;
-    this.selectedHostIndex = 0;
-    this.applyFilter();
-    this.render();
+  /** Select a host (driven by the nav panel). */
+  selectHost(hostId: string) {
+    const idx = this.recent.findIndex((h) => h.id === hostId);
+    if (idx >= 0) {
+      this.selectedHostIndex = idx;
+      this.render();
+    }
   }
 
   /** Open the new-connection form (driven by the nav panel). */
   openNewConnection() {
     void this.openForm();
-  }
-
-  /** Current search query (read by the nav panel to restore input state). */
-  getSearchQuery(): string {
-    return this.searchQuery;
-  }
-
-  /** Set the search query (driven by the nav panel search box). */
-  setSearchQuery(query: string) {
-    if (this.searchQuery === query) return;
-    this.searchQuery = query;
-    this.applyFilter();
-    this.render();
-  }
-
-  /** Focus the nav panel search box (global "/" shortcut). */
-  focusNavSearch() {
-    const input = document.getElementById("nav-host-search") as HTMLInputElement | null;
-    if (input) {
-      input.focus();
-      input.select();
-    }
-  }
-
-  /** Clear the nav panel search box (global Escape). */
-  clearNavSearch() {
-    const input = document.getElementById("nav-host-search") as HTMLInputElement | null;
-    if (input) {
-      input.value = "";
-      this.setSearchQuery("");
-    }
   }
 
   /** Open the new-connection form pre-scoped to a group (driven by the nav panel). */
@@ -159,18 +119,10 @@ export class HostScreen {
     } catch {
       this.groups = [];
     }
-    // Build tree: ensure groups have parent relationships accounted for
-    // Sort groups by sort_order
     this.groups.sort((a, b) => a.sort_order - b.sort_order);
-    this.applyFilter();
-  }
-
-  private applyFilter() {
-    this.filteredHosts = filterHosts(this.hosts, this.groups, this.selectedGroupId, this.searchQuery);
-
-    // Clamp selection
-    if (this.selectedHostIndex >= this.filteredHosts.length) {
-      this.selectedHostIndex = Math.max(0, this.filteredHosts.length - 1);
+    this.recent = recentHosts(this.hosts);
+    if (this.selectedHostIndex >= this.recent.length) {
+      this.selectedHostIndex = Math.max(0, this.recent.length - 1);
     }
   }
 
@@ -179,28 +131,22 @@ export class HostScreen {
   private render() {
     if (!this.container) return;
 
-    const hasHosts = this.hosts.length > 0;
-    const countText = this.searchQuery
-      ? `${this.filteredHosts.length} of ${this.hosts.length} hosts`
-      : `${this.hosts.length} host${this.hosts.length !== 1 ? "s" : ""}`;
+    const countText = `${this.recent.length} recent session${this.recent.length !== 1 ? "s" : ""}`;
 
     this.container.innerHTML = `
       <div class="host-screen">
         <div class="hs-host-panel">
           <div class="hs-search">
-            <div class="hs-search-row">
-              ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge" role="button" tabindex="0" aria-label="Clear group filter">${escHtml(this.getGroupName(this.selectedGroupId))} ${icons.x}</span>` : ""}
-            </div>
+            <span class="hs-recent-title">Recent Sessions</span>
             <span class="hs-host-count">${countText}</span>
           </div>
 
           <div class="hs-host-list" id="hs-host-list">
-            ${hasHosts ? this.renderHostList() : this.renderEmptyState()}
+            ${this.recent.length > 0 ? this.renderHostList() : this.renderEmptyState()}
           </div>
         </div>
       </div>
 
-      ${this.addGroupMode ? this.renderAddGroupForm() : ""}
       ${this.formOpen ? this.renderForm() : ""}
       ${this.contextMenu ? this.renderContextMenu() : ""}
       ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
@@ -210,7 +156,7 @@ export class HostScreen {
   }
 
   private renderHostList(): string {
-    return this.filteredHosts
+    return this.recent
       .map((h, i) => this.renderHostItem(h, i))
       .join("");
   }
@@ -244,41 +190,10 @@ export class HostScreen {
     return `
       <div class="cm-empty-state">
         <div class="cm-empty-icon">${icons.monitor}</div>
-        <h2>Welcome to net.sh</h2>
-        <p>A smarter SSH client for network engineers.<br/>
-        Connect to your devices with context-aware command suggestions built in.</p>
-        <button class="btn-primary" id="hs-empty-add-btn">+ Add your first host</button>
-        <p class="cm-platforms">Supports: Cisco IOS-XE · NX-OS · F5 TMOS · Linux</p>
+        <h2>No recent sessions</h2>
+        <p>Connect to a host to see it here.</p>
       </div>
     `;
-  }
-
-  // ─── Add Group Form ──────────────────────────────────────────────
-
-  private renderAddGroupForm(): string {
-    return `
-      <div class="modal-backdrop" id="hs-group-backdrop">
-        <div class="modal-panel" style="width:380px">
-          <h3>${this.editingGroupId ? "Rename Group" : "New Group"}</h3>
-          <div class="hs-add-group-form">
-            <label style="display:block;margin-bottom:12px">
-              <span style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px">Group Name</span>
-              <input type="text" id="hs-group-name-input" placeholder="e.g. DC Switches" style="width:100%;padding:8px 12px;background:var(--color-surface-primary);border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-primary);font-size:13px;outline:none" />
-            </label>
-            <label style="display:block;margin-bottom:12px">
-              <span style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px">Parent Group (optional)</span>
-              <select id="hs-group-parent-select" style="width:100%;padding:8px 12px;background:var(--color-surface-primary);border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-primary);font-size:13px;outline:none;appearance:none">
-                <option value="">— Top Level —</option>
-                ${this.groups.filter((g) => g.id !== this.editingGroupId).map((g) => `<option value="${g.id}">${escHtml(g.name)}</option>`).join("")}
-              </select>
-            </label>
-            <div class="form-actions">
-              <button class="btn-text" id="hs-group-cancel-btn">Cancel</button>
-              <button class="btn-primary" id="hs-group-save-btn">${this.editingGroupId ? "Rename" : "Create"}</button>
-            </div>
-          </div>
-        </div>
-      </div>`;
   }
 
   // ─── Host Form ───────────────────────────────────────────────────
@@ -392,46 +307,20 @@ export class HostScreen {
 
   private renderContextMenu(): string {
     if (!this.contextMenu) return "";
-    const isGroup = this.contextMenu.type === "group";
     return `
       <div class="context-menu" id="hs-context-menu"
            style="left:${this.contextMenu.x}px;top:${this.contextMenu.y}px">
-        ${isGroup ? `
-          <div class="ctx-item" data-action="rename-group">Rename</div>
-          <div class="ctx-item" data-action="add-subgroup">Add Subgroup</div>
-          <div class="ctx-divider"></div>
-          <div class="ctx-item ctx-danger" data-action="delete-group">Delete Group</div>
-        ` : `
-          <div class="ctx-item" data-action="connect">Connect</div>
-          <div class="ctx-item" data-action="edit">Edit</div>
-          <div class="ctx-item" data-action="duplicate">Duplicate</div>
-          <div class="ctx-item" data-action="move-to-group">Move to Group…</div>
-          <div class="ctx-divider"></div>
-          <div class="ctx-item ctx-danger" data-action="delete">Delete</div>
-        `}
+        <div class="ctx-item" data-action="connect">Connect</div>
+        <div class="ctx-item" data-action="edit">Edit</div>
+        <div class="ctx-item" data-action="duplicate">Duplicate</div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item ctx-danger" data-action="delete">Delete</div>
       </div>`;
   }
 
   // ─── Delete Confirm ──────────────────────────────────────────────
 
   private renderDeleteConfirm(): string {
-    const isGroup = this.deleteConfirmType === "group";
-    if (isGroup) {
-      const group = this.groups.find((g) => g.id === this.deleteConfirmId);
-      if (!group) return "";
-      return `
-        <div class="modal-backdrop" id="hs-delete-backdrop">
-          <div class="modal-panel delete-confirm">
-            <h3>Delete Group</h3>
-            <p>Delete group <strong>${escHtml(group.name)}</strong>?<br/>
-            Hosts in this group will be moved to "No Group". Sub-groups will also be deleted.</p>
-            <div class="form-actions">
-              <button class="btn-text" id="hs-delete-cancel">Cancel</button>
-              <button class="btn-danger" id="hs-delete-confirm">Delete</button>
-            </div>
-          </div>
-        </div>`;
-    }
     const host = this.hosts.find((h) => h.id === this.deleteConfirmId);
     if (!host) return "";
     return `
@@ -451,39 +340,6 @@ export class HostScreen {
 
   private bindEvents() {
     if (!this.container) return;
-
-    // Empty-state add button
-    this.container.querySelector("#hs-empty-add-btn")?.addEventListener("click", () => this.openForm());
-
-    // Group form
-    document.getElementById("hs-group-save-btn")?.addEventListener("click", () => this.saveGroup());
-    document.getElementById("hs-group-cancel-btn")?.addEventListener("click", () => {
-      this.addGroupMode = false;
-      this.editingGroupId = null;
-      this.render();
-    });
-    document.getElementById("hs-group-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "hs-group-backdrop") {
-        this.addGroupMode = false;
-        this.editingGroupId = null;
-        this.render();
-      }
-    });
-    // Enter key in group name input
-    document.getElementById("hs-group-name-input")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        this.saveGroup();
-      }
-    });
-
-    // Group filter badge click (deselect group)
-    this.container.querySelector(".hs-group-filter-badge")?.addEventListener("click", () => {
-      this.selectedGroupId = ALL_GROUP_ID;
-      this.applyFilter();
-      this.render();
-      this._onGroupsChanged?.(ALL_GROUP_ID);
-    });
 
     // Host items
     this.container.querySelectorAll(".hs-host-item").forEach((el) => {
@@ -526,31 +382,8 @@ export class HostScreen {
             break;
           case "delete":
             this.deleteConfirmId = ctx.id;
-            this.deleteConfirmType = ctx.type;
+            this.deleteConfirmType = "host";
             this.render();
-            break;
-          case "rename-group":
-            this.editingGroupId = ctx.id;
-            this.addGroupMode = true;
-            this.render();
-            break;
-          case "add-subgroup":
-            this.addGroupMode = true;
-            this.editingGroupId = null;
-            this.render();
-            // Set parent in the form after render
-            setTimeout(() => {
-              const parentSelect = document.getElementById("hs-group-parent-select") as HTMLSelectElement;
-              if (parentSelect) parentSelect.value = ctx.id;
-            }, 50);
-            break;
-          case "delete-group":
-            this.deleteConfirmId = ctx.id;
-            this.deleteConfirmType = "group";
-            this.render();
-            break;
-          case "move-to-group":
-            this.showMoveToGroup(ctx.id);
             break;
         }
       });
@@ -581,11 +414,7 @@ export class HostScreen {
     });
     document.getElementById("hs-delete-confirm")?.addEventListener("click", () => {
       if (this.deleteConfirmId) {
-        if (this.deleteConfirmType === "group") {
-          this.doDeleteGroup(this.deleteConfirmId);
-        } else {
-          this.doDeleteHost(this.deleteConfirmId);
-        }
+        this.doDeleteHost(this.deleteConfirmId);
       }
     });
     document.getElementById("hs-delete-backdrop")?.addEventListener("click", (e) => {
@@ -636,16 +465,10 @@ export class HostScreen {
 
   private handleKey(e: KeyboardEvent) {
     // Modals have priority
-    if (this.addGroupMode || this.formOpen) {
+    if (this.formOpen) {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (this.addGroupMode) {
-          this.addGroupMode = false;
-          this.editingGroupId = null;
-          this.render();
-        } else if (this.formOpen) {
-          this.closeForm();
-        }
+        this.closeForm();
       }
       return;
     }
@@ -668,50 +491,40 @@ export class HostScreen {
       return;
     }
 
-    // Global shortcuts work even when focus is in the nav panel (e.g. search box)
-    if (e.key === "/") {
-      e.preventDefault();
-      this.focusNavSearch();
-      return;
-    }
-    if (e.key === "Escape" && this.searchQuery) {
-      e.preventDefault();
-      this.clearNavSearch();
-      return;
-    }
-
-    // Ignore other keys when focus is outside the host screen (terminal, title bar)
+    // Ignore keys when focus is in the nav panel (it handles its own keys)
     const ae = document.activeElement;
-    if (ae instanceof HTMLElement && ae !== document.body && !this.container?.contains(ae)) return;
+    if (ae instanceof HTMLElement && ae !== document.body) {
+      if (!this.container?.contains(ae)) return;
+    }
 
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        if (this.filteredHosts.length > 0) {
-          this.selectedHostIndex = Math.min(this.selectedHostIndex + 1, this.filteredHosts.length - 1);
+        if (this.recent.length > 0) {
+          this.selectedHostIndex = Math.min(this.selectedHostIndex + 1, this.recent.length - 1);
           this.render();
           this.scrollSelectedIntoView();
         }
         break;
       case "ArrowUp":
         e.preventDefault();
-        if (this.filteredHosts.length > 0) {
+        if (this.recent.length > 0) {
           this.selectedHostIndex = Math.max(this.selectedHostIndex - 1, 0);
           this.render();
           this.scrollSelectedIntoView();
         }
         break;
       case "Enter":
-        if (this.filteredHosts[this.selectedHostIndex]) {
+        if (this.recent[this.selectedHostIndex]) {
           e.preventDefault();
-          this.connectToHost(this.filteredHosts[this.selectedHostIndex].id);
+          this.connectToHost(this.recent[this.selectedHostIndex].id);
         }
         break;
       case "Delete":
       case "Backspace":
-        if (this.filteredHosts[this.selectedHostIndex]) {
+        if (this.recent[this.selectedHostIndex]) {
           e.preventDefault();
-          this.deleteConfirmId = this.filteredHosts[this.selectedHostIndex].id;
+          this.deleteConfirmId = this.recent[this.selectedHostIndex].id;
           this.deleteConfirmType = "host";
           this.render();
         }
@@ -720,14 +533,14 @@ export class HostScreen {
         if (e.ctrlKey) { e.preventDefault(); this.openForm(); }
         break;
       case "F10":
-        if (e.shiftKey && this.filteredHosts[this.selectedHostIndex]) {
+        if (e.shiftKey && this.recent[this.selectedHostIndex]) {
           e.preventDefault();
           const hostEl = this.container?.querySelector(`.hs-host-item[data-index="${this.selectedHostIndex}"]`);
           if (hostEl) {
             const rect = hostEl.getBoundingClientRect();
             this.contextMenu = {
               type: "host",
-              id: this.filteredHosts[this.selectedHostIndex].id,
+              id: this.recent[this.selectedHostIndex].id,
               x: rect.right - 120,
               y: rect.bottom,
             };
@@ -741,113 +554,6 @@ export class HostScreen {
   private scrollSelectedIntoView() {
     const el = this.container?.querySelector(".hs-host-selected");
     el?.scrollIntoView({ block: "nearest" });
-  }
-
-  // ─── Group Actions ──────────────────────────────────────────────
-
-  private async saveGroup() {
-    const nameInput = document.getElementById("hs-group-name-input") as HTMLInputElement;
-    const parentSelect = document.getElementById("hs-group-parent-select") as HTMLSelectElement;
-    if (!nameInput) return;
-
-    const name = nameInput.value.trim();
-    if (!name) return;
-
-    const parentId = parentSelect?.value || this.pendingGroupId || null;
-    this.pendingGroupId = null;
-
-    // If editing, get the existing group data
-    let existingColor: string | null = null;
-    let existingIcon: string | null = null;
-    if (this.editingGroupId) {
-      const existing = this.groups.find((g) => g.id === this.editingGroupId);
-      if (existing) {
-        existingColor = existing.color;
-        existingIcon = existing.icon;
-      }
-    }
-
-    try {
-      await saveHostGroup(
-        this.editingGroupId, // null = create, string = update
-        name,
-        parentId,
-        existingColor,
-        existingIcon,
-      );
-      this.addGroupMode = false;
-      this.editingGroupId = null;
-      await this.loadData();
-      this.render();
-      this._onGroupsChanged?.(this.selectedGroupId);
-    } catch (e) {
-      log.error("host-screen", `Failed to save group: ${e}`);
-    }
-  }
-
-  private async doDeleteGroup(id: string) {
-    try {
-      await deleteHostGroup(id);
-      this.deleteConfirmId = null;
-      if (this.selectedGroupId === id) {
-        this.selectedGroupId = ALL_GROUP_ID;
-      }
-      await this.loadData();
-      this.render();
-      this._onGroupsChanged?.(this.selectedGroupId);
-    } catch (e) {
-      log.error("host-screen", `Failed to delete group: ${e}`);
-    }
-  }
-
-  // ─── Move to Group ──────────────────────────────────────────────
-
-  private showMoveToGroup(hostId: string) {
-    const host = this.hosts.find((h) => h.id === hostId);
-    if (!host) return;
-
-    // Create a quick group picker overlay
-    const groups = this.groups;
-    const options = groups.map(
-      (g) =>
-        `<div class="ctx-item" data-group-id="${g.id}">${escHtml(g.name)}</div>`,
-    ).join("");
-
-    // Use the context menu position
-    const overlay = document.createElement("div");
-    overlay.className = "context-menu";
-    overlay.id = "hs-move-menu";
-    overlay.style.position = "fixed";
-    overlay.style.left = `${this.contextMenu?.x ?? 200}px`;
-    overlay.style.top = `${this.contextMenu?.y ?? 200}px`;
-    overlay.innerHTML = `
-      <div class="ctx-item" data-group-id="">— No Group —</div>
-      ${options}
-    `;
-    overlay.querySelectorAll(".ctx-item").forEach((el) => {
-      el.addEventListener("click", async () => {
-        const gid = (el as HTMLElement).dataset.groupId ?? "";
-        const updated = { ...host, group_id: gid || null };
-        try {
-          await saveHost(updated);
-          await this.loadData();
-          this.render();
-        } catch (e) {
-          log.error("host-screen", `Failed to move host: ${e}`);
-        }
-        overlay.remove();
-      });
-    });
-    document.body.appendChild(overlay);
-
-    // Remove on click outside
-    const removeMenu = (e: MouseEvent) => {
-      if (!overlay.contains(e.target as Node)) {
-        overlay.remove();
-        document.removeEventListener("mousedown", removeMenu);
-      }
-    };
-    setTimeout(() => document.addEventListener("mousedown", removeMenu), 10);
   }
 
   // ─── Host Actions ───────────────────────────────────────────────
@@ -952,7 +658,7 @@ export class HostScreen {
       }
 
       this.hosts = await getHosts();
-      this.applyFilter();
+      this.recent = recentHosts(this.hosts);
       this.closeForm();
 
       if (andConnect) {
@@ -982,7 +688,7 @@ export class HostScreen {
         group_id: original.group_id,
       });
       this.hosts = await getHosts();
-      this.applyFilter();
+      this.recent = recentHosts(this.hosts);
       this.render();
     } catch (err) {
       log.error("host-screen", `Duplicate failed: ${err}`);
@@ -994,7 +700,7 @@ export class HostScreen {
       await deleteHost(hostId);
       this.hosts = await getHosts();
       this.deleteConfirmId = null;
-      this.applyFilter();
+      this.recent = recentHosts(this.hosts);
       this.render();
     } catch (err) {
       log.error("host-screen", `Delete failed: ${err}`);
@@ -1004,7 +710,6 @@ export class HostScreen {
   // ─── Helpers ────────────────────────────────────────────────────
 
   private getGroupName(groupId: string): string {
-    if (groupId === ALL_GROUP_ID) return "All Hosts";
     return this.groups.find((g) => g.id === groupId)?.name ?? groupId;
   }
 }

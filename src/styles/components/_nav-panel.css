@@ -233,6 +233,54 @@
   text-align: center;
 }
 
+/* ─── Host row (nested under groups) ─────────────────────────────── */
+.nav-host-row {
+  display: flex;
+  align-items: center;
+  margin: 0 var(--space-2) var(--space-0-5);
+  border-radius: var(--radius-md);
+}
+
+.nav-host-row > .nav-item {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.nav-host-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* ─── Drag & drop ─────────────────────────────────────────────────── */
+.nav-group-row[draggable],
+.nav-host-row[draggable] {
+  cursor: grab;
+}
+
+.nav-drop-ok {
+  outline: 1.5px solid var(--color-accent);
+  outline-offset: -1.5px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-selected);
+}
+
+.nav-drop-bad {
+  outline: 1.5px dashed var(--color-text-tertiary);
+  outline-offset: -1.5px;
+  border-radius: var(--radius-md);
+  opacity: 0.6;
+}
+
+.nav-root-zone.nav-drop-ok {
+  background: var(--color-surface-selected);
+}
+
 /* ─── Inline "new group" input ────────────────────────────────────── */
 .nav-creating {
   margin: 0 var(--space-2) var(--space-0-5);

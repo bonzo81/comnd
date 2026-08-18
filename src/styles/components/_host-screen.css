@@ -26,44 +26,12 @@
   flex-shrink: 0;
 }
 
-.hs-search-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.hs-search-row input {
-  flex: 1;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  outline: none;
-}
-
-.hs-search-row input:focus {
-  border-color: var(--color-accent);
-}
-
-.hs-group-filter-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  background: var(--color-accent);
-  color: var(--color-surface-secondary);
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
+.hs-recent-title {
+  font-size: var(--font-size-sm);
   font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.hs-group-filter-badge:hover {
-  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
 }
 
 .hs-host-count {
