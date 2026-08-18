@@ -81,6 +81,11 @@ export class TerminalView {
   private progress: ConnectProgress = { stage: "" };
   private cleanDisconnect = false;
 
+  // Set by the ssh-connected listener once the backend confirms the session;
+  // ssh-disconnected events for a session that never reached "connected"
+  // (e.g. channel EOF right after shell open) must not bounce the view.
+  private connectedAtLeastOnce = false;
+
   // Prompt detection & shadow buffer (Stage 8)
   private promptDetector: PromptDetector;
   private shadowBuffer: ShadowBuffer;
@@ -598,6 +603,7 @@ export class TerminalView {
         return;
       }
       this.cleanDisconnect = false; // Reset — stale disconnects before this are ignored
+      this.connectedAtLeastOnce = true;
       log.info("terminal", `SSH connected event received (session_id=${this.sessionId})`);
       this.setState("connected");
       // Update last_connected timestamp
@@ -643,6 +649,14 @@ export class TerminalView {
       this.clearOutputBuffer();
       log.info("terminal", `SSH disconnected event: ${event.payload.reason}`);
       if (this.cleanDisconnect) return; // User initiated — handled elsewhere
+      if (!this.connectedAtLeastOnce) {
+        // Session died before (or just as) it reached "connected" — treat as a
+        // failed connect, not a dropped session. Bouncing to the host list here
+        // is what made the first connect flash "connecting" then vanish.
+        log.warn("terminal", `Ignoring ssh-disconnected before ever connected: ${event.payload.reason}`);
+        this.showError(`Connection dropped during setup (${event.payload.reason})`);
+        return;
+      }
 
       const wasConnected = this.state === "connected";
       this.setState("disconnected");
@@ -1149,6 +1163,7 @@ export class TerminalView {
     this.fitAddon = null;
     this.host = null;
     this.state = "idle";
+    this.connectedAtLeastOnce = false;
   }
 
   // ─── Output pane ─────────────────────────────────────────────────

@@ -236,10 +236,11 @@ class App {
     log.info("app", `Connecting to '${host.display_name}' (${host.hostname}:${host.port})`);
     this.activeSessions.add(host.id);
 
-    // Existing tab → activate
+    // Existing tab → activate and switch to terminal view
     const existing = this.tabs.get(host.id);
     if (existing) {
       this.activateTab(host.id);
+      this.showView("terminal");
       return;
     }
 
