@@ -398,9 +398,7 @@ export class TerminalView {
         <div class="tv-statusbar">
           <span class="sb-indicator sb-connecting tv-sb-dot">●</span>
           <span class="tv-sb-host">—</span>
-          <span class="sb-divider">│</span>
           <span class="tv-sb-platform">—</span>
-          <span class="sb-divider">│</span>
           <span class="tv-sb-mode">—</span>
         </div>
       </div>

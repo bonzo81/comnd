@@ -13,7 +13,6 @@
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
-  opacity: 1;
 }
 
 .btn-primary:active {
@@ -39,7 +38,7 @@
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   font-family: inherit;
   font-size: var(--font-size-base);
   cursor: pointer;
@@ -54,7 +53,7 @@
   color: var(--color-surface-secondary);
   border: none;
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   font-family: inherit;
   font-size: var(--font-size-base);
   font-weight: 600;

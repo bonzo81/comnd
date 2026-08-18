@@ -14,8 +14,6 @@
 @import './components/_kb-screen.css';
 @import './components/_nav-panel.css';
 
-@layer tokens, base, components, utilities;
-
 /* ─── Custom title bar (frameless window) ─── */
 .title-bar {
   display: flex;
@@ -60,14 +58,6 @@
 }
 
 /* ─── Global focus indicators ─── */
-.btn-primary:focus-visible,
-.btn-text:focus-visible,
-.btn-secondary:focus-visible,
-.btn-danger:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
 .cm-host-item:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;

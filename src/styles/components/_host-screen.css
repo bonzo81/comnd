@@ -37,7 +37,7 @@
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-primary);
   border: 1px solid var(--color-border);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
   outline: none;
@@ -55,7 +55,7 @@
   background: var(--color-accent);
   color: var(--color-surface-secondary);
   padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   font-weight: 600;
   white-space: nowrap;
@@ -85,7 +85,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-3);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   cursor: pointer;
   min-height: 52px;
   user-select: none;
@@ -145,16 +145,16 @@
   display: inline-block;
   background: var(--color-surface-selected);
   color: var(--color-accent);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   padding: 1px var(--space-1-5);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   white-space: nowrap;
   line-height: 1.4;
 }
 
 .hs-tag-more {
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }

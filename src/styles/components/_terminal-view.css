@@ -15,7 +15,7 @@
   padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   color: var(--color-text-secondary);
   transition: all 0.15s;
   user-select: none;
@@ -37,7 +37,7 @@
   border: none;
   color: inherit;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   line-height: 1;
   padding: 0 var(--space-1);
   opacity: 0.6;
@@ -121,7 +121,6 @@
   width: 320px;
   min-width: 240px;
   background: var(--color-surface-secondary);
-  border-left: none;
   padding: var(--space-6);
   overflow-y: auto;
   transition: width 0.2s ease;
@@ -153,10 +152,6 @@
   transition: background 0.3s ease;
 }
 
-.sb-divider {
-  display: none;
-}
-
 .sb-connecting { color: var(--color-warning); }
 .sb-connected { color: var(--color-success); }
 .sb-disconnected { color: var(--color-error); }
@@ -179,7 +174,7 @@
 .syntax-block {
   background: var(--color-surface-primary);
   border: 1px solid var(--color-border);
-  border-radius: var(--space-1-5);
+  border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -223,7 +218,7 @@
   display: flex;
   flex-direction: column;
   padding: var(--space-1-5) var(--space-2);
-  border-radius: var(--space-1);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   margin-bottom: var(--space-1);
 }
@@ -278,7 +273,7 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   padding: 1px var(--space-2);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-lg);
 }
 
 .cmd-ref-link {
@@ -345,7 +340,7 @@
   color: var(--color-success);
   background: var(--accent-tint-soft);
   padding: 1px var(--space-2);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-lg);
   margin-left: var(--space-2);
   font-weight: 600;
 }
