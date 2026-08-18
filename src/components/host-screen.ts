@@ -51,7 +51,6 @@ export class HostScreen {
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
   private deleteConfirmId: string | null = null;
   private deleteConfirmType: "host" | "group" = "host";
-  private showShortcuts = false;
   private expandedGroups: Set<string> = new Set([ALL_GROUP_ID]);
 
   // Bound handler refs
@@ -129,9 +128,7 @@ export class HostScreen {
       <div class="host-screen">
         <!-- Header -->
         <div class="hs-header">
-          <h1>net.sh</h1>
           <div class="hs-header-actions">
-            <button class="btn-shortcuts" id="hs-shortcuts-btn" title="Keyboard shortcuts">?</button>
             <button class="btn-primary" id="hs-add-host-btn">+ New Connection</button>
           </div>
         </div>
@@ -170,7 +167,6 @@ export class HostScreen {
       ${this.formOpen ? this.renderForm() : ""}
       ${this.contextMenu ? this.renderContextMenu() : ""}
       ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
-      ${this.showShortcuts ? this.renderShortcutsModal() : ""}
     `;
 
     this.bindEvents();
@@ -463,73 +459,14 @@ export class HostScreen {
       </div>`;
   }
 
-  // ─── Shortcuts Modal ─────────────────────────────────────────────
-
-  private renderShortcutsModal(): string {
-    const shortcuts = [
-      { section: "Navigation" },
-      { key: "↑ / ↓", action: "Navigate host list" },
-      { key: "Enter", action: "Connect to selected host" },
-      { key: "/", action: "Focus search box" },
-      { key: "Escape", action: "Clear search / close modals" },
-      { section: "Actions" },
-      { key: "Ctrl+N", action: "New connection" },
-      { key: "Shift+F10", action: "Open context menu" },
-      { key: "Delete", action: "Delete selected host" },
-      { key: "?", action: "Toggle shortcuts" },
-      { section: "Groups" },
-      { key: "Ctrl+G", action: "New group" },
-      { key: "Alt+← / Alt+→", action: "Previous / Next group" },
-      { section: "Terminal" },
-      { key: "Tab", action: "Accept ghost suggestion / pass through" },
-      { key: "Ctrl+Space", action: "Open suggestion dropdown" },
-      { key: "Ctrl+Shift+S", action: "Toggle sidebar" },
-      { key: "Ctrl+Shift+Q", action: "Disconnect" },
-    ];
-    const items = shortcuts.map((s) => {
-      if ("section" in s) {
-        return `<div class="shortcuts-section">${escHtml((s as { section: string }).section)}</div>`;
-      }
-      return `
-        <span class="shortcut-key">${escHtml(s.key)}</span>
-        <span class="shortcut-action">${escHtml(s.action)}</span>`;
-    }).join("");
-    return `
-      <div class="modal-backdrop" id="hs-shortcuts-backdrop">
-        <div class="shortcuts-modal">
-          <h2>Keyboard Shortcuts</h2>
-          <div class="shortcuts-grid">${items}</div>
-          <div class="form-actions" style="margin-top:calc(var(--spacing) * 5)">
-            <button class="btn-primary" id="hs-shortcuts-close-btn">Got it</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
   // ─── Event Binding ──────────────────────────────────────────────
 
   private bindEvents() {
     if (!this.container) return;
 
     // Header buttons
-    this.container.querySelector("#hs-shortcuts-btn")?.addEventListener("click", () => {
-      this.showShortcuts = !this.showShortcuts;
-      this.render();
-    });
     this.container.querySelector("#hs-add-host-btn")?.addEventListener("click", () => this.openForm());
     this.container.querySelector("#hs-empty-add-btn")?.addEventListener("click", () => this.openForm());
-
-    // Shortcuts modal
-    document.getElementById("hs-shortcuts-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "hs-shortcuts-backdrop") {
-        this.showShortcuts = false;
-        this.render();
-      }
-    });
-    document.getElementById("hs-shortcuts-close-btn")?.addEventListener("click", () => {
-      this.showShortcuts = false;
-      this.render();
-    });
 
     // Group list items
     const groupList = this.container.querySelector("#hs-group-list");
@@ -805,15 +742,6 @@ export class HostScreen {
       return;
     }
 
-    if (this.showShortcuts) {
-      if (e.key === "Escape" || e.key === "?") {
-        e.preventDefault();
-        this.showShortcuts = false;
-        this.render();
-      }
-      return;
-    }
-
     const isSearchFocused = document.activeElement?.id === "hs-search";
 
     switch (e.key) {
@@ -849,13 +777,6 @@ export class HostScreen {
         if (!isSearchFocused) {
           e.preventDefault();
           (this.container?.querySelector("#hs-search") as HTMLInputElement)?.focus();
-        }
-        break;
-      case "?":
-        if (!isSearchFocused) {
-          e.preventDefault();
-          this.showShortcuts = !this.showShortcuts;
-          this.render();
         }
         break;
       case "Escape":

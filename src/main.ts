@@ -43,6 +43,9 @@ class App {
   // Track which host IDs have an active SSH session
   activeSessions = new Set<string>();
 
+  // Global shortcuts modal (lives in app tab bar, visible in all views)
+  private showShortcuts = false;
+
   constructor() {
     this.container = document.getElementById("app")!;
     setAppTheme(getAppTheme());
@@ -134,6 +137,16 @@ class App {
 
     tabBar.appendChild(connectionsTab);
     tabBar.appendChild(kbTab);
+
+    const shortcutsBtn = document.createElement("button");
+    shortcutsBtn.className = "btn-shortcuts app-shortcuts-btn";
+    shortcutsBtn.title = "Keyboard shortcuts";
+    shortcutsBtn.textContent = "?";
+    shortcutsBtn.addEventListener("click", () => {
+      this.showShortcuts = !this.showShortcuts;
+      this.renderShortcutsModal();
+    });
+    tabBar.appendChild(shortcutsBtn);
 
     const themeBtn = document.createElement("button");
     themeBtn.className = "btn-text app-theme-btn";
@@ -399,6 +412,69 @@ class App {
     });
   }
 
+  private renderShortcutsModal() {
+    document.getElementById("app-shortcuts-backdrop")?.remove();
+    if (!this.showShortcuts) return;
+
+    const shortcuts = [
+      { section: "Navigation" },
+      { key: "↑ / ↓", action: "Navigate host list" },
+      { key: "Enter", action: "Connect to selected host" },
+      { key: "/", action: "Focus search box" },
+      { key: "Escape", action: "Clear search / close modals" },
+      { section: "Actions" },
+      { key: "Ctrl+N", action: "New connection" },
+      { key: "Shift+F10", action: "Open context menu" },
+      { key: "Delete", action: "Delete selected host" },
+      { key: "?", action: "Toggle shortcuts" },
+      { section: "Groups" },
+      { key: "Ctrl+G", action: "New group" },
+      { key: "Alt+← / Alt+→", action: "Previous / Next group" },
+      { section: "Terminal" },
+      { key: "Tab", action: "Accept ghost suggestion / pass through" },
+      { key: "Ctrl+Space", action: "Open suggestion dropdown" },
+      { key: "Ctrl+Shift+S", action: "Toggle sidebar" },
+      { key: "Ctrl+Shift+Q", action: "Disconnect" },
+    ];
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const items = shortcuts
+      .map((s) => {
+        if ("section" in s) {
+          return `<div class="shortcuts-section">${esc((s as { section: string }).section)}</div>`;
+        }
+        return `
+          <span class="shortcut-key">${esc(s.key)}</span>
+          <span class="shortcut-action">${esc(s.action)}</span>`;
+      })
+      .join("");
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.id = "app-shortcuts-backdrop";
+    backdrop.innerHTML = `
+      <div class="shortcuts-modal">
+        <h2>Keyboard Shortcuts</h2>
+        <div class="shortcuts-grid">${items}</div>
+        <div class="form-actions" style="margin-top:calc(var(--spacing) * 5)">
+          <button class="btn-primary" id="app-shortcuts-close-btn">Got it</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) this.closeShortcutsModal();
+    });
+    backdrop.querySelector("#app-shortcuts-close-btn")!.addEventListener("click", () =>
+      this.closeShortcutsModal(),
+    );
+  }
+
+  private closeShortcutsModal() {
+    this.showShortcuts = false;
+    this.renderShortcutsModal();
+  }
+
   private registerGlobalShortcuts() {
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       // Ctrl+Shift+K — toggle Knowledge Base view
@@ -467,6 +543,20 @@ class App {
           this.showView("connections");
           return;
         }
+        if (this.showShortcuts) {
+          e.preventDefault();
+          this.closeShortcutsModal();
+          return;
+        }
+      }
+
+      // ? — toggle shortcuts modal (not while typing in an input)
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const t = document.activeElement;
+        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        this.showShortcuts = !this.showShortcuts;
+        this.renderShortcutsModal();
       }
     });
   }
