@@ -316,11 +316,18 @@ async fn import_kb_url(
         (config.get().clone(), config.user_kb_path())
     };
 
+    // Platform index supplies the valid mode vocabulary + default mode for import
+    let platform_index = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.get_platform_index(&request.platform)?
+    };
+
     let result = import::import_from_url(
         request,
         &config_ref,
         &user_kb_path,
         &app_handle,
+        &platform_index,
     ).await?;
 
     // Reload KB stores so new commands are immediately available

@@ -5,7 +5,7 @@
 //! user's knowledge base → triggers KB reload.
 
 use crate::config::AppConfig;
-use crate::kb::{get_target_yaml_path, write_commands_to_yaml, Command, CommandExample, CommandVersions};
+use crate::kb::{get_target_yaml_path, write_commands_to_yaml, Command, CommandExample, CommandVersions, PlatformIndex};
 use crate::ollama::{ExtractedCommand, OllamaClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -54,6 +54,7 @@ pub async fn import_from_url(
     config: &AppConfig,
     user_kb_path: &PathBuf,
     app_handle: &tauri::AppHandle,
+    platform_index: &PlatformIndex,
 ) -> Result<ImportResult, String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -99,7 +100,7 @@ pub async fn import_from_url(
     let valid_commands: Vec<Command> = extracted
         .into_iter()
         .filter_map(|cmd| {
-            match validate_extracted_command(cmd) {
+            match validate_extracted_command(cmd, platform_index) {
                 Ok(command) => Some(command),
                 Err(e) => {
                     log::warn!("Skipping invalid command: {}", e);
@@ -311,7 +312,7 @@ fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> St
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-fn validate_extracted_command(extracted: ExtractedCommand) -> Result<Command, String> {
+fn validate_extracted_command(extracted: ExtractedCommand, platform_index: &PlatformIndex) -> Result<Command, String> {
     if extracted.name.trim().is_empty() {
         return Err("Command name is empty".to_string());
     }
@@ -324,13 +325,23 @@ fn validate_extracted_command(extracted: ExtractedCommand) -> Result<Command, St
         return Err(format!("Command name too short: '{}'", name));
     }
 
+    // Mode must be one this platform actually has, otherwise the suggestion
+    // engine's mode filter silently hides the command. LLM output is unreliable
+    // here, so unknown/missing modes fall back to the platform default.
+    let mode = extracted
+        .mode
+        .filter(|m| {
+            platform_index.prompt_patterns.contains_key(m) || *m == platform_index.default_mode
+        })
+        .unwrap_or_else(|| platform_index.default_mode.clone());
+
     // Map extracted command to our Command struct
     let command = Command {
         name,
         syntax: extracted.syntax.unwrap_or_default(),
         description: extracted.description.unwrap_or_default(),
-        category: extracted.mode.clone().unwrap_or_default(),
-        mode: extracted.mode.unwrap_or_else(|| "privileged-exec".to_string()),
+        category: mode.clone(),
+        mode,
         aliases: extracted.aliases,
         examples: extracted.examples.into_iter().map(|ex| CommandExample {
             command: ex.command,
@@ -532,6 +543,35 @@ mod tests {
         assert!(text.contains("show version"));
     }
 
+    fn iosxe_index() -> PlatformIndex {
+        let mut prompt_patterns = std::collections::HashMap::new();
+        prompt_patterns.insert("privileged-exec".to_string(), "^[\\w\\-]+#".to_string());
+        prompt_patterns.insert("global-config".to_string(), "^[\\w\\-]+\\(config\\)#".to_string());
+        PlatformIndex {
+            id: "cisco-iosxe".to_string(),
+            name: "Cisco IOS-XE".to_string(),
+            description: String::new(),
+            reference_url: String::new(),
+            versions: vec![],
+            prompt_patterns,
+            default_mode: "privileged-exec".to_string(),
+        }
+    }
+
+    fn linux_index() -> PlatformIndex {
+        let mut prompt_patterns = std::collections::HashMap::new();
+        prompt_patterns.insert("shell".to_string(), "^.*[\\$#]\\s*$".to_string());
+        PlatformIndex {
+            id: "linux-bash".to_string(),
+            name: "Linux Bash".to_string(),
+            description: String::new(),
+            reference_url: String::new(),
+            versions: vec![],
+            prompt_patterns,
+            default_mode: "shell".to_string(),
+        }
+    }
+
     #[test]
     fn test_validate_extracted_command_valid() {
         let extracted = ExtractedCommand {
@@ -544,7 +584,7 @@ mod tests {
             tags: vec!["routing".to_string()],
         };
 
-        let cmd = validate_extracted_command(extracted).unwrap();
+        let cmd = validate_extracted_command(extracted, &iosxe_index()).unwrap();
         assert_eq!(cmd.name, "show ip route");
         assert_eq!(cmd.mode, "privileged-exec");
     }
@@ -561,7 +601,7 @@ mod tests {
             tags: vec![],
         };
 
-        assert!(validate_extracted_command(extracted).is_err());
+        assert!(validate_extracted_command(extracted, &iosxe_index()).is_err());
     }
 
     #[test]
@@ -576,10 +616,28 @@ mod tests {
             tags: vec![],
         };
 
-        let cmd = validate_extracted_command(extracted).unwrap();
+        let cmd = validate_extracted_command(extracted, &iosxe_index()).unwrap();
         assert_eq!(cmd.name, "show version");
-        // Defaults
+        // Missing mode falls back to the platform default
         assert_eq!(cmd.mode, "privileged-exec");
+    }
+
+    #[test]
+    fn test_validate_extracted_command_foreign_mode_falls_back() {
+        // LLM returned a Cisco mode for a linux command — must be coerced to
+        // the platform default, or the mode filter hides it from suggestions.
+        let extracted = ExtractedCommand {
+            name: "ip addr".to_string(),
+            syntax: None,
+            description: None,
+            mode: Some("privileged-exec".to_string()),
+            aliases: vec![],
+            examples: vec![],
+            tags: vec![],
+        };
+
+        let cmd = validate_extracted_command(extracted, &linux_index()).unwrap();
+        assert_eq!(cmd.mode, "shell");
     }
 
     #[test]

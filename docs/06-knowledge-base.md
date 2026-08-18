@@ -67,6 +67,8 @@ prompt_patterns:
 default_mode: privileged-exec
 ```
 
+`prompt_patterns` are matched against the **entire trailing line** of output (the detector wraps each pattern in `^(?:…)$`). A pattern must describe the prompt alone, with nothing after it — if it also matched prompt + typed characters (e.g. `Router#sh`), prompt detection would re-fire while the user types, resetting the shadow buffer and wiping the ghost-text suggestion.
+
 The `reference_url` is shown in the sidebar as "📖 Official docs →" — one link per platform pointing to the official command reference.
 
 ## Command Schema

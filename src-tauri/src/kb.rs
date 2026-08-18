@@ -156,12 +156,9 @@ impl KbStore {
             .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     }
 
-    /// Query commands by version and limit. Frontend always sends prefix="" and mode=None.
-    pub fn query(
-        &self,
-        version: Option<&str>,
-        limit: usize,
-    ) -> Vec<&Command> {
+    /// Query commands by version. Frontend always sends prefix="" and mode=None;
+    /// it needs the full command set because matching happens in the frontend.
+    pub fn query(&self, version: Option<&str>) -> Vec<&Command> {
         let host_major = version.and_then(|v| parse_major_version(v));
 
         let results: Vec<&Command> = self.commands.iter().filter(|cmd| {
@@ -185,8 +182,6 @@ impl KbStore {
             true
         }).collect();
 
-        let mut results = results;
-        results.truncate(limit);
         results
     }
 }
@@ -267,6 +262,9 @@ impl KbManager {
                                 user_store.commands.len(),
                                 store.commands.len()
                             );
+                            // User index (prompt patterns, default mode) overrides bundled —
+                            // bundled scaffolds ship with empty prompt_patterns.
+                            store.platform = user_store.platform.clone();
                             // Merge: user commands override bundled ones by name
                             store.merge_from(user_store);
                         }
@@ -311,7 +309,7 @@ impl KbManager {
         version: Option<&str>,
     ) -> Result<Vec<Command>, String> {
         let store = self.get_or_load(platform_id)?;
-        let results = store.query(version, 50);
+        let results = store.query(version);
         log::debug!(
             "KB query: platform='{}' version={:?} → {} results",
             platform_id,
@@ -615,7 +613,7 @@ mod tests {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
         // Query with no version filter returns all commands (prefix/mode matching removed)
-        let results = store.query(None, 50);
+        let results = store.query(None);
         assert!(!results.is_empty());
     }
 
@@ -623,16 +621,16 @@ mod tests {
     fn test_empty_prefix_returns_all() {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let all = store.query(None, 100);
-        assert_eq!(all.len(), store.commands.len().min(100));
+        let all = store.query(None);
+        assert_eq!(all.len(), store.commands.len());
     }
 
     #[test]
     fn test_case_insensitive() {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let upper = store.query(None, 50);
-        let lower = store.query(None, 50);
+        let upper = store.query(None);
+        let lower = store.query(None);
         assert_eq!(upper.len(), lower.len());
     }
 
@@ -656,8 +654,8 @@ mod tests {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
         // Version 17.6 should filter out commands introduced after 17
-        let filtered = store.query(Some("17.6"), 100);
-        let all = store.query(None, 100);
+        let filtered = store.query(Some("17.6"));
+        let all = store.query(None);
         assert!(filtered.len() <= all.len());
         // All filtered results should have valid version ranges
         for cmd in &filtered {
