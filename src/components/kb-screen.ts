@@ -11,7 +11,6 @@
 import { KbViewerDialog } from "./kb-viewer-dialog";
 import { KbImportDialog } from "./kb-import-dialog";
 import { listKbPlatforms } from "../lib/tauri-api";
-import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -73,23 +72,8 @@ export class KbScreen {
   private render() {
     if (!this.container) return;
 
-    const platformItems = this.platforms.map((p) => {
-      const meta = PLATFORM_META[p] ?? { badge: p.slice(0, 4).toUpperCase(), label: p };
-      const selectedClass = p === this.selectedPlatform ? " kb-sidebar-selected" : "";
-      return `<div class="kb-sidebar-item${selectedClass}" data-platform="${p}">
-        <span class="badge ${platformColorClass(p)}">${meta.badge}</span>
-        <span>${meta.label}</span>
-      </div>`;
-    }).join("");
-
     this.container.innerHTML = `
       <div class="kb-screen">
-        <div class="kb-sidebar">
-          <div class="kb-sidebar-title">Platforms</div>
-          <div class="kb-sidebar-list" id="kb-sidebar-list">
-            ${platformItems || '<div class="kb-sidebar-empty">No platforms loaded</div>'}
-          </div>
-        </div>
         <div class="kb-content">
           <div class="kb-content-tabs">
             <div class="kb-content-tab${this.activeTab === "browse" ? " active" : ""}" data-tab="browse">Browse KB</div>
@@ -109,16 +93,6 @@ export class KbScreen {
   private bindEvents() {
     if (!this.container) return;
 
-    // Platform sidebar clicks
-    this.container.querySelectorAll(".kb-sidebar-item").forEach((item) => {
-      item.addEventListener("click", () => {
-        const platform = (item as HTMLElement).dataset.platform;
-        if (platform) {
-          this.selectPlatform(platform);
-        }
-      });
-    });
-
     // Tab clicks
     this.container.querySelectorAll(".kb-content-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
@@ -132,13 +106,10 @@ export class KbScreen {
 
   // ─── Platform Selection ──────────────────────────────────────────
 
-  private selectPlatform(platform: string) {
+  /** Select a platform (driven by the nav panel). */
+  selectPlatform(platform: string) {
+    if (!this.platforms.includes(platform)) return;
     this.selectedPlatform = platform;
-    // Update sidebar highlight
-    this.container?.querySelectorAll(".kb-sidebar-item").forEach((item) => {
-      const isSelected = (item as HTMLElement).dataset.platform === platform;
-      item.classList.toggle("kb-sidebar-selected", isSelected);
-    });
     // If browse tab is active, reload the viewer for the new platform
     if (this.activeTab === "browse") {
       this.loadBrowseTab();
@@ -211,41 +182,6 @@ export class KbScreen {
         return;
       }
 
-      // Arrow keys — navigate platform sidebar
-      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-        if (document.activeElement?.closest("input, select, textarea")) return;
-        e.preventDefault();
-        const items = this.container?.querySelectorAll(".kb-sidebar-item");
-        if (!items || items.length === 0) return;
-
-        const currentIndex = Array.from(items).findIndex((item) =>
-          item.classList.contains("kb-sidebar-selected")
-        );
-        const nextIndex = e.key === "ArrowDown"
-          ? Math.min(currentIndex + 1, items.length - 1)
-          : Math.max(currentIndex - 1, 0);
-
-        if (nextIndex !== currentIndex && nextIndex >= 0 && nextIndex < items.length) {
-          const platform = (items[nextIndex] as HTMLElement).dataset.platform;
-          if (platform) {
-            this.selectPlatform(platform);
-          }
-        }
-        return;
-      }
-
-      // Enter — confirm platform selection (already handled by click, but keyboard parity)
-      if (e.key === "Enter") {
-        if (document.activeElement?.closest("input, select, textarea")) return;
-        const selected = this.container?.querySelector(".kb-sidebar-item.kb-sidebar-selected");
-        if (selected) {
-          const platform = (selected as HTMLElement).dataset.platform;
-          if (platform && this.activeTab === "browse") {
-            e.preventDefault();
-            this.loadBrowseTab();
-          }
-        }
-      }
     };
     document.addEventListener("keydown", this.keyHandler);
   }

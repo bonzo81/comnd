@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HostScreen } from "./components/host-screen";
 import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
+import { NavPanel } from "./components/nav-panel";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
@@ -33,6 +34,9 @@ class App {
   private hostScreenWrapper: HTMLElement;
   private kbScreen: KbScreen;
   private kbScreenWrapper: HTMLElement;
+  private contentCol: HTMLElement;
+  private bodyRow: HTMLElement;
+  private navPanel: NavPanel;
 
   // Session tabs — one per connected host
   private tabs = new Map<string, SessionTab>();
@@ -50,6 +54,10 @@ class App {
     this.container = document.getElementById("app")!;
     setAppTheme(getAppTheme());
 
+    // Content column — holds the three view wrappers, sits right of nav panel
+    this.contentCol = document.createElement("div");
+    this.contentCol.className = "app-content";
+
     // Create persistent wrapper divs for views
     this.hostScreenWrapper = document.createElement("div");
     this.hostScreenWrapper.className = "app-view";
@@ -59,14 +67,20 @@ class App {
     this.terminalArea.className = "app-view";
     this.terminalArea.style.display = "none";
 
-    this.container.appendChild(this.hostScreenWrapper);
-    this.container.appendChild(this.terminalArea);
+    this.contentCol.appendChild(this.hostScreenWrapper);
+    this.contentCol.appendChild(this.terminalArea);
 
     // KB screen wrapper (persistent — import progress events never lost)
     this.kbScreenWrapper = document.createElement("div");
     this.kbScreenWrapper.className = "app-view";
     this.kbScreenWrapper.style.display = "none";
-    this.container.appendChild(this.kbScreenWrapper);
+    this.contentCol.appendChild(this.kbScreenWrapper);
+
+    // Body row — nav panel left, content right
+    this.bodyRow = document.createElement("div");
+    this.bodyRow.className = "app-body";
+    this.container.appendChild(this.bodyRow);
+    this.bodyRow.appendChild(this.contentCol);
 
     this.kbScreen = new KbScreen(() => this.showView("connections"));
     this.kbScreen.mount(this.kbScreenWrapper);
@@ -78,10 +92,36 @@ class App {
     );
     this.hostScreen.mount(this.hostScreenWrapper);
 
+    // Left nav panel (accordion sections)
+    const navContainer = document.createElement("div");
+    navContainer.className = "app-nav";
+    this.bodyRow.insertBefore(navContainer, this.contentCol);
+    this.navPanel = new NavPanel(navContainer, {
+      onSelectGroup: (groupId) => {
+        this.showView("connections");
+        this.hostScreen.setGroup(groupId);
+      },
+      onSelectPlatform: (platform) => {
+        this.showView("knowledge-base");
+        this.kbScreen.selectPlatform(platform);
+      },
+      onNewConnection: () => {
+        this.showView("connections");
+        this.hostScreen.openNewConnection();
+      },
+      onAddGroup: () => {
+        this.showView("connections");
+        this.hostScreen.openAddGroup();
+      },
+      onSelectSettings: (id) => {
+        log.info("app", `Settings requested (placeholder): ${id}`);
+      },
+    });
+    void this.navPanel.mount();
+
     log.info("app", "Initialized");
     this.registerGlobalShortcuts();
     this.renderTitleBar();
-    this.renderTabBar();
   }
 
   private renderTitleBar() {
@@ -96,7 +136,7 @@ class App {
     const controls = document.createElement("div");
     controls.className = "title-bar-controls";
 
-    const makeBtn = (label: string, action: () => void) => {
+    const makeBtn = (label: string, action: () => void): HTMLButtonElement => {
       const b = document.createElement("button");
       b.className = "title-bar-btn";
       b.style.setProperty("-webkit-app-region", "no-drag");
@@ -110,50 +150,18 @@ class App {
         }
       });
       controls.appendChild(b);
+      return b;
     };
-    makeBtn("–", () => void getCurrentWindow().minimize());
-    makeBtn("□", () => void getCurrentWindow().toggleMaximize());
-    makeBtn("×", () => void getCurrentWindow().close());
-
-    bar.appendChild(title);
-    bar.appendChild(controls);
-    this.container.insertBefore(bar, this.container.firstChild);
-  }
-
-  private renderTabBar() {
-    const tabBar = document.createElement("div");
-    tabBar.className = "app-tab-bar";
-    tabBar.id = "app-tab-bar";
-
-    const connectionsTab = document.createElement("div");
-    connectionsTab.className = "app-tab active";
-    connectionsTab.dataset.view = "connections";
-    connectionsTab.textContent = "Connections";
-
-    const kbTab = document.createElement("div");
-    kbTab.className = "app-tab";
-    kbTab.dataset.view = "knowledge-base";
-    kbTab.textContent = "Knowledge Base";
-
-    tabBar.appendChild(connectionsTab);
-    tabBar.appendChild(kbTab);
-
-    const shortcutsBtn = document.createElement("button");
-    shortcutsBtn.className = "btn-shortcuts app-shortcuts-btn";
-    shortcutsBtn.title = "Keyboard shortcuts";
-    shortcutsBtn.textContent = "?";
-    shortcutsBtn.addEventListener("click", () => {
+    makeBtn("?", () => {
       this.showShortcuts = !this.showShortcuts;
       this.renderShortcutsModal();
     });
-    tabBar.appendChild(shortcutsBtn);
-
-    const themeBtn = document.createElement("button");
-    themeBtn.className = "btn-text app-theme-btn";
-    themeBtn.addEventListener("click", () => {
+    const themeBtn = makeBtn("☀", () => {
       setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
     });
-    tabBar.appendChild(themeBtn);
+    makeBtn("–", () => void getCurrentWindow().minimize());
+    makeBtn("□", () => void getCurrentWindow().toggleMaximize());
+    makeBtn("×", () => void getCurrentWindow().close());
 
     const syncThemeIcon = () => {
       themeBtn.textContent = getAppTheme() === "dark" ? "☀" : "🌙";
@@ -161,31 +169,9 @@ class App {
     syncThemeIcon();
     window.addEventListener("netsh:theme", syncThemeIcon);
 
-    tabBar.addEventListener("click", (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.classList.contains("app-tab")) {
-        const view = target.dataset.view as AppView;
-        if (view) {
-          this.showView(view);
-        }
-      }
-    });
-
-    // Insert after the title bar (title bar is always the first child)
-    const titleBar = this.container.querySelector("#title-bar");
-    if (titleBar && titleBar.nextSibling) {
-      this.container.insertBefore(tabBar, titleBar.nextSibling);
-    } else {
-      this.container.appendChild(tabBar);
-    }
-  }
-
-  private updateTabBar(view: AppView) {
-    const tabs = this.container.querySelectorAll<HTMLElement>(".app-tab");
-    tabs.forEach((tab) => {
-      const isActive = tab.dataset.view === view;
-      tab.classList.toggle("active", isActive);
-    });
+    bar.appendChild(title);
+    bar.appendChild(controls);
+    this.container.insertBefore(bar, this.container.firstChild);
   }
 
   private showView(view: AppView) {
@@ -193,7 +179,14 @@ class App {
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
     this.kbScreenWrapper.style.display = view === "knowledge-base" ? "" : "none";
-    this.updateTabBar(view);
+    // Nav panel: no section active while in terminal
+    if (view === "terminal") {
+      this.navPanel.clearActiveSection();
+    } else if (view === "connections") {
+      this.navPanel.setSection("connections");
+    } else {
+      this.navPanel.setSection("kb");
+    }
     if (view === "terminal") {
       this.renderSessionTabBar();
     }
@@ -488,7 +481,15 @@ class App {
             this.onDetach(this.activeTabId);
           }
           this.showView("knowledge-base");
+          this.navPanel.setSection("kb");
         }
+        return;
+      }
+
+      // Ctrl+, — expand Settings section (placeholder)
+      if (e.ctrlKey && !e.shiftKey && e.key === ",") {
+        e.preventDefault();
+        this.navPanel.setSection("settings");
         return;
       }
 

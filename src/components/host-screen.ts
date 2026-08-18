@@ -51,7 +51,6 @@ export class HostScreen {
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
   private deleteConfirmId: string | null = null;
   private deleteConfirmType: "host" | "group" = "host";
-  private expandedGroups: Set<string> = new Set([ALL_GROUP_ID]);
 
   // Bound handler refs
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -72,6 +71,27 @@ export class HostScreen {
   /** Re-render the host list (e.g., after returning from a detached session). */
   async refresh() {
     await this.loadData();
+    this.render();
+  }
+
+  /** Select a group (driven by the nav panel). */
+  setGroup(groupId: string) {
+    if (this.selectedGroupId === groupId) return;
+    this.selectedGroupId = groupId;
+    this.selectedHostIndex = 0;
+    this.applyFilter();
+    this.render();
+  }
+
+  /** Open the new-connection form (driven by the nav panel). */
+  openNewConnection() {
+    void this.openForm();
+  }
+
+  /** Open the add-group form (driven by the nav panel). */
+  openAddGroup() {
+    this.addGroupMode = true;
+    this.editingGroupId = null;
     this.render();
   }
 
@@ -126,39 +146,17 @@ export class HostScreen {
 
     this.container.innerHTML = `
       <div class="host-screen">
-        <!-- Header -->
-        <div class="hs-header">
-          <div class="hs-header-actions">
-            <button class="btn-primary" id="hs-add-host-btn">+ New Connection</button>
-          </div>
-        </div>
-
-        <!-- Main area -->
-        <div class="hs-main">
-          <!-- Left: Group tree -->
-          <div class="hs-group-panel">
-            <div class="hs-group-header">
-              <span class="hs-group-title">Groups</span>
-              <button class="hs-add-group-btn" id="hs-add-group-btn" title="New group">+</button>
+        <div class="hs-host-panel">
+          <div class="hs-search">
+            <div class="hs-search-row">
+              <input type="text" placeholder="Search hosts, tags… ( / )" id="hs-search" value="${escAttr(this.searchQuery)}" />
+              ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge">${escHtml(this.getGroupName(this.selectedGroupId))} ✕</span>` : ""}
             </div>
-            <div class="hs-group-list" id="hs-group-list">
-              ${this.renderGroupTree()}
-            </div>
+            <span class="hs-host-count">${countText}</span>
           </div>
 
-          <!-- Right: Host list -->
-          <div class="hs-host-panel">
-            <div class="hs-search">
-              <div class="hs-search-row">
-                <input type="text" placeholder="Search hosts, tags… ( / )" id="hs-search" value="${escAttr(this.searchQuery)}" />
-                ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge">${escHtml(this.getGroupName(this.selectedGroupId))} ✕</span>` : ""}
-              </div>
-              <span class="hs-host-count">${countText}</span>
-            </div>
-
-            <div class="hs-host-list" id="hs-host-list">
-              ${hasHosts ? this.renderHostList() : this.renderEmptyState()}
-            </div>
+          <div class="hs-host-list" id="hs-host-list">
+            ${hasHosts ? this.renderHostList() : this.renderEmptyState()}
           </div>
         </div>
       </div>
@@ -170,55 +168,6 @@ export class HostScreen {
     `;
 
     this.bindEvents();
-  }
-
-  private renderGroupTree(): string {
-    // "All Hosts" pseudo-group
-    const allSelected = this.selectedGroupId === ALL_GROUP_ID;
-    const totalHosts = this.hosts.length;
-    let html = `<div class="hs-group-item ${allSelected ? "hs-group-selected" : ""}" data-group-id="${ALL_GROUP_ID}">
-      <span class="hs-group-icon">📁</span>
-      <span class="hs-group-name">All Hosts</span>
-      <span class="hs-group-count">${totalHosts}</span>
-    </div>`;
-
-    // Root groups (no parent_id)
-    const rootGroups = this.groups.filter((g) => !g.parent_id);
-    for (const group of rootGroups) {
-      html += this.renderGroupNode(group, 0);
-    }
-
-    if (rootGroups.length === 0 && this.groups.length === 0) {
-      // No groups yet — hint
-    }
-
-    return html;
-  }
-
-  private renderGroupNode(group: HostGroup, depth: number): string {
-    const selected = this.selectedGroupId === group.id;
-    const expanded = this.expandedGroups.has(group.id);
-    const children = this.groups.filter((g) => g.parent_id === group.id);
-    const hostCount = this.hosts.filter((h) => h.group_id === group.id).length;
-    const hasChildren = children.length > 0;
-    const indent = depth * 16;
-
-    let html = `<div class="hs-group-item ${selected ? "hs-group-selected" : ""}"
-                     data-group-id="${group.id}"
-                     style="padding-left:${12 + indent}px">
-      <span class="hs-group-toggle">${hasChildren ? (expanded ? "▾" : "▸") : "&nbsp;"}</span>
-      <span class="hs-group-icon">${group.icon ?? "📁"}</span>
-      <span class="hs-group-name">${escHtml(group.name)}</span>
-      <span class="hs-group-count">${hostCount}</span>
-    </div>`;
-
-    if (hasChildren && expanded) {
-      for (const child of children) {
-        html += this.renderGroupNode(child, depth + 1);
-      }
-    }
-
-    return html;
   }
 
   private renderHostList(): string {
@@ -464,55 +413,8 @@ export class HostScreen {
   private bindEvents() {
     if (!this.container) return;
 
-    // Header buttons
-    this.container.querySelector("#hs-add-host-btn")?.addEventListener("click", () => this.openForm());
+    // Empty-state add button
     this.container.querySelector("#hs-empty-add-btn")?.addEventListener("click", () => this.openForm());
-
-    // Group list items
-    const groupList = this.container.querySelector("#hs-group-list");
-    if (groupList) {
-      groupList.querySelectorAll(".hs-group-item").forEach((el) => {
-        // Select group
-        el.addEventListener("click", () => {
-          const groupId = (el as HTMLElement).dataset.groupId ?? ALL_GROUP_ID;
-          if (groupId === this.selectedGroupId) return;
-
-          // Toggle expand for groups with children
-          const toggle = el.querySelector(".hs-group-toggle");
-          if (toggle && toggle.textContent?.trim() === "▾") {
-            this.expandedGroups.delete(groupId);
-          } else if (toggle && toggle.textContent?.trim() === "▸") {
-            this.expandedGroups.add(groupId);
-          }
-
-          this.selectedGroupId = groupId;
-          this.selectedHostIndex = 0;
-          this.applyFilter();
-          this.render();
-        });
-
-        // Context menu on groups
-        el.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          const groupId = (el as HTMLElement).dataset.groupId ?? "";
-          if (groupId === ALL_GROUP_ID) return;
-          this.contextMenu = {
-            type: "group",
-            id: groupId,
-            x: (e as MouseEvent).clientX,
-            y: (e as MouseEvent).clientY,
-          };
-          this.render();
-        });
-      });
-    }
-
-    // Add group button
-    this.container.querySelector("#hs-add-group-btn")?.addEventListener("click", () => {
-      this.addGroupMode = true;
-      this.editingGroupId = null;
-      this.render();
-    });
 
     // Group form
     document.getElementById("hs-group-save-btn")?.addEventListener("click", () => this.saveGroup());
@@ -807,12 +709,6 @@ export class HostScreen {
       case "g":
         if (e.ctrlKey) { e.preventDefault(); this.openAddGroup(); }
         break;
-      case "ArrowLeft":
-        if (e.altKey) { e.preventDefault(); this.selectAdjacentGroup(-1); }
-        break;
-      case "ArrowRight":
-        if (e.altKey) { e.preventDefault(); this.selectAdjacentGroup(1); }
-        break;
       case "F10":
         if (e.shiftKey && this.filteredHosts[this.selectedHostIndex]) {
           e.preventDefault();
@@ -837,25 +733,7 @@ export class HostScreen {
     el?.scrollIntoView({ block: "nearest" });
   }
 
-  private selectAdjacentGroup(direction: number) {
-    const allGroupIds = [ALL_GROUP_ID, ...this.groups.map((g) => g.id)];
-    const currentIdx = allGroupIds.indexOf(this.selectedGroupId);
-    const nextIdx = Math.max(0, Math.min(allGroupIds.length - 1, currentIdx + direction));
-    if (nextIdx !== currentIdx) {
-      this.selectedGroupId = allGroupIds[nextIdx];
-      this.selectedHostIndex = 0;
-      this.applyFilter();
-      this.render();
-    }
-  }
-
   // ─── Group Actions ──────────────────────────────────────────────
-
-  private openAddGroup() {
-    this.addGroupMode = true;
-    this.editingGroupId = null;
-    this.render();
-  }
 
   private async saveGroup() {
     const nameInput = document.getElementById("hs-group-name-input") as HTMLInputElement;
@@ -902,8 +780,6 @@ export class HostScreen {
       if (this.selectedGroupId === id) {
         this.selectedGroupId = ALL_GROUP_ID;
       }
-      // Remove from expanded set
-      this.expandedGroups.delete(id);
       await this.loadData();
       this.render();
     } catch (e) {

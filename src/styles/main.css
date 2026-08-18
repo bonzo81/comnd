@@ -12,6 +12,7 @@
 @import './components/_suggestion.css';
 @import './components/_command-palette.css';
 @import './components/_kb-screen.css';
+@import './components/_nav-panel.css';
 
 @layer tokens, base, components, utilities;
 

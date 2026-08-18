@@ -1,0 +1,148 @@
+/* ─── Left Nav Panel ──────────────────────────────────────────────── */
+.app-nav {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-secondary);
+  overflow-y: auto;
+}
+
+.nav-panel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) 0;
+}
+
+.nav-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-section-header:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.nav-chevron {
+  width: 12px;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.nav-section-items {
+  padding: var(--space-0-5) 0 var(--space-2);
+}
+
+.nav-section-items.hidden {
+  display: none;
+}
+
+/* ─── Nav items ───────────────────────────────────────────────────── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin: 0 var(--space-2) var(--space-0-5);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  text-align: left;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+.nav-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.nav-selected {
+  background: var(--color-surface-selected);
+  color: var(--color-text-primary);
+}
+
+.nav-item-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.nav-action {
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.nav-action-icon {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-sub-icon {
+  flex-shrink: 0;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.nav-toggle {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.nav-badge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  min-width: 38px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.nav-soon {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* ─── Focus ───────────────────────────────────────────────────────── */
+.nav-section-header:focus-visible,
+.nav-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
