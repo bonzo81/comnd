@@ -116,6 +116,8 @@
 .tv-terminal {
   flex: 1;
   overflow: hidden;
+  /* Containing block for ghost text / dropdown overlays */
+  position: relative;
 }
 
 .tv-sidebar {
@@ -307,11 +309,14 @@
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
   min-height: 28px;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, visibility 0.15s;
 }
 
+/* Space stays reserved — toggling display would resize the terminal (PTY
+   resize → remote redraw → ghost text flicker). */
 .tv-suggestion-bar.hidden {
-  display: none;
+  visibility: hidden;
+  opacity: 0;
 }
 
 .tv-suggestion-bar .sb-label {
@@ -337,9 +342,11 @@
   color: var(--color-accent);
 }
 
-/* Stamps are recorded continuously; hidden unless the gutter is shown */
-.xterm-decoration.ts-stamp {
-  display: none;
+/* Stamps are recorded continuously; hidden unless the gutter is shown.
+   xterm sets inline display:block on decoration elements, so hiding
+   requires !important to win. */
+.tv-terminal:not(.timestamps-on) .xterm-decoration.ts-stamp {
+  display: none !important;
 }
 
 /* Padding reserves the gutter; FitAddon subtracts it so cols shrink to fit.
@@ -358,13 +365,13 @@
   --ts-gutter: calc(12ch + 12px);
 }
 
-/* Decorations anchor at col 0 and shift left into the gutter */
+/* Decorations anchor at col 0 and shift left into the gutter.
+   xterm sets inline display/height/line-height per cell, so align via
+   text-align rather than overriding display. */
 .tv-terminal.timestamps-on .xterm-decoration.ts-stamp {
   width: var(--ts-gutter) !important;
   transform: translateX(calc(-1 * var(--ts-gutter)));
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  text-align: right;
   padding-right: var(--space-2);
   box-sizing: border-box;
   font-family: var(--font-mono);

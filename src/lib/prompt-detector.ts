@@ -33,7 +33,10 @@ export class PromptDetector {
   loadPatterns(patterns: PromptPatterns, defaultMode: string) {
     this.patterns.clear();
     for (const [mode, pattern] of Object.entries(patterns)) {
-      this.patterns.set(mode, new RegExp(pattern));
+      // A prompt must match the ENTIRE trailing text. Without the end anchor,
+      // prompt + typed input (e.g. "Router#sh") re-triggers detection mid-command,
+      // resetting the shadow buffer and killing ghost text while the user types.
+      this.patterns.set(mode, new RegExp(`^(?:${pattern})$`));
     }
     this.currentMode = defaultMode;
   }

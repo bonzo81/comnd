@@ -590,10 +590,11 @@ export class TerminalView {
         this.renderOutputPane();
       }
 
-      // Only suppress ghost text for substantial output (command results),
-      // not for single-character echoes from the remote device.
-      // Echoed keystrokes are typically 1-3 bytes; real output is longer.
-      if (this.state === "connected" && (text.length > 3 || text.includes("\n") || text.includes("\r\n"))) {
+      // Only suppress ghost text for real output (command results), not for
+      // keystroke echoes. Newline is the reliable signal: echoes never contain
+      // one, command output virtually always does. A byte-count heuristic
+      // flickered on devices that echo with ANSI cursor codes.
+      if (this.state === "connected" && text.includes("\n")) {
         this.receivingOutput = true;
         this.ghostText?.hide();
         this.dropdown?.hide();
@@ -632,6 +633,8 @@ export class TerminalView {
       // Initialize ghost text overlay, dropdown, and sidebar content
       const termContainer = this.$(".tv-terminal")!;
       if (this.terminal) {
+        this.ghostText?.destroy();
+        this.dropdown?.destroy();
         this.ghostText = new GhostText(this.terminal, termContainer);
         this.dropdown = new Dropdown(termContainer, (cmd) => {
           // On dropdown accept
@@ -938,8 +941,8 @@ export class TerminalView {
       cmdEl.textContent = input;
       remEl.textContent = remainder;
     }
-    // Refit terminal when bar visibility changes
-    this.fitAddon?.fit();
+    // No fit() — bar space is permanently reserved, so the terminal never
+    // resizes (a PTY resize made the remote redraw and hid the ghost text).
   }
 
   private hideSuggestionBar() {
@@ -947,8 +950,6 @@ export class TerminalView {
     if (bar) {
       bar.classList.add("hidden");
     }
-    // Refit terminal when bar visibility changes
-    this.fitAddon?.fit();
   }
 
   // ─── Mode display ────────────────────────────────────────────────
