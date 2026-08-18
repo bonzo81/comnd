@@ -65,13 +65,6 @@ export class NavPanel {
     this.render();
   }
 
-  /** No section expanded (terminal view). */
-  clearActiveSection() {
-    if (this.activeSection === null) return;
-    this.activeSection = null;
-    this.render();
-  }
-
   /** Update the highlighted group (driven by HostScreen). */
   setSelectedGroup(groupId: string) {
     if (this.selectedGroupId === groupId) return;

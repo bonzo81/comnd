@@ -213,10 +213,8 @@ class App {
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
     this.kbScreenWrapper.style.display = view === "knowledge-base" ? "" : "none";
     this.settingsWrapper.style.display = view === "settings" ? "" : "none";
-    // Nav panel: no section active while in terminal
-    if (view === "terminal") {
-      this.navPanel.clearActiveSection();
-    } else if (view === "connections") {
+    // Nav panel keeps its current section state in the terminal view
+    if (view === "connections") {
       this.navPanel.setSection("connections");
     } else if (view === "knowledge-base") {
       this.navPanel.setSection("kb");
