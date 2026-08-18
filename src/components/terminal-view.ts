@@ -109,6 +109,7 @@ export class TerminalView {
   private unlistenAuthUrl: UnlistenFn | null = null;
   private resizeHandler: (() => void) | null = null;
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
+  private themeChangeHandler: (() => void) | null = null;
 
   constructor(
     onDetach: () => void,
@@ -424,11 +425,14 @@ export class TerminalView {
       themeBtn.textContent = getTerminalTheme() === "dark" ? "☀" : "🌙";
     };
     themeBtn.addEventListener("click", () => {
-      const next: Theme = getTerminalTheme() === "dark" ? "light" : "dark";
-      setTerminalTheme(next);
-      this.applyTerminalTheme(next);
+      setTerminalTheme(getTerminalTheme() === "dark" ? "light" : "dark");
     });
-    window.addEventListener("netsh:terminal-theme", syncThemeIcon);
+    // Event applies theme to THIS terminal — keeps every session tab in sync
+    this.themeChangeHandler = () => {
+      this.applyTerminalTheme(getTerminalTheme());
+      syncThemeIcon();
+    };
+    window.addEventListener("netsh:terminal-theme", this.themeChangeHandler);
     syncThemeIcon();
 
     // Panel toggle
@@ -1121,6 +1125,10 @@ export class TerminalView {
     if (this.ctrlWHandler) {
       window.removeEventListener("keydown", this.ctrlWHandler);
       this.ctrlWHandler = null;
+    }
+    if (this.themeChangeHandler) {
+      window.removeEventListener("netsh:terminal-theme", this.themeChangeHandler);
+      this.themeChangeHandler = null;
     }
 
     this.hideSuggestionBar();
