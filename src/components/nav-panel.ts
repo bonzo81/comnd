@@ -15,7 +15,6 @@ import { log } from "../lib/logger";
 export type NavSection = "connections" | "kb" | "settings";
 
 export interface NavCallbacks {
-  onSelectSection: (section: NavSection) => void;
   onSelectGroup: (groupId: string) => void;
   onSelectPlatform: (platform: string) => void;
   onNewConnection: () => void;
@@ -60,7 +59,7 @@ export class NavPanel {
     this.render();
   }
 
-  /** Expand a section and collapse the others (accordion). */
+  /** Expand a section and collapse the others (accordion). No view switch. */
   setSection(section: NavSection) {
     if (this.activeSection === section) return;
     this.activeSection = section;
@@ -302,7 +301,6 @@ export class NavPanel {
           this.activeSection = null;
         } else {
           this.activeSection = section;
-          this.cb.onSelectSection(section);
         }
         this.render();
       });
@@ -468,11 +466,10 @@ export class NavPanel {
           e.preventDefault();
           const ae = document.activeElement as HTMLElement | null;
           if (ae?.classList.contains("nav-section-header")) {
-            // Closed section: expand it and switch view, then enter it
+            // Closed section: expand it, then enter it
             const section = ae.dataset.section as NavSection;
             if (this.activeSection !== section) {
               this.activeSection = section;
-              this.cb.onSelectSection(section);
               this.render();
             }
             const first = this.container.querySelector<HTMLElement>(

@@ -115,9 +115,6 @@ class App {
     navContainer.className = "app-nav";
     this.bodyRow.insertBefore(navContainer, this.contentCol);
     this.navPanel = new NavPanel(navContainer, {
-      onSelectSection: (section) => {
-        this.showView(section === "kb" ? "knowledge-base" : section);
-      },
       onSelectGroup: (groupId) => {
         this.showView("connections");
         this.hostScreen.setGroup(groupId);
