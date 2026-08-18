@@ -17,9 +17,10 @@
 
 /* ─── Custom title bar (frameless window) ─── */
 .title-bar {
+  position: relative;
   display: flex;
   align-items: center;
-  height: 32px;
+  height: 44px;
   flex-shrink: 0;
   background: var(--color-surface-secondary);
   -webkit-app-region: drag;
@@ -40,11 +41,12 @@
 
 .title-bar-btn {
   width: 44px;
-  height: 32px;
+  height: 44px;
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -61,12 +63,17 @@
 /* ─── Inline SVG icon sizing (see src/lib/icons.ts) ─── */
 .btn-text svg,
 .btn-small svg,
-.title-bar-btn svg,
 .tv-theme-btn svg,
 .import-model-info svg {
   width: 14px;
   height: 14px;
   vertical-align: -2px;
+}
+
+.title-bar-btn svg {
+  width: 20px !important;
+  height: 20px !important;
+  vertical-align: -3px;
 }
 
 .nav-sub-icon svg {

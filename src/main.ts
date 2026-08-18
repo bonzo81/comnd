@@ -203,7 +203,7 @@ class App {
 
     bar.appendChild(title);
 
-    // Global search — between title and window controls
+    // Global search — centered in the title bar (absolute, relative to the bar)
     const searchWrap = document.createElement("div");
     searchWrap.className = "title-bar-search-wrap";
     this.globalSearch = new GlobalSearch(

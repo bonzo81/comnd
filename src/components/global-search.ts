@@ -60,23 +60,6 @@ export class GlobalSearch {
     this.wrapper.className = "title-bar-search";
     this.wrapper.style.setProperty("-webkit-app-region", "no-drag");
 
-    this.toggle = document.createElement("div");
-    this.toggle.className = "title-bar-search-toggle";
-    const hostsBtn = document.createElement("button");
-    hostsBtn.type = "button";
-    hostsBtn.className = "title-bar-search-seg active";
-    hostsBtn.textContent = "Hosts";
-    hostsBtn.setAttribute("aria-label", "Search hosts");
-    hostsBtn.addEventListener("click", () => this.setMode("hosts"));
-    const cmdsBtn = document.createElement("button");
-    cmdsBtn.type = "button";
-    cmdsBtn.className = "title-bar-search-seg";
-    cmdsBtn.textContent = "Commands";
-    cmdsBtn.setAttribute("aria-label", "Search commands");
-    cmdsBtn.addEventListener("click", () => this.setMode("commands"));
-    this.toggle.appendChild(hostsBtn);
-    this.toggle.appendChild(cmdsBtn);
-
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.className = "title-bar-search-input";
@@ -90,8 +73,27 @@ export class GlobalSearch {
       if (this.input.value.trim()) this.updateResults();
     });
 
-    this.wrapper.appendChild(this.toggle);
+    this.toggle = document.createElement("div");
+    this.toggle.className = "title-bar-search-toggle";
+    const hostsBtn = document.createElement("button");
+    hostsBtn.type = "button";
+    hostsBtn.className = "title-bar-search-seg active";
+    hostsBtn.innerHTML = icons.monitor;
+    hostsBtn.title = "Search hosts";
+    hostsBtn.setAttribute("aria-label", "Search hosts");
+    hostsBtn.addEventListener("click", () => this.setMode("hosts"));
+    const cmdsBtn = document.createElement("button");
+    cmdsBtn.type = "button";
+    cmdsBtn.className = "title-bar-search-seg";
+    cmdsBtn.innerHTML = icons.settings;
+    cmdsBtn.title = "Search commands";
+    cmdsBtn.setAttribute("aria-label", "Search commands");
+    cmdsBtn.addEventListener("click", () => this.setMode("commands"));
+    this.toggle.appendChild(hostsBtn);
+    this.toggle.appendChild(cmdsBtn);
+
     this.wrapper.appendChild(this.input);
+    this.wrapper.appendChild(this.toggle);
     container.appendChild(this.wrapper);
 
     // Results panel — fixed below the titlebar, aligned to the input's left edge
@@ -116,7 +118,7 @@ export class GlobalSearch {
     if (this.mode === mode) return;
     this.mode = mode;
     this.toggle.querySelectorAll<HTMLElement>(".title-bar-search-seg").forEach((el) => {
-      el.classList.toggle("active", el.textContent === (mode === "hosts" ? "Hosts" : "Commands"));
+      el.classList.toggle("active", el.getAttribute("aria-label") === (mode === "hosts" ? "Search hosts" : "Search commands"));
     });
     this.input.placeholder = mode === "hosts" ? "Search hosts…" : "Search commands…";
     this.input.value = "";
