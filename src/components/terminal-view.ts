@@ -36,6 +36,7 @@ import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { mintSessionId } from "../lib/session-id";
 import { shouldAcceptEvent } from "../lib/session-filter";
+import { icons } from "../lib/icons";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -353,10 +354,10 @@ export class TerminalView {
         <div class="tv-topbar">
           <div class="tv-topbar-left">
             <button class="btn-text tv-back-btn">← Back</button>
-            <button class="btn-text tv-close-btn">✕ Close</button>
+            <button class="btn-text tv-close-btn">${icons.x} Close</button>
           </div>
           <span class="tv-host-info">Connecting...</span>
-          <button class="btn-text tv-theme-btn">🌙</button>
+          <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
           <button class="btn-text tv-panel-btn">≡ Panel</button>
         </div>
         <div class="tv-main">
@@ -420,7 +421,9 @@ export class TerminalView {
     // Terminal theme toggle
     const themeBtn = this.$(".tv-theme-btn")!;
     const syncThemeIcon = () => {
-      themeBtn.textContent = getTerminalTheme() === "dark" ? "☀" : "🌙";
+      const dark = getTerminalTheme() === "dark";
+      themeBtn.innerHTML = dark ? icons.sun : icons.moon;
+      themeBtn.setAttribute("aria-label", dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
     };
     themeBtn.addEventListener("click", () => {
       setTerminalTheme(getTerminalTheme() === "dark" ? "light" : "dark");

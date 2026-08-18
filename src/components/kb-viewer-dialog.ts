@@ -6,6 +6,7 @@
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, PlatformIndex, loadPlatformIndex } from "../lib/tauri-api";
 import { SidebarContent } from "../lib/sidebar-content";
 import { escHtml, formatMode } from "../lib/format";
+import { icons } from "../lib/icons";
 
 interface KbCategory {
   name: string;
@@ -206,8 +207,8 @@ export class KbViewerDialog {
     return `
       <div class="kb-detail-wrapper">
         <div class="kb-detail-actions">
-          <button class="btn-small kb-btn-edit" id="kb-cmd-edit-btn">✏️ Edit</button>
-          <button class="btn-small kb-btn-delete" id="kb-cmd-delete-btn">🗑 Delete</button>
+          <button class="btn-small kb-btn-edit" id="kb-cmd-edit-btn">${icons.pencil} Edit</button>
+          <button class="btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} Delete</button>
         </div>
         <div class="kb-detail-sidebar">
           ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null)}

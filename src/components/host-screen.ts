@@ -23,6 +23,7 @@ import { log } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
 import { ALL_GROUP_ID, filterHosts } from "../lib/host-filters";
+import { icons } from "../lib/icons";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ export class HostScreen {
         <div class="hs-host-panel">
           <div class="hs-search">
             <div class="hs-search-row">
-              ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge">${escHtml(this.getGroupName(this.selectedGroupId))} ✕</span>` : ""}
+              ${this.selectedGroupId !== ALL_GROUP_ID ? `<span class="hs-group-filter-badge" role="button" tabindex="0" aria-label="Clear group filter">${escHtml(this.getGroupName(this.selectedGroupId))} ${icons.x}</span>` : ""}
             </div>
             <span class="hs-host-count">${countText}</span>
           </div>
@@ -242,7 +243,7 @@ export class HostScreen {
   private renderEmptyState(): string {
     return `
       <div class="cm-empty-state">
-        <div class="cm-empty-icon">🖥</div>
+        <div class="cm-empty-icon">${icons.monitor}</div>
         <h2>Welcome to net.sh</h2>
         <p>A smarter SSH client for network engineers.<br/>
         Connect to your devices with context-aware command suggestions built in.</p>
@@ -344,7 +345,7 @@ export class HostScreen {
             </fieldset>
             <div id="hs-auth-password-field" class="auth-conditional ${(!h || h.auth_type === "password") ? "" : "auth-conditional-hidden"}">
               <label>
-                <span>Password ${h && this.editingHasCredential ? '<span class="cred-badge">🔒 Password saved</span>' : ""}</span>
+                <span>Password ${h && this.editingHasCredential ? `<span class="cred-badge">${icons.lock} Password saved</span>` : ""}</span>
                 <input type="password" name="password"
                        placeholder="${h && this.editingHasCredential ? "Leave blank to keep saved password" : "Enter password"}" />
               </label>

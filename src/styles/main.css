@@ -57,6 +57,48 @@
   color: #fff;
 }
 
+/* ─── Inline SVG icon sizing (see src/lib/icons.ts) ─── */
+.btn-text svg,
+.btn-small svg,
+.title-bar-btn svg,
+.tv-theme-btn svg,
+.import-model-info svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
+.nav-sub-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.toast-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cm-empty-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.cm-empty-icon {
+  color: var(--color-text-secondary);
+}
+
+.import-success-icon svg,
+.import-error-icon svg {
+  width: 36px;
+  height: 36px;
+}
+
+.cred-badge svg,
+.hs-group-filter-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
 /* ─── Global focus indicators ─── */
 .cm-host-item:focus-visible {
   outline: 2px solid var(--color-accent);

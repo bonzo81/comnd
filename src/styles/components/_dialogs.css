@@ -542,6 +542,7 @@
 .url-status-ok { color: var(--color-success); }
 .url-status-err { color: var(--color-error); }
 .url-status-progress { color: var(--color-text-secondary); }
+.url-status svg { width: 12px; height: 12px; vertical-align: -2px; }
 
 /* ─── Import: Elapsed Time ─────────────────────────────────────────── */
 .import-elapsed {

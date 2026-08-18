@@ -10,6 +10,7 @@ import { getHostGroups, saveHostGroup } from "../lib/tauri-api";
 import { ALL_GROUP_ID } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
 import { log } from "../lib/logger";
+import { icons } from "../lib/icons";
 
 export type NavSection = "connections" | "kb" | "settings";
 
@@ -156,7 +157,7 @@ export class NavPanel {
       <div class="nav-group-row ${this.selectedGroupId === ALL_GROUP_ID ? "nav-selected" : ""}" data-group-id="${ALL_GROUP_ID}">
         <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">
           <span class="nav-toggle"></span>
-          <span class="nav-sub-icon">📁</span>
+          <span class="nav-sub-icon">${icons.folder}</span>
           <span class="nav-item-label">All Hosts</span>
         </button>
         <span class="nav-row-actions">
@@ -193,7 +194,7 @@ export class NavPanel {
       <div class="nav-group-row ${selected ? "nav-selected" : ""}" data-group-id="${group.id}">
         <button class="nav-item nav-sub" data-group-id="${group.id}" style="padding-left:${indent}px">
           <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
-          <span class="nav-sub-icon">${group.icon ?? "📁"}</span>
+          <span class="nav-sub-icon">${group.icon ? escHtml(group.icon) : icons.folder}</span>
           <span class="nav-item-label">${escHtml(group.name)}</span>
         </button>
         <span class="nav-row-actions">

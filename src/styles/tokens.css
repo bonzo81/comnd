@@ -85,11 +85,11 @@
 
   --color-text-primary: #0F172A;
   --color-text-secondary: #475569;
-  --color-text-tertiary: #94A3B8;
+  --color-text-tertiary: #64748B;
 
-  --color-accent: #16A34A;
-  --color-accent-hover: #15803D;
-  --color-success: #16A34A;
+  --color-accent: #15803D;
+  --color-accent-hover: #166534;
+  --color-success: #15803D;
 
   --color-border: rgba(0, 0, 0, 0.08);
   --color-border-hover: rgba(0, 0, 0, 0.14);

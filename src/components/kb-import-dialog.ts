@@ -18,6 +18,7 @@ import {
   AppConfig,
 } from "../lib/tauri-api";
 import { log } from "../lib/logger";
+import { icons } from "../lib/icons";
 
 // ─── Toast Notifications ──────────────────────────────────────────
 
@@ -33,6 +34,8 @@ function getToastContainer(): HTMLElement {
     const container = document.createElement("div");
     container.id = "toast-container";
     container.className = "toast-container";
+    container.setAttribute("role", "status");
+    container.setAttribute("aria-live", "polite");
     document.body.appendChild(container);
     toastContainer = container;
   }
@@ -43,11 +46,12 @@ function showToast(message: string, type: "success" | "error" | "info" = "info",
   const container = getToastContainer();
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
-  const icons: Record<string, string> = { success: "✓", error: "✗", info: "ℹ" };
+  if (type === "error") toast.setAttribute("role", "alert");
+  const iconsByType: Record<string, string> = { success: icons.check, error: icons.x, info: icons.info };
   toast.innerHTML = `
-    <span class="toast-icon">${icons[type] ?? "ℹ"}</span>
+    <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
     <span class="toast-message">${escHtml(message)}</span>
-    <button class="toast-close">&times;</button>
+    <button class="toast-close" aria-label="Dismiss notification">&times;</button>
   `;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
   container.appendChild(toast);
@@ -249,8 +253,8 @@ export class KbImportDialog {
         </div>
 
         <div class="import-config-row">
-          <span class="import-model-info">🤖 ${model} @ ${baseUrl}</span>
-          <button class="btn-small" id="import-settings-btn" ${isImporting ? 'disabled' : ''}>⚙ Settings</button>
+          <span class="import-model-info">${icons.bot} ${escHtml(model)} @ ${escHtml(baseUrl)}</span>
+          <button class="btn-small" id="import-settings-btn" ${isImporting ? 'disabled' : ''}>${icons.settings} Settings</button>
           <button class="btn-small" id="import-test-btn" ${isImporting ? 'disabled' : ''}>Test Connection</button>
         </div>
 
@@ -279,7 +283,7 @@ export class KbImportDialog {
     if (!this.result) return "";
     return `
       <div class="import-result">
-        <div class="import-success-icon">✓</div>
+        <div class="import-success-icon">${icons.check}</div>
         <h3>Import Complete</h3>
         <div class="import-result-details">
           <div class="import-result-row">
@@ -316,7 +320,7 @@ export class KbImportDialog {
   private renderError(): string {
     return `
       <div class="import-error">
-        <div class="import-error-icon">✗</div>
+        <div class="import-error-icon">${icons.x}</div>
         <h3>Import Failed</h3>
         <p class="import-error-message">${escHtml(this.errorMessage)}</p>
         <div class="import-actions">
@@ -449,11 +453,11 @@ export class KbImportDialog {
     try {
       const models = await testOllamaConnection();
       this.availableModels = models;
-      showToast(`✓ Connected! ${models.length} model${models.length !== 1 ? "s" : ""} available`, "success");
+      showToast(`Connected! ${models.length} model${models.length !== 1 ? "s" : ""} available`, "success");
       this.render();
     } catch (e) {
       this.availableModels = [];
-      showToast(`✗ Connection failed: ${e}`, "error");
+      showToast(`Connection failed: ${e}`, "error");
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -484,13 +488,13 @@ export class KbImportDialog {
       await fetch(url, { method: "GET", mode: "no-cors", signal: controller.signal });
       clearTimeout(timeout);
       if (statusEl) {
-        statusEl.textContent = "✓ URL is reachable";
+        statusEl.innerHTML = `${icons.check} URL is reachable`;
         statusEl.className = "url-status url-status-ok";
       }
       showToast("URL is reachable", "success");
     } catch {
       if (statusEl) {
-        statusEl.textContent = "✗ URL could not be reached — check the address or your connection";
+        statusEl.innerHTML = `${icons.x} URL could not be reached — check the address or your connection`;
         statusEl.className = "url-status url-status-err";
       }
       showToast("URL could not be reached", "error");

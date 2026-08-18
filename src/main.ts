@@ -7,6 +7,7 @@ import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme, Theme } from "./lib/theme";
+import { icons } from "./lib/icons";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -160,11 +161,12 @@ class App {
     const controls = document.createElement("div");
     controls.className = "title-bar-controls";
 
-    const makeBtn = (label: string, action: () => void): HTMLButtonElement => {
+    const makeBtn = (label: string, action: () => void, ariaLabel?: string): HTMLButtonElement => {
       const b = document.createElement("button");
       b.className = "title-bar-btn";
       b.style.setProperty("-webkit-app-region", "no-drag");
       b.textContent = label;
+      if (ariaLabel) b.setAttribute("aria-label", ariaLabel);
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         try {
@@ -179,16 +181,18 @@ class App {
     makeBtn("?", () => {
       this.showShortcuts = !this.showShortcuts;
       this.renderShortcutsModal();
-    });
-    const themeBtn = makeBtn("☀", () => {
+    }, "Keyboard shortcuts");
+    const themeBtn = makeBtn("", () => {
       setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
     });
-    makeBtn("–", () => void getCurrentWindow().minimize());
-    makeBtn("□", () => void getCurrentWindow().toggleMaximize());
-    makeBtn("×", () => void getCurrentWindow().close());
+    makeBtn("–", () => void getCurrentWindow().minimize(), "Minimize");
+    makeBtn("□", () => void getCurrentWindow().toggleMaximize(), "Maximize");
+    makeBtn("×", () => void getCurrentWindow().close(), "Close");
 
     const syncThemeIcon = () => {
-      themeBtn.textContent = getAppTheme() === "dark" ? "☀" : "🌙";
+      const dark = getAppTheme() === "dark";
+      themeBtn.innerHTML = dark ? icons.sun : icons.moon;
+      themeBtn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
     };
     syncThemeIcon();
     window.addEventListener("netsh:theme", syncThemeIcon);
@@ -398,6 +402,7 @@ class App {
       const close = document.createElement("button");
       close.className = "session-tab-close";
       close.textContent = "×";
+      close.setAttribute("aria-label", `Close session ${tab.host.display_name}`);
       close.addEventListener("click", (e) => {
         e.stopPropagation();
         this.closeTab(hostId);
