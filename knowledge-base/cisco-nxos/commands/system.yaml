@@ -1,0 +1,111 @@
+commands:
+  - name: hostname
+    syntax: "hostname <name>"
+    tokens:
+      - lit: hostname
+      - var: name
+        type: free
+    description: |
+      Sets the system hostname displayed in the CLI prompt.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: hostname N9K-CORE-01
+        description: Set the device hostname
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - configuration
+
+  - name: copy running-config startup-config
+    syntax: "copy running-config startup-config"
+    tokens:
+      - lit: copy running-config startup-config
+    description: |
+      Saves the running configuration to NVRAM. Persist across reboots.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - copy run start
+      - wr mem
+    examples:
+      - command: copy running-config startup-config
+        description: Save running config
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - configuration
+
+  - name: show version
+    syntax: "show version"
+    tokens:
+      - lit: show version
+    description: |
+      Displays hardware model, software version, boot image, and uptime.
+    category: system
+    mode: privileged-exec
+    aliases:
+      - sh ver
+    examples:
+      - command: show version
+        description: System version info
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: reload
+    syntax: "reload [reason <text>]"
+    tokens:
+      - lit: reload
+      - lit: reason
+        optional: true
+      - var: reason-text
+        type: free
+        optional: true
+    description: |
+      Reboots the switch. Use 'reason' to attach a syslog message.
+    category: system
+    mode: privileged-exec
+    aliases: []
+    examples:
+      - command: reload reason maintenance
+        description: Reload with a reason string
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: vdc
+    syntax: "vdc <name>"
+    tokens:
+      - lit: vdc
+      - var: vdc-name
+        type: free
+    description: |
+      Enters VDC (Virtual Device Context) configuration mode. Only on
+      Nexus 7000-series.
+    category: system
+    mode: global-config
+    aliases: []
+    examples:
+      - command: vdc ADMIN
+        description: Configure the ADMIN VDC
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: "Nexus 7000 only"
+    tags:
+      - vdc
+      - system

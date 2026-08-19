@@ -1,0 +1,134 @@
+commands:
+  - name: uname
+    syntax: "uname [-a] [-r] [-n]"
+    tokens:
+      - lit: uname
+      - choice: ["-a", "-r", "-n"]
+        optional: true
+        repeatable: true
+    description: |
+      Prints system information (kernel version, hostname, etc.).
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: uname -a
+        description: All system info
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - system
+
+  - name: ls
+    syntax: "ls [-l] [-a] [-h] [<path>]"
+    tokens:
+      - lit: ls
+      - choice: ["-l", "-a", "-h"]
+        optional: true
+        repeatable: true
+      - var: path
+        type: free
+        optional: true
+    order: flags-anywhere
+    description: |
+      Lists directory contents.
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: ls -la
+        description: Long listing with hidden files
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - filesystem
+
+  - name: cat
+    syntax: "cat <file>"
+    tokens:
+      - lit: cat
+      - var: file
+        type: free
+    description: |
+      Prints a file's contents to stdout.
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: cat /etc/hosts
+        description: Show hosts file
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - filesystem
+
+  - name: grep
+    syntax: "grep [-i] [-n] [-v] <pattern> [<file>]"
+    tokens:
+      - lit: grep
+      - choice: ["-i", "-n", "-v"]
+        optional: true
+        repeatable: true
+      - var: pattern
+        type: free
+      - var: file
+        type: free
+        optional: true
+    order: flags-anywhere
+    description: |
+      Searches for a pattern in a file or stdin.
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: grep -i error /var/log/ltm
+        description: Find errors in ltm log
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - search
+
+  - name: tail
+    syntax: "tail [-n <count>] [-f] <file>"
+    tokens:
+      - lit: tail
+      - lit: -n
+        optional: true
+      - var: count
+        type: numeric
+        min: 1
+        optional: true
+      - choice: ["-f"]
+        optional: true
+      - var: file
+        type: free
+    order: flags-anywhere
+    description: |
+      Shows the end of a file. '-f' follows in real time.
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: tail -n 50 /var/log/ltm
+        description: Last 50 lines of ltm log
+      - command: tail -f /var/log/ltm
+        description: Follow ltm log
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - log

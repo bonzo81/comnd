@@ -1,0 +1,232 @@
+commands:
+  - name: show ip interface brief
+    syntax: "show ip interface brief [vrf <name>]"
+    tokens:
+      - lit: show ip interface brief
+      - lit: vrf
+        optional: true
+      - var: vrf-name
+        type: free
+        optional: true
+    description: |
+      Displays a one-line-per-interface summary of IP status. NX-OS accepts a
+      VRF filter to scope the view.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip int br
+    examples:
+      - command: show ip interface brief
+        description: Summary of all interfaces
+      - command: show ip interface brief vrf MANAGEMENT
+        description: Limit to the management VRF
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - networking
+
+  - name: show interface
+    syntax: "show interface <interface>"
+    tokens:
+      - lit: show interface
+      - var: interface
+        type: enumerable
+        source: device
+        optional: true
+    description: |
+      Shows detailed counters and state for one interface, or all
+      interfaces if none is specified.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh int
+    examples:
+      - command: show interface Ethernet1/1
+        description: Detail for Ethernet1/1
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - interfaces
+      - troubleshooting
+
+  - name: show running-config
+    syntax: "show running-config [vdc <name>] [| section <regex>]"
+    tokens:
+      - lit: show running-config
+      - lit: vdc
+        optional: true
+      - var: vdc-name
+        type: free
+        optional: true
+      - pipe: true
+        filters:
+          - lit: section
+            var: regex
+            type: free
+          - lit: include
+            var: regex
+            type: free
+          - lit: begin
+            var: regex
+            type: free
+        optional: true
+        repeatable: true
+    description: |
+      Displays the running configuration. Use 'vdc' to scope to a Virtual
+      Device Context. Pipe filters narrow the output.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh run
+    examples:
+      - command: show running-config vdc default
+        description: Running config of the default VDC
+      - command: show running-config | section interface
+        description: Only interface stanzas
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - configuration
+      - networking
+
+  - name: show vlan
+    syntax: "show vlan [internal] [<id>]"
+    tokens:
+      - lit: show vlan
+      - choice: [internal]
+        optional: true
+      - var: vlan-id
+        type: numeric
+        min: 1
+        max: 4094
+        optional: true
+    description: |
+      Lists VLANs. The 'internal' filter shows VLANs allocated internally
+      by features (e.g. ERSPAN). A VLAN ID narrows to one VLAN.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh vlan
+    examples:
+      - command: show vlan internal
+        description: Internally-allocated VLANs
+      - command: show vlan 10
+        description: Detail for VLAN 10
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - vlan
+      - networking
+
+  - name: show vrf
+    syntax: "show vrf [<name>] [interface]"
+    tokens:
+      - lit: show vrf
+      - var: vrf-name
+        type: free
+        optional: true
+      - choice: [interface]
+        optional: true
+    description: |
+      Lists VRFs, or shows interface bindings for a specific VRF.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh vrf
+    examples:
+      - command: show vrf
+        description: All VRFs
+      - command: show vrf MANAGEMENT interface
+        description: Interfaces in the MANAGEMENT VRF
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - vrf
+      - networking
+
+  - name: show mac address-table
+    syntax: "show mac address-table [dynamic | static] [address <mac>] [interface <name>] [vlan <id>]"
+    tokens:
+      - lit: show mac address-table
+      - choice: [dynamic, static]
+        optional: true
+      - lit: address
+        optional: true
+      - var: mac-address
+        type: free
+        optional: true
+      - lit: interface
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
+      - lit: vlan
+        optional: true
+      - var: vlan-id
+        type: numeric
+        min: 1
+        max: 4094
+        optional: true
+    order: free
+    description: |
+      Shows the MAC address table. Filters can be combined in any order.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh mac address-table
+    examples:
+      - command: show mac address-table dynamic
+        description: Dynamically learned MACs
+      - command: show mac address-table interface Ethernet1/1
+        description: MACs on a specific interface
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - l2
+      - mac
+      - networking
+
+  - name: show ip route
+    syntax: "show ip route [<network>] [vrf <name>]"
+    tokens:
+      - lit: show ip route
+      - var: network
+        type: free
+        optional: true
+      - lit: vrf
+        optional: true
+      - var: vrf-name
+        type: free
+        optional: true
+    description: |
+      Displays the IP routing table. Use 'vrf' to scope to a VRF.
+    category: networking
+    mode: privileged-exec
+    aliases:
+      - sh ip ro
+    examples:
+      - command: show ip route
+        description: Full routing table
+      - command: show ip route vrf MANAGEMENT
+        description: Routes in the MANAGEMENT VRF
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - routing
+      - networking

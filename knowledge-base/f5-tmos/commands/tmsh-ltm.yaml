@@ -1,0 +1,166 @@
+commands:
+  - name: tmsh list ltm virtual
+    syntax: "tmsh list ltm virtual [<name>]"
+    tokens:
+      - lit: tmsh list ltm virtual
+      - var: virtual-name
+        type: free
+        optional: true
+    description: |
+      Lists all (or one) virtual servers. tmsh list is read-only.
+    category: ltm
+    mode: tmsh
+    aliases:
+      - list ltm virtual
+    examples:
+      - command: tmsh list ltm virtual
+        description: All virtual servers
+      - command: tmsh list ltm virtual /Common/web_https
+        description: One virtual server
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - virtual
+
+  - name: tmsh create ltm virtual
+    syntax: "tmsh create ltm virtual <name> { destination <ip>:<port> [pool <pool-name>] }"
+    tokens:
+      - lit: tmsh create ltm virtual
+      - var: virtual-name
+        type: free
+      - lit: "{ destination"
+      - var: destination
+        type: free
+      - lit: pool
+        optional: true
+      - var: pool-name
+        type: free
+        optional: true
+      - lit: "}"
+    description: |
+      Creates a virtual server. The destination is `<ip>:<port>`. The
+      body uses tmsh's braced key/value syntax.
+    category: ltm
+    mode: tmsh
+    aliases: []
+    examples:
+      - command: tmsh create ltm virtual /Common/web { destination 10.0.0.1:443 pool web-pool }
+        description: Create HTTPS virtual
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - virtual
+      - configuration
+
+  - name: tmsh modify ltm virtual
+    syntax: "tmsh modify ltm virtual <name> { pool <pool-name> }"
+    tokens:
+      - lit: tmsh modify ltm virtual
+      - var: virtual-name
+        type: free
+      - lit: "{ pool"
+      - var: pool-name
+        type: free
+      - lit: "}"
+    description: |
+      Modifies an existing virtual server (e.g. swap pool).
+    category: ltm
+    mode: tmsh
+    aliases: []
+    examples:
+      - command: tmsh modify ltm virtual /Common/web { pool new-pool }
+        description: Repoint to new pool
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - virtual
+
+  - name: tmsh delete ltm virtual
+    syntax: "tmsh delete ltm virtual <name>"
+    tokens:
+      - lit: tmsh delete ltm virtual
+      - var: virtual-name
+        type: free
+    description: |
+      Deletes a virtual server. Irreversible.
+    category: ltm
+    mode: tmsh
+    aliases: []
+    examples:
+      - command: tmsh delete ltm virtual /Common/old_web
+        description: Delete old virtual
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - virtual
+
+  - name: tmsh list ltm pool
+    syntax: "tmsh list ltm pool [<name>]"
+    tokens:
+      - lit: tmsh list ltm pool
+      - var: pool-name
+        type: free
+        optional: true
+    description: |
+      Lists pools, or shows one pool with members and monitors.
+    category: ltm
+    mode: tmsh
+    aliases:
+      - list ltm pool
+    examples:
+      - command: tmsh list ltm pool
+        description: All pools
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - pool
+
+  - name: tmsh create ltm pool
+    syntax: "tmsh create ltm pool <name> { members { <member>:<port> { } } monitor <monitor>"
+    tokens:
+      - lit: tmsh create ltm pool
+      - var: pool-name
+        type: free
+      - lit: "{ members {"
+      - var: member
+        type: free
+      - lit: ":"
+      - var: port
+        type: numeric
+        min: 1
+        max: 65535
+      - lit: "{ } } monitor"
+      - var: monitor-name
+        type: free
+      - lit: "}"
+    description: |
+      Creates a pool with member(s) and a health monitor.
+    category: ltm
+    mode: tmsh
+    aliases: []
+    examples:
+      - command: tmsh create ltm pool /Common/web { members { 10.0.1.1:80 { } 10.0.1.2:80 { } } monitor http }
+        description: Two-member pool with HTTP monitor
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ltm
+      - pool
+      - configuration

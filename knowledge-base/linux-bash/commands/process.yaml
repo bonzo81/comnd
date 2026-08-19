@@ -1,0 +1,99 @@
+commands:
+  - name: ps
+    syntax: "ps [-e] [-f] [-a] [-u <user>]"
+    tokens:
+      - lit: ps
+      - choice: ["-e", "-f", "-a"]
+        optional: true
+        repeatable: true
+      - lit: -u
+        optional: true
+      - var: user
+        type: free
+        optional: true
+    order: flags-anywhere
+    description: |
+      Lists running processes. 'ps -ef' shows every process with full format.
+    category: process
+    mode: shell
+    aliases: []
+    examples:
+      - command: ps -ef
+        description: All processes
+      - command: ps -ef | grep nginx
+        description: Find nginx processes
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - process
+
+  - name: top
+    syntax: "top"
+    tokens:
+      - lit: top
+    description: |
+      Interactive process viewer. Press 'q' to quit, 'k' to kill, '1' for
+      per-CPU breakdown.
+    category: process
+    mode: shell
+    aliases: []
+    examples:
+      - command: top
+        description: Live process view
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - process
+
+  - name: kill
+    syntax: "kill [-<signal>] <pid>"
+    tokens:
+      - lit: kill
+      - var: signal
+        type: free
+        optional: true
+      - var: pid
+        type: numeric
+        min: 1
+    description: |
+      Sends a signal to a process. Default SIGTERM. Use 'kill -9 <pid>' for
+      SIGKILL (cannot be caught).
+    category: process
+    mode: shell
+    aliases: []
+    examples:
+      - command: kill 12345
+        description: Terminate PID 12345
+      - command: kill -9 12345
+        description: Force-kill PID 12345
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - process
+      - destructive
+
+  - name: htop
+    syntax: "htop"
+    tokens:
+      - lit: htop
+    description: |
+      Interactive process viewer with color and per-CPU bars. Not always
+      installed; check the package manager if missing.
+    category: process
+    mode: shell
+    aliases: []
+    examples:
+      - command: htop
+        description: Open htop
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "May need install"
+    tags:
+      - process

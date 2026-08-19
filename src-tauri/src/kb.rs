@@ -67,8 +67,16 @@ pub struct CommandVersions {
 pub enum CommandToken {
     /// Fixed literal keyword(s). May be multi-word.
     Lit { lit: String, #[serde(default)] optional: bool },
-    /// One of a fixed set of keywords.
-    Choice { choice: Vec<String>, #[serde(default)] optional: bool },
+    /// One of a fixed set of keywords. `repeatable` (Phase 4) allows the same
+    /// choice token to match more than once — used for repeatable flags such
+    /// as `ls -l -a`. The engine honours it; the validator accepts it.
+    Choice {
+        choice: Vec<String>,
+        #[serde(default)]
+        optional: bool,
+        #[serde(default)]
+        repeatable: bool,
+    },
     /// A variable slot.
     Var(VarToken),
     /// Pipe / filter separator. See docs § Token Schema.
@@ -173,7 +181,8 @@ pub fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
                     });
                 }
             }
-            CommandToken::Choice { choice, optional } => {
+            CommandToken::Choice { choice, optional, repeatable } => {
+                let _ = repeatable;
                 if choice.is_empty() {
                     issues.push(KbValidationIssue {
                         command: name.clone(),
@@ -297,7 +306,7 @@ pub fn validate_platform(commands: &[Command]) -> Vec<KbValidationIssue> {
     issues
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum CommandOrder {
     #[default]
     #[serde(rename = "fixed")]
@@ -741,6 +750,22 @@ pub fn write_commands_to_yaml(commands: &[Command], path: &Path, _category: &str
             if !cmd.tags.is_empty() && existing.tags.is_empty() {
                 existing.tags = cmd.tags.clone();
             }
+            // Phase 5.4: upgrade legacy entries with tokens. Without this,
+            // re-importing a command that previously landed as a legacy entry
+            // (empty `tokens`) silently discards the new tokens.
+            if !cmd.tokens.is_empty() && existing.tokens.is_empty() {
+                existing.tokens = cmd.tokens.clone();
+            }
+            // `order` is an enum, not a Vec — use `!= Fixed` vs `== Fixed` as
+            // the "has meaningful value" check (Fixed is the default). If both
+            // are non-default and differ, keep the existing (don't clobber a
+            // hand-set value with an LLM guess).
+            if cmd.order != CommandOrder::Fixed && existing.order == CommandOrder::Fixed {
+                existing.order = cmd.order.clone();
+            }
+            if cmd.negatable && !existing.negatable {
+                existing.negatable = cmd.negatable;
+            }
         } else {
             merged.push(cmd.clone());
             added += 1;
@@ -976,7 +1001,7 @@ mod tests {
     fn test_validator_pass_choice() {
         let cmd = mk_cmd("show interfaces", vec![
             Lit { lit: "show interfaces".into(), optional: false },
-            Choice { choice: vec!["status".into(), "trunk".into()], optional: true },
+            Choice { choice: vec!["status".into(), "trunk".into()], optional: true, repeatable: false },
         ]);
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
@@ -1046,14 +1071,14 @@ mod tests {
 
     #[test]
     fn test_validator_fail_empty_choice() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec![], optional: false }]);
+        let cmd = mk_cmd("bad", vec![Choice { choice: vec![], optional: false, repeatable: false }]);
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice list is empty"));
     }
 
     #[test]
     fn test_validator_fail_empty_choice_element() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec!["".into()], optional: false }]);
+        let cmd = mk_cmd("bad", vec![Choice { choice: vec!["".into()], optional: false, repeatable: false }]);
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice element is empty"));
     }
@@ -1214,5 +1239,201 @@ mod tests {
             assert!(!cmd.name.contains("(OSPF)"), "found (OSPF) hack in '{}'", cmd.name);
             assert!(!cmd.name.contains("(BGP)"), "found (BGP) hack in '{}'", cmd.name);
         }
+    }
+
+    // Phase 4: every MVP platform loads cleanly and has no validator errors.
+    // This catches YAML schema typos in the per-platform backfill before they
+    // ship.
+
+    fn assert_platform_clean(platform: &str) {
+        let kb_path = get_kb_path();
+        let store = KbStore::load(platform, &kb_path)
+            .unwrap_or_else(|e| panic!("KbStore::load('{}') failed: {}", platform, e));
+        assert!(
+            !store.commands.is_empty(),
+            "platform '{}' has no commands — backfill missing",
+            platform
+        );
+        let issues = validate_platform(&store.commands);
+        let errors: Vec<_> = issues.iter().filter(|i| i.severity == "error").collect();
+        assert!(
+            errors.is_empty(),
+            "platform '{}' validation errors: {:?}",
+            platform,
+            errors
+        );
+    }
+
+    #[test]
+    fn test_nxos_loads_clean() {
+        assert_platform_clean("cisco-nxos");
+    }
+
+    #[test]
+    fn test_f5_tmos_loads_clean() {
+        assert_platform_clean("f5-tmos");
+    }
+
+    #[test]
+    fn test_linux_bash_loads_clean() {
+        assert_platform_clean("linux-bash");
+    }
+
+    // ─── Phase 5.5: YAML round-trip ──────────────────────────────────
+    // Ship in the same commit as token-emitting import. Guards the
+    // `#[serde(rename_all = "lowercase")]` tagged union — a tag mismatch
+    // would silently drop tokens on read or write and corrupt every
+    // imported command.
+
+    #[test]
+    fn test_command_yaml_round_trip_all_token_kinds() {
+        let cmd = Command {
+            name: "round-trip".to_string(),
+            syntax: "round-trip <n> [opt] | section <r>".to_string(),
+            description: "test".to_string(),
+            category: "test".to_string(),
+            mode: "privileged-exec".to_string(),
+            aliases: vec!["rt".to_string()],
+            examples: vec![CommandExample {
+                command: "round-trip 5".to_string(),
+                description: "example".to_string(),
+            }],
+            versions: CommandVersions::default(),
+            tags: vec!["test".to_string()],
+            tokens: vec![
+                CommandToken::Lit { lit: "round-trip".to_string(), optional: false },
+                CommandToken::Var(VarToken {
+                    var: "n".to_string(),
+                    r#type: VarType::Numeric,
+                    source: VarSource::None,
+                    optional: false,
+                    values: vec![],
+                    min: Some(1),
+                    max: Some(100),
+                }),
+                CommandToken::Choice {
+                    choice: vec!["opt".to_string()],
+                    optional: true,
+                    repeatable: false,
+                },
+                CommandToken::Pipe(PipeToken {
+                    pipe: true,
+                    filters: vec![
+                        PipeFilter {
+                            lit: "section".to_string(),
+                            var: Some("regex".to_string()),
+                            r#type: Some(VarType::Free),
+                        },
+                        PipeFilter {
+                            lit: "begin".to_string(),
+                            var: Some("regex".to_string()),
+                            r#type: Some(VarType::Free),
+                        },
+                    ],
+                    optional: true,
+                    repeatable: true,
+                }),
+            ],
+            order: CommandOrder::FlagsAnywhere,
+            negatable: true,
+        };
+
+        let yaml = serialize_commands(&[cmd.clone()]).unwrap();
+        // Tagged-union sanity: the YAML must carry the lowercase variant tags.
+        assert!(yaml.contains("lit:"), "lit tag missing in: {}", yaml);
+        assert!(yaml.contains("choice:"), "choice tag missing in: {}", yaml);
+        assert!(yaml.contains("var:"), "var tag missing in: {}", yaml);
+        assert!(yaml.contains("pipe:"), "pipe tag missing in: {}", yaml);
+
+        // Round-trip: read back what we wrote.
+        let file: CommandFile = serde_yml::from_str(&yaml).unwrap();
+        assert_eq!(file.commands.len(), 1);
+        let back = &file.commands[0];
+        assert_eq!(back.name, "round-trip");
+        assert_eq!(back.tokens.len(), 4);
+        // Spot-check each kind survives.
+        assert!(matches!(back.tokens[0], CommandToken::Lit { .. }));
+        assert!(matches!(back.tokens[1], CommandToken::Var(_)));
+        assert!(matches!(back.tokens[2], CommandToken::Choice { .. }));
+        assert!(matches!(back.tokens[3], CommandToken::Pipe(_)));
+        // Numeric range survives.
+        if let CommandToken::Var(v) = &back.tokens[1] {
+            assert_eq!(v.min, Some(1));
+            assert_eq!(v.max, Some(100));
+            assert!(matches!(v.r#type, VarType::Numeric));
+        } else {
+            panic!("expected Var token at index 1");
+        }
+        // Pipe filters survive.
+        if let CommandToken::Pipe(p) = &back.tokens[3] {
+            assert_eq!(p.filters.len(), 2);
+            assert!(p.repeatable);
+        } else {
+            panic!("expected Pipe token at index 3");
+        }
+        // order + negatable survive.
+        assert!(matches!(back.order, CommandOrder::FlagsAnywhere));
+        assert!(back.negatable);
+    }
+
+    // ─── Phase 5.4: merge upgrades legacy entries with tokens ─────────
+
+    #[test]
+    fn test_write_commands_to_yaml_upgrades_legacy_entry_with_tokens() {
+        // A legacy entry (empty tokens) already on disk; re-importing the
+        // same command with tokens should upgrade the entry, not silently
+        // discard the new tokens.
+        let dir = std::env::temp_dir().join("netsh-test-merge");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.yaml");
+
+        let legacy = Command {
+            name: "show ip route".to_string(),
+            syntax: String::new(),
+            description: "old".to_string(),
+            category: "networking".to_string(),
+            mode: "privileged-exec".to_string(),
+            aliases: vec![],
+            examples: vec![],
+            versions: CommandVersions::default(),
+            tags: vec![],
+            tokens: vec![], // legacy
+            order: CommandOrder::Fixed,
+            negatable: false,
+        };
+        write_commands_to_yaml(&[legacy], &path, "networking").unwrap();
+
+        // Re-import with tokens + non-default order + negatable.
+        let upgraded = Command {
+            name: "show ip route".to_string(),
+            syntax: "show ip route".to_string(),
+            description: String::new(),
+            category: String::new(),
+            mode: "privileged-exec".to_string(),
+            aliases: vec![],
+            examples: vec![],
+            versions: CommandVersions::default(),
+            tags: vec![],
+            tokens: vec![
+                CommandToken::Lit { lit: "show ip route".to_string(), optional: false },
+            ],
+            order: CommandOrder::Free,
+            negatable: true,
+        };
+        write_commands_to_yaml(&[upgraded], &path, "networking").unwrap();
+
+        // Read back and verify the merge upgraded the legacy entry.
+        let content = std::fs::read_to_string(&path).unwrap();
+        let file: CommandFile = serde_yml::from_str(&content).unwrap();
+        assert_eq!(file.commands.len(), 1);
+        let merged = &file.commands[0];
+        assert_eq!(merged.tokens.len(), 1, "tokens should be upgraded, got {:?}", merged.tokens);
+        assert!(matches!(merged.order, CommandOrder::Free), "order should be upgraded");
+        assert!(merged.negatable, "negatable should be upgraded");
+        // Existing description preserved (the new one was empty).
+        assert_eq!(merged.description, "old");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

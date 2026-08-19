@@ -1,7 +1,15 @@
 id: linux-bash
 name: Linux Bash
-description: "TODO: Add platform description"
-reference_url: ""
-versions: []
+description: Generic Linux server with a bash shell
+reference_url: "https://www.gnu.org/software/bash/manual/bash.html"
+versions:
+  - "bash-4"
+  - "bash-5"
 prompt_patterns: {}
 default_mode: shell
+negation_prefix: null
+command_files:
+  - commands/filesystem.yaml
+  - commands/network.yaml
+  - commands/process.yaml
+  - commands/system.yaml

@@ -78,7 +78,7 @@ export type CommandOrder = "fixed" | "flags-anywhere" | "free";
 
 export type CommandToken =
   | { lit: string; optional?: boolean }
-  | { choice: string[]; optional?: boolean }
+  | { choice: string[]; optional?: boolean; repeatable?: boolean }
   | { var: string; type?: VarType; source?: VarSource; optional?: boolean; values?: string[]; min?: number; max?: number }
   | { pipe: boolean; filters?: PipeFilter[]; optional?: boolean; repeatable?: boolean };
 
@@ -152,6 +152,14 @@ export async function saveHostGroup(
   icon: string | null,
 ): Promise<HostGroup> {
   return invoke<HostGroup>("save_host_group", { id, name, parentId, color, icon });
+}
+
+export async function moveHostGroup(
+  id: string,
+  newParent: string | null,
+  sortOrder: number,
+): Promise<HostGroup> {
+  return invoke<HostGroup>("move_host_group", { id, newParent, sortOrder });
 }
 
 export async function deleteHostGroup(id: string): Promise<void> {
@@ -264,6 +272,42 @@ export async function importKbUrl(
   return invoke<ImportResult>("import_kb_url", { url, platform, category });
 }
 
+// ─── Two-stage import (Phase 5.6) ────────────────────────────────────
+
+export interface CommandPreview {
+  command: Command;
+  /** "ok" if all token checks pass; "warn" if tokens were dropped (Phase 5.3). */
+  status: string;
+  /** Human-readable issues (empty when status is "ok"). */
+  issues: string[];
+}
+
+export interface ExtractPreview {
+  previews: CommandPreview[];
+  platform: string;
+  category: string;
+  source_url: string;
+  errors: string[];
+}
+
+/** Stage 1: extract + validate without writing. */
+export async function extractKbPreview(
+  url: string,
+  platform: string,
+  category: string,
+): Promise<ExtractPreview> {
+  return invoke<ExtractPreview>("extract_kb_preview", { url, platform, category });
+}
+
+/** Stage 2: write the user-approved previews to YAML + reload. */
+export async function commitKbImport(
+  previews: CommandPreview[],
+  platform: string,
+  category: string,
+): Promise<number> {
+  return invoke<number>("commit_kb_import", { previews, platform, category });
+}
+
 export async function testOllamaConnection(): Promise<string[]> {
   return invoke<string[]>("test_ollama_connection");
 }
@@ -285,8 +329,17 @@ export async function saveKbCommand(
   mode: string,
   aliases: string[],
   tags: string[],
+  /** Phase 5.8: optional token fields. tokensJson is a JSON array of CommandToken. */
+  tokensJson?: string,
+  order?: CommandOrder,
+  negatable?: boolean,
 ): Promise<void> {
-  return invoke<void>("save_kb_command", { platform, category, name, syntax, description, mode, aliases, tags });
+  return invoke<void>("save_kb_command", {
+    platform, category, name, syntax, description, mode, aliases, tags,
+    tokensJson: tokensJson ?? null,
+    order: order ?? null,
+    negatable: negatable ?? null,
+  });
 }
 
 export async function deleteKbCommand(

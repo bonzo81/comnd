@@ -1,0 +1,104 @@
+commands:
+  - name: router ospf
+    syntax: "router ospf <process-id> [vrf <name>]"
+    tokens:
+      - lit: router ospf
+      - var: process-id
+        type: numeric
+        min: 1
+        max: 65535
+      - lit: vrf
+        optional: true
+      - var: vrf-name
+        type: free
+        optional: true
+    description: |
+      Enters OSPF router configuration mode. NX-OS requires the feature to be
+      enabled first (`feature ospf`).
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: router ospf 1
+        description: Enter OSPF config for process 1
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - ospf
+      - routing
+
+  - name: router bgp
+    syntax: "router bgp <as-number>"
+    tokens:
+      - lit: router bgp
+      - var: as-number
+        type: numeric
+        min: 1
+        max: 4294967295
+    description: |
+      Enters BGP router configuration mode. Requires `feature bgp`.
+    category: routing
+    mode: global-config
+    aliases: []
+    examples:
+      - command: router bgp 65001
+        description: Enter BGP config for AS 65001
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing
+
+  - name: neighbor
+    syntax: "neighbor <ip-address> remote-as <as-number>"
+    tokens:
+      - lit: neighbor
+      - var: ip-address
+        type: free
+      - lit: remote-as
+      - var: as-number
+        type: numeric
+        min: 1
+        max: 4294967295
+    description: |
+      Configures a BGP peer with its remote AS.
+    category: routing
+    mode: routing-config
+    aliases: []
+    examples:
+      - command: neighbor 10.0.0.2 remote-as 65002
+        description: Peer with 10.0.0.2 in AS 65002
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing
+
+  - name: network
+    syntax: "network <ip-address>/<mask-length>"
+    tokens:
+      - lit: network
+      - var: prefix
+        type: free
+    description: |
+      Originates a prefix into BGP. NX-OS uses CIDR notation in the
+      address/mask-length form.
+    category: routing
+    mode: routing-config
+    aliases: []
+    examples:
+      - command: network 10.0.0.0/24
+        description: Originate 10.0.0.0/24
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bgp
+      - routing

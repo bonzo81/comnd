@@ -1,0 +1,82 @@
+commands:
+  - name: feature
+    syntax: "feature <name>"
+    tokens:
+      - lit: feature
+      - var: feature-name
+        type: free
+    description: |
+      Enables a feature license on NX-OS. Many features (ospf, bgp,
+      interface-vlan, lacp) require this before their commands appear.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: feature ospf
+        description: Enable OSPF
+      - command: feature bgp
+        description: Enable BGP
+      - command: feature interface-vlan
+        description: Allow SVI creation
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - feature
+      - system
+
+  - name: aaa authentication
+    syntax: "aaa authentication login <method> [<source>]"
+    tokens:
+      - lit: aaa authentication login
+      - var: method
+        type: choice
+        values: ["default", "console", "vty"]
+      - var: source
+        type: free
+        optional: true
+    description: |
+      Defines AAA authentication for login. Default method applies to all
+      access types unless overridden.
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: aaa authentication login default group TACACS+ local
+        description: TACACS+ with local fallback
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - aaa
+      - security
+
+  - name: username
+    syntax: "username <name> password [<type>] <password>"
+    tokens:
+      - lit: username
+      - var: username
+        type: free
+      - lit: password
+      - choice: ["0", "5", "8"]
+        optional: true
+      - var: password
+        type: free
+    description: |
+      Creates a local user account. Type selects password storage (0=clear,
+      5=MD5, 8=scrypt-like).
+    category: security
+    mode: global-config
+    aliases: []
+    examples:
+      - command: username admin password 0 MyP@ss
+        description: Create admin with plaintext password
+    versions:
+      introduced: "5.0"
+      deprecated: null
+      notes: null
+    tags:
+      - security
+      - authentication

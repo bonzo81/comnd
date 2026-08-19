@@ -17,7 +17,7 @@ export interface KbValidationIssue {
 function isLit(t: CommandToken): t is { lit: string; optional?: boolean } {
   return typeof (t as { lit?: unknown }).lit === "string";
 }
-function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean } {
+function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
   return Array.isArray((t as { choice?: unknown }).choice);
 }
 function isVar(t: CommandToken): t is {

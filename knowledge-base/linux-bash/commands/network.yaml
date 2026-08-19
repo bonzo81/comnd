@@ -1,0 +1,136 @@
+commands:
+  - name: ip
+    syntax: "ip [addr | route | link] [show] [<target>]"
+    tokens:
+      - lit: ip
+      - choice: ["addr", "route", "link"]
+        optional: true
+      - choice: ["show"]
+        optional: true
+      - var: target
+        type: free
+        optional: true
+    description: |
+      Shows or manipulates network interfaces, routes, and links. 'ip addr'
+      shows interface addresses; 'ip route' shows the routing table.
+    category: network
+    mode: shell
+    aliases:
+      - ip a
+      - ip r
+    examples:
+      - command: ip addr
+        description: All interface addresses
+      - command: ip route
+        description: Routing table
+      - command: ip link show
+        description: All links
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "Requires iproute2"
+    tags:
+      - network
+      - routing
+
+  - name: ping
+    syntax: "ping [-c <count>] [-i <interval>] [-s <size>] [-W <timeout>] <destination>"
+    tokens:
+      - lit: ping
+      - choice: ["-c", "-i", "-s", "-W"]
+        optional: true
+        repeatable: true
+      - var: count
+        type: numeric
+        min: 1
+        optional: true
+      - var: interval
+        type: numeric
+        min: 0
+        optional: true
+      - var: size
+        type: numeric
+        min: 0
+        max: 65500
+        optional: true
+      - var: timeout
+        type: numeric
+        min: 0
+        optional: true
+      - var: destination
+        type: free
+    order: flags-anywhere
+    description: |
+      Sends ICMP echo requests. Flags and the destination can appear in any
+      order; a flag consumes its value greedily.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: ping -c 5 10.0.0.1
+        description: Ping 5 times
+      - command: ping 10.0.0.1 -c 5
+        description: Same — flags anywhere
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+      - diagnostics
+
+  - name: traceroute
+    syntax: "traceroute [-n] [-w <seconds>] <destination>"
+    tokens:
+      - lit: traceroute
+      - choice: ["-n"]
+        optional: true
+      - lit: -w
+        optional: true
+      - var: seconds
+        type: numeric
+        min: 0
+        optional: true
+      - var: destination
+        type: free
+    order: flags-anywhere
+    description: |
+      Traces the path packets take to a destination. '-n' skips DNS lookups.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: traceroute -n 8.8.8.8
+        description: Trace to 8.8.8.8 without DNS
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+      - diagnostics
+
+  - name: ss
+    syntax: "ss [-t] [-u] [-l] [-n] [-p]"
+    tokens:
+      - lit: ss
+      - choice: ["-t", "-u", "-l", "-n", "-p"]
+        optional: true
+        repeatable: true
+    order: flags-anywhere
+    description: |
+      Shows socket statistics. Modern replacement for netstat. '-tlnp' for
+      TCP listening sockets with process info.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: ss -tlnp
+        description: TCP listening sockets
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "Requires iproute2"
+    tags:
+      - network
+      - sockets

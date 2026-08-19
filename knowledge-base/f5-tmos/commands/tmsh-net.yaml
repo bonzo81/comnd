@@ -1,0 +1,99 @@
+commands:
+  - name: tmsh list net interface
+    syntax: "tmsh list net interface [<name>]"
+    tokens:
+      - lit: tmsh list net interface
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
+    description: |
+      Lists physical interfaces and their media/speed/status.
+    category: net
+    mode: tmsh
+    aliases:
+      - list net interface
+    examples:
+      - command: tmsh list net interface
+        description: All interfaces
+      - command: tmsh list net interface 1.1
+        description: Interface 1.1
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - net
+      - interface
+
+  - name: tmsh list net self
+    syntax: "tmsh list net self [<name>]"
+    tokens:
+      - lit: tmsh list net self
+      - var: self-name
+        type: free
+        optional: true
+    description: |
+      Lists self IPs (floating and non-floating).
+    category: net
+    mode: tmsh
+    aliases:
+      - list net self
+    examples:
+      - command: tmsh list net self
+        description: All self IPs
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - net
+      - self-ip
+
+  - name: tmsh list net route
+    syntax: "tmsh list net route [<name>]"
+    tokens:
+      - lit: tmsh list net route
+      - var: route-name
+        type: free
+        optional: true
+    description: |
+      Lists static routes.
+    category: net
+    mode: tmsh
+    aliases:
+      - list net route
+    examples:
+      - command: tmsh list net route
+        description: All routes
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - net
+      - routing
+
+  - name: tmsh list net vlan
+    syntax: "tmsh list net vlan [<name>]"
+    tokens:
+      - lit: tmsh list net vlan
+      - var: vlan-name
+        type: free
+        optional: true
+    description: |
+      Lists configured VLANs and their interface members.
+    category: net
+    mode: tmsh
+    aliases:
+      - list net vlan
+    examples:
+      - command: tmsh list net vlan
+        description: All VLANs
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - net
+      - vlan

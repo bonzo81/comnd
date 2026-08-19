@@ -1,7 +1,22 @@
 id: cisco-nxos
-name: Cisco Nxos
-description: "TODO: Add platform description"
-reference_url: ""
-versions: []
-prompt_patterns: {}
-default_mode: shell
+name: Cisco NX-OS
+description: Cisco NX-OS for Nexus data-center switches
+reference_url: "https://www.cisco.com/c/en/us/support/switches/nexus-9000-series-switches/series.html"
+versions:
+  - "7.x"
+  - "9.x"
+  - "10.x"
+prompt_patterns:
+  user-exec: '^[\w\-]+>$'
+  privileged-exec: '^[\w\-]+(?:\(config\))?#$'
+  global-config: '^[\w\-]+\(config\)#$'
+  interface-config: '^[\w\-]+\(config-if\)#$'
+  routing-config: '^[\w\-]+\(config-router\)#$'
+  vdc-config: '^[\w\-]+\(config-vdc\)#$'
+default_mode: privileged-exec
+negation_prefix: "no "
+command_files:
+  - commands/networking.yaml
+  - commands/routing.yaml
+  - commands/system.yaml
+  - commands/security.yaml

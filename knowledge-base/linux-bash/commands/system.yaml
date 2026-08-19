@@ -1,0 +1,139 @@
+commands:
+  - name: uname
+    syntax: "uname [-a] [-r] [-n] [-m]"
+    tokens:
+      - lit: uname
+      - choice: ["-a", "-r", "-n", "-m"]
+        optional: true
+        repeatable: true
+    order: flags-anywhere
+    description: |
+      Prints system information (kernel version, hostname, machine).
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: uname -a
+        description: All system info
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: uptime
+    syntax: "uptime"
+    tokens:
+      - lit: uptime
+    description: |
+      Shows how long the system has been running, plus load averages.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: uptime
+        description: System uptime
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: df
+    syntax: "df [-h] [-T] [<path>]"
+    tokens:
+      - lit: df
+      - choice: ["-h", "-T"]
+        optional: true
+        repeatable: true
+      - var: path
+        type: free
+        optional: true
+    order: flags-anywhere
+    description: |
+      Reports filesystem disk usage. '-h' human-readable, '-T' show type.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: df -h
+        description: Disk usage, human-readable
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - filesystem
+
+  - name: free
+    syntax: "free [-h] [-m] [-g]"
+    tokens:
+      - lit: free
+      - choice: ["-h", "-m", "-g"]
+        optional: true
+        repeatable: true
+    order: flags-anywhere
+    description: |
+      Displays memory usage. '-h' human-readable.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: free -h
+        description: Memory usage, human-readable
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: whoami
+    syntax: "whoami"
+    tokens:
+      - lit: whoami
+    description: |
+      Prints the current user name.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: whoami
+        description: Current user
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+
+  - name: sudo
+    syntax: "sudo [-u <user>] <command>"
+    tokens:
+      - lit: sudo
+      - lit: -u
+        optional: true
+      - var: user
+        type: free
+        optional: true
+      - var: command
+        type: free
+    description: |
+      Runs a command as another user (default root). Often prompts for
+      password.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: sudo systemctl restart nginx
+        description: Restart nginx as root
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - privilege

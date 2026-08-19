@@ -1,7 +1,18 @@
 id: f5-tmos
-name: F5 Tmos
-description: "TODO: Add platform description"
-reference_url: ""
-versions: []
-prompt_patterns: {}
-default_mode: shell
+name: F5 BIG-IP TMOS
+description: F5 BIG-IP Traffic Management Operating System (tmsh + bash)
+reference_url: "https://clouddocs.f5.com/cli/tmsh-reference/latest/"
+versions:
+  - "14.x"
+  - "15.x"
+  - "16.x"
+prompt_patterns:
+  tmsh: '^[\w\-]+(?:@\([\w\-\.]+\))?\(tmos(\.[\w]+)?\)#\s*$'
+  bash: '^\[[\w\-\.@:]+\S*\][\s\$#]*\s*$'
+default_mode: tmsh
+negation_prefix: null
+command_files:
+  - commands/tmsh-ltm.yaml
+  - commands/tmsh-net.yaml
+  - commands/tmsh-sys.yaml
+  - commands/bash.yaml

@@ -1,0 +1,106 @@
+commands:
+  - name: tmsh show sys version
+    syntax: "tmsh show sys version"
+    tokens:
+      - lit: tmsh show sys version
+    description: |
+      Displays the BIG-IP software version and build.
+    category: sys
+    mode: tmsh
+    aliases:
+      - show sys version
+    examples:
+      - command: tmsh show sys version
+        description: Show version
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - sys
+      - version
+
+  - name: tmsh show sys hardware
+    syntax: "tmsh show sys hardware"
+    tokens:
+      - lit: tmsh show sys hardware
+    description: |
+      Lists hardware platform, fans, temperatures, and power supplies.
+    category: sys
+    mode: tmsh
+    aliases:
+      - show sys hardware
+    examples:
+      - command: tmsh show sys hardware
+        description: Hardware info
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - sys
+      - hardware
+
+  - name: tmsh show sys uptime
+    syntax: "tmsh show sys uptime"
+    tokens:
+      - lit: tmsh show sys uptime
+    description: |
+      Shows current uptime and last boot time.
+    category: sys
+    mode: tmsh
+    aliases:
+      - show sys uptime
+    examples:
+      - command: tmsh show sys uptime
+        description: Uptime info
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - sys
+
+  - name: tmsh save sys config
+    syntax: "tmsh save sys config"
+    tokens:
+      - lit: tmsh save sys config
+    description: |
+      Saves the running configuration to disk (ucs file).
+    category: sys
+    mode: tmsh
+    aliases:
+      - save sys config
+    examples:
+      - command: tmsh save sys config
+        description: Save config
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - sys
+      - configuration
+
+  - name: tmsh restart sys service
+    syntax: "tmsh restart sys service <name>"
+    tokens:
+      - lit: tmsh restart sys service
+      - var: service-name
+        type: free
+    description: |
+      Restarts a BIG-IP daemon (e.g. tomcat, httpd). Use carefully.
+    category: sys
+    mode: tmsh
+    aliases:
+      - restart sys service
+    examples:
+      - command: tmsh restart sys service tomcat
+        description: Restart the Tomcat service
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - sys
+      - service

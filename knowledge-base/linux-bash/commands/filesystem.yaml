@@ -1,0 +1,204 @@
+commands:
+  - name: ls
+    syntax: "ls [-l] [-a] [-h] [-t] [<path>]"
+    tokens:
+      - lit: ls
+      - choice: ["-l", "-a", "-h", "-t"]
+        optional: true
+        repeatable: true
+      - var: path
+        type: free
+        optional: true
+    order: flags-anywhere
+    description: |
+      Lists directory contents. Flags can appear in any order before the path.
+    category: filesystem
+    mode: shell
+    aliases:
+      - ll
+    examples:
+      - command: ls -lah
+        description: Long listing, all files, human-readable sizes
+      - command: ls -t /var/log
+        description: Newest first in /var/log
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: cd
+    syntax: "cd [<path>]"
+    tokens:
+      - lit: cd
+      - var: path
+        type: free
+        optional: true
+    description: |
+      Changes the working directory. No argument goes home.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: cd /etc
+        description: Go to /etc
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: pwd
+    syntax: "pwd"
+    tokens:
+      - lit: pwd
+    description: |
+      Prints the working directory.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: pwd
+        description: Show current dir
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: cp
+    syntax: "cp [-r] [-i] <source> <destination>"
+    tokens:
+      - lit: cp
+      - choice: ["-r", "-i"]
+        optional: true
+        repeatable: true
+      - var: source
+        type: free
+      - var: destination
+        type: free
+    order: flags-anywhere
+    description: |
+      Copies files. '-r' for directories.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: cp -r src dest
+        description: Recursive copy
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: mv
+    syntax: "mv [-i] <source> <destination>"
+    tokens:
+      - lit: mv
+      - choice: ["-i"]
+        optional: true
+      - var: source
+        type: free
+      - var: destination
+        type: free
+    order: flags-anywhere
+    description: |
+      Moves or renames a file.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: mv old.txt new.txt
+        description: Rename a file
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: rm
+    syntax: "rm [-r] [-f] [-i] <path>"
+    tokens:
+      - lit: rm
+      - choice: ["-r", "-f", "-i"]
+        optional: true
+        repeatable: true
+      - var: path
+        type: free
+    order: flags-anywhere
+    description: |
+      Removes files or directories. Destructive — verify path before pressing Enter.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: rm -rf /tmp/build
+        description: Force-remove a directory tree
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - destructive
+
+  - name: cat
+    syntax: "cat <file>"
+    tokens:
+      - lit: cat
+      - var: file
+        type: free
+    description: |
+      Concatenates files to stdout. Often used to view a single file.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: cat /etc/hostname
+        description: Show the hostname file
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: find
+    syntax: "find <path> [-name <pattern>] [-type <type>]"
+    tokens:
+      - lit: find
+      - var: path
+        type: free
+      - lit: -name
+        optional: true
+      - var: pattern
+        type: free
+        optional: true
+      - lit: -type
+        optional: true
+      - var: type
+        type: choice
+        values: ["f", "d", "l"]
+        optional: true
+    order: flags-anywhere
+    description: |
+      Finds files by name and/or type.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: find /var -name "*.log" -type f
+        description: Find regular files matching *.log under /var
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - search
