@@ -9,6 +9,7 @@
 import { Host, Command, getHosts, listKbPlatforms, getAllKbCommands } from "../lib/tauri-api";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
+import { getSearchIncludeTags } from "../lib/search-prefs";
 
 type Mode = "hosts" | "commands";
 
@@ -104,6 +105,9 @@ export class GlobalSearch {
     this.results.addEventListener("mouseleave", () => this.scheduleHide());
     this.wrapper.addEventListener("mouseleave", () => this.scheduleHide());
     document.body.appendChild(this.results);
+    window.addEventListener("resize", () => {
+      if (this.open) this.positionResults();
+    });
 
     this.positionResults();
   }
@@ -195,12 +199,12 @@ export class GlobalSearch {
   private async loadCommandResults(q: string) {
     await this.ensureCommands();
     if (this.input.value.toLowerCase().trim() !== q) return; // stale
-    const hits = (this.allCommands ?? []).filter(({ cmd }) =>
-      cmd.name.toLowerCase().includes(q) ||
-      cmd.aliases.some((a) => a.toLowerCase().includes(q)) ||
-      cmd.description.toLowerCase().includes(q) ||
-      cmd.tags.some((t) => t.toLowerCase().includes(q)),
-    );
+    const hits = (this.allCommands ?? []).filter(({ cmd }) => {
+      if (cmd.name.toLowerCase().includes(q)) return true;
+      if (cmd.aliases.some((a) => a.toLowerCase().includes(q))) return true;
+      if (getSearchIncludeTags() && cmd.tags.some((t) => t.toLowerCase().includes(q))) return true;
+      return false;
+    });
     this.rows = hits.map(({ platform, cmd }) => ({
       kind: "command" as const,
       cmd,
@@ -249,8 +253,17 @@ export class GlobalSearch {
       el.classList.toggle("selected", sel);
       el.setAttribute("aria-selected", String(sel));
     });
+    this.scrollSelectedIntoView();
+  }
+
+  private scrollSelectedIntoView() {
     const sel = this.results.querySelector<HTMLElement>(".title-bar-search-row.selected");
-    sel?.scrollIntoView({ block: "nearest" });
+    if (!sel) return;
+    const c = this.results;
+    const above = sel.offsetTop - c.offsetTop < c.scrollTop;
+    const below = sel.offsetTop - c.offsetTop + sel.offsetHeight > c.scrollTop + c.clientHeight;
+    if (above) c.scrollTop = sel.offsetTop - c.offsetTop;
+    else if (below) c.scrollTop = sel.offsetTop - c.offsetTop + sel.offsetHeight - c.clientHeight;
   }
 
   private positionResults() {
@@ -303,10 +316,15 @@ export class GlobalSearch {
       case "Tab":
         if (this.open && this.rows.length > 0) {
           e.preventDefault();
-          const row = this.results.querySelector<HTMLElement>(
-            `.title-bar-search-row[data-index="${this.selectedIdx}"]`,
-          );
-          row?.focus();
+          this.selectedIdx = e.shiftKey
+            ? (this.selectedIdx - 1 + this.rows.length) % this.rows.length
+            : (this.selectedIdx + 1) % this.rows.length;
+          this.markSelected();
+        } else {
+          // No results open — Tab cycles Hosts | Commands mode
+          e.preventDefault();
+          e.stopPropagation();
+          this.setMode(this.mode === "hosts" ? "commands" : "hosts");
         }
         break;
       case "Enter":

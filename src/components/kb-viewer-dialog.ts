@@ -7,6 +7,7 @@ import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbComm
 import { SidebarContent } from "../lib/sidebar-content";
 import { escHtml, formatMode } from "../lib/format";
 import { icons } from "../lib/icons";
+import { getSearchIncludeTags } from "../lib/search-prefs";
 
 interface KbCategory {
   name: string;
@@ -97,13 +98,12 @@ export class KbViewerDialog {
     if (!q) {
       this.filteredCommands = this.commands;
     } else {
-      this.filteredCommands = this.commands.filter(
-        (cmd) =>
-          cmd.name.toLowerCase().includes(q) ||
-          cmd.description.toLowerCase().includes(q) ||
-          cmd.aliases.some((a) => a.toLowerCase().includes(q)) ||
-          cmd.tags.some((t) => t.toLowerCase().includes(q))
-      );
+      this.filteredCommands = this.commands.filter((cmd) => {
+        if (cmd.name.toLowerCase().includes(q)) return true;
+        if (cmd.aliases.some((a) => a.toLowerCase().includes(q))) return true;
+        if (getSearchIncludeTags() && cmd.tags.some((t) => t.toLowerCase().includes(q))) return true;
+        return false;
+      });
     }
     this.selectedIndex = 0;
     this.selectedCommand = null;
@@ -287,12 +287,13 @@ export class KbViewerDialog {
 
   private renderCategory(category: KbCategory): string {
     const filteredCatCommands = this.searchQuery
-      ? category.commands.filter(
-          (cmd) =>
-            cmd.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-            cmd.description.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-            cmd.aliases.some((a) => a.toLowerCase().includes(this.searchQuery.toLowerCase()))
-        )
+      ? category.commands.filter((cmd) => {
+          const q = this.searchQuery.toLowerCase();
+          if (cmd.name.toLowerCase().includes(q)) return true;
+          if (cmd.aliases.some((a) => a.toLowerCase().includes(q))) return true;
+          if (getSearchIncludeTags() && cmd.tags.some((t) => t.toLowerCase().includes(q))) return true;
+          return false;
+        })
       : category.commands;
 
     if (filteredCatCommands.length === 0) return "";
@@ -389,6 +390,12 @@ export class KbViewerDialog {
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   private handleKey(e: KeyboardEvent) {
+    // Ignore when the KB view is hidden or focus is outside this dialog
+    // (e.g. global search in the title bar). Without this, arrow keys in
+    // global search also trigger a full re-render here → progressive freeze.
+    if (!this.container || this.container.offsetParent === null) return;
+    const ae = document.activeElement;
+    if (ae instanceof HTMLElement && ae !== document.body && !this.container.contains(ae)) return;
     if (this.deleteConfirmName) {
       if (e.key === "Escape") {
         e.preventDefault();

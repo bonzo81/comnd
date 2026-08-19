@@ -110,6 +110,11 @@
   background: var(--color-surface-hover);
 }
 
+.title-bar-search-row.selected {
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
 .title-bar-search-row:focus-visible {
   background: var(--color-surface-hover);
   outline: none;

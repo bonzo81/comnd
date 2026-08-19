@@ -16,6 +16,7 @@ import {
   setTimestampFormat,
   TimestampFormat,
 } from "../lib/timestamps";
+import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 
 const LABELS: Record<string, string> = {
   general: "General",
@@ -121,6 +122,7 @@ export class SettingsScreen {
   private renderGeneral(): string {
     const tsOn = getTimestampsEnabled();
     const fmt = getTimestampFormat();
+    const tagsOn = getSearchIncludeTags();
     const opt = (value: TimestampFormat, label: string) =>
       `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
     return `
@@ -142,6 +144,14 @@ export class SettingsScreen {
           </select>
           <span class="import-hint">Re-renders timestamps in open terminals immediately</span>
         </div>
+        <h3 class="settings-section-title">Global Search</h3>
+        <label class="settings-toggle">
+          <input type="checkbox" id="search-tags" ${tagsOn ? "checked" : ""} />
+          <span>
+            Match command tags in search
+            <span class="import-hint">When off, global search and KB search match command name and aliases only</span>
+          </span>
+        </label>
       </div>
     `;
   }
@@ -156,6 +166,10 @@ export class SettingsScreen {
       setTimestampsEnabled(on);
       const select = this.container?.querySelector<HTMLSelectElement>("#ts-format");
       if (select) select.disabled = !on;
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
+      setSearchIncludeTags((e.target as HTMLInputElement).checked);
     });
 
     this.container?.querySelector<HTMLSelectElement>("#ts-format")?.addEventListener("change", (e) => {
