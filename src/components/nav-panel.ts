@@ -1,8 +1,8 @@
 /**
  * Nav Panel — persistent left navigation (replaces the app tab bar).
  *
- * Three accordion sections: Connections, Knowledge Base, Settings.
- * One section expanded at a time; expanding switches the content view.
+ * Three sections: Connections, Knowledge Base, Settings.
+ * Each section collapses/expands independently; expanding switches the content view.
  * Connections section: group tree with hosts nested under their group,
  * in-place search filtering, and drag & drop for moving hosts/groups.
  * Roving tabindex + arrow/Enter/Left/Right keyboard navigation.
@@ -43,7 +43,7 @@ type DragPayload = { kind: "host" | "group"; id: string };
 export class NavPanel {
   private container: HTMLElement;
   private cb: NavCallbacks;
-  private activeSection: NavSection | null = "connections";
+  private openSections = new Set<NavSection>(["connections"]);
   private expandedGroups = new Set<string>([ALL_GROUP_ID]);
   private groups: { id: string; name: string; icon: string | null; parent_id: string | null; sort_order: number }[] = [];
   private hosts: Host[] = [];
@@ -71,11 +71,23 @@ export class NavPanel {
     this.render();
   }
 
-  /** Expand a section and collapse the others (accordion). No view switch. */
+  /** Expand a section (others stay as-is). No view switch. */
   setSection(section: NavSection) {
-    if (this.activeSection === section) return;
-    this.activeSection = section;
-    this.render();
+    this.setSectionOpen(section, true);
+  }
+
+  /** Open or close one section without touching the others. */
+  private setSectionOpen(section: NavSection, open: boolean) {
+    if (open) this.openSections.add(section);
+    else this.openSections.delete(section);
+    const sec = this.container.querySelector<HTMLElement>(`.nav-section[data-section="${section}"]`);
+    if (!sec) return;
+    sec.querySelector<HTMLElement>(".nav-section-items")?.classList.toggle("open", open);
+    const header = sec.querySelector<HTMLElement>(".nav-section-header");
+    if (header) header.setAttribute("aria-expanded", String(open));
+    const chevron = header?.querySelector<HTMLElement>(".nav-chevron");
+    if (chevron) chevron.textContent = open ? "▾" : "▸";
+    this.applyRovingTabindex();
   }
 
   /** Update the highlighted host (driven by HostScreen). */
@@ -203,14 +215,14 @@ export class NavPanel {
   }
 
   private renderSection(section: NavSection, label: string, itemsHtml: string): string {
-    const open = this.activeSection === section;
+    const open = this.openSections.has(section);
     return `
       <div class="nav-section" data-section="${section}">
         <button class="nav-section-header" data-section="${section}" aria-expanded="${open}">
           <span class="nav-chevron">${open ? "▾" : "▸"}</span>
           <span class="nav-section-label">${label}</span>
         </button>
-        <div class="nav-section-items${open ? "" : " hidden"}">
+        <div class="nav-section-items${open ? " open" : ""}">
           ${itemsHtml}
         </div>
       </div>
@@ -345,6 +357,64 @@ export class NavPanel {
     }
   }
 
+  /** Rows that are the direct children of a group row (before the next group row). */
+  private groupChildRows(row: HTMLElement): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    for (let n = row.nextElementSibling as HTMLElement | null; n; n = n.nextElementSibling as HTMLElement | null) {
+      if (n.classList.contains("nav-group-row")) break;
+      out.push(n);
+    }
+    return out;
+  }
+
+  private setGroupToggle(row: HTMLElement, expanded: boolean) {
+    const btn = row.querySelector<HTMLElement>(".nav-item.nav-sub");
+    const toggle = btn?.querySelector<HTMLElement>(".nav-toggle");
+    if (toggle) toggle.textContent = expanded ? "▾" : "▸";
+  }
+
+  /** Animate-collapse the group's child rows, then re-render. */
+  private collapseGroupRows(row: HTMLElement) {
+    const rows = this.groupChildRows(row);
+    if (rows.length === 0) {
+      this.render();
+      return;
+    }
+    rows.forEach((r) => r.classList.add("nav-collapsing"));
+    const done = () => {
+      rows.forEach((r) => r.classList.remove("nav-collapsing"));
+      this.render();
+    };
+    rows[0].addEventListener("transitionend", (e) => {
+      if (e.propertyName === "margin-bottom") done();
+    });
+    setTimeout(done, 220);
+  }
+
+  /** Build and insert a group's child rows (subgroups + hosts) after the group row. */
+  private mountGroupChildren(groupId: string, row: HTMLElement): HTMLElement[] {
+    const keep = this.visibleGroupIds();
+    const depth = (parseInt(row.querySelector<HTMLElement>(".nav-item")?.style.paddingLeft ?? "12", 10) - 12) / 14;
+    const children = this.groups.filter((g) => g.parent_id === groupId && (!keep || keep.has(g.id)));
+    const groupHosts = sortByRecent(
+      this.hosts.filter((h) => h.group_id === groupId && this.hostVisible(h)),
+    );
+    const frag = document.createDocumentFragment();
+    for (const child of children) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = this.renderGroupNode(child, depth + 1).trim();
+      while (tmp.firstElementChild) frag.appendChild(tmp.firstElementChild);
+    }
+    for (const h of groupHosts) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = this.renderHostRow(h, depth + 1).trim();
+      while (tmp.firstElementChild) frag.appendChild(tmp.firstElementChild);
+    }
+    row.after(frag);
+    this.bindEvents();
+    return this.groupChildRows(row);
+  }
+
   private async commitCreate(rawName: string) {
     const parentId = this.creatingIn;
     this.creatingIn = null;
@@ -367,12 +437,16 @@ export class NavPanel {
 
   private renderKbItems(): string {
     return `
-      <button class="nav-item nav-sub ${this.activeKbTab === "browse" ? "nav-selected" : ""}" data-kb-tab="browse">
-        <span class="nav-item-label">Browse KB</span>
-      </button>
-      <button class="nav-item nav-sub ${this.activeKbTab === "import" ? "nav-selected" : ""}" data-kb-tab="import">
-        <span class="nav-item-label">Import KB</span>
-      </button>
+      <div class="nav-group-row">
+        <button class="nav-item nav-sub ${this.activeKbTab === "browse" ? "nav-selected" : ""}" data-kb-tab="browse">
+          <span class="nav-item-label">Browse KB</span>
+        </button>
+      </div>
+      <div class="nav-group-row">
+        <button class="nav-item nav-sub ${this.activeKbTab === "import" ? "nav-selected" : ""}" data-kb-tab="import">
+          <span class="nav-item-label">Import KB</span>
+        </button>
+      </div>
     `;
   }
 
@@ -390,17 +464,12 @@ export class NavPanel {
   // ─── Events ──────────────────────────────────────────────────────
 
   private bindEvents() {
-    // Section headers
+    // Section headers — toggle in place (no re-render) so the collapse/expand animates
     this.container.querySelectorAll<HTMLElement>(".nav-section-header").forEach((el) => {
       el.addEventListener("click", () => {
         const section = el.dataset.section as NavSection;
-        if (this.activeSection === section) {
-          // Clicking the open section toggles it closed
-          this.activeSection = null;
-        } else {
-          this.activeSection = section;
-        }
-        this.render();
+        const items = el.parentElement?.querySelector<HTMLElement>(".nav-section-items");
+        this.setSectionOpen(section, !items?.classList.contains("open"));
       });
     });
 
@@ -408,12 +477,21 @@ export class NavPanel {
     this.container.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id]").forEach((el) => {
       el.addEventListener("click", () => {
         const groupId = el.dataset.groupId ?? "";
-        if (this.expandedGroups.has(groupId)) {
+        const row = el.closest<HTMLElement>(".nav-group-row");
+        if (!row) return;
+        const expanded = this.expandedGroups.has(groupId);
+        if (expanded) {
           this.expandedGroups.delete(groupId);
+          this.collapseGroupRows(row);
         } else {
           this.expandedGroups.add(groupId);
+          const rows = this.mountGroupChildren(groupId, row);
+          rows.forEach((r) => {
+            r.classList.add("nav-expanding");
+            r.addEventListener("animationend", () => r.classList.remove("nav-expanding"), { once: true });
+          });
         }
-        this.render();
+        this.setGroupToggle(row, !expanded);
       });
     });
 
@@ -637,9 +715,9 @@ export class NavPanel {
     for (const section of Array.from(root.children) as HTMLElement[]) {
       const header = section.querySelector<HTMLElement>(".nav-section-header");
       if (header) out.push(header);
-      const items = section.querySelector<HTMLElement>(".nav-section-items");
-      if (items && !items.classList.contains("hidden")) {
-        for (const item of Array.from(items.querySelectorAll<HTMLElement>(".nav-item"))) {
+      const body = section.querySelector<HTMLElement>(".nav-section-items");
+      if (body?.classList.contains("open")) {
+        for (const item of Array.from(body.querySelectorAll<HTMLElement>(".nav-item"))) {
           if (!item.classList.contains("nav-disabled")) out.push(item);
         }
       }
@@ -688,12 +766,7 @@ export class NavPanel {
       const groupId = el.dataset.groupId;
       if (groupId) {
         // Enter on a group row = expand/collapse
-        if (this.expandedGroups.has(groupId)) {
-          this.expandedGroups.delete(groupId);
-        } else {
-          this.expandedGroups.add(groupId);
-        }
-        this.render();
+        el.click();
       }
     }
   }
@@ -724,9 +797,9 @@ export class NavPanel {
           if (ae?.classList.contains("nav-section-header")) {
             // Closed section: expand it, then enter it
             const section = ae.dataset.section as NavSection;
-            if (this.activeSection !== section) {
-              this.activeSection = section;
-              this.render();
+            const items = ae.parentElement?.querySelector<HTMLElement>(".nav-section-items");
+            if (!items?.classList.contains("open")) {
+              this.setSectionOpen(section, true);
             }
             const first = this.container.querySelector<HTMLElement>(
               `.nav-section[data-section="${section}"] .nav-item:not(.nav-disabled)`,
@@ -741,8 +814,7 @@ export class NavPanel {
                 this.hosts.some((h) => h.group_id === groupId) ||
                 (groupId === UNGROUPED_ID && this.hosts.some((h) => !h.group_id));
               if (hasKids) {
-                this.expandedGroups.add(groupId);
-                this.render();
+                (ae as HTMLElement).click();
               }
             }
           }
@@ -757,15 +829,16 @@ export class NavPanel {
             const idx = headers.findIndex((h) => h === ae);
             const prev = headers[Math.max(0, idx - 1)];
             if (prev) this.focusEl(prev);
-          } else if (this.activeSection) {
-            // From an item: collapse section, focus its header
-            const section = this.activeSection;
-            this.activeSection = null;
-            this.render();
-            const header = this.container.querySelector<HTMLElement>(
-              `.nav-section[data-section="${section}"] .nav-section-header`,
-            );
-            if (header) this.focusEl(header);
+          } else {
+            // From an item: collapse its section, focus its header
+            const section = ae?.closest<HTMLElement>(".nav-section")?.dataset.section as NavSection | undefined;
+            if (section) {
+              this.setSectionOpen(section, false);
+              const header = this.container.querySelector<HTMLElement>(
+                `.nav-section[data-section="${section}"] .nav-section-header`,
+              );
+              if (header) this.focusEl(header);
+            }
           }
           break;
         }

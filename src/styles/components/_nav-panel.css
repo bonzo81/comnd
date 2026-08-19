@@ -20,6 +20,20 @@
   flex-direction: column;
 }
 
+.nav-section-items {
+  overflow: hidden;
+  min-height: 0;
+  max-height: 0;
+  visibility: hidden;
+  transition: max-height 260ms ease, visibility 0s linear 260ms;
+}
+
+.nav-section-items.open {
+  max-height: 2000px;
+  visibility: visible;
+  transition: max-height 260ms ease;
+}
+
 .nav-section-header {
   display: flex;
   align-items: center;
@@ -52,10 +66,6 @@
 
 .nav-section-items {
   padding: var(--space-0-5) 0 var(--space-2);
-}
-
-.nav-section-items.hidden {
-  display: none;
 }
 
 /* ─── Nav items ───────────────────────────────────────────────────── */
@@ -97,9 +107,7 @@
 }
 
 .nav-action-wrap {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-1) var(--space-2) var(--space-1);
+  padding: var(--space-0-5) 0 0;
 }
 
 .nav-search-wrap {
@@ -129,17 +137,6 @@
 .nav-action {
   font-weight: 600;
   color: var(--color-accent);
-  background: var(--color-surface-hover);
-  border: 1px solid var(--color-border);
-  transition: background 0.15s, border-color 0.15s;
-  width: auto;
-  margin: 0;
-  padding: 5px var(--space-3);
-}
-
-.nav-action:hover {
-  background: var(--color-surface-selected);
-  border-color: var(--color-accent);
 }
 
 .nav-action-icon {
@@ -231,6 +228,47 @@
   font-size: var(--font-size-2xs);
   color: var(--color-text-tertiary);
   text-align: center;
+}
+
+/* ─── Group expand/collapse animation ─────────────────────────────── */
+.nav-host-row > .nav-item,
+.nav-group-row > .nav-item,
+.nav-group-row > .nav-row-actions,
+.nav-creating > .nav-create-input {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nav-host-row.nav-collapsing > .nav-item,
+.nav-group-row.nav-collapsing > .nav-item,
+.nav-group-row.nav-collapsing > .nav-row-actions,
+.nav-creating.nav-collapsing > .nav-create-input {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  transition: max-height 140ms ease, padding 140ms ease;
+}
+
+.nav-host-row.nav-collapsing,
+.nav-group-row.nav-collapsing,
+.nav-creating.nav-collapsing {
+  margin-bottom: 0;
+  transition: margin-bottom 140ms ease;
+}
+
+.nav-host-row.nav-expanding > .nav-item,
+.nav-group-row.nav-expanding > .nav-item,
+.nav-group-row.nav-expanding > .nav-row-actions,
+.nav-creating.nav-expanding > .nav-create-input {
+  animation: nav-row-expand 140ms ease;
+}
+
+@keyframes nav-row-expand {
+  from {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
 }
 
 /* ─── Host row (nested under groups) ─────────────────────────────── */
