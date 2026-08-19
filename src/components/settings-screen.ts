@@ -17,9 +17,11 @@ import {
   TimestampFormat,
 } from "../lib/timestamps";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
+import { getAppTheme, setAppTheme, Theme } from "../lib/theme";
 
 const LABELS: Record<string, string> = {
   general: "General",
+  theme: "Theme",
   ollama: "Ollama / KB Import",
   shortcuts: "Shortcuts",
 };
@@ -57,6 +59,7 @@ export class SettingsScreen {
     const body =
       this.itemId === "ollama" ? this.renderOllama()
       : this.itemId === "general" ? this.renderGeneral()
+      : this.itemId === "theme" ? this.renderTheme()
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
@@ -156,6 +159,25 @@ export class SettingsScreen {
     `;
   }
 
+  private renderTheme(): string {
+    const t = getAppTheme();
+    const opt = (value: Theme, label: string) =>
+      `<option value="${value}" ${t === value ? "selected" : ""}>${label}</option>`;
+    return `
+      <div class="settings-form">
+        <h3 class="settings-section-title">Appearance</h3>
+        <div class="import-field">
+          <label for="theme-app">App theme</label>
+          <select id="theme-app">
+            ${opt("dark", "Dark")}
+            ${opt("light", "Light")}
+          </select>
+          <span class="import-hint">Applies to the net.sh window chrome, nav panel, and settings</span>
+        </div>
+      </div>
+    `;
+  }
+
   private renderPlaceholder(label: string): string {
     return `<p class="settings-placeholder">Coming soon — ${escHtml(label)} settings are not implemented yet.</p>`;
   }
@@ -190,6 +212,10 @@ export class SettingsScreen {
       const model = (e.target as HTMLSelectElement).value;
       const modelInput = this.container?.querySelector<HTMLInputElement>("#ollama-model");
       if (modelInput) modelInput.value = model;
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
+      setAppTheme((e.target as HTMLSelectElement).value as Theme);
     });
   }
 

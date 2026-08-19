@@ -14,10 +14,11 @@
   align-items: center;
   width: min(480px, 60vw);
   height: 32px;
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-2) 0 0;
   background: var(--color-surface-elevated);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-md);
+  overflow: hidden;
   -webkit-app-region: no-drag;
 }
 
@@ -47,7 +48,6 @@
   flex-shrink: 0;
   display: flex;
   height: 100%;
-  margin-left: var(--space-1);
 }
 
 .title-bar-search-seg {
@@ -57,6 +57,7 @@
   width: 26px;
   height: 100%;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
