@@ -8,8 +8,7 @@ import { SettingsScreen } from "./components/settings-screen";
 import { Host } from "./lib/tauri-api";
 import { log } from "./lib/logger";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
-import { getAppTheme, setAppTheme, Theme } from "./lib/theme";
-import { icons } from "./lib/icons";
+import { getAppTheme, setAppTheme } from "./lib/theme";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -62,6 +61,16 @@ class App {
   constructor() {
     this.container = document.getElementById("app")!;
     setAppTheme(getAppTheme());
+
+    // Suppress native context menus everywhere except host list items
+    document.addEventListener(
+      "contextmenu",
+      (e) => {
+        const t = e.target as HTMLElement | null;
+        if (!t || !t.closest(".hs-host-item")) e.preventDefault();
+      },
+      true
+    );
 
     // Content column — holds the three view wrappers, sits right of nav panel
     this.contentCol = document.createElement("div");
@@ -186,20 +195,9 @@ class App {
       this.showShortcuts = !this.showShortcuts;
       this.renderShortcutsModal();
     }, "Keyboard shortcuts");
-    const themeBtn = makeBtn("", () => {
-      setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
-    });
     makeBtn("–", () => void getCurrentWindow().minimize(), "Minimize");
     makeBtn("□", () => void getCurrentWindow().toggleMaximize(), "Maximize");
     makeBtn("×", () => void getCurrentWindow().close(), "Close");
-
-    const syncThemeIcon = () => {
-      const dark = getAppTheme() === "dark";
-      themeBtn.innerHTML = dark ? icons.sun : icons.moon;
-      themeBtn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
-    };
-    syncThemeIcon();
-    window.addEventListener("netsh:theme", syncThemeIcon);
 
     bar.appendChild(title);
 
