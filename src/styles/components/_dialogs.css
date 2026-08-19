@@ -515,3 +515,94 @@
   margin-top: var(--space-2);
   font-family: var(--font-mono);
 }
+
+/* ─── Import: Preview Stage (Phase 5.6) ────────────────────────────── */
+.import-preview {
+  padding: var(--space-3) 0;
+}
+
+.preview-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-3);
+  padding: 0 var(--space-3);
+}
+.preview-summary h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+}
+.preview-warn-count {
+  color: var(--color-warning, #d97706);
+  font-size: var(--font-size-xs);
+}
+
+.preview-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin: 0 var(--space-3);
+}
+
+.preview-row {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+.preview-row:last-child { border-bottom: none; }
+
+.preview-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.preview-row-head .preview-ok,
+.preview-row-head .preview-warn {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.preview-row-head .preview-ok { color: var(--color-success, #16a34a); }
+.preview-row-head .preview-warn { color: var(--color-warning, #d97706); }
+
+.preview-name {
+  font-weight: 600;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-mode {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-secondary);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.preview-syntax {
+  display: block;
+  margin-top: var(--space-1);
+  margin-left: 22px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+}
+
+.preview-issues {
+  margin-top: var(--space-1);
+  margin-left: 22px;
+  color: var(--color-warning, #d97706);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+}
+
+.preview-errors {
+  margin: var(--space-2) var(--space-3) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}

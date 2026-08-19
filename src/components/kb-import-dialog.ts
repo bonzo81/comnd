@@ -10,14 +10,21 @@
 
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { escHtml } from "../lib/format";
-import { importKbUrl, getAppConfig, ImportResult, AppConfig } from "../lib/tauri-api";
+import {
+  extractKbPreview,
+  commitKbImport,
+  getAppConfig,
+  ImportResult,
+  AppConfig,
+  ExtractPreview,
+} from "../lib/tauri-api";
 import { log } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { showToast } from "../lib/toast";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type ImportStage = "idle" | "fetching" | "extracting" | "sending" | "validating" | "writing" | "reloading" | "complete" | "error";
+type ImportStage = "idle" | "fetching" | "extracting" | "sending" | "validating" | "writing" | "reloading" | "preview" | "complete" | "error";
 
 interface ImportProgressEvent {
   stage: ImportStage;
@@ -60,6 +67,12 @@ export class KbImportDialog {
   private startTime: number | null = null;
   private elapsedInterval: ReturnType<typeof setInterval> | null = null;
   private embedMode: boolean;
+  /** Phase 5.6: preview stage state */
+  private preview: ExtractPreview | null = null;
+  private previewUrl: string = "";
+  private previewPlatform: string = "";
+  private previewCategory: string = "";
+  private committing: boolean = false;
 
   constructor(onImportComplete?: () => void, embedMode: boolean = false) {
     this.onImportComplete = onImportComplete ?? null;
@@ -128,6 +141,7 @@ export class KbImportDialog {
       validating: "Validating commands…",
       writing: "Writing to knowledge base…",
       reloading: "Reloading knowledge base…",
+      preview: "Review extracted commands",
       complete: "Import complete!",
       error: "Import failed",
     };
@@ -139,7 +153,7 @@ export class KbImportDialog {
   private render() {
     if (!this.container) return;
 
-    const isImporting = !["idle", "complete", "error"].includes(this.stage);
+    const isImporting = !["idle", "complete", "error", "preview"].includes(this.stage);
     const base_url = this.config?.ollama_base_url ?? "http://localhost:11434";
     const model = this.config?.ollama_model ?? "llama3.2";
 
@@ -147,7 +161,8 @@ export class KbImportDialog {
       ${this.stage === "complete" && this.result ? this.renderResult() : ""}
       ${this.stage === "error" ? this.renderError() : ""}
       ${isImporting ? this.renderProgress() : ""}
-      ${this.stage === "idle" || (this.stage !== "complete" && this.stage !== "error" && !isImporting) ? this.renderForm(base_url, model, isImporting) : ""}
+      ${this.stage === "preview" && this.preview ? this.renderPreview() : ""}
+      ${this.stage === "idle" || (this.stage !== "complete" && this.stage !== "error" && this.stage !== "preview" && !isImporting) ? this.renderForm(base_url, model, isImporting) : ""}
     `;
 
     if (this.embedMode) {
@@ -273,6 +288,62 @@ export class KbImportDialog {
     `;
   }
 
+  /**
+   * Phase 5.6: review screen between the form and the result. Shows the
+   * extracted commands with name, mode badge, tokenized syntax, and any
+   * per-command warnings (e.g. "tokens dropped"). Confirm commits to YAML;
+   * Reject discards and returns to the form.
+   */
+  private renderPreview(): string {
+    if (!this.preview) return "";
+    const previews = this.preview.previews;
+    const warnCount = previews.filter((p) => p.status === "warn").length;
+    const rows = previews.map((p, i) => {
+      const statusIcon = p.status === "warn"
+        ? `<span class="preview-warn" title="${escHtml(p.issues.join("; "))}">${icons.alert}</span>`
+        : `<span class="preview-ok">${icons.check}</span>`;
+      const modeBadge = `<span class="preview-mode">${escHtml(p.command.mode)}</span>`;
+      const syntaxLine = p.command.syntax
+        ? `<code class="preview-syntax">${escHtml(p.command.syntax)}</code>`
+        : "";
+      const issueLine = p.issues.length > 0
+        ? `<div class="preview-issues">${p.issues.map((m) => escHtml(m)).join("<br/>")}</div>`
+        : "";
+      return `
+        <div class="preview-row" data-index="${i}">
+          <div class="preview-row-head">
+            ${statusIcon}
+            <span class="preview-name">${escHtml(p.command.name)}</span>
+            ${modeBadge}
+          </div>
+          ${syntaxLine}
+          ${issueLine}
+        </div>
+      `;
+    }).join("");
+
+    const errLine = this.preview.errors.length > 0
+      ? `<div class="preview-errors">${this.preview.errors.length} command(s) skipped during extraction</div>`
+      : "";
+
+    return `
+      <div class="import-preview">
+        <div class="preview-summary">
+          <h3>${previews.length} command${previews.length === 1 ? "" : "s"} extracted</h3>
+          ${warnCount > 0 ? `<span class="preview-warn-count">${warnCount} with token warnings (imported as legacy)</span>` : ""}
+        </div>
+        <div class="preview-list">${rows}</div>
+        ${errLine}
+        <div class="import-actions">
+          <button class="btn-text" id="preview-reject-btn" ${this.committing ? "disabled" : ""}>Reject</button>
+          <button class="btn-primary" id="preview-confirm-btn" ${this.committing ? "disabled" : ""}>
+            ${this.committing ? "Committing…" : "Confirm all"}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   // ─── Event Binding ──────────────────────────────────────────────────
 
   private bindEvents() {
@@ -303,6 +374,10 @@ export class KbImportDialog {
       this.errorMessage = "";
       this.render();
     });
+
+    // Phase 5.6: preview confirm / reject
+    document.getElementById("preview-confirm-btn")?.addEventListener("click", () => this.confirmPreview());
+    document.getElementById("preview-reject-btn")?.addEventListener("click", () => this.rejectPreview());
   }
 
   // ─── Actions ────────────────────────────────────────────────────────
@@ -369,21 +444,26 @@ export class KbImportDialog {
     this.stage = "fetching";
     this.errorMessage = "";
     this.result = null;
+    this.preview = null;
     this.startTime = Date.now();
     this.elapsedInterval = setInterval(() => this.render(), 1000);
     this.render();
 
     try {
-      log.info("kb-import", `Starting import from ${url} for ${platform}/${category}`);
-      this.result = await importKbUrl(url, platform, category);
-      this.stage = "complete";
-      log.info("kb-import", `Import complete: ${this.result.commands_imported} commands`);
-      showToast(`Import complete: ${this.result.commands_imported} commands imported`, "success");
+      log.info("kb-import", `Extracting preview from ${url} for ${platform}/${category}`);
+      // Phase 5.6: Stage 1 — extract + validate without writing.
+      const preview = await extractKbPreview(url, platform, category);
+      this.preview = preview;
+      this.previewUrl = url;
+      this.previewPlatform = platform;
+      this.previewCategory = category;
+      this.stage = "preview";
+      log.info("kb-import", `Preview ready: ${preview.previews.length} commands`);
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
-      log.error("kb-import", `Import failed: ${e}`);
-      showToast(`Import failed: ${e}`, "error", 8000);
+      log.error("kb-import", `Extract failed: ${e}`);
+      showToast(`Extract failed: ${e}`, "error", 8000);
     }
 
     if (this.elapsedInterval) {
@@ -392,10 +472,49 @@ export class KbImportDialog {
     }
     this.startTime = null;
     this.render();
+  }
 
-    if (this.stage === "complete" && this.onImportComplete) {
-      this.onImportComplete();
+  /** Phase 5.6: Stage 2 — commit the user-approved previews to YAML. */
+  private async confirmPreview() {
+    if (!this.preview || this.committing) return;
+    this.committing = true;
+    this.stage = "writing";
+    this.render();
+
+    try {
+      const count = await commitKbImport(
+        this.preview.previews,
+        this.previewPlatform,
+        this.previewCategory,
+      );
+      this.result = {
+        commands_imported: count,
+        target_file: `${this.previewPlatform}/commands/${this.previewCategory}.yaml`,
+        platform: this.previewPlatform,
+        category: this.previewCategory,
+        source_url: this.previewUrl,
+        errors: this.preview.errors,
+      };
+      this.stage = "complete";
+      log.info("kb-import", `Commit complete: ${count} commands`);
+      showToast(`Import complete: ${count} commands imported`, "success");
+      if (this.onImportComplete) this.onImportComplete();
+    } catch (e) {
+      this.stage = "error";
+      this.errorMessage = String(e);
+      log.error("kb-import", `Commit failed: ${e}`);
+      showToast(`Commit failed: ${e}`, "error", 8000);
+    } finally {
+      this.committing = false;
     }
+    this.render();
+  }
+
+  /** Phase 5.6: discard the preview and return to the form. */
+  private rejectPreview() {
+    this.preview = null;
+    this.stage = "idle";
+    this.render();
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────

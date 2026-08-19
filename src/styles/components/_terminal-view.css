@@ -302,6 +302,71 @@
   border-radius: var(--radius-lg);
 }
 
+/* ─── Phase 5.7: token breakdown in side panel + KB viewer ────────── */
+
+.cmd-tokens {
+  margin-bottom: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.cmd-tokens h4 {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-2);
+}
+
+.token-order-badge {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-selected);
+  color: var(--color-accent);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  margin-left: var(--space-1);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.token-breakdown {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  display: block;
+}
+
+.token-lit { color: var(--color-text-primary); font-weight: 600; }
+.token-choice { color: var(--color-warning, #d97706); }
+.token-choice.opt { opacity: 0.8; }
+.token-choice.rep::after { content: " *"; opacity: 0.6; }
+.token-var { color: var(--color-accent); font-style: italic; }
+.token-var.opt { opacity: 0.8; }
+.token-pipe { color: var(--color-text-secondary); }
+.token-type-badge,
+.token-source-badge {
+  display: inline-block;
+  font-size: 10px;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  margin-left: 4px;
+  font-style: normal;
+  vertical-align: 1px;
+}
+
+.token-issues {
+  margin-top: var(--space-2);
+}
+.token-issue {
+  color: var(--color-error, #dc2626);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  padding: var(--space-1) 0;
+}
+
 .cmd-ref-link {
   display: inline-block;
   color: var(--color-accent);

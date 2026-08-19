@@ -19,7 +19,7 @@ use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
 use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use ssh::SshManager;
 use config::{AppConfig, ConfigStore};
-use import::{ImportRequest, ImportResult};
+use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
 
 // ─── Browser URL Opener ─────────────────────────────────────────────
 
@@ -193,6 +193,26 @@ async fn save_host_group(
 }
 
 #[tauri::command]
+async fn move_host_group(
+    id: String,
+    new_parent: Option<String>,
+    sort_order: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<HostGroup, String> {
+    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
+    let existing = groups
+        .get_all()?
+        .into_iter()
+        .find(|g| g.id == id)
+        .ok_or_else(|| format!("Group not found: {}", id))?;
+    groups.update(HostGroup {
+        parent_id: new_parent,
+        sort_order,
+        ..existing
+    })
+}
+
+#[tauri::command]
 async fn delete_host_group(
     id: String,
     state: tauri::State<'_, AppState>,
@@ -349,6 +369,73 @@ async fn import_kb_url(
     Ok(result)
 }
 
+/// Phase 5.6: Stage 1 of the two-stage import — extract + validate without
+/// writing. Returns a preview the user reviews before committing.
+#[tauri::command]
+async fn extract_kb_preview(
+    url: String,
+    platform: String,
+    category: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ExtractPreview, String> {
+    let request = ImportRequest { url, platform, category };
+
+    let (config_ref, _user_kb_path) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        (config.get().clone(), config.user_kb_path())
+    };
+
+    let platform_index = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.get_platform_index(&request.platform)?
+    };
+
+    let preview = import::extract_from_url(
+        request,
+        &config_ref,
+        &app_handle,
+        &platform_index,
+    ).await?;
+
+    Ok(preview)
+}
+
+/// Phase 5.6: Stage 2 of the two-stage import — write the user-approved
+/// commands to YAML and reload. Does not re-extract.
+#[tauri::command]
+async fn commit_kb_import(
+    previews: Vec<CommandPreview>,
+    platform: String,
+    category: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
+    let user_kb_path = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.user_kb_path()
+    };
+
+    let commands: Vec<Command> = previews.into_iter().map(|p| p.command).collect();
+    let count = commands.len();
+
+    import::commit_import(
+        commands,
+        &user_kb_path,
+        &platform,
+        &category,
+        &app_handle,
+    ).await?;
+
+    // Reload KB stores so new commands are immediately available
+    {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.reload_all();
+    }
+
+    Ok(count)
+}
+
 #[tauri::command]
 async fn test_ollama_connection(
     state: tauri::State<'_, AppState>,
@@ -396,11 +483,35 @@ async fn save_kb_command(
     mode: String,
     aliases: Vec<String>,
     tags: Vec<String>,
+    // Phase 5.8: optional token fields. `tokens_json` is a JSON array of
+    // CommandToken; empty/invalid falls back to no tokens (legacy entry).
+    tokens_json: Option<String>,
+    order: Option<String>,
+    negatable: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let user_kb_path = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         config.user_kb_path()
+    };
+
+    // Parse tokens JSON. ponytail: serde_json::from_str; empty/invalid → vec![].
+    // The KB viewer surfaces validator issues inline, so a malformed token is
+    // visible to the user even though save succeeds.
+    let tokens: Vec<kb::CommandToken> = match tokens_json.as_deref() {
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).unwrap_or_else(|e| {
+                log::warn!("save_kb_command: tokens JSON parse failed ({}), saving without tokens", e);
+                vec![]
+            })
+        }
+        _ => vec![],
+    };
+
+    let order_val = match order.as_deref() {
+        Some("flags-anywhere") => kb::CommandOrder::FlagsAnywhere,
+        Some("free") => kb::CommandOrder::Free,
+        _ => kb::CommandOrder::Fixed,
     };
 
     let command = Command {
@@ -417,9 +528,9 @@ async fn save_kb_command(
             notes: None,
         },
         tags,
-        tokens: vec![],
-        order: Default::default(),
-        negatable: false,
+        tokens,
+        order: order_val,
+        negatable: negatable.unwrap_or(false),
     };
 
     kb::save_kb_command(&user_kb_path, &platform, &category, &command)?;
@@ -572,6 +683,8 @@ pub fn run() {
                 get_app_config,
                 save_ollama_settings,
                 import_kb_url,
+                extract_kb_preview,
+                commit_kb_import,
                 test_ollama_connection,
                 list_kb_platforms,
                 get_all_kb_commands,
@@ -579,6 +692,7 @@ pub fn run() {
                 delete_kb_command,
                 get_host_groups,
                 save_host_group,
+                move_host_group,
                 open_url_cmd,
                 delete_host_group,
                 #[cfg(debug_assertions)]

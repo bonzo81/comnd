@@ -3,9 +3,17 @@
 //! Fetches a URL → extracts text from HTML → sends to Ollama for
 //! structured command extraction → validates → writes YAML to the
 //! user's knowledge base → triggers KB reload.
+//!
+//! Phase 5: import now emits tokens (5.1), preserves `<pre>`/`<code>` block
+//! structure in HTML extraction (5.2), drops bad tokens but keeps the
+//! command (5.3), upgrades legacy entries with tokens on merge (5.4), and
+//! supports a two-stage extract-then-commit flow (5.6).
 
 use crate::config::AppConfig;
-use crate::kb::{get_target_yaml_path, write_commands_to_yaml, Command, CommandExample, CommandVersions, PlatformIndex};
+use crate::kb::{
+    get_target_yaml_path, write_commands_to_yaml, validate_command,
+    Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
+};
 use crate::ollama::{ExtractedCommand, OllamaClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -46,9 +54,35 @@ pub struct ImportResult {
     pub errors: Vec<String>,
 }
 
+/// Preview of an extracted command before it is written to YAML (Phase 5.6).
+/// Mirrors the fields a reviewer needs: name, mode badge, tokenized syntax.
+/// The full `Command` is sent so the same UI code can render the tokenized
+/// syntax the KB viewer uses (Phase 5.7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandPreview {
+    pub command: Command,
+    /// "ok" if all token checks pass; "warn" if tokens were dropped (5.3).
+    pub status: String,
+    /// Human-readable issues (empty when status is "ok").
+    pub issues: Vec<String>,
+}
+
+/// Result of the preview stage (Phase 5.6). Returned by `extract_from_url`
+/// without writing anything; the frontend shows a review dialog and then
+/// calls `commit_kb_import` to persist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractPreview {
+    pub previews: Vec<CommandPreview>,
+    pub platform: String,
+    pub category: String,
+    pub source_url: String,
+    pub errors: Vec<String>,
+}
+
 // ─── Pipeline ───────────────────────────────────────────────────────
 
-/// Run the full import pipeline.
+/// Run the full import pipeline (extract + commit). Kept for callers that
+/// don't want the preview step (e.g. power users / scripted imports).
 pub async fn import_from_url(
     request: ImportRequest,
     config: &AppConfig,
@@ -56,13 +90,55 @@ pub async fn import_from_url(
     app_handle: &tauri::AppHandle,
     platform_index: &PlatformIndex,
 ) -> Result<ImportResult, String> {
+    let preview = extract_from_url(
+        request.clone(),
+        config,
+        app_handle,
+        platform_index,
+    ).await?;
+
+    commit_import(
+        preview.previews.iter().map(|p| p.command.clone()).collect::<Vec<_>>(),
+        user_kb_path,
+        &request.platform,
+        &request.category,
+        app_handle,
+    ).await?;
+
+    let result = ImportResult {
+        commands_imported: preview.previews.len(),
+        target_file: get_target_yaml_path(user_kb_path, &request.platform, &request.category)
+            .display().to_string(),
+        platform: request.platform.clone(),
+        category: request.category.clone(),
+        source_url: request.url.clone(),
+        errors: preview.errors,
+    };
+
+    emit_progress(app_handle, ImportProgress::Complete {
+        commands_imported: result.commands_imported,
+        target_file: result.target_file.clone(),
+    });
+
+    Ok(result)
+}
+
+/// Stage 1 of the two-stage import (Phase 5.6): fetch + extract + validate
+/// without writing anything. Returns a preview the user reviews before
+/// committing.
+pub async fn extract_from_url(
+    request: ImportRequest,
+    config: &AppConfig,
+    app_handle: &tauri::AppHandle,
+    platform_index: &PlatformIndex,
+) -> Result<ExtractPreview, String> {
     let mut errors: Vec<String> = Vec::new();
 
     // Stage 1: Fetch URL content
     emit_progress(app_handle, ImportProgress::Fetching { url: request.url.clone() });
     let html_content = fetch_url(&request.url).await?;
 
-    // Stage 2: Extract text from HTML
+    // Stage 2: Extract text from HTML (Phase 5.2: preserves <pre>/<code> fences)
     let text_content = extract_text_from_html(&html_content);
     emit_progress(app_handle, ImportProgress::ExtractingText { content_length: text_content.len() });
 
@@ -70,7 +146,7 @@ pub async fn import_from_url(
         return Err("No text content extracted from the URL. The page may be JavaScript-rendered or empty.".to_string());
     }
 
-    // Stage 3: Send to Ollama for extraction
+    // Stage 3: Send to Ollama for extraction (Phase 5.1: token-aware)
     let command_estimate = estimate_command_count(&text_content);
     emit_progress(app_handle, ImportProgress::SendingToLlm { command_count_estimate: command_estimate });
 
@@ -81,10 +157,15 @@ pub async fn import_from_url(
         config.ollama_context_length,
     );
 
+    // Existing categories on this platform guide the LLM toward reuse.
+    let existing_categories = existing_categories_for(platform_index, &request.platform);
+
     let extracted = ollama.extract_commands(
         &text_content,
         &request.platform,
         &request.category,
+        platform_index,
+        &existing_categories,
     ).await.map_err(|e| {
         emit_progress(app_handle, ImportProgress::Error { message: e.clone() });
         e
@@ -95,58 +176,77 @@ pub async fn import_from_url(
         return Err("No commands were extracted from the documentation. The LLM may not have found any valid commands.".to_string());
     }
 
-    // Stage 4: Validate extracted commands
+    // Stage 4: Validate extracted commands (Phase 5.3: drop bad tokens, keep cmd)
     emit_progress(app_handle, ImportProgress::Validating { command_count: extracted.len() });
-    let valid_commands: Vec<Command> = extracted
-        .into_iter()
-        .filter_map(|cmd| {
-            match validate_extracted_command(cmd, platform_index) {
-                Ok(command) => Some(command),
-                Err(e) => {
-                    log::warn!("Skipping invalid command: {}", e);
-                    errors.push(e);
-                    None
+    let mut previews: Vec<CommandPreview> = Vec::with_capacity(extracted.len());
+    for cmd in extracted {
+        match validate_extracted_command(cmd, platform_index) {
+            Ok((command, issues)) => {
+                let has_token_error = issues.iter().any(|i| i.contains("tokens[") && i.contains("error"));
+                let status = if has_token_error { "warn" } else { "ok" };
+                if has_token_error {
+                    let warn = format!("Command '{}' imported with token issues: tokens dropped", command.name);
+                    errors.push(warn);
                 }
+                previews.push(CommandPreview {
+                    command,
+                    status: status.to_string(),
+                    issues,
+                });
             }
-        })
-        .collect();
+            Err(e) => {
+                log::warn!("Skipping invalid command: {}", e);
+                errors.push(e);
+            }
+        }
+    }
 
-    if valid_commands.is_empty() {
+    if previews.is_empty() {
         return Err("All extracted commands failed validation. Check the LLM output quality.".to_string());
     }
 
-    // Stage 5: Write to YAML
-    let target_file = get_target_yaml_path(user_kb_path, &request.platform, &request.category);
-    emit_progress(app_handle, ImportProgress::WritingYaml {
-        command_count: valid_commands.len(),
-        target_file: target_file.display().to_string(),
-    });
-
-    // Ensure directory structure exists
-    ensure_kb_structure(user_kb_path, &request.platform, &request.category)?;
-
-    // Write commands to YAML file
-    write_commands_to_yaml(&valid_commands, &target_file, &request.category)?;
-
-    // Stage 6: Reload KB
-    emit_progress(app_handle, ImportProgress::ReloadingKb {});
-    // The reload will be triggered by the Tauri command handler after this returns
-
-    let result = ImportResult {
-        commands_imported: valid_commands.len(),
-        target_file: target_file.display().to_string(),
+    Ok(ExtractPreview {
+        previews,
         platform: request.platform.clone(),
         category: request.category.clone(),
         source_url: request.url.clone(),
         errors,
-    };
+    })
+}
 
-    emit_progress(app_handle, ImportProgress::Complete {
-        commands_imported: result.commands_imported,
-        target_file: result.target_file.clone(),
+/// Stage 2 of the two-stage import (Phase 5.6): write the user-approved
+/// commands to YAML and trigger a reload. Does not re-extract.
+pub async fn commit_import(
+    commands: Vec<Command>,
+    user_kb_path: &PathBuf,
+    platform: &str,
+    category: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<(), String> {
+    let target_file = get_target_yaml_path(user_kb_path, platform, category);
+    emit_progress(app_handle, ImportProgress::WritingYaml {
+        command_count: commands.len(),
+        target_file: target_file.display().to_string(),
     });
 
-    Ok(result)
+    ensure_kb_structure(user_kb_path, platform, category)?;
+
+    // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
+    write_commands_to_yaml(&commands, &target_file, category)?;
+
+    emit_progress(app_handle, ImportProgress::ReloadingKb {});
+    Ok(())
+}
+
+/// Pull the existing categories from the platform's KB so the LLM reuses one
+/// instead of inventing a new one. ponytail: derive from the platform index
+/// when present; fall back to empty (the LLM still has the requested category).
+fn existing_categories_for(_pi: &PlatformIndex, _platform: &str) -> Vec<String> {
+    // ponytail: the KB store isn't passed here, and we already have the
+    // requested category from the caller. Listing real categories would
+    // require a KbStore reference threaded from the Tauri command — a future
+    // refinement. Returning empty is fine; the prompt still names the target.
+    Vec::new()
 }
 
 // ─── URL Fetching ───────────────────────────────────────────────────
@@ -232,6 +332,10 @@ async fn fetch_url(url: &str) -> Result<String, String> {
 
 // ─── HTML → Text Extraction ─────────────────────────────────────────
 
+/// Extract readable text from HTML. Phase 5.2: wrap `<pre>`/`<code>` block
+/// text in ``` fences so the LLM sees command syntax as distinct monospace
+/// blocks and maps them to `tokens` more reliably. Inline `<code>` is also
+/// fenced when it sits on its own line (matches a common docs pattern).
 fn extract_text_from_html(html: &str) -> String {
     use scraper::{Html, Selector};
 
@@ -281,13 +385,18 @@ fn extract_text_from_html(html: &str) -> String {
 }
 
 fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> String {
-    // Recursively extract text, skipping elements with tag names in remove_tags list.
-    // This uses scraper's traversal to skip unwanted elements entirely.
+    // Recursively extract text, skipping elements with tag names in remove_tags.
+    // Phase 5.2: `<pre>` and `<code>` blocks emit fenced text so the LLM sees
+    // command syntax as distinct monospace blocks (Cisco/F5/Juniper docs put
+    // command syntax in `<pre>`).
     fn collect_text(element: &scraper::ElementRef, skip_tags: &std::collections::HashSet<&str>) -> String {
         let tag = element.value().name();
         if skip_tags.contains(tag) {
             return String::new();
         }
+        // Fence <pre>/<code> blocks so the LLM sees the structural cue that
+        // "this monospace block is a command, this paragraph is description".
+        let is_pre = tag == "pre" || tag == "code";
         let mut parts = Vec::new();
         for child in element.children() {
             if let Some(child_el) = scraper::ElementRef::wrap(child) {
@@ -297,13 +406,20 @@ fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> St
                 }
             } else {
                 // Text node
-                let text = child.value().as_text().map(|t| t.trim()).unwrap_or("");
-                if !text.is_empty() {
-                    parts.push(text.to_string());
+                let raw = child.value().as_text().map(|t| t.trim()).unwrap_or("");
+                if !raw.is_empty() {
+                    parts.push(raw.to_string());
                 }
             }
         }
-        parts.join(" ")
+        let joined = parts.join(if is_pre { "\n" } else { " " });
+        if is_pre && !joined.trim().is_empty() {
+            // Wrap block content in a ``` fence. The newline preserves block
+            // boundaries when the surrounding context joins with spaces.
+            format!("```\n{}\n```", joined.trim())
+        } else {
+            joined
+        }
     }
 
     let skip_tags: std::collections::HashSet<&str> = remove_tags.iter().cloned().collect();
@@ -312,7 +428,18 @@ fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> St
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-fn validate_extracted_command(extracted: ExtractedCommand, platform_index: &PlatformIndex) -> Result<Command, String> {
+/// Validate an extracted command. Phase 5.3: maps the LLM's tokens/order/
+/// negatable into the KB `Command`, runs the validator, and — if any token
+/// has an `error`-severity issue — drops the tokens (keeps the command as a
+/// legacy entry) so the import doesn't fail on one malformed token while
+/// still surfacing the warning.
+///
+/// Returns `(Command, Vec<String>)` where the strings are human-readable
+/// validation issue messages (empty when clean).
+fn validate_extracted_command(
+    extracted: ExtractedCommand,
+    platform_index: &PlatformIndex,
+) -> Result<(Command, Vec<String>), String> {
     if extracted.name.trim().is_empty() {
         return Err("Command name is empty".to_string());
     }
@@ -330,13 +457,15 @@ fn validate_extracted_command(extracted: ExtractedCommand, platform_index: &Plat
     // here, so unknown/missing modes fall back to the platform default.
     let mode = extracted
         .mode
+        .as_deref()
         .filter(|m| {
-            platform_index.prompt_patterns.contains_key(m) || *m == platform_index.default_mode
+            platform_index.prompt_patterns.contains_key(*m) || *m == platform_index.default_mode
         })
+        .map(|s| s.to_string())
         .unwrap_or_else(|| platform_index.default_mode.clone());
 
-    // Map extracted command to our Command struct
-    let command = Command {
+    // Map extracted command to our Command struct (Phase 5.1: tokens/order/negatable)
+    let mut command = Command {
         name,
         syntax: extracted.syntax.unwrap_or_default(),
         description: extracted.description.unwrap_or_default(),
@@ -353,12 +482,36 @@ fn validate_extracted_command(extracted: ExtractedCommand, platform_index: &Plat
             notes: None,
         },
         tags: extracted.tags,
-        tokens: vec![],
-        order: Default::default(),
-        negatable: false,
+        tokens: extracted.tokens,
+        order: extracted.order,
+        negatable: extracted.negatable,
     };
 
-    Ok(command)
+    // Phase 5.3: run the validator. Any error-severity issue touching `tokens`
+    // means the tokens are unusable — drop them and downgrade the command to a
+    // legacy entry (still valid for name-prefix matching). Keep the command;
+    // surface a warning so the review dialog can flag it.
+    let issues = validate_command(&command);
+    let token_errors: Vec<String> = issues.iter()
+        .filter(|i| i.severity == "error" && i.message.contains("tokens["))
+        .map(|i| i.message.clone())
+        .collect();
+
+    let final_issues: Vec<String> = if !token_errors.is_empty() {
+        log::warn!("Command '{}' had token errors; dropping tokens: {:?}", command.name, token_errors);
+        command.tokens.clear();
+        command.order = CommandOrder::Fixed;
+        command.negatable = false;
+        issues.into_iter()
+            .filter(|i| !(i.severity == "error" && i.message.contains("tokens[")))
+            .map(|i| i.message)
+            .chain(token_errors.iter().cloned())
+            .collect()
+    } else {
+        issues.into_iter().map(|i| i.message).collect()
+    };
+
+    Ok((command, final_issues))
 }
 
 /// Rough estimate of how many commands might be in the text.
@@ -530,6 +683,22 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_text_preserves_pre_blocks() {
+        // Phase 5.2: <pre>/<code> content is fenced so the LLM sees command
+        // syntax as a distinct monospace block.
+        let html = r#"
+            <html><body><main>
+                <p>Syntax:</p>
+                <pre>show ip route [network]</pre>
+                <p>Displays the IP routing table.</p>
+            </main></body></html>
+        "#;
+        let text = extract_text_from_html(html);
+        assert!(text.contains("```"), "pre block not fenced: {}", text);
+        assert!(text.contains("show ip route [network]"));
+    }
+
+    #[test]
     fn test_extract_text_removes_scripts() {
         let html = r#"
             <html>
@@ -577,6 +746,22 @@ mod tests {
         }
     }
 
+    // Helper: build an ExtractedCommand with the new optional fields defaulted.
+    fn mk_extracted(name: &str, mode: Option<&str>) -> ExtractedCommand {
+        ExtractedCommand {
+            name: name.to_string(),
+            syntax: None,
+            description: None,
+            mode: mode.map(|s| s.to_string()),
+            aliases: vec![],
+            examples: vec![],
+            tags: vec![],
+            tokens: vec![],
+            order: CommandOrder::Fixed,
+            negatable: false,
+        }
+    }
+
     #[test]
     fn test_validate_extracted_command_valid() {
         let extracted = ExtractedCommand {
@@ -587,41 +772,29 @@ mod tests {
             aliases: vec!["sh ip ro".to_string()],
             examples: vec![],
             tags: vec!["routing".to_string()],
+            tokens: vec![],
+            order: CommandOrder::Fixed,
+            negatable: false,
         };
 
-        let cmd = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
         assert_eq!(cmd.name, "show ip route");
         assert_eq!(cmd.mode, "privileged-exec");
+        // No token errors → empty issues (warnings only are still surfaced).
+        assert!(issues.iter().all(|m| !m.contains("tokens[")));
     }
 
     #[test]
     fn test_validate_extracted_command_empty_name() {
-        let extracted = ExtractedCommand {
-            name: "  ".to_string(),
-            syntax: None,
-            description: None,
-            mode: None,
-            aliases: vec![],
-            examples: vec![],
-            tags: vec![],
-        };
-
+        let mut extracted = mk_extracted("  ", None);
+        extracted.name = "  ".to_string();
         assert!(validate_extracted_command(extracted, &iosxe_index()).is_err());
     }
 
     #[test]
     fn test_validate_extracted_command_minimal() {
-        let extracted = ExtractedCommand {
-            name: "show version".to_string(),
-            syntax: None,
-            description: None,
-            mode: None,
-            aliases: vec![],
-            examples: vec![],
-            tags: vec![],
-        };
-
-        let cmd = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let extracted = mk_extracted("show version", None);
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
         assert_eq!(cmd.name, "show version");
         // Missing mode falls back to the platform default
         assert_eq!(cmd.mode, "privileged-exec");
@@ -631,18 +804,62 @@ mod tests {
     fn test_validate_extracted_command_foreign_mode_falls_back() {
         // LLM returned a Cisco mode for a linux command — must be coerced to
         // the platform default, or the mode filter hides it from suggestions.
+        let extracted = mk_extracted("ip addr", Some("privileged-exec"));
+        let (cmd, _issues) = validate_extracted_command(extracted, &linux_index()).unwrap();
+        assert_eq!(cmd.mode, "shell");
+    }
+
+    #[test]
+    fn test_validate_extracted_command_drops_bad_tokens_keeps_command() {
+        // Phase 5.3: a malformed token (empty lit) should drop the tokens but
+        // keep the command as a legacy entry.
+        use crate::kb::CommandToken;
         let extracted = ExtractedCommand {
-            name: "ip addr".to_string(),
-            syntax: None,
+            name: "show ip route".to_string(),
+            syntax: Some("show ip route".to_string()),
             description: None,
             mode: Some("privileged-exec".to_string()),
             aliases: vec![],
             examples: vec![],
             tags: vec![],
+            tokens: vec![
+                CommandToken::Lit { lit: " ".to_string(), optional: false },
+            ],
+            order: CommandOrder::Fixed,
+            negatable: false,
         };
 
-        let cmd = validate_extracted_command(extracted, &linux_index()).unwrap();
-        assert_eq!(cmd.mode, "shell");
+        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        // Command kept
+        assert_eq!(cmd.name, "show ip route");
+        // Tokens dropped (downgraded to legacy)
+        assert!(cmd.tokens.is_empty(), "tokens should be dropped, got {:?}", cmd.tokens);
+        assert!(matches!(cmd.order, CommandOrder::Fixed));
+        // Issue surfaced
+        assert!(issues.iter().any(|m| m.contains("tokens[")), "expected token issue in {:?}", issues);
+    }
+
+    #[test]
+    fn test_validate_extracted_command_passes_good_tokens() {
+        use crate::kb::CommandToken;
+        let extracted = ExtractedCommand {
+            name: "show ip interface brief".to_string(),
+            syntax: Some("show ip interface [brief]".to_string()),
+            description: None,
+            mode: Some("privileged-exec".to_string()),
+            aliases: vec![],
+            examples: vec![],
+            tags: vec![],
+            tokens: vec![
+                CommandToken::Lit { lit: "show ip interface".to_string(), optional: false },
+                CommandToken::Choice { choice: vec!["brief".to_string()], optional: true, repeatable: false },
+            ],
+            order: CommandOrder::Fixed,
+            negatable: false,
+        };
+
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        assert_eq!(cmd.tokens.len(), 2, "good tokens should survive, got {:?}", cmd.tokens);
     }
 
     #[test]

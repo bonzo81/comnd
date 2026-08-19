@@ -32,6 +32,11 @@ export class KbViewerDialog {
   private editMode = "";
   private editAliases = "";
   private editTags = "";
+  // Phase 5.8: minimal token editor — raw JSON in a textarea. The KB viewer
+  // renders the parsed result so the user sees what they wrote.
+  private editTokensJson = "";
+  private editOrder = "";
+  private editNegatable = false;
   private saving = false;
   private deleteConfirmName: string | null = null;
   private embedMode: boolean;
@@ -260,6 +265,22 @@ export class KbViewerDialog {
           <span>Tags (comma-separated)</span>
           <input type="text" id="kb-edit-tags" value="${this.escAttr(this.editTags)}" />
         </label>
+        <label class="kb-edit-field">
+          <span>Tokens (JSON array — empty for legacy)</span>
+          <textarea id="kb-edit-tokens" rows="4" placeholder='[{"lit":"show ip interface"},{"choice":["brief"],"optional":true}]'>${escHtml(this.editTokensJson)}</textarea>
+        </label>
+        <label class="kb-edit-field kb-edit-row">
+          <span>Order</span>
+          <select id="kb-edit-order">
+            <option value="fixed"${this.editOrder === "fixed" ? " selected" : ""}>fixed</option>
+            <option value="flags-anywhere"${this.editOrder === "flags-anywhere" ? " selected" : ""}>flags-anywhere</option>
+            <option value="free"${this.editOrder === "free" ? " selected" : ""}>free</option>
+          </select>
+        </label>
+        <label class="kb-edit-field kb-edit-row">
+          <span>Negatable</span>
+          <input type="checkbox" id="kb-edit-negatable" ${this.editNegatable ? "checked" : ""} />
+        </label>
         <div class="kb-edit-actions">
           <button class="btn-text" id="kb-edit-cancel-btn">Cancel</button>
           <button class="btn-primary" id="kb-edit-save-btn" ${this.saving ? 'disabled' : ''}>
@@ -457,6 +478,12 @@ export class KbViewerDialog {
     this.editMode = cmd.mode;
     this.editAliases = cmd.aliases.join(", ");
     this.editTags = cmd.tags.join(", ");
+    // Phase 5.8: prefill token fields from the existing command.
+    this.editTokensJson = cmd.tokens && cmd.tokens.length > 0
+      ? JSON.stringify(cmd.tokens, null, 2)
+      : "";
+    this.editOrder = cmd.order ?? "fixed";
+    this.editNegatable = !!cmd.negatable;
     this.editing = true;
     this.saving = false;
     this.render();
@@ -474,6 +501,9 @@ export class KbViewerDialog {
     const modeInput = document.getElementById("kb-edit-mode") as HTMLInputElement;
     const aliasesInput = document.getElementById("kb-edit-aliases") as HTMLInputElement;
     const tagsInput = document.getElementById("kb-edit-tags") as HTMLInputElement;
+    const tokensInput = document.getElementById("kb-edit-tokens") as HTMLTextAreaElement;
+    const orderSelect = document.getElementById("kb-edit-order") as HTMLSelectElement;
+    const negatableInput = document.getElementById("kb-edit-negatable") as HTMLInputElement;
     const errEl = document.getElementById("kb-edit-errors");
 
     if (!nameInput || !syntaxInput || !descInput || !modeInput) return;
@@ -484,12 +514,24 @@ export class KbViewerDialog {
       return;
     }
 
+    // Phase 5.8: validate tokens JSON before save (cheap client-side check).
+    const tokensJson = tokensInput?.value.trim() ?? "";
+    if (tokensJson) {
+      try {
+        JSON.parse(tokensJson);
+      } catch (e) {
+        if (errEl) errEl.textContent = `Tokens JSON invalid: ${e}`;
+        return;
+      }
+    }
+
     this.saving = true;
     this.render();
 
     const aliases = aliasesInput?.value.split(",").map(a => a.trim()).filter(a => a) ?? [];
     const tags = tagsInput?.value.split(",").map(t => t.trim()).filter(t => t) ?? [];
     const category = this.selectedCommand?.category ?? "general";
+    const order = (orderSelect?.value ?? "fixed") as "fixed" | "flags-anywhere" | "free";
 
     try {
       await saveKbCommand(
@@ -501,6 +543,9 @@ export class KbViewerDialog {
         modeInput.value.trim(),
         aliases,
         tags,
+        tokensJson || undefined,
+        order,
+        !!negatableInput?.checked,
       );
       this.editing = false;
       // Reload the platform with updated data
