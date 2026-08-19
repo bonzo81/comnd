@@ -45,6 +45,7 @@ export interface PlatformIndex {
   versions: string[];
   prompt_patterns: Record<string, string>;
   default_mode: string;
+  negation_prefix?: string | null;
 }
 
 export interface Command {
@@ -57,6 +58,9 @@ export interface Command {
   examples: CommandExample[];
   versions: CommandVersions;
   tags: string[];
+  tokens?: CommandToken[];
+  order?: CommandOrder;
+  negatable?: boolean;
 }
 
 export interface CommandExample {
@@ -68,6 +72,23 @@ export interface CommandVersions {
   introduced: string | null;
   deprecated: string | null;
   notes: string | null;
+}
+
+export type CommandOrder = "fixed" | "flags-anywhere" | "free";
+
+export type CommandToken =
+  | { lit: string; optional?: boolean }
+  | { choice: string[]; optional?: boolean }
+  | { var: string; type?: VarType; source?: VarSource; optional?: boolean; values?: string[]; min?: number; max?: number }
+  | { pipe: boolean; filters?: PipeFilter[]; optional?: boolean; repeatable?: boolean };
+
+export type VarType = "free" | "enumerable" | "numeric" | "choice";
+export type VarSource = "none" | "device" | "kb";
+
+export interface PipeFilter {
+  lit: string;
+  var?: string;
+  type?: VarType;
 }
 
 // ─── KB Commands ────────────────────────────────────────────────────
@@ -85,6 +106,18 @@ export async function loadPlatformIndex(
   platform: string,
 ): Promise<PlatformIndex> {
   return invoke<PlatformIndex>("load_platform_index", { platform });
+}
+
+export interface KbValidationIssue {
+  command: string;
+  severity: "error" | "warning";
+  message: string;
+}
+
+export async function validateKb(
+  platform: string,
+): Promise<KbValidationIssue[]> {
+  return invoke<KbValidationIssue[]>("validate_kb", { platform });
 }
 
 // ─── Host Commands ──────────────────────────────────────────────────

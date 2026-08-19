@@ -15,7 +15,7 @@ mod import;
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::Manager;
-use kb::{KbManager, Command, PlatformIndex};
+use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
 use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use ssh::SshManager;
 use config::{AppConfig, ConfigStore};
@@ -76,6 +76,16 @@ async fn load_platform_index(
 ) -> Result<PlatformIndex, String> {
     let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
     kb.get_platform_index(&platform)
+}
+
+#[tauri::command]
+async fn validate_kb(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<KbValidationIssue>, String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    let commands = kb.get_all_commands(&platform)?;
+    Ok(kb::validate_platform(&commands))
 }
 
 // ─── Host Commands ──────────────────────────────────────────────────
@@ -407,6 +417,9 @@ async fn save_kb_command(
             notes: None,
         },
         tags,
+        tokens: vec![],
+        order: Default::default(),
+        negatable: false,
     };
 
     kb::save_kb_command(&user_kb_path, &platform, &category, &command)?;
@@ -545,6 +558,7 @@ pub fn run() {
             tauri::generate_handler![
                 query_kb,
                 load_platform_index,
+                validate_kb,
                 get_hosts,
                 save_host,
                 delete_host,

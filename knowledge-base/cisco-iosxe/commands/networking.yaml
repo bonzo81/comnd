@@ -1,6 +1,14 @@
 commands:
   - name: show ip interface brief
     syntax: "show ip interface [brief | <interface-name>]"
+    tokens:
+      - lit: show ip interface
+      - choice: [brief]
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Displays IP address, status, and protocol state for interfaces.
 
@@ -27,6 +35,16 @@ commands:
 
   - name: show ip route
     syntax: "show ip route [<network>] [<mask>] [longer-prefixes]"
+    tokens:
+      - lit: show ip route
+      - var: network
+        type: free
+        optional: true
+      - var: mask
+        type: free
+        optional: true
+      - lit: longer-prefixes
+        optional: true
     description: |
       Displays the IP routing table.
 
@@ -54,6 +72,21 @@ commands:
 
   - name: show running-config
     syntax: "show running-config [interface <name> | section <regex>]"
+    tokens:
+      - lit: show running-config
+      - pipe: true
+        filters:
+          - lit: section
+            var: regex
+            type: free
+          - lit: include
+            var: regex
+            type: free
+          - lit: begin
+            var: regex
+            type: free
+        optional: true
+        repeatable: true
     description: |
       Displays the current running configuration in memory.
 
@@ -81,6 +114,14 @@ commands:
 
   - name: show interfaces
     syntax: "show interfaces [<interface-name>] [status | description | trunk]"
+    tokens:
+      - lit: show interfaces
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
+      - choice: [status, description, trunk]
+        optional: true
     description: |
       Displays detailed information about interfaces including counters,
       errors, MTU, bandwidth, and encapsulation.
@@ -109,6 +150,15 @@ commands:
 
   - name: show ip arp
     syntax: "show ip arp [<ip-address>] [<interface-name>]"
+    tokens:
+      - lit: show ip arp
+      - var: ip-address
+        type: free
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Displays the ARP cache mapping IP addresses to MAC addresses.
 
@@ -133,6 +183,8 @@ commands:
 
   - name: show ip protocols
     syntax: "show ip protocols"
+    tokens:
+      - lit: show ip protocols
     description: |
       Displays parameters and state of active routing protocol processes.
 
@@ -155,6 +207,8 @@ commands:
 
   - name: show ip bgp summary
     syntax: "show ip bgp summary"
+    tokens:
+      - lit: show ip bgp summary
     description: |
       Displays a summary of BGP neighbour sessions.
 
@@ -177,6 +231,10 @@ commands:
 
   - name: show cdp neighbors
     syntax: "show cdp neighbors [detail]"
+    tokens:
+      - lit: show cdp neighbors
+      - lit: detail
+        optional: true
     description: |
       Displays information about directly connected Cisco devices
       discovered via Cisco Discovery Protocol (CDP).
@@ -203,6 +261,29 @@ commands:
 
   - name: show mac address-table
     syntax: "show mac address-table [dynamic | static] [address <mac>] [interface <name>] [vlan <id>]"
+    tokens:
+      - lit: show mac address-table
+      - choice: [dynamic, static]
+        optional: true
+      - lit: address
+        optional: true
+      - var: mac-address
+        type: free
+        optional: true
+      - lit: interface
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
+      - lit: vlan
+        optional: true
+      - var: vlan-id
+        type: numeric
+        min: 1
+        max: 4094
+        optional: true
+    order: free
     description: |
       Displays the MAC address table (CAM table).
 
@@ -231,6 +312,22 @@ commands:
 
   - name: show vlan brief
     syntax: "show vlan [brief | id <vlan-id> | name <vlan-name>]"
+    tokens:
+      - lit: show vlan
+      - choice: [brief]
+        optional: true
+      - lit: id
+        optional: true
+      - var: vlan-id
+        type: numeric
+        min: 1
+        max: 4094
+        optional: true
+      - lit: name
+        optional: true
+      - var: vlan-name
+        type: free
+        optional: true
     description: |
       Displays VLAN information including VLAN IDs, names, and assigned ports.
 
@@ -255,6 +352,8 @@ commands:
 
   - name: show version
     syntax: "show version"
+    tokens:
+      - lit: show version
     description: |
       Displays system hardware, software version, image name,
       uptime, and configuration register.
@@ -279,6 +378,10 @@ commands:
 
   - name: show clock
     syntax: "show clock [detail]"
+    tokens:
+      - lit: show clock
+      - lit: detail
+        optional: true
     description: |
       Displays the current system clock time and date.
 
@@ -302,6 +405,10 @@ commands:
 
   - name: show users
     syntax: "show users [all]"
+    tokens:
+      - lit: show users
+      - lit: all
+        optional: true
     description: |
       Displays users currently logged into the device.
 
@@ -323,6 +430,31 @@ commands:
 
   - name: ping
     syntax: "ping [<ip-address> | <hostname>] [repeat <count>] [size <bytes>] [source <interface>]"
+    tokens:
+      - lit: ping
+      - var: destination
+        type: free
+        optional: true
+      - lit: repeat
+        optional: true
+      - var: count
+        type: numeric
+        min: 1
+        optional: true
+      - lit: size
+        optional: true
+      - var: bytes
+        type: numeric
+        min: 1
+        max: 65500
+        optional: true
+      - lit: source
+        optional: true
+      - var: interface
+        type: enumerable
+        source: device
+        optional: true
+    order: flags-anywhere
     description: |
       Sends ICMP echo requests to test reachability.
 
@@ -346,6 +478,16 @@ commands:
 
   - name: traceroute
     syntax: "traceroute <ip-address> [source <interface>]"
+    tokens:
+      - lit: traceroute
+      - var: ip-address
+        type: free
+      - lit: source
+        optional: true
+      - var: interface
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Traces the route packets take to reach a destination.
 
@@ -368,6 +510,14 @@ commands:
 
   - name: show ip ospf neighbor
     syntax: "show ip ospf neighbor [detail | <interface-name>]"
+    tokens:
+      - lit: show ip ospf neighbor
+      - lit: detail
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Displays OSPF neighbour adjacencies.
 
@@ -393,6 +543,14 @@ commands:
 
   - name: show ip ospf interface
     syntax: "show ip ospf interface [brief | <interface-name>]"
+    tokens:
+      - lit: show ip ospf interface
+      - choice: [brief]
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Displays OSPF information for interfaces.
 

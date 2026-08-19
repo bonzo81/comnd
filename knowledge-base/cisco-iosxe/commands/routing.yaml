@@ -1,6 +1,17 @@
 commands:
   - name: router ospf
     syntax: "router ospf <process-id> [vrf <name>]"
+    tokens:
+      - lit: router ospf
+      - var: process-id
+        type: numeric
+        min: 1
+        max: 65535
+      - lit: vrf
+        optional: true
+      - var: vrf-name
+        type: free
+        optional: true
     description: |
       Enters OSPF router configuration mode.
 
@@ -22,8 +33,17 @@ commands:
       - ospf
       - routing
 
-  - name: network (OSPF)
+  - name: network
     syntax: "network <ip-address> <wildcard-mask> area <area-id>"
+    tokens:
+      - lit: network
+      - var: ip-address
+        type: free
+      - var: wildcard-mask
+        type: free
+      - lit: area
+      - var: area-id
+        type: free
     description: |
       Enables OSPF on interfaces matching the address/wildcard and
       assigns them to the specified area.
@@ -47,6 +67,12 @@ commands:
 
   - name: router bgp
     syntax: "router bgp <as-number>"
+    tokens:
+      - lit: router bgp
+      - var: as-number
+        type: numeric
+        min: 1
+        max: 4294967295
     description: |
       Enters BGP router configuration mode for the specified AS number.
 
@@ -65,8 +91,17 @@ commands:
       - bgp
       - routing
 
-  - name: neighbor (BGP)
+  - name: neighbor
     syntax: "neighbor <ip-address> remote-as <as-number>"
+    tokens:
+      - lit: neighbor
+      - var: ip-address
+        type: free
+      - lit: remote-as
+      - var: as-number
+        type: numeric
+        min: 1
+        max: 4294967295
     description: |
       Defines a BGP neighbour and its remote AS number.
 
@@ -90,6 +125,29 @@ commands:
 
   - name: ip route
     syntax: "ip route <network> <mask> {<next-hop-ip> | <exit-interface>} [<distance>] [name <text>]"
+    tokens:
+      - lit: ip route
+      - var: network
+        type: free
+      - var: mask
+        type: free
+      - var: next-hop
+        type: free
+        optional: true
+      - var: exit-interface
+        type: enumerable
+        source: device
+        optional: true
+      - var: distance
+        type: numeric
+        min: 1
+        max: 255
+        optional: true
+      - lit: name
+        optional: true
+      - var: text
+        type: free
+        optional: true
     description: |
       Creates a static route entry in the routing table.
 
@@ -115,6 +173,30 @@ commands:
 
   - name: redistribute
     syntax: "redistribute {static | connected | ospf <pid> | bgp <asn>} [metric <value>] [route-map <name>] [subnets]"
+    tokens:
+      - lit: redistribute
+      - choice: [static, connected, ospf, bgp]
+      - var: pid
+        type: numeric
+        min: 1
+        optional: true
+      - var: asn
+        type: numeric
+        min: 1
+        max: 4294967295
+        optional: true
+      - lit: metric
+        optional: true
+      - var: metric-value
+        type: numeric
+        optional: true
+      - lit: route-map
+        optional: true
+      - var: route-map-name
+        type: free
+        optional: true
+      - lit: subnets
+        optional: true
     description: |
       Redistributes routes from one protocol into another.
 
@@ -140,6 +222,14 @@ commands:
 
   - name: ip address
     syntax: "ip address <ip-address> <subnet-mask> [secondary]"
+    tokens:
+      - lit: ip address
+      - var: ip-address
+        type: free
+      - var: subnet-mask
+        type: free
+      - lit: secondary
+        optional: true
     description: |
       Assigns an IP address and subnet mask to an interface.
 
@@ -162,6 +252,12 @@ commands:
 
   - name: interface
     syntax: "interface <type><number>[.<subinterface>]"
+    tokens:
+      - lit: interface
+      - var: interface-name
+        type: enumerable
+        source: kb
+        values: [GigabitEthernet, TenGigE, Loopback, Vlan, Tunnel, Port-channel]
     description: |
       Enters interface configuration mode for a specific interface.
 
@@ -190,6 +286,8 @@ commands:
 
   - name: no shutdown
     syntax: "no shutdown"
+    tokens:
+      - lit: no shutdown
     description: |
       Administratively enables an interface.
 
@@ -211,6 +309,9 @@ commands:
 
   - name: shutdown
     syntax: "shutdown"
+    tokens:
+      - lit: shutdown
+    negatable: true
     description: |
       Administratively disables an interface.
 
@@ -231,6 +332,10 @@ commands:
 
   - name: description
     syntax: "description <text>"
+    tokens:
+      - lit: description
+      - var: text
+        type: free
     description: |
       Assigns a text description to an interface.
 
@@ -253,6 +358,16 @@ commands:
 
   - name: route-map
     syntax: "route-map <name> {permit | deny} [<sequence-number>]"
+    tokens:
+      - lit: route-map
+      - var: name
+        type: free
+      - choice: [permit, deny]
+      - var: sequence-number
+        type: numeric
+        min: 0
+        max: 4294967295
+        optional: true
     description: |
       Creates or edits a route-map entry for route filtering
       and attribute manipulation.

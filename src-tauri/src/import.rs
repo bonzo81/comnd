@@ -353,6 +353,9 @@ fn validate_extracted_command(extracted: ExtractedCommand, platform_index: &Plat
             notes: None,
         },
         tags: extracted.tags,
+        tokens: vec![],
+        order: Default::default(),
+        negatable: false,
     };
 
     Ok(command)
@@ -555,6 +558,7 @@ mod tests {
             versions: vec![],
             prompt_patterns,
             default_mode: "privileged-exec".to_string(),
+            negation_prefix: Some("no ".to_string()),
         }
     }
 
@@ -569,6 +573,7 @@ mod tests {
             versions: vec![],
             prompt_patterns,
             default_mode: "shell".to_string(),
+            negation_prefix: None,
         }
     }
 
@@ -659,6 +664,9 @@ mod tests {
             examples: vec![],
             versions: CommandVersions::default(),
             tags: vec![],
+            tokens: vec![],
+            order: Default::default(),
+            negatable: false,
         }];
 
         let new_cmd = Command {
@@ -671,6 +679,9 @@ mod tests {
             examples: vec![],
             versions: CommandVersions::default(),
             tags: vec![],
+            tokens: vec![],
+            order: Default::default(),
+            negatable: false,
         };
 
         // Simulate the merge logic

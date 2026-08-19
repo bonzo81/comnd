@@ -65,6 +65,7 @@ prompt_patterns:
   routing-config: '^[\w\-]+\(config-router\)#'
   line-config: '^[\w\-]+\(config-line\)#'
 default_mode: privileged-exec
+negation_prefix: "no "             # optional; see Negation below
 ```
 
 `prompt_patterns` are matched against the **entire trailing line** of output (the detector wraps each pattern in `^(?:…)$`). A pattern must describe the prompt alone, with nothing after it — if it also matched prompt + typed characters (e.g. `Router#sh`), prompt detection would re-fire while the user types, resetting the shadow buffer and wiping the ghost-text suggestion.
@@ -75,10 +76,22 @@ The `reference_url` is shown in the sidebar as "📖 Official docs →" — one 
 
 All description/helper text lives inline in the command entry. This is what populates the sidebar when a user selects a suggestion. Use YAML block scalars (`|`) for multiline text.
 
+`syntax` is the **human-readable display string**. It is derived from `tokens` when `tokens` is present and is the only syntax field a reader needs to look at. `tokens` is the **machine-readable** form used by the suggestion engine and (in future) per-argument help, validation, and device-enumerable tab-completion. Both are kept in sync by the author; the `syntax` string is not parsed at runtime.
+
+When `tokens` is absent (legacy entries), the engine falls back to the current `name.startsWith(input)` behaviour against `name`/`aliases` and `syntax` is display-only.
+
 ```yaml
 commands:
   - name: show ip interface brief
     syntax: "show ip interface [brief | <interface-name>]"
+    tokens:                         # see Token Schema below
+      - lit: show ip interface
+      - choice: [brief]
+        optional: true
+      - var: interface-name
+        type: enumerable
+        source: device
+        optional: true
     description: |
       Displays IP address, status, and protocol state for interfaces.
 
@@ -86,6 +99,8 @@ commands:
       Omit 'brief' and specify an interface name for full detail.
     category: networking
     mode: privileged-exec          # see Canonical Mode Values below
+    order: fixed                    # see Order Rules below (optional, default fixed)
+    negatable: false                # see Negation below (optional, default false)
     aliases:                         # alternative ways to type this command
       - sh ip int br                 # aliases are prefix-matched like the command name
       - show ip int brief
@@ -103,6 +118,117 @@ commands:
       - networking
       - troubleshooting
 ```
+
+## Token Schema
+
+`tokens` is an ordered list. Each entry is one of four token kinds. Every entry may carry `optional: true` (default `false`). Tokens are matched positionally in `fixed` and `flags-anywhere` order modes (see Order Rules).
+
+### Token kinds
+
+**`lit` — literal keyword(s).** Fixed text the user must type. May be multi-word (e.g. `show ip interface`); whitespace within is significant. The matcher treats a multi-word `lit` as a single positional token; the engine matches it token-by-token against the input buffer. `lit` is the only token kind that contributes to prefix matching for the command itself.
+
+```yaml
+- lit: show ip interface
+```
+
+**`choice` — enumerated choice.** One of a fixed set of keywords. Modelled as a YAML list of strings. Used for flags that take a known keyword set (`permit | deny`, `in | out`, `brief | detail`). A `choice` of one element is valid (a single optional keyword).
+
+```yaml
+- choice: [permit, deny]
+- choice: [in, out]
+  optional: true
+```
+
+**`var` — variable slot.** A free-form or device-enumerable placeholder. Carries `type` and `source`:
+
+```yaml
+- var: interface-name
+  type: enumerable      # enumerable | free | numeric | choice
+  source: device        # device | kb | none     (only meaningful when type: enumerable)
+  optional: true
+```
+
+| `type` | Meaning | Example variables |
+|---|---|---|
+| `enumerable` | A bounded set the device (or KB) can list | interface names, VLAN IDs, ACL names, route-map names |
+| `free` | Unbounded free-form text | description text, route-map name being created, hostname |
+| `numeric` | Numeric value, optionally bounded via `min`/`max` | OSPF process-id, BGP AS number, ping repeat count, VLAN ID when typed as a number |
+| `choice` | Choice drawn from a dynamic list (e.g. known interface types) — rare; prefer `choice` token for static sets | — |
+
+| `source` | Meaning |
+|---|---|
+| `device` | The live device knows the set (e.g. `show interfaces` lists interface names). Future hook for device tab-completion. MVP: ghost text shows the placeholder only. |
+| `kb` | The KB carries a static example list via `values:` on the token (e.g. common interface type prefixes). |
+| `none` | Not enumerable. Treated as `free` for matching purposes. |
+
+A `var` may carry `values: [...]` for `source: kb` static lists, and `min`/`max` for `type: numeric`:
+
+```yaml
+- var: as-number
+  type: numeric
+  min: 1
+  max: 4294967295
+- var: interface-type
+  type: enumerable
+  source: kb
+  values: [GigabitEthernet, TenGigE, Loopback, Vlan, Tunnel]
+```
+
+**`pipe` — pipe / filter separator.** First-class modelling of `|` (Cisco `| section`, `| include`, `| begin`, bash `|`). Followed by a `lit` or `var` naming the filter subcommand and a `var` for the filter argument. A command may declare `pipe` once at the end of its `tokens` to opt into pipe suggestions; absence means the command does not accept a pipe.
+
+```yaml
+- pipe: true                  # marks that a pipe is accepted here
+  filters:                    # one entry per supported filter subcommand
+    - lit: section
+      var: regex
+      type: free
+    - lit: include
+      var: regex
+      type: free
+    - lit: begin
+      var: regex
+      type: free
+  optional: true
+  repeatable: true            # pipes may chain (| include x | section y)
+```
+
+For bash pipelines (`cmd | grep ... | awk ...`), the same `pipe` token kind is used; the command's own `pipe.filters` list is empty or omitted (the post-pipe command is arbitrary), and the engine falls back to platform-level pipe-completion behaviour defined in `index.yaml` (post-MVP). MVP scope: model the token so the schema is not blocked; engine need not act on `pipe` beyond recognising it.
+
+### Order Rules
+
+The `order` field on the command controls how tokens are matched against the input buffer:
+
+| `order` | Meaning | Typical platforms |
+|---|---|---|
+| `fixed` (default) | Tokens appear in the declared order. Optional tokens may be omitted but not reordered relative to required tokens. | Cisco IOS-XE, NX-OS, Arista EOS, F5 tmsh |
+| `flags-anywhere` | Required positional tokens (`lit`, required `var`) keep their order; `choice` and optional `var` tokens may appear in any order after the last required token. | Linux bash (getopt-style), some NX-OS show filters |
+| `free` | All tokens after the command stem may appear in any order. Rare; used for commands whose arguments are pure key/value filters (e.g. `show mac address-table` filters). | Cisco `show ...` filter chains |
+
+If `order` is omitted it defaults to `fixed`.
+
+### Negation
+
+`negatable: true` declares that the platform's negation prefix may be applied to this command. The prefix itself is platform-defined in `index.yaml` (see Platform Index Schema below). MVP: the engine treats `no <name>` (Cisco) / `--no-<flag>` (linux) as a match on the same KB entry; a single `negatable` flag avoids duplicating `no shutdown`, `no ip route ...` etc. as separate commands.
+
+```yaml
+# cisco-iosxe/index.yaml
+negation_prefix: "no "
+```
+
+```yaml
+# the command
+- name: shutdown
+  negatable: true
+  tokens:
+    - lit: shutdown
+  ...
+```
+
+Negation is opt-in per command. Not every command can be negated (e.g. `show` commands cannot).
+
+### Sub-mode context
+
+The existing `mode` field already gates which commands appear in which prompt context. No new field is needed: a command like `ip address` carries `mode: interface-config`, and the prompt detector's mode state already filters it. The relationship to a parent command (e.g. `interface` enters `interface-config` where `ip address` applies) is implicit in the mode chain and does not need to be modelled in tokens. This is deliberate — the prompt is the source of truth for current mode, not the command history.
 
 ## Canonical Mode Values
 

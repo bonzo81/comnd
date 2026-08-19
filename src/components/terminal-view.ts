@@ -650,7 +650,7 @@ export class TerminalView {
 
       // Load KB commands into frontend suggestion engine
       if (this.host) {
-        this.loadKbCommands(this.host.platform, this.host.os_version ?? null);
+        this.loadKbCommands(this.host.platform, this.host.os_version ?? null, this.platformIndex?.negation_prefix ?? null);
       }
     });
 
@@ -972,12 +972,12 @@ export class TerminalView {
 
   // ─── KB loading ──────────────────────────────────────────────────
 
-  private async loadKbCommands(platform: string, version: string | null) {
+  private async loadKbCommands(platform: string, version: string | null, negationPrefix?: string | null) {
     try {
       log.info("kb", `Loading commands for platform=${platform}, version=${version}`);
       const commands = await queryKb("", platform, null, version);
       log.info("kb", `queryKb returned ${commands.length} commands`);
-      this.suggestionEngine.loadCommands(commands, platform);
+      this.suggestionEngine.loadCommands(commands, platform, negationPrefix);
       log.info("terminal", `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
       log.warn("terminal", `Failed to load KB commands: ${e}`);
