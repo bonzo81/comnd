@@ -1,15 +1,27 @@
 /**
  * Ghost Text — inline suggestion overlay for xterm.js
  * Renders semi-transparent completion text at the cursor position.
+ *
+ * Phase 3: token-aware payload. `literal`/`choice` are completable (Tab
+ * accepts); `variable` is a placeholder hint (Tab passes through). Legacy
+ * `text` (name remainder) stays completable.
+ * See docs/plan-kb-token-engine.md § 3.1.
  */
 
 import { Terminal } from "@xterm/xterm";
+
+export type GhostPayload =
+  | { kind: "text"; text: string }                              // legacy: name remainder
+  | { kind: "literal"; text: string }                           // completing a lit word
+  | { kind: "choice"; options: string[]; pick: string }         // choice token
+  | { kind: "variable"; placeholder: string; hint?: string };  // var token
 
 export class GhostText {
   private terminal: Terminal;
   private container: HTMLElement;
   private el: HTMLSpanElement;
   private badgeEl: HTMLSpanElement;
+  private currentPayload: GhostPayload | null = null;
   private currentRemainder = "";
   private visible = false;
 
@@ -26,14 +38,25 @@ export class GhostText {
     this.container.appendChild(this.badgeEl);
   }
 
-  /** Show ghost text with the command remainder after user's typed prefix */
+  /** Show ghost text with the command remainder after user's typed prefix (legacy) */
   show(remainder: string, extraMatchCount: number) {
-    if (!remainder) {
+    this.showPayload({ kind: "text", text: remainder }, extraMatchCount);
+  }
+
+  /** Show ghost text from a token-aware payload. */
+  showPayload(payload: GhostPayload, extraMatchCount: number) {
+    const text = ghostPayloadText(payload);
+    if (!text) {
       this.hide();
       return;
     }
-    this.currentRemainder = remainder;
-    this.el.textContent = remainder;
+    this.currentPayload = payload;
+    this.currentRemainder = text;
+    this.el.textContent = text;
+    this.el.classList.remove("ghost-text--variable", "ghost-text--choice", "ghost-text--literal");
+    if (payload.kind === "variable") this.el.classList.add("ghost-text--variable");
+    else if (payload.kind === "choice") this.el.classList.add("ghost-text--choice");
+    else if (payload.kind === "literal") this.el.classList.add("ghost-text--literal");
     this.visible = true;
     this.el.style.display = "inline";
 
@@ -52,8 +75,10 @@ export class GhostText {
   /** Hide ghost text */
   hide() {
     this.visible = false;
+    this.currentPayload = null;
     this.currentRemainder = "";
     this.el.style.display = "none";
+    this.el.classList.remove("ghost-text--variable", "ghost-text--choice", "ghost-text--literal");
     this.badgeEl.style.display = "none";
   }
 
@@ -62,9 +87,21 @@ export class GhostText {
     return this.visible;
   }
 
-  /** Get the current remainder (for Tab-accept) */
+  /**
+   * Get the text to send on Tab accept. Returns null for variable payloads —
+   * Tab does not accept a variable placeholder (it's a hint, not completable
+   * text). Per AGENTS.md rule 5: Tab only intercepts when there is real
+   * completable text.
+   */
   getCurrentRemainder(): string | null {
-    return this.visible ? this.currentRemainder : null;
+    if (!this.visible || !this.currentPayload) return null;
+    if (this.currentPayload.kind === "variable") return null;
+    return this.currentRemainder;
+  }
+
+  /** Current payload kind (for Tab-behaviour branching in callers). */
+  getPayloadKind(): GhostPayload["kind"] | null {
+    return this.visible && this.currentPayload ? this.currentPayload.kind : null;
   }
 
   /** Reposition ghost text (called on resize/scroll) */
@@ -114,4 +151,39 @@ export class GhostText {
     this.badgeEl.style.height = `${cellHeight}px`;
     this.badgeEl.style.lineHeight = `${cellHeight}px`;
   }
+}
+
+/** Render text for a payload (what the user would see / accept). */
+function ghostPayloadText(p: GhostPayload): string {
+  switch (p.kind) {
+    case "text":
+    case "literal":
+      return p.text;
+    case "choice":
+      return p.pick;
+    case "variable":
+      return `<${p.placeholder}>`;
+  }
+}
+
+/**
+ * Text to send to the remote when accepting a ghost payload. Returns null
+ * for variable payloads — they are hints, not completable text. For choice
+ * and literal, sends the displayed text.
+ */
+export function ghostPayloadAcceptText(p: GhostPayload): string | null {
+  switch (p.kind) {
+    case "text":
+    case "literal":
+      return p.text || null;
+    case "choice":
+      return p.pick || null;
+    case "variable":
+      return null;
+  }
+}
+
+/** Short display string for the suggestion bar (e.g. "brief", "<interface-name>"). */
+export function ghostPayloadDisplay(p: GhostPayload): string {
+  return ghostPayloadText(p);
 }

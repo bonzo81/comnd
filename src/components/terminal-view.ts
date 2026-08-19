@@ -27,8 +27,8 @@ import {
 import { log } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
 import { ShadowBuffer } from "../lib/shadow-buffer";
-import { SuggestionEngine } from "../lib/suggestion-engine";
-import { GhostText } from "../lib/ghost-text";
+import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/suggestion-engine";
+import { GhostText, GhostPayload, ghostPayloadAcceptText, ghostPayloadDisplay } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
 import { stripAnsi } from "../lib/ansi";
@@ -228,21 +228,11 @@ export class TerminalView {
         // Check for Tab — context-sensitive
         if (data === "\t") {
           if (this.dropdown?.isVisible()) {
-            // Accept dropdown selection
-            const selected = this.dropdown.getSelected();
-            if (selected) {
-              const remainder = this.getCommandRemainder(selected.command.name, this.currentInput);
-              if (remainder) {
-                this.sendData(remainder);
-                this.shadowBuffer.reset();
-              }
-            }
-            this.dropdown.hide();
-            this.ghostText?.hide();
-            this.hideSuggestionBar();
+            // Accept dropdown selection (token-aware — dropdown builds payload)
+            this.acceptDropdownSelection();
             return;
           } else if (this.ghostText?.isShowing()) {
-            // Accept ghost text suggestion
+            // Accept ghost text suggestion (returns null for variable placeholders)
             const remainder = this.ghostText.getCurrentRemainder();
             if (remainder) {
               this.sendData(remainder);
@@ -290,17 +280,7 @@ export class TerminalView {
           if (data === "\x1b[A") { this.dropdown.moveUp(); this.syncDropdownToGhostText(); return; }
           if (data === "\x1b[B") { this.dropdown.moveDown(); this.syncDropdownToGhostText(); return; }
           if (data === "\r") {
-            const selected = this.dropdown.getSelected();
-            if (selected) {
-              const remainder = this.getCommandRemainder(selected.command.name, this.currentInput);
-              if (remainder) {
-                this.sendData(remainder);
-                this.shadowBuffer.reset();
-              }
-            }
-            this.dropdown.hide();
-            this.ghostText?.hide();
-            this.hideSuggestionBar();
+            this.acceptDropdownSelection();
             return;
           }
         }
@@ -636,11 +616,14 @@ export class TerminalView {
         this.ghostText?.destroy();
         this.dropdown?.destroy();
         this.ghostText = new GhostText(this.terminal, termContainer);
-        this.dropdown = new Dropdown(termContainer, (cmd) => {
-          // On dropdown accept
-          const remainder = this.getCommandRemainder(cmd.name, this.currentInput);
-          if (remainder) {
-            this.sendData(remainder);
+        this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
+          // On dropdown accept: send the ghost remainder (current token
+          // completion), not the full command name. Phase 3 token-aware.
+          const text = payload
+            ? ghostPayloadAcceptText(payload)
+            : this.getCommandRemainder(cmd.name, this.currentInput);
+          if (text) {
+            this.sendData(text);
             this.shadowBuffer.reset();
           }
           this.ghostText?.hide();
@@ -1018,14 +1001,7 @@ export class TerminalView {
 
     // Show ghost text for top match
     const top = results[0];
-    const remainder = this.getCommandRemainder(top.command.name, text);
-    if (remainder && this.terminal) {
-      this.ghostText?.show(remainder, results.length - 1);
-      this.showSuggestionBar(text, top.command.name, remainder);
-    } else {
-      this.ghostText?.hide();
-      this.hideSuggestionBar();
-    }
+    this.applyTopMatch(top, text, results.length - 1);
 
     // Update dropdown if open
     if (this.dropdown?.isVisible()) {
@@ -1034,6 +1010,40 @@ export class TerminalView {
 
     // Update sidebar with top match detail
     this.updateSidebarDetail(top.command);
+  }
+
+  /**
+   * Build ghost text + suggestion bar for the top result. Token-aware
+   * commands render the next expected token (Phase 3); legacy commands and
+   * name-prefix matches render the name remainder.
+   */
+  private applyTopMatch(top: SuggestionResult, input: string, extraMatchCount: number) {
+    const payload = this.ghostPayloadForTop(top, input);
+    if (payload && this.terminal) {
+      this.ghostText?.showPayload(payload, extraMatchCount);
+      this.showSuggestionBar(input, top.command.name, ghostPayloadDisplay(payload));
+    } else {
+      this.ghostText?.hide();
+      this.hideSuggestionBar();
+    }
+  }
+
+  /**
+   * Build a ghost payload for the top result. Token match → token payload;
+   * name/alias match → text remainder (legacy).
+   */
+  private ghostPayloadForTop(
+    top: SuggestionResult,
+    input: string,
+  ): GhostPayload | null {
+    if (top.matchType === "token" && top.tokenMatch) {
+      const payload = ghostPayloadFor(top.tokenMatch, top.command);
+      if (payload) return payload;
+      // Token match with no renderable payload (e.g. past all tokens) — fall
+      // back to name remainder so something is still shown.
+    }
+    const remainder = this.getCommandRemainder(top.command.name, input);
+    return remainder ? { kind: "text", text: remainder } : null;
   }
 
   private getCommandRemainder(commandName: string, input: string): string | null {
@@ -1050,14 +1060,27 @@ export class TerminalView {
   private syncDropdownToGhostText() {
     const selected = this.dropdown?.getSelected();
     if (selected) {
-      const remainder = this.getCommandRemainder(selected.command.name, this.currentInput);
-      if (remainder) {
-        this.ghostText?.show(remainder, 0);
-      } else {
-        this.ghostText?.hide();
-      }
-      this.updateSidebarDetail(selected.command);
+      this.applyTopMatch(selected, this.currentInput, 0);
     }
+  }
+
+  /**
+   * Accept the dropdown's current selection. Token-aware: the dropdown
+   * provides the ghost payload to send; for legacy matches we send the name
+   * remainder.
+   */
+  private acceptDropdownSelection() {
+    const selected = this.dropdown?.getSelected();
+    if (!selected) return;
+    const payload = this.dropdown?.getSelectedPayload() ?? this.ghostPayloadForTop(selected, this.currentInput);
+    const text = payload ? ghostPayloadAcceptText(payload) : this.getCommandRemainder(selected.command.name, this.currentInput);
+    if (text) {
+      this.sendData(text);
+      this.shadowBuffer.reset();
+    }
+    this.dropdown?.hide();
+    this.ghostText?.hide();
+    this.hideSuggestionBar();
   }
 
   private toggleDropdown() {
@@ -1070,10 +1093,12 @@ export class TerminalView {
     if (results.length === 0) return;
     if (!this.dropdown && this.terminal) {
       const termContainer = this.$(".tv-terminal")!;
-      this.dropdown = new Dropdown(termContainer, (cmd) => {
-        const remainder = this.getCommandRemainder(cmd.name, this.currentInput);
-        if (remainder) {
-          this.sendData(remainder);
+      this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
+        const text = payload
+          ? ghostPayloadAcceptText(payload)
+          : this.getCommandRemainder(cmd.name, this.currentInput);
+        if (text) {
+          this.sendData(text);
           this.shadowBuffer.reset();
         }
         this.ghostText?.hide();

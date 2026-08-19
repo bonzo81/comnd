@@ -36,12 +36,70 @@ export interface SuggestionResult {
   tokenMatch?: TokenMatch | null;
 }
 
+// ─── Ghost payload derivation (Phase 3) ─────────────────────────────
+
+import type { GhostPayload } from "./ghost-text";
+
+/**
+ * Derive the ghost-text payload for a token match. Returns null if the
+ * current position has nothing to render (e.g. input past all tokens).
+ * See docs/plan-kb-token-engine.md § 3.3.
+ */
+export function ghostPayloadFor(tm: TokenMatch, cmd: Command): GhostPayload | null {
+  const toks = cmd.tokens;
+  if (!toks) return null;
+  const tok = toks[tm.currentTokenIndex];
+  if (!tok) return null;
+
+  if (isLit(tok)) {
+    // Complete the lit from the current word index. `currentTokenInput` may
+    // span multiple already-typed words; we only return the remainder of
+    // the current word (ghost text is a single visual completion).
+    const words = splitLit(tok.lit);
+    if (tm.litWordIndex >= words.length) return null;
+    const word = words[tm.litWordIndex];
+    const input = tm.currentTokenInput.toLowerCase();
+    if (input && word.toLowerCase().startsWith(input)) {
+      return { kind: "literal", text: word.substring(input.length) };
+    }
+    if (!input) {
+      // At start of a multi-word lit, ghost the rest of the lit words too.
+      // The next words are appended so a single Tab completes the whole lit.
+      const rest = words.slice(tm.litWordIndex).join(" ");
+      return { kind: "literal", text: rest };
+    }
+    return { kind: "literal", text: word };
+  }
+  if (isChoice(tok)) {
+    const c = tm.currentTokenInput.toLowerCase();
+    const pick =
+      tok.choice.find((opt) => opt.toLowerCase().startsWith(c)) ?? tok.choice[0] ?? "";
+    return { kind: "choice", options: tok.choice, pick };
+  }
+  if (isVar(tok)) {
+    return {
+      kind: "variable",
+      placeholder: tok.var,
+      hint: tok.type === "numeric" ? "numeric"
+        : tok.source === "device" ? "enumerable"
+        : tok.type,
+    };
+  }
+  if (isPipe(tok)) {
+    const filters = tok.filters ?? [];
+    const c = tm.currentTokenInput.toLowerCase();
+    const pick = filters.find((f) => f.lit.toLowerCase().startsWith(c))?.lit ?? filters[0]?.lit ?? "";
+    return { kind: "choice", options: filters.map((f) => f.lit), pick };
+  }
+  return null;
+}
+
 // ─── Token type guards ───────────────────────────────────────────────
 
 function isLit(t: CommandToken): t is { lit: string; optional?: boolean } {
   return typeof (t as { lit?: unknown }).lit === "string";
 }
-function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean } {
+function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
   return Array.isArray((t as { choice?: unknown }).choice);
 }
 function isVar(t: CommandToken): t is {
@@ -390,8 +448,9 @@ function matchUnordered(
   }
 
   // Build optional units: lit+var forms a pair; others are standalone.
+  // `repeatable: true` on a choice means flags can repeat (e.g. `ls -l -a`).
   type Unit =
-    | { kind: 'choice'; idx: number }
+    | { kind: 'choice'; idx: number; repeatable: boolean }
     | { kind: 'lit'; idx: number }
     | { kind: 'var'; idx: number }
     | { kind: 'pair'; litIdx: number; varIdx: number }
@@ -411,7 +470,7 @@ function matchUnordered(
           i += 1;
         }
       } else if (isChoice(t)) {
-        units.push({ kind: 'choice', idx: lastRequired + 1 + i });
+        units.push({ kind: 'choice', idx: lastRequired + 1 + i, repeatable: !!t.repeatable });
         i += 1;
       } else if (isVar(t)) {
         units.push({ kind: 'var', idx: lastRequired + 1 + i });
@@ -485,6 +544,10 @@ function matchUnordered(
     const fu = units[found];
     if (fu.kind === 'pair' && !consumed.includes(fu.varIdx)) {
       // Lit consumed but var pending — don't mark used; current word may be the value.
+    } else if (fu.kind === 'choice' && fu.repeatable) {
+      // Repeatable choice (e.g. `ls -l -a`): don't mark used — the unit can
+      // match again. ponytail: only the `repeatable` flag widens this; a
+      // one-shot choice still marks used as before.
     } else {
       usedUnit.add(found);
     }

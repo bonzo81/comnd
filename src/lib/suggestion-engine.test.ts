@@ -4,7 +4,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { SuggestionEngine, matchTokens } from "./suggestion-engine";
+import { SuggestionEngine, matchTokens, ghostPayloadFor } from "./suggestion-engine";
+import { ghostPayloadAcceptText } from "./ghost-text";
 import type { Command } from "./tauri-api";
 
 function mkCmd(partial: Partial<Command>): Command {
@@ -234,6 +235,35 @@ describe("matchTokens — flags-anywhere order", () => {
   });
 });
 
+describe("matchTokens — repeatable choice (Phase 4)", () => {
+  const ls: Command = mkCmd({
+    name: "ls",
+    syntax: "ls [-l] [-a] [-h] [-t] [<path>]",
+    mode: "shell",
+    tokens: [
+      { lit: "ls" },
+      { choice: ["-l", "-a", "-h", "-t"], optional: true, repeatable: true },
+      { var: "path", type: "free", optional: true },
+    ],
+    order: "flags-anywhere",
+  });
+
+  it("accepts the same flag token multiple times", () => {
+    const m = matchTokens("ls -l -a", ls);
+    expect(m).not.toBeNull();
+  });
+
+  it("accepts a mix of repeatable flags then the path", () => {
+    const m = matchTokens("ls -l -a -h /var/log", ls);
+    expect(m).not.toBeNull();
+  });
+
+  it("points at the path var after a single flag", () => {
+    const m = matchTokens("ls -l /var", ls);
+    expect(m).not.toBeNull();
+  });
+});
+
 describe("matchTokens — negation", () => {
   it("strips the negation prefix when the command is negatable", () => {
     const m = matchTokens("no shutdown", shutdown, "no ");
@@ -322,5 +352,59 @@ describe("SuggestionEngine.query — integration", () => {
     const results = e.query("show ip interface b");
     // a consumed the choice token; b only consumed the lit.
     expect(results[0].command.name).toBe("show ip interface brief");
+  });
+});
+
+// ─── Phase 3: ghost payload derivation ───────────────────────────────
+
+describe("ghostPayloadFor — Phase 3", () => {
+  it("completes a multi-word literal from the current word index", () => {
+    const m = matchTokens("show ip int", showIpIntBrief)!;
+    const p = ghostPayloadFor(m, showIpIntBrief);
+    expect(p).not.toBeNull();
+    expect(p!.kind).toBe("literal");
+    if (p!.kind === "literal") expect(p!.text).toBe("erface");
+  });
+
+  it("ghosts the choice pick when at a choice slot", () => {
+    const m = matchTokens("show ip interface b", showIpIntBrief)!;
+    const p = ghostPayloadFor(m, showIpIntBrief);
+    expect(p).not.toBeNull();
+    expect(p!.kind).toBe("choice");
+    if (p!.kind === "choice") {
+      expect(p!.pick).toBe("brief");
+      expect(p!.options).toEqual(["brief"]);
+    }
+  });
+
+  it("ghosts the variable placeholder when at a var slot", () => {
+    const m = matchTokens("show ip interface brief Gi", showIpIntBrief)!;
+    const p = ghostPayloadFor(m, showIpIntBrief);
+    expect(p).not.toBeNull();
+    expect(p!.kind).toBe("variable");
+    if (p!.kind === "variable") expect(p!.placeholder).toBe("interface-name");
+  });
+
+  it("pipe token ghost renders the matching filter lit", () => {
+    const m = matchTokens("show running-config | s", showRun)!;
+    const p = ghostPayloadFor(m, showRun);
+    expect(p).not.toBeNull();
+    expect(p!.kind).toBe("choice");
+    if (p!.kind === "choice") expect(p!.pick).toBe("section");
+  });
+});
+
+describe("ghostPayloadAcceptText — Tab behaviour (Phase 3.5)", () => {
+  it("accepts literal payloads (returns the completion text)", () => {
+    expect(ghostPayloadAcceptText({ kind: "literal", text: "erface" })).toBe("erface");
+  });
+  it("accepts choice payloads (returns the pick)", () => {
+    expect(ghostPayloadAcceptText({ kind: "choice", options: ["brief"], pick: "brief" })).toBe("brief");
+  });
+  it("accepts text payloads (legacy remainder)", () => {
+    expect(ghostPayloadAcceptText({ kind: "text", text: " brief" })).toBe(" brief");
+  });
+  it("does NOT accept variable placeholders (Tab passes through)", () => {
+    expect(ghostPayloadAcceptText({ kind: "variable", placeholder: "interface-name" })).toBeNull();
   });
 });

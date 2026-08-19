@@ -14,6 +14,26 @@
   border-radius: var(--radius-sm);
 }
 
+/* Phase 3: variable placeholder — italic + dashed underline. Not completable. */
+.ghost-text.ghost-text--variable {
+  font-style: italic;
+  opacity: 0.45;
+  border-bottom: 1px dashed var(--color-border-strong, var(--color-border));
+}
+
+/* Phase 3: choice token — faint left border. */
+.ghost-text.ghost-text--choice {
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space-1);
+}
+
+/* Phase 3: literal completion — same as text but no background tint. */
+.ghost-text.ghost-text--literal {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
 .match-count-badge {
   position: absolute;
   color: var(--color-accent);
@@ -80,6 +100,43 @@
   margin-left: var(--space-3);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* Phase 3: tokenized suffix in dropdown rows */
+.token-suffix {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-left: var(--space-2);
+  margin-right: var(--space-2);
+  white-space: nowrap;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+
+.token-suffix .token-choice {
+  color: var(--color-text-secondary);
+}
+
+.token-suffix .token-var {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.token-suffix .token-pipe {
+  color: var(--color-text-secondary);
+}
+
+.token-suffix .current {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Phase 3: choice sub-rows when the current token is a choice */
+.suggestion-item.choice-row .suggestion-name {
+  color: var(--color-accent);
 }
 
 .scroll-indicator {

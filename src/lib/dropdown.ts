@@ -1,10 +1,19 @@
 /**
  * Dropdown — suggestion list with keyboard navigation
  * Positioned near the terminal cursor. Max 8 visible items.
+ *
+ * Phase 3: rows show a tokenized suffix (remaining tokens) with the current
+ * token highlighted. For `choice` tokens, the dropdown can switch into a
+ * "choice mode" where rows are the choice options instead of commands. See
+ * docs/plan-kb-token-engine.md § 3.2.
  */
 
-import { SuggestionResult, Command } from "./suggestion-engine";
+import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
+import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { escHtml } from "./format";
+import type { CommandToken } from "./tauri-api";
+
+export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
 
 export class Dropdown {
   private container: HTMLElement;
@@ -12,10 +21,13 @@ export class Dropdown {
   private items: SuggestionResult[] = [];
   private selectedIndex = 0;
   private _visible = false;
-  private onAccept: (command: Command) => void;
+  private onAccept: AcceptFn;
   private currentPrefix = "";
 
-  constructor(container: HTMLElement, onAccept: (command: Command) => void) {
+  /** When non-null, the dropdown shows choice options instead of commands. */
+  private choiceMode: { options: string[]; sourceIndex: number } | null = null;
+
+  constructor(container: HTMLElement, onAccept: AcceptFn) {
     this.container = container;
     this.onAccept = onAccept;
 
@@ -30,6 +42,7 @@ export class Dropdown {
     this.items = results;
     this.currentPrefix = prefix;
     this.selectedIndex = 0;
+    this.choiceMode = null;
     this._visible = true;
     this.render();
     this.el.style.display = "block";
@@ -38,6 +51,7 @@ export class Dropdown {
   /** Hide the dropdown */
   hide() {
     this._visible = false;
+    this.choiceMode = null;
     this.el.style.display = "none";
   }
 
@@ -48,6 +62,19 @@ export class Dropdown {
 
   /** Update results (e.g. when user types more) */
   updateResults(results: SuggestionResult[]) {
+    if (this.choiceMode) {
+      // Refresh choice-mode from the new top result if possible.
+      const top = results[0];
+      const tm = top?.tokenMatch;
+      if (top && tm && top.command.tokens?.[tm.currentTokenIndex] && isChoiceTok(top.command.tokens[tm.currentTokenIndex])) {
+        const tok = top.command.tokens[tm.currentTokenIndex] as { choice: string[] };
+        this.choiceMode = { options: tok.choice, sourceIndex: this.selectedIndex };
+        this.selectedIndex = 0;
+        this.renderChoice();
+        return;
+      }
+      this.choiceMode = null;
+    }
     this.items = results;
     if (results.length === 0) {
       this.hide();
@@ -59,22 +86,48 @@ export class Dropdown {
 
   /** Move selection up */
   moveUp() {
-    if (this.items.length === 0) return;
-    this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
+    const count = this.choiceMode ? this.choiceMode.options.length : this.items.length;
+    if (count === 0) return;
+    this.selectedIndex = (this.selectedIndex - 1 + count) % count;
     this.render();
   }
 
   /** Move selection down */
   moveDown() {
-    if (this.items.length === 0) return;
-    this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
+    const count = this.choiceMode ? this.choiceMode.options.length : this.items.length;
+    if (count === 0) return;
+    this.selectedIndex = (this.selectedIndex + 1) % count;
     this.render();
   }
 
-  /** Get the currently selected result */
+  /**
+   * Get the currently selected result + its ghost payload (for accept).
+   * In choice mode, returns the top command with a `choice` payload.
+   */
   getSelected(): SuggestionResult | null {
-    if (!this._visible || this.items.length === 0) return null;
+    if (!this._visible) return null;
+    if (this.choiceMode) {
+      const top = this.items[0];
+      if (!top) return null;
+      const pick = this.choiceMode.options[this.selectedIndex] ?? "";
+      // Attach the choice payload as a transient field via a wrapper result.
+      // We return the top result and let the caller read the payload via
+      // `getSelectedPayload()`.
+      this._pendingPayload = { kind: "choice", options: this.choiceMode.options, pick };
+      return top;
+    }
+    this._pendingPayload = null;
+    if (this.items.length === 0) return null;
     return this.items[this.selectedIndex] ?? null;
+  }
+
+  private _pendingPayload: GhostPayload | null = null;
+
+  /** Payload to send on accept (set by getSelected in choice mode). */
+  getSelectedPayload(): GhostPayload | null {
+    const p = this._pendingPayload;
+    this._pendingPayload = null;
+    return p;
   }
 
   /** Clean up DOM */
@@ -90,8 +143,10 @@ export class Dropdown {
       const isSelected = i === this.selectedIndex;
       const name = this.highlightPrefix(item.command.name, this.currentPrefix);
       const category = item.command.category;
+      const suffix = this.tokenSuffix(item);
       return `<div class="suggestion-item${isSelected ? " selected" : ""}" data-index="${i}">
         <span class="suggestion-name">${name}</span>
+        <span class="token-suffix">${suffix}</span>
         <span class="suggestion-category">${escHtml(category)}</span>
       </div>`;
     }).join("");
@@ -106,11 +161,93 @@ export class Dropdown {
       el.addEventListener("click", () => {
         const idx = parseInt((el as HTMLElement).dataset.index ?? "0", 10);
         if (this.items[idx]) {
-          this.onAccept(this.items[idx].command);
-          this.hide();
+          this.selectedIndex = idx;
+          this.acceptCurrent();
         }
       });
     });
+  }
+
+  private renderChoice() {
+    if (!this.choiceMode) return;
+    const opts = this.choiceMode.options;
+    this.el.innerHTML = opts.map((opt, i) => {
+      const isSelected = i === this.selectedIndex;
+      return `<div class="suggestion-item choice-row${isSelected ? " selected" : ""}" data-index="${i}">
+        <span class="suggestion-name">${escHtml(opt)}</span>
+      </div>`;
+    }).join("");
+    this.el.querySelectorAll(".choice-row").forEach((el) => {
+      el.addEventListener("click", () => {
+        const idx = parseInt((el as HTMLElement).dataset.index ?? "0", 10);
+        this.selectedIndex = idx;
+        this.acceptCurrent();
+      });
+    });
+  }
+
+  /** Accept the current selection (command or choice option). */
+  private acceptCurrent() {
+    if (this.choiceMode) {
+      const pick = this.choiceMode.options[this.selectedIndex] ?? "";
+      const top = this.items[0];
+      if (top) {
+        this.onAccept(top.command, { kind: "choice", options: this.choiceMode.options, pick });
+      }
+    } else {
+      const selected = this.items[this.selectedIndex];
+      if (selected) {
+        // Build payload for the selected command (same derivation as ghost).
+        const payload = selected.tokenMatch ? ghostPayloadFor(selected.tokenMatch, selected.command) : null;
+        this.onAccept(selected.command, payload);
+      }
+    }
+    this.hide();
+  }
+
+  /**
+   * Render the remaining tokens after the matched name as a tokenized suffix.
+   * Literals plain, choices in brackets, variables in <>, current token
+   * highlighted.
+   */
+  private tokenSuffix(item: SuggestionResult): string {
+    const tm = item.tokenMatch;
+    if (!tm) return "";
+    const toks = item.command.tokens;
+    if (!toks || toks.length === 0) return "";
+    const currentIdx = tm.currentTokenIndex;
+    // Render from the current token onward.
+    const parts: string[] = [];
+    for (let i = currentIdx; i < toks.length; i++) {
+      const t = toks[i];
+      const isCurrent = i === currentIdx;
+      parts.push(this.renderToken(t, isCurrent, tm.litWordIndex));
+    }
+    return parts.join(" ");
+  }
+
+  private renderToken(t: CommandToken, isCurrent: boolean, litWordIdx: number): string {
+    const cls = isCurrent ? "current" : "";
+    if (isLitTok(t)) {
+      const words = t.lit.trim().split(/\s+/);
+      // Highlight the current word of the lit.
+      const rendered = words.map((w, idx) => {
+        const wCls = isCurrent && idx >= litWordIdx ? "current" : "";
+        return wCls ? `<span class="token-lit ${wCls}">${escHtml(w)}</span>` : `<span class="token-lit">${escHtml(w)}</span>`;
+      }).join(" ");
+      return `<span class="${cls}">${rendered}</span>`;
+    }
+    if (isChoiceTok(t)) {
+      return `<span class="token-choice ${cls}">[${t.choice.map(escHtml).join(" | ")}]</span>`;
+    }
+    if (isVarTok(t)) {
+      return `<span class="token-var ${cls}">&lt;${escHtml(t.var)}&gt;</span>`;
+    }
+    if (isPipeTok(t)) {
+      const fs = (t.filters ?? []).map((f) => escHtml(f.lit)).join(" | ");
+      return `<span class="token-pipe ${cls}">| ${fs}</span>`;
+    }
+    return "";
   }
 
   private highlightPrefix(name: string, prefix: string): string {
@@ -124,4 +261,19 @@ export class Dropdown {
     }
     return escHtml(name);
   }
+}
+
+// ─── Token type guards (lightweight, duplicated from suggestion-engine) ──
+
+function isLitTok(t: CommandToken): t is { lit: string; optional?: boolean } {
+  return typeof (t as { lit?: unknown }).lit === "string";
+}
+function isChoiceTok(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
+  return Array.isArray((t as { choice?: unknown }).choice);
+}
+function isVarTok(t: CommandToken): t is { var: string; optional?: boolean } {
+  return typeof (t as { var?: unknown }).var === "string";
+}
+function isPipeTok(t: CommandToken): t is { pipe: boolean; filters?: { lit: string }[]; optional?: boolean } {
+  return typeof (t as { pipe?: unknown }).pipe === "boolean";
 }
