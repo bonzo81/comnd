@@ -12,6 +12,7 @@ import {
   Host,
   getHosts,
   getHostGroups,
+  moveHostGroup,
   saveHost,
   saveHostGroup,
 } from "../lib/tauri-api";
@@ -54,6 +55,12 @@ export class NavPanel {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
   private dragPayload: DragPayload | null = null;
+  private dropIndicator: HTMLElement | null = null;
+  private dragStart: { x: number; y: number; el: HTMLElement } | null = null;
+  private dragClone: HTMLElement | null = null;
+  private dragCloneOff: { x: number; y: number } = { x: 0, y: 0 };
+  private dragMoved = false;
+  private dragHoldTimer: number | null = null;
 
   constructor(container: HTMLElement, callbacks: NavCallbacks) {
     this.container = container;
@@ -297,8 +304,8 @@ export class NavPanel {
     const creatingHere = this.creatingIn === group.id;
 
     let html = `
-      <div class="nav-group-row" data-group-id="${group.id}" draggable="true">
-        <button class="nav-item nav-sub" data-group-id="${group.id}" style="padding-left:${indent}px">
+      <div class="nav-group-row" data-group-id="${group.id}">
+        <button class="nav-item nav-sub" data-group-id="${group.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
           <span class="nav-sub-icon">${group.icon ? escHtml(group.icon) : icons.folder}</span>
           <span class="nav-item-label">${escHtml(group.name)}</span>
@@ -331,8 +338,8 @@ export class NavPanel {
     const indent = 12 + depth * 14;
     const selected = this.selectedHostId === host.id;
     return `
-      <div class="nav-host-row ${selected ? "nav-selected" : ""}" data-host-id="${host.id}" draggable="true">
-        <button class="nav-item nav-sub" data-host-id="${host.id}" style="padding-left:${indent}px">
+      <div class="nav-host-row ${selected ? "nav-selected" : ""}" data-host-id="${host.id}">
+        <button class="nav-item nav-sub" data-host-id="${host.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle"></span>
           <span class="nav-sub-icon nav-host-dot"></span>
           <span class="nav-item-label">${escHtml(host.display_name)}</span>
@@ -500,70 +507,21 @@ export class NavPanel {
     this.container.querySelectorAll<HTMLElement>(".nav-host-row").forEach((el) => {
       const id = el.dataset.hostId ?? "";
       el.addEventListener("click", () => {
+        if (this.dragMoved) return;
         this.selectedHostId = id;
         this.cb.onSelectHost(id);
         this.render();
       });
       el.addEventListener("dblclick", () => {
+        if (this.dragMoved) return;
         this.cb.onConnectHost(id);
       });
-      // Drag & drop
-      el.addEventListener("dragstart", (e) => {
-        this.dragPayload = { kind: "host", id };
-        e.dataTransfer?.setData("text/plain", id);
-        e.dataTransfer!.effectAllowed = "move";
-      });
-      el.addEventListener("dragend", () => {
-        this.dragPayload = null;
-        this.clearDropMarks();
-      });
     });
 
-    // Group rows — drag & drop (reparent / ungroup)
-    this.container.querySelectorAll<HTMLElement>(".nav-group-row[draggable]").forEach((el) => {
-      const groupId = el.dataset.groupId ?? "";
-      el.addEventListener("dragstart", (e) => {
-        this.dragPayload = { kind: "group", id: groupId };
-        e.dataTransfer?.setData("text/plain", groupId);
-        e.dataTransfer!.effectAllowed = "move";
-      });
-      el.addEventListener("dragend", () => {
-        this.dragPayload = null;
-        this.clearDropMarks();
-      });
-      // Drop target for host moves and group reparents
-      el.addEventListener("dragover", (e) => {
-        if (!this.dragPayload) return;
-        e.preventDefault();
-        e.dataTransfer!.dropEffect = "move";
-        this.markDropTarget(el, this.validGroupDrop(groupId));
-      });
-      el.addEventListener("dragleave", () => this.markDropTarget(el, false));
-      el.addEventListener("drop", (e) => {
-        e.preventDefault();
-        this.markDropTarget(el, false);
-        this.handleDrop(groupId);
-      });
+    // Pointer-based drag sources (HTML5 DnD is unreliable in WebView2).
+    this.container.querySelectorAll<HTMLElement>(".nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id]").forEach((el) => {
+      el.addEventListener("pointerdown", (e) => this.onDragStart(e, el));
     });
-
-    // Root drop zone — ungroup a group
-    const rootZone = this.container.querySelector<HTMLElement>("[data-drop-root]");
-    if (rootZone) {
-      rootZone.addEventListener("dragover", (e) => {
-        if (!this.dragPayload || this.dragPayload.kind !== "group") return;
-        e.preventDefault();
-        e.dataTransfer!.dropEffect = "move";
-        this.markDropTarget(rootZone, true);
-      });
-      rootZone.addEventListener("dragleave", () => this.markDropTarget(rootZone, false));
-      rootZone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        this.markDropTarget(rootZone, false);
-        if (this.dragPayload?.kind === "group") {
-          void this.moveGroup(this.dragPayload.id, null);
-        }
-      });
-    }
 
     // Per-row hover actions: add host / add subgroup (inline)
     this.container.querySelectorAll<HTMLElement>(".nav-row-btn").forEach((el) => {
@@ -634,7 +592,163 @@ export class NavPanel {
     });
   }
 
-  // ─── Drag & drop ─────────────────────────────────────────────────
+  // ─── Drag & drop (pointer-based; HTML5 DnD is unreliable in WebView2) ─
+
+  private onDragStart(e: PointerEvent, el: HTMLElement) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    this.dragStart = { x: e.clientX, y: e.clientY, el };
+    this.dragPayload = null;
+    this.dragMoved = false;
+    // Arm the drag after a short hold — only then does the ghost and
+    // drop-target logic activate.
+    this.dragHoldTimer = window.setTimeout(() => {
+      this.dragHoldTimer = null;
+      const start = this.dragStart;
+      if (!start) return;
+      const payload = this.payloadFromEl(start.el);
+      if (!payload) return;
+      this.dragPayload = payload;
+      this.liftSource(start.el);
+      this.createClone(start.el, e.clientX, e.clientY);
+    }, 250);
+    window.addEventListener("pointermove", this.onDragMove);
+    window.addEventListener("pointerup", this.onDragUp);
+  }
+
+  private onDragMove = (e: PointerEvent) => {
+    const start = this.dragStart;
+    if (!start) return;
+    if (!this.dragPayload) {
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (dx * dx + dy * dy < 25) return; // 5px threshold — cancels pending hold
+      if (this.dragHoldTimer !== null) {
+        window.clearTimeout(this.dragHoldTimer);
+        this.dragHoldTimer = null;
+      }
+      return;
+    }
+    this.dragMoved = true;
+    this.moveClone(e.clientX, e.clientY);
+    this.updateDropTarget(e.clientY);
+  };
+
+  private onDragUp = (e: PointerEvent) => {
+    window.removeEventListener("pointermove", this.onDragMove);
+    window.removeEventListener("pointerup", this.onDragUp);
+    if (this.dragHoldTimer !== null) {
+      window.clearTimeout(this.dragHoldTimer);
+      this.dragHoldTimer = null;
+    }
+    const wasDragging = !!this.dragPayload;
+    this.dragStart = null;
+    this.unliftSource();
+    this.removeClone();
+    this.removeIndicator();
+    this.clearDropMarks();
+    if (wasDragging) {
+      const target = this.dropTarget;
+      this.dropTarget = null;
+      if (target) void this.handleDrop(target.groupId, target.pos);
+    }
+    this.dragPayload = null;
+    // keep dragMoved true briefly so the synthetic click from this
+    // pointer gesture doesn't also select/connect the row
+    setTimeout(() => {
+      this.dragMoved = false;
+    }, 50);
+  };
+
+  private payloadFromEl(el: HTMLElement): DragPayload | null {
+    const gid = el.dataset.groupId;
+    if (gid) return { kind: "group", id: gid };
+    const hid = el.dataset.hostId;
+    if (hid) return { kind: "host", id: hid };
+    return null;
+  }
+
+  private liftSource(el: HTMLElement) {
+    const row = el.closest<HTMLElement>(".nav-group-row, .nav-host-row");
+    if (row) row.classList.add("nav-drag-lift");
+  }
+
+  private unliftSource() {
+    this.container.querySelectorAll<HTMLElement>(".nav-drag-lift").forEach((el) => {
+      el.classList.remove("nav-drag-lift");
+    });
+  }
+
+  private createClone(src: HTMLElement, x: number, y: number) {
+    const row = src.closest<HTMLElement>(".nav-group-row, .nav-host-row");
+    if (!row) return;
+    const item = row.querySelector<HTMLElement>(".nav-item");
+    if (!item) return;
+    // Clone just the visible item (not the hover action buttons) so the
+    // drag image looks exactly like the row at rest.
+    const c = item.cloneNode(true) as HTMLElement;
+    c.classList.add("nav-drag-clone");
+    const r = item.getBoundingClientRect();
+    c.style.width = `${r.width}px`;
+    c.style.height = `${r.height}px`;
+    c.style.left = `${r.left}px`;
+    c.style.top = `${r.top}px`;
+    this.dragCloneOff = { x: x - r.left, y: y - r.top };
+    document.body.appendChild(c);
+    this.dragClone = c;
+  }
+
+  private moveClone(x: number, y: number) {
+    if (this.dragClone) {
+      this.dragClone.style.left = `${x - this.dragCloneOff.x}px`;
+      this.dragClone.style.top = `${y - this.dragCloneOff.y}px`;
+    }
+  }
+
+  private removeClone() {
+    this.dragClone?.remove();
+    this.dragClone = null;
+  }
+
+  private dropTarget: { groupId: string; pos: "above" | "below" } | null = null;
+
+  private updateDropTarget(clientY: number) {
+    this.clearDropMarks();
+    this.removeIndicator();
+    this.dropTarget = null;
+    if (!this.dragPayload) return;
+    const p = this.dragPayload;
+    const rootZone = this.container.querySelector<HTMLElement>("[data-drop-root]");
+    const rows = Array.from(this.container.querySelectorAll<HTMLElement>(".nav-group-row"));
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect();
+      if (clientY < rect.top || clientY > rect.bottom) continue;
+      const groupId = row.dataset.groupId ?? "";
+      if (p.kind === "group") {
+        if (groupId === p.id || this.isDescendant(groupId, p.id)) {
+          this.markDropTarget(row, false);
+          continue;
+        }
+        const pos: "above" | "below" = clientY < rect.top + rect.height / 2 ? "above" : "below";
+        this.showIndicator(row, pos);
+        this.markDropTarget(row, true);
+        this.dropTarget = { groupId, pos };
+      } else {
+        this.markDropTarget(row, true);
+        this.dropTarget = { groupId, pos: "below" };
+      }
+      return;
+    }
+    // no row hit — check root zone (only for group reordering to root)
+    if (p.kind === "group" && rootZone) {
+      const rrect = rootZone.getBoundingClientRect();
+      if (clientY >= rrect.top && clientY <= rrect.bottom) {
+        this.showIndicator(rootZone, "below");
+        this.markDropTarget(rootZone, true);
+        this.dropTarget = { groupId: ALL_GROUP_ID, pos: "below" };
+      }
+    }
+  }
 
   private isDescendant(candidateId: string, ancestorId: string): boolean {
     let cur = this.groups.find((g) => g.id === candidateId);
@@ -643,15 +757,6 @@ export class NavPanel {
       cur = cur.parent_id ? this.groups.find((g) => g.id === cur!.parent_id) : undefined;
     }
     return false;
-  }
-
-  /** Can the current drag payload be dropped onto group `groupId`? */
-  private validGroupDrop(groupId: string): boolean {
-    const p = this.dragPayload;
-    if (!p) return false;
-    if (p.kind === "host") return true;
-    // group reparent: not onto self, not onto own descendant
-    return p.id !== groupId && !this.isDescendant(groupId, p.id);
   }
 
   private markDropTarget(el: HTMLElement, valid: boolean) {
@@ -666,15 +771,58 @@ export class NavPanel {
     });
   }
 
-  private async handleDrop(groupId: string) {
+  private removeIndicator() {
+    this.dropIndicator?.remove();
+    this.dropIndicator = null;
+  }
+
+  private showIndicator(row: HTMLElement, pos: "above" | "below") {
+    this.removeIndicator();
+    const line = document.createElement("div");
+    line.className = "nav-drop-line";
+    line.style.display = "block";
+    if (pos === "above") row.before(line);
+    else row.after(line);
+    this.dropIndicator = line;
+  }
+
+  /** Sibling ids of group `groupId` (null = root level) in display order, excluding `excludeId`. */
+  private siblingsExcept(groupId: string | null, excludeId: string): string[] {
+    return this.groups
+      .filter((g) => g.parent_id === groupId && g.id !== excludeId)
+      .map((g) => g.id);
+  }
+
+  private async handleDrop(groupId: string, pos: "above" | "below") {
+    if (!this.dragPayload) return;
     const p = this.dragPayload;
     this.dragPayload = null;
-    this.clearDropMarks();
-    if (!p) return;
     if (p.kind === "host") {
       await this.moveHost(p.id, groupId);
-    } else {
-      await this.moveGroup(p.id, groupId === ALL_GROUP_ID ? null : groupId);
+      return;
+    }
+    const dragged = p.id;
+    const targetParent = groupId === ALL_GROUP_ID ? null : groupId;
+    const cur = this.groups.find((g) => g.id === dragged);
+    if (!cur) return;
+    let siblings = this.siblingsExcept(targetParent, dragged);
+    let order = siblings.length;
+    if (groupId !== ALL_GROUP_ID) {
+      const idx = siblings.indexOf(groupId);
+      if (idx >= 0) order = pos === "above" ? idx : idx + 1;
+    }
+    siblings.splice(order, 0, dragged);
+    const curSiblings = this.siblingsExcept(cur.parent_id, dragged);
+    if (cur.parent_id === targetParent && curSiblings.join(",") === siblings.join(",")) {
+      return; // no-op: same parent, same position
+    }
+    if (targetParent) this.expandedGroups.add(targetParent);
+    try {
+      await moveHostGroup(dragged, targetParent, order);
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error("nav-panel", `Failed to move group: ${err}`);
     }
   }
 
@@ -690,19 +838,6 @@ export class NavPanel {
       this.cb.onTreeChanged();
     } catch (err) {
       log.error("nav-panel", `Failed to move host: ${err}`);
-    }
-  }
-
-  private async moveGroup(groupId: string, newParent: string | null) {
-    const group = this.groups.find((g) => g.id === groupId);
-    if (!group) return;
-    if (group.parent_id === newParent) return;
-    try {
-      await saveHostGroup(groupId, group.name, newParent, null, group.icon);
-      await this.refresh();
-      this.cb.onTreeChanged();
-    } catch (err) {
-      log.error("nav-panel", `Failed to move group: ${err}`);
     }
   }
 

@@ -295,10 +295,26 @@
   margin: 0 3px;
 }
 
-/* ─── Drag & drop ─────────────────────────────────────────────────── */
-.nav-group-row[draggable],
-.nav-host-row[draggable] {
-  cursor: grab;
+/* ─── Drag & drop (pointer-based) ─────────────────────────────────── */
+
+/* Source row becomes an invisible placeholder while its clone follows the cursor */
+.nav-drag-lift {
+  opacity: 0;
+  transition: opacity 0.05s;
+}
+
+/* Floating clone of the row item that tracks the pointer. It's a cloneNode
+   of the .nav-item so it inherits the row's exact rest-state styling. A
+   solid elevated background + shadow lifts it off the page while dragging. */
+.nav-drag-clone {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  margin: 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius-md);
 }
 
 .nav-drop-ok {
@@ -317,6 +333,14 @@
 
 .nav-root-zone.nav-drop-ok {
   background: var(--color-surface-selected);
+}
+
+.nav-drop-line {
+  height: 2px;
+  margin: 0 var(--space-2);
+  border-radius: 1px;
+  background: var(--color-accent);
+  pointer-events: none;
 }
 
 /* ─── Inline "new group" input ────────────────────────────────────── */
