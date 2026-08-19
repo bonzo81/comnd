@@ -74,7 +74,7 @@
 }
 
 .title-bar-search-seg.active {
-  background: var(--color-surface-hover);
+  background: var(--color-accent);
   color: var(--color-text-primary);
 }
 
