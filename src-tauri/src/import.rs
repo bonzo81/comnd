@@ -153,7 +153,7 @@ pub async fn extract_from_url(
     let ollama = OllamaClient::new(
         config.ollama_base_url.clone(),
         config.ollama_model.clone(),
-        config.ollama_api_key.clone(),
+        crate::config::get_ollama_api_key()?,
         config.ollama_context_length,
     );
 
@@ -582,7 +582,7 @@ default_mode: privileged-exec
         ),
     };
 
-    std::fs::write(path, &index_content)
+    crate::paths::atomic_write(path, index_content.as_bytes())
         .map_err(|e| format!("Failed to write index.yaml: {}", e))?;
 
     log::info!("Created platform index: {}", path.display());

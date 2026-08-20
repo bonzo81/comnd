@@ -679,7 +679,7 @@ fn write_deleted_list(deleted_path: &Path, names: &HashSet<String>) -> Result<()
     }))
     .map_err(|e| format!("Failed to serialize deleted list: {}", e))?;
 
-    std::fs::write(deleted_path, yaml_content)
+    crate::paths::atomic_write(deleted_path, yaml_content.as_bytes())
         .map_err(|e| format!("Failed to write {}: {}", deleted_path.display(), e))
 }
 
@@ -779,7 +779,7 @@ pub fn write_commands_to_yaml(commands: &[Command], path: &Path, _category: &str
 
     let yaml_content = serialize_commands(&merged)?;
 
-    std::fs::write(path, yaml_content)
+    crate::paths::atomic_write(path, yaml_content.as_bytes())
         .map_err(|e| format!("Failed to write YAML file {}: {}", path.display(), e))?;
 
     log::info!("Wrote {} commands to {}", merged.len(), path.display());
@@ -859,7 +859,7 @@ pub fn delete_kb_command(
                 }
             } else {
                 let yaml_content = serialize_commands(&cmd_file.commands)?;
-                std::fs::write(&path, yaml_content)
+                crate::paths::atomic_write(&path, yaml_content.as_bytes())
                     .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
             }
 

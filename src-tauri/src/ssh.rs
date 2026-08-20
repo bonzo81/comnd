@@ -25,15 +25,14 @@ struct KnownHostEntry {
     first_seen: String,
 }
 
-fn known_hosts_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("netsh")
-        .join("known_hosts.json")
+fn known_hosts_path() -> Option<PathBuf> {
+    Some(crate::paths::app_data_dir().ok()?.join("known_hosts.json"))
 }
 
 fn load_known_hosts() -> HashMap<String, KnownHostEntry> {
-    let path = known_hosts_path();
+    let Some(path) = known_hosts_path() else {
+        return HashMap::new();
+    };
     if !path.exists() {
         return HashMap::new();
     }
@@ -44,12 +43,10 @@ fn load_known_hosts() -> HashMap<String, KnownHostEntry> {
 }
 
 fn save_known_hosts(hosts: &HashMap<String, KnownHostEntry>) -> Result<(), String> {
-    let path = known_hosts_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let path = known_hosts_path()
+        .ok_or_else(|| "Could not resolve app data dir for known_hosts".to_string())?;
     let data = serde_json::to_string_pretty(hosts).map_err(|e| e.to_string())?;
-    std::fs::write(&path, data).map_err(|e| e.to_string())
+    crate::paths::secure_write(&path, data.as_bytes())
 }
 
 fn key_to_base64(key: &PublicKey) -> String {

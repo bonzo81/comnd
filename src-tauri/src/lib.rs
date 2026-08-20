@@ -11,6 +11,7 @@ mod hosts;
 mod config;
 mod ollama;
 mod import;
+mod paths;
 
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
@@ -18,7 +19,7 @@ use tauri::{Emitter, Manager};
 use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
 use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use ssh::SshManager;
-use config::{AppConfig, ConfigStore, parse_log_level_filter};
+use config::{ConfigStore, parse_log_level_filter, get_ollama_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
 
 // ─── Log MultiWriter ────────────────────────────────────────────────
@@ -362,9 +363,18 @@ async fn ssh_resize(
 #[tauri::command]
 async fn get_app_config(
     state: tauri::State<'_, AppState>,
-) -> Result<AppConfig, String> {
+) -> Result<serde_json::Value, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    Ok(config.get().clone())
+    let mut v = serde_json::to_value(config.get())
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    // API key lives in the OS keychain, not in config.json.
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(
+            "ollama_api_key".to_string(),
+            serde_json::Value::from(get_ollama_api_key()?),
+        );
+    }
+    Ok(v)
 }
 
 #[tauri::command]
@@ -557,11 +567,12 @@ async fn commit_kb_import(
 async fn test_ollama_connection(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let (base_url, model, api_key, context_length) = {
+    let (base_url, model, context_length) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let cfg = config.get();
-        (cfg.ollama_base_url.clone(), cfg.ollama_model.clone(), cfg.ollama_api_key.clone(), cfg.ollama_context_length)
+        (cfg.ollama_base_url.clone(), cfg.ollama_model.clone(), cfg.ollama_context_length)
     };
+    let api_key = get_ollama_api_key()?;
 
     let ollama = ollama::OllamaClient::new(
         base_url,
@@ -709,27 +720,50 @@ async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Resolve the app data dir before the logger so the early config read and
+    // the store setup below share one path. No AppHandle exists yet, so use
+    // `paths::app_data_dir()` (replicates Tauri's `app_local_data_dir`).
+    let data_dir = crate::paths::app_data_dir();
+
+    // One-shot: copy persisted JSON from the legacy `dirs::data_dir()/netsh`
+    // location into the new bundle-id dir, before anything reads it.
+    if let Ok(d) = &data_dir {
+        if crate::paths::ensure_data_dir(d).is_ok() {
+            crate::paths::migrate_data_dir(d);
+        }
+    }
+
     // Read config once before initializing the logger.
-    let (level, max_mb) = ConfigStore::new()
-        .map(|c| (c.get().log_level.clone(), c.get().log_max_size_mb))
-        .unwrap_or_else(|e| {
-            // Logger not yet up; print to stderr as a last resort.
-            eprintln!("net.sh: Failed to read config ({}). Using 'info'/10MB.", e);
-            ("info".to_string(), 10)
-        });
+    let (level, max_mb) = match &data_dir {
+        Ok(d) => ConfigStore::new(d)
+            .map(|c| (c.get().log_level.clone(), c.get().log_max_size_mb))
+            .unwrap_or_else(|e| {
+                // Logger not yet up; print to stderr as a last resort.
+                eprintln!("net.sh: Failed to read config ({}). Using 'info'/10MB.", e);
+                ("info".to_string(), 10)
+            }),
+        Err(_) => ("info".to_string(), 10),
+    };
     let filter = parse_log_level_filter(&level);
     let config = simplelog::Config::default();
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
     if !cfg!(debug_assertions) {
-        if let Some(dir) = dirs::data_dir() {
-            let log_path = dir.join("netsh").join("logs").join("netsh.log");
-            if std::fs::create_dir_all(log_path.parent().unwrap()).is_ok() {
+        if let Ok(log_dir) = crate::paths::log_dir() {
+            let log_path = log_dir.join("netsh.log");
+            if crate::paths::ensure_data_dir(&log_dir).is_ok() {
                 if let Ok(file) = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&log_path)
                 {
+                    // Log holds hostnames/usernames — lock perms on unix.
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(&log_path, std::fs::Permissions::from_mode(0o600));
+                        let _ = std::fs::set_permissions(&log_dir, std::fs::Permissions::from_mode(0o700));
+                    }
                     let cap_bytes = if max_mb == 0 { u64::MAX } else { max_mb as u64 * 1024 * 1024 };
                     writers.push(Box::new(SizeCapWriter::new(file, log_path, cap_bytes)));
                 }
@@ -743,8 +777,10 @@ pub fn run() {
 
     log::info!("net.sh v{} starting", env!("CARGO_PKG_VERSION"));
 
+    let data_dir: std::path::PathBuf = data_dir.unwrap_or_else(|_| std::path::PathBuf::from("."));
+
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             // Resolve KB path — in dev, it's relative to project root
             let kb_path = app.path()
                 .resource_dir()
@@ -771,26 +807,22 @@ pub fn run() {
 
             log::info!("KB path: {}", kb_path.display());
 
-            let host_store = HostStore::new().unwrap_or_else(|e| {
+            let host_store = HostStore::new(&data_dir).unwrap_or_else(|e| {
                 log::warn!("Failed to init host store: {}. Using in-memory fallback.", e);
                 HostStore::in_memory()
             });
 
             log::info!("Host store initialized");
 
-            let group_store = HostGroupStore::new().unwrap_or_else(|e| {
+            let group_store = HostGroupStore::new(&data_dir).unwrap_or_else(|e| {
                 log::warn!("Failed to init group store: {}. Using in-memory fallback.", e);
                 HostGroupStore::in_memory()
             });
 
             log::info!("Group store initialized");
 
-            let config_store = ConfigStore::new().unwrap_or_else(|e| {
+            let config_store = ConfigStore::new(&data_dir).unwrap_or_else(|e| {
                 log::warn!("Failed to init config store: {}. Using in-memory fallback.", e);
-                // Create in-memory fallback
-                let data_dir = dirs::data_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("netsh");
                 ConfigStore::new_with_path(data_dir.join("config.json")).unwrap_or_else(|e| {
                     log::error!("Failed to create config store: {}", e);
                     panic!("Cannot continue without config store")

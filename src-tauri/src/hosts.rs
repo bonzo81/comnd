@@ -64,13 +64,9 @@ pub struct HostStore {
 }
 
 impl HostStore {
-    /// Create a new HostStore backed by a JSON file in the app data directory.
-    pub fn new() -> Result<Self, String> {
-        let data_dir = dirs::data_dir()
-            .ok_or_else(|| "Could not find app data directory".to_string())?
-            .join("netsh");
-
-        std::fs::create_dir_all(&data_dir)
+    /// Create a new HostStore backed by a JSON file in `data_dir`.
+    pub fn new(data_dir: &std::path::Path) -> Result<Self, String> {
+        crate::paths::ensure_data_dir(data_dir)
             .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
         let hosts_path = data_dir.join("hosts.json");
@@ -141,7 +137,7 @@ impl HostStore {
         if let Some(ref path) = self.hosts_path {
             let json = serde_json::to_string_pretty(&self.hosts)
                 .map_err(|e| format!("Failed to serialize hosts: {}", e))?;
-            std::fs::write(path, json)
+            crate::paths::secure_write(path, json.as_bytes())
                 .map_err(|e| format!("Failed to write hosts file: {}", e))?;
         }
         Ok(())
@@ -153,7 +149,8 @@ fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
             serde_json::from_str(&content).unwrap_or_else(|e| {
-                log::warn!("Failed to parse hosts.json: {}. Starting with empty list.", e);
+                log::error!("Failed to parse hosts.json: {}. Preserving as .corrupt.", e);
+                crate::paths::preserve_corrupt(path);
                 Vec::new()
             })
         }
@@ -169,12 +166,8 @@ pub struct HostGroupStore {
 }
 
 impl HostGroupStore {
-    pub fn new() -> Result<Self, String> {
-        let data_dir = dirs::data_dir()
-            .ok_or_else(|| "Could not find app data directory".to_string())?
-            .join("netsh");
-
-        std::fs::create_dir_all(&data_dir)
+    pub fn new(data_dir: &std::path::Path) -> Result<Self, String> {
+        crate::paths::ensure_data_dir(data_dir)
             .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
         let groups_path = data_dir.join("groups.json");
@@ -230,7 +223,7 @@ impl HostGroupStore {
         if let Some(ref path) = self.groups_path {
             let json = serde_json::to_string_pretty(&self.groups)
                 .map_err(|e| format!("Failed to serialize groups: {}", e))?;
-            std::fs::write(path, json)
+            crate::paths::secure_write(path, json.as_bytes())
                 .map_err(|e| format!("Failed to write groups file: {}", e))?;
         }
         Ok(())
@@ -241,7 +234,8 @@ fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
             serde_json::from_str(&content).unwrap_or_else(|e| {
-                log::warn!("Failed to parse groups.json: {}. Starting with empty list.", e);
+                log::error!("Failed to parse groups.json: {}. Preserving as .corrupt.", e);
+                crate::paths::preserve_corrupt(path);
                 Vec::new()
             })
         }
@@ -336,5 +330,27 @@ mod tests {
         store.delete(&created.id).unwrap();
         let all = store.get_all().unwrap();
         assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_corrupt_file_preserved() {
+        let dir = std::env::temp_dir().join(format!("netsh_hosts_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hosts.json");
+        std::fs::write(&path, "{not valid json").unwrap();
+
+        let hosts = load_hosts_from_file(&path);
+        assert!(hosts.is_empty());
+        assert!(!path.exists(), "corrupt file should be renamed away");
+        let preserved = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("hosts.json.corrupt-")
+            });
+        assert!(preserved, "expected a .corrupt-<ts> backup file");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
