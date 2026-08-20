@@ -709,20 +709,16 @@ async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Read log level from config before initializing the logger.
-    let level = ConfigStore::new()
-        .map(|c| c.get().log_level.clone())
+    // Read config once before initializing the logger.
+    let (level, max_mb) = ConfigStore::new()
+        .map(|c| (c.get().log_level.clone(), c.get().log_max_size_mb))
         .unwrap_or_else(|e| {
-            log::warn!("Failed to read config for log level: {}. Using 'info'.", e);
-            "info".to_string()
+            // Logger not yet up; print to stderr as a last resort.
+            eprintln!("net.sh: Failed to read config ({}). Using 'info'/10MB.", e);
+            ("info".to_string(), 10)
         });
     let filter = parse_log_level_filter(&level);
     let config = simplelog::Config::default();
-
-    // stderr always; file only in release (avoid dev noise).
-    let max_mb = ConfigStore::new()
-        .map(|c| c.get().log_max_size_mb)
-        .unwrap_or(10);
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
     if !cfg!(debug_assertions) {

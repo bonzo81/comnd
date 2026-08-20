@@ -385,7 +385,7 @@ impl KbStore {
         let errors = issues.iter().filter(|i| i.severity == "error").count();
         let warnings = issues.len() - errors;
         for issue in &issues {
-            let level = if issue.severity == "error" { log::Level::Warn } else { log::Level::Warn };
+            let level = if issue.severity == "error" { log::Level::Error } else { log::Level::Warn };
             log::log!(level, "KB validation [{}] {}: {}", issue.severity, issue.command, issue.message);
         }
         log::info!(

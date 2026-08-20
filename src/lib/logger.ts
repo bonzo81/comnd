@@ -54,10 +54,13 @@ function shouldLog(level: LogLevel): boolean {
 
 // ponytail: regex on msg string only, not recursive over args.
 // Upgrade path: structured fields with explicit secret flag.
-const SECRET_PATTERNS = [/password\s*[:=]\s*\S+/i, /api[_-]?key\s*[:=]\s*\S+/i];
+const SECRET_PATTERNS = [
+  /(password\s*[:=]\s*)\S+/i,
+  /(api[_-]?key\s*[:=]\s*)\S+/i,
+];
 
 function redact(s: string): string {
-  return SECRET_PATTERNS.reduce((acc, p) => acc.replace(p, "$0[REDACTED]"), s);
+  return SECRET_PATTERNS.reduce((acc, p) => acc.replace(p, "$1[REDACTED]"), s);
 }
 
 function format(level: LogLevel, tag: LogTag, msg: string): string {
