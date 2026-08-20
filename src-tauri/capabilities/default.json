@@ -10,6 +10,8 @@
     "core:event:allow-emit",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
-    "core:window:allow-close"
+    "core:window:allow-close",
+    "dialog:allow-save",
+    "dialog:default"
   ]
 }

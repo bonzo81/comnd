@@ -5,7 +5,8 @@
  * The Ollama sub-item owns the LLM connection settings used by KB import.
  */
 
-import { getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel, setLogMaxSize, AppConfig } from "../lib/tauri-api";
+import { getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel, setLogMaxSize, setLogFilePath, AppConfig } from "../lib/tauri-api";
+import { save } from "@tauri-apps/plugin-dialog";
 import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
@@ -158,6 +159,18 @@ export class SettingsScreen {
           </select>
           <span class="import-hint">File is truncated when the cap is reached. Applies on next app start.</span>
         </div>
+        <div class="import-field">
+          <label for="log-file-path">Log file location</label>
+          <div class="log-file-row">
+            <input type="text" id="log-file-path"
+              value="${this.escAttr(this.config?.log_file_path ?? "")}"
+              placeholder="Default: app data dir"
+              spellcheck="false" autocomplete="off" />
+            <button type="button" id="log-file-browse" class="btn-secondary">Browse...</button>
+            <button type="button" id="log-file-reset" class="btn-link">Reset</button>
+          </div>
+          <span class="import-hint">Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.</span>
+        </div>
         <h3 class="settings-section-title">Terminal</h3>
         <label class="settings-toggle">
           <input type="checkbox" id="ts-enabled" ${tsOn ? "checked" : ""} />
@@ -234,6 +247,27 @@ export class SettingsScreen {
       void setLogMaxSize(parseInt((e.target as HTMLSelectElement).value, 10));
     });
 
+    this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("change", (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      void setLogFilePath(v || null).then(() => this.refreshConfig()).catch(() => {
+        showToast("Failed to save log file path", "error");
+      });
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void this.browseLogFile();
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#log-file-reset")?.addEventListener("click", () => {
+      const input = this.container?.querySelector<HTMLInputElement>("#log-file-path");
+      if (input) input.value = "";
+      void setLogFilePath(null).then(() => this.refreshConfig()).catch(() => {
+        showToast("Failed to reset log file path", "error");
+      });
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#log-file-browse")?.addEventListener("click", () => void this.browseLogFile());
+
     const form = this.container?.querySelector<HTMLElement>("#ollama-settings-form");
     if (form) {
       form.addEventListener("submit", (e) => {
@@ -253,6 +287,31 @@ export class SettingsScreen {
     this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
       setAppTheme((e.target as HTMLSelectElement).value as Theme);
     });
+  }
+
+  private async refreshConfig() {
+    try {
+      this.config = await getAppConfig();
+    } catch {
+      // keep existing config
+    }
+  }
+
+  private async browseLogFile(): Promise<void> {
+    try {
+      const selected = await save({
+        defaultPath: "netsh.log",
+        filters: [{ name: "Log files", extensions: ["log"] }],
+      });
+      if (selected) {
+        const input = this.container?.querySelector<HTMLInputElement>("#log-file-path");
+        if (input) input.value = selected;
+        await setLogFilePath(selected);
+        await this.refreshConfig();
+      }
+    } catch {
+      // User cancelled — no-op.
+    }
   }
 
   private escAttr(text: string): string {

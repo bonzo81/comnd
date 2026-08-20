@@ -230,6 +230,7 @@ export interface AppConfig {
   ollama_context_length: number;
   log_level: string;
   log_max_size_mb: number;
+  log_file_path: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -246,6 +247,14 @@ export async function setLogLevel(level: string): Promise<void> {
 
 export async function setLogMaxSize(maxMb: number): Promise<void> {
   return invoke<void>("set_log_max_size", { maxMb });
+}
+
+export async function setLogFilePath(path: string | null): Promise<void> {
+  return invoke<void>("set_log_file_path", { path });
+}
+
+export async function getLogStatus(): Promise<string | null> {
+  return invoke<string | null>("get_log_status");
 }
 
 export async function saveOllamaSettings(

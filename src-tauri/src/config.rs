@@ -24,6 +24,8 @@ pub struct AppConfig {
     pub log_level: String,
     #[serde(default = "default_log_max_size_mb")]
     pub log_max_size_mb: u32,
+    #[serde(default)]
+    pub log_file_path: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -35,6 +37,7 @@ impl Default for AppConfig {
             ollama_context_length: default_ollama_context_length(),
             log_level: default_log_level(),
             log_max_size_mb: default_log_max_size_mb(),
+            log_file_path: None,
         }
     }
 }
@@ -171,6 +174,12 @@ impl ConfigStore {
         self.persist()
     }
 
+    /// Update the custom log file path (None = default) and persist.
+    pub fn save_log_file_path(&mut self, path: Option<String>) -> Result<(), String> {
+        self.config.log_file_path = path;
+        self.persist()
+    }
+
     /// Get the writable KB path (in app data directory).
     pub fn user_kb_path(&self) -> PathBuf {
         self.config_path
@@ -243,6 +252,7 @@ mod tests {
         assert_eq!(config.ollama_context_length, 64000);
         assert_eq!(config.log_level, "info");
         assert_eq!(config.log_max_size_mb, 10);
+        assert!(config.log_file_path.is_none());
     }
 
     #[test]
@@ -253,6 +263,34 @@ mod tests {
         assert_eq!(parsed.ollama_base_url, config.ollama_base_url);
         assert_eq!(parsed.ollama_model, config.ollama_model);
         assert_eq!(parsed.log_level, config.log_level);
+        assert!(parsed.log_file_path.is_none());
+
+        let mut custom = AppConfig::default();
+        custom.log_file_path = Some("/var/log/netsh/netsh.log".to_string());
+        let json = serde_json::to_string(&custom).unwrap();
+        let parsed: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.log_file_path.as_deref(), Some("/var/log/netsh/netsh.log"));
+    }
+
+    #[test]
+    fn test_log_file_path_persist_and_read() {
+        let dir = std::env::temp_dir().join(format!("netsh_test_{}", uuid::Uuid::new_v4()));
+        let config_path = dir.join("config.json");
+        let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        store.save_log_file_path(Some("/var/log/netsh/netsh.log".to_string())).unwrap();
+
+        let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        assert_eq!(
+            fresh.get().log_file_path.as_deref(),
+            Some("/var/log/netsh/netsh.log")
+        );
+
+        // Reset to default
+        store.save_log_file_path(None).unwrap();
+        let fresh = ConfigStore::new_with_path(config_path).unwrap();
+        assert!(fresh.get().log_file_path.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

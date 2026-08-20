@@ -4,8 +4,11 @@
 Implementation notes: `env_logger` replaced by `simplelog` (P3.2) — runtime
 level changes work live both up and down via `log::set_max_level`. P3.1
 forwards prod logs to Rust via `log_frontend` command (dev stays console-only).
-Log file: `dirs::data_dir()/netsh/logs/netsh.log`, release builds only, no
-rotation (`ponytail:` comment in `lib.rs`).
+Log file: default `dirs::data_dir()/netsh/logs/netsh.log`, release builds
+only, no rotation (`ponytail:` comment in `lib.rs`). The path is now
+user-configurable via Settings → General → "Log file location" (see
+`plan-custom-log-location.md`); a custom path that can't be opened at startup
+falls back to the default with a toast warning.
 
 Implementation plan for logging hardening. Derived from review of
 `src/lib/logger.ts` (frontend) + Rust `log` crate usage across `src-tauri/`.

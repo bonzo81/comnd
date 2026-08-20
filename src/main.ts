@@ -5,7 +5,8 @@ import { KbScreen } from "./components/kb-screen";
 import { NavPanel } from "./components/nav-panel";
 import { GlobalSearch } from "./components/global-search";
 import { SettingsScreen } from "./components/settings-screen";
-import { Host, getLogLevel } from "./lib/tauri-api";
+import { Host, getLogLevel, getLogStatus } from "./lib/tauri-api";
+import { showToast } from "./lib/toast";
 import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
 import { listen } from "@tauri-apps/api/event";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
@@ -161,6 +162,7 @@ class App {
 
     log.info(LogTag.App, "Initialized");
     this.syncLogLevel();
+    this.syncLogStatus();
     this.registerGlobalShortcuts();
     this.renderTitleBar();
   }
@@ -173,6 +175,20 @@ class App {
     try {
       await listen<string>("log-level-changed", (event) => {
         setLogLevel(event.payload as LogLevel);
+      });
+    } catch {
+      // Tauri not running (unit test) — ignore
+    }
+  }
+
+  private async syncLogStatus() {
+    const status = await getLogStatus().catch(() => null);
+    if (status) {
+      showToast(status, "error", 8000);
+    }
+    try {
+      await listen<string>("log-location-warning", (event) => {
+        showToast(event.payload, "error", 8000);
       });
     } catch {
       // Tauri not running (unit test) — ignore

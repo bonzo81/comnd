@@ -610,6 +610,20 @@ Append-only means `secure_write` (which does tmp+rename) doesn't apply — the
 file is opened once and held open by `WriteLogger`. Just set perms once after
 open.
 
+### Custom log path (added by `plan-custom-log-location.md`)
+
+The log path is now user-configurable (Settings → General → "Log file
+location"). The perms treatment above applies to whichever path is used —
+`open_log_file()` in `lib.rs` chmods the file to `0o600` and the parent dir to
+`0o700` on unix regardless of location.
+
+**Caveat:** custom paths outside the app data dir may inherit lax ACLs from
+their parent dir. We chmod on unix, but on Windows a path on a shared drive
+may expose hostnames/usernames to other users. Documented in the Settings
+hint: "Custom locations may have different access permissions. Prefer the
+default for privacy." We document the risk rather than block non-app-data-dir
+paths (open question 3 in the custom-log-location plan).
+
 ### Rotation
 
 Out of scope. The existing `ponytail:` comment at `lib.rs:670` names the

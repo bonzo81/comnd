@@ -105,6 +105,9 @@ struct AppState {
     groups: Mutex<HostGroupStore>,
     ssh: tokio::sync::Mutex<SshManager>,
     config: Mutex<ConfigStore>,
+    /// Human-readable reason the custom log path fell back to the default at
+    /// startup, if any. Pulled by the frontend on mount (no emit race).
+    log_status: Mutex<Option<String>>,
 }
 
 // ─── KB Commands ────────────────────────────────────────────────────
@@ -437,6 +440,28 @@ async fn set_log_max_size(
 }
 
 #[tauri::command]
+async fn get_log_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let status = state.log_status.lock().map_err(|e| e.to_string())?;
+    Ok(status.clone())
+}
+
+#[tauri::command]
+async fn set_log_file_path(
+    path: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_file_path(path.clone())?;
+    log::info!(
+        "Log file path set to {} (takes effect on next app start)",
+        path.as_deref().unwrap_or("<default>")
+    );
+    Ok(())
+}
+
+#[tauri::command]
 async fn log_frontend(level: String, tag: String, msg: String, args: Option<String>) -> Result<(), String> {
     let line = match args.as_deref() {
         Some(a) if !a.is_empty() => format!("{} {}", msg, a),
@@ -716,6 +741,58 @@ async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), 
     Ok(())
 }
 
+/// Open (creating if needed) the log file at `path`, lock perms on unix, and
+/// append a size-capped writer to `writers`.
+fn open_log_file(
+    writers: &mut Vec<Box<dyn std::io::Write + Send + Sync>>,
+    path: &std::path::Path,
+    max_mb: u32,
+) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf();
+    crate::paths::ensure_data_dir(&dir)
+        .map_err(|e| format!("create log dir {}: {}", dir.display(), e))?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("open log file {}: {}", path.display(), e))?;
+    // Log holds hostnames/usernames — lock perms on unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let cap_bytes = if max_mb == 0 { u64::MAX } else { max_mb as u64 * 1024 * 1024 };
+    writers.push(Box::new(SizeCapWriter::new(file, path.to_path_buf(), cap_bytes)));
+    Ok(())
+}
+
+/// Resolve the log file path. A `None`/empty/whitespace custom path yields
+/// the default (`paths::log_dir()/netsh.log`, `used_custom = false`). A
+/// non-absolute custom path is rejected (the logger runs before CWD
+/// stabilizes) and falls back to the default. Otherwise the custom path is
+/// returned as-is — open/create failures are handled by the caller, which
+/// knows whether to surface a fallback warning.
+fn resolve_log_path(custom: Option<&str>) -> (std::path::PathBuf, bool) {
+    let default = || {
+        crate::paths::log_dir()
+            .map(|d| d.join("netsh.log"))
+            .unwrap_or_else(|_| std::path::PathBuf::from("netsh.log"))
+    };
+    let Some(p) = custom.map(str::trim).filter(|s| !s.is_empty()) else {
+        return (default(), false);
+    };
+    let path = std::path::PathBuf::from(p);
+    if !path.is_absolute() {
+        return (default(), false);
+    }
+    (path, true)
+}
+
 // ─── App Entry ──────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -734,40 +811,44 @@ pub fn run() {
     }
 
     // Read config once before initializing the logger.
-    let (level, max_mb) = match &data_dir {
+    let (level, max_mb, custom_log_path) = match &data_dir {
         Ok(d) => ConfigStore::new(d)
-            .map(|c| (c.get().log_level.clone(), c.get().log_max_size_mb))
+            .map(|c| {
+                (
+                    c.get().log_level.clone(),
+                    c.get().log_max_size_mb,
+                    c.get().log_file_path.clone(),
+                )
+            })
             .unwrap_or_else(|e| {
                 // Logger not yet up; print to stderr as a last resort.
-                eprintln!("net.sh: Failed to read config ({}). Using 'info'/10MB.", e);
-                ("info".to_string(), 10)
+                eprintln!(
+                    "net.sh: Failed to read config ({}). Using 'info'/10MB/default log path.",
+                    e
+                );
+                ("info".to_string(), 10, None)
             }),
-        Err(_) => ("info".to_string(), 10),
+        Err(_) => ("info".to_string(), 10, None),
     };
     let filter = parse_log_level_filter(&level);
     let config = simplelog::Config::default();
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
+    // Release-only file logging (same gate as today: !cfg!(debug_assertions)).
+    let mut log_fallback_reason: Option<String> = None;
     if !cfg!(debug_assertions) {
-        if let Ok(log_dir) = crate::paths::log_dir() {
-            let log_path = log_dir.join("netsh.log");
-            if crate::paths::ensure_data_dir(&log_dir).is_ok() {
-                if let Ok(file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&log_path)
-                {
-                    // Log holds hostnames/usernames — lock perms on unix.
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(&log_path, std::fs::Permissions::from_mode(0o600));
-                        let _ = std::fs::set_permissions(&log_dir, std::fs::Permissions::from_mode(0o700));
-                    }
-                    let cap_bytes = if max_mb == 0 { u64::MAX } else { max_mb as u64 * 1024 * 1024 };
-                    writers.push(Box::new(SizeCapWriter::new(file, log_path, cap_bytes)));
+        let (log_path, used_custom) = resolve_log_path(custom_log_path.as_deref());
+        if used_custom {
+            // Try the custom path first; on failure, record why and fall
+            // back to the default path.
+            if let Err(e) = open_log_file(&mut writers, &log_path, max_mb) {
+                log_fallback_reason = Some(e);
+                if let Ok(default_path) = crate::paths::log_dir().map(|d| d.join("netsh.log")) {
+                    let _ = open_log_file(&mut writers, &default_path, max_mb);
                 }
             }
+        } else if let Err(e) = open_log_file(&mut writers, &log_path, max_mb) {
+            eprintln!("net.sh: {}", e);
         }
     }
     let multi = MultiWriter(writers);
@@ -780,6 +861,7 @@ pub fn run() {
     let data_dir: std::path::PathBuf = data_dir.unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             // Resolve KB path — in dev, it's relative to project root
             let kb_path = app.path()
@@ -838,6 +920,7 @@ pub fn run() {
                 groups: Mutex::new(group_store),
                 ssh: tokio::sync::Mutex::new(SshManager::new()),
                 config: Mutex::new(config_store),
+                log_status: Mutex::new(log_fallback_reason),
             });
 
             Ok(())
@@ -862,6 +945,8 @@ pub fn run() {
                 get_log_level,
                 set_log_level,
                 set_log_max_size,
+                set_log_file_path,
+                get_log_status,
                 log_frontend,
                 import_kb_url,
                 extract_kb_preview,
@@ -884,4 +969,43 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_log_path_none_uses_default() {
+        let (path, used_custom) = resolve_log_path(None);
+        assert!(!used_custom);
+        assert!(path.to_string_lossy().contains("netsh.log"));
+    }
+
+    #[test]
+    fn test_resolve_log_path_empty_and_whitespace_uses_default() {
+        for input in [Some(""), Some("   ")] {
+            let (path, used_custom) = resolve_log_path(input);
+            assert!(!used_custom, "input {:?} should use default", input);
+            assert!(path.to_string_lossy().contains("netsh.log"));
+        }
+    }
+
+    #[test]
+    fn test_resolve_log_path_relative_falls_back_to_default() {
+        let (path, used_custom) = resolve_log_path(Some("relative/path/netsh.log"));
+        assert!(!used_custom);
+        assert!(path.to_string_lossy().contains("netsh.log"));
+    }
+
+    #[test]
+    fn test_resolve_log_path_absolute_custom() {
+        #[cfg(unix)]
+        let custom = "/tmp/netsh-test-logs/netsh.log";
+        #[cfg(windows)]
+        let custom = "C:\\netsh-test-logs\\netsh.log";
+        let (path, used_custom) = resolve_log_path(Some(custom));
+        assert!(used_custom);
+        assert_eq!(path, std::path::PathBuf::from(custom));
+    }
 }
