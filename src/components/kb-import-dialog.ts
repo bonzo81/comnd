@@ -18,7 +18,7 @@ import {
   AppConfig,
   ExtractPreview,
 } from "../lib/tauri-api";
-import { log } from "../lib/logger";
+import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { showToast } from "../lib/toast";
 
@@ -113,7 +113,7 @@ export class KbImportDialog {
         this.render();
       });
     } catch (e) {
-      log.warn("Import progress listener unavailable (Tauri not running):", String(e));
+      log.warn(LogTag.KbImport, `Import progress listener unavailable (Tauri not running): ${e}`);
     }
   }
 
@@ -450,7 +450,7 @@ export class KbImportDialog {
     this.render();
 
     try {
-      log.info("kb-import", `Extracting preview from ${url} for ${platform}/${category}`);
+      log.info(LogTag.KbImport, `Extracting preview from ${url} for ${platform}/${category}`);
       // Phase 5.6: Stage 1 — extract + validate without writing.
       const preview = await extractKbPreview(url, platform, category);
       this.preview = preview;
@@ -458,11 +458,11 @@ export class KbImportDialog {
       this.previewPlatform = platform;
       this.previewCategory = category;
       this.stage = "preview";
-      log.info("kb-import", `Preview ready: ${preview.previews.length} commands`);
+      log.info(LogTag.KbImport, `Preview ready: ${preview.previews.length} commands`);
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
-      log.error("kb-import", `Extract failed: ${e}`);
+      log.error(LogTag.KbImport, `Extract failed: ${e}`);
       showToast(`Extract failed: ${e}`, "error", 8000);
     }
 
@@ -496,13 +496,13 @@ export class KbImportDialog {
         errors: this.preview.errors,
       };
       this.stage = "complete";
-      log.info("kb-import", `Commit complete: ${count} commands`);
+      log.info(LogTag.KbImport, `Commit complete: ${count} commands`);
       showToast(`Import complete: ${count} commands imported`, "success");
       if (this.onImportComplete) this.onImportComplete();
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
-      log.error("kb-import", `Commit failed: ${e}`);
+      log.error(LogTag.KbImport, `Commit failed: ${e}`);
       showToast(`Commit failed: ${e}`, "error", 8000);
     } finally {
       this.committing = false;

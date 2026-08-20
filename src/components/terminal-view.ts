@@ -24,7 +24,7 @@ import {
   PlatformIndex,
   Command,
 } from "../lib/tauri-api";
-import { log } from "../lib/logger";
+import { log, LogTag } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
 import { ShadowBuffer } from "../lib/shadow-buffer";
 import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/suggestion-engine";
@@ -140,7 +140,7 @@ export class TerminalView {
         this.currentMode = mode;
         this.suggestionEngine.setMode(mode);
         this.updateModeDisplay(mode);
-        log.info("prompt", `Mode changed: ${mode}`);
+        log.info(LogTag.Prompt, `Mode changed: ${mode}`);
       },
       () => {
         // Prompt detected — reset shadow buffer, suppress output flag
@@ -262,11 +262,7 @@ export class TerminalView {
           if (this.ghostText?.isShowing()) {
             this.ghostText.hide();
             this.hideSuggestionBar();
-            return;
           }
-          // Final escape: back to hosts
-          this.backToHosts();
-          return;
         }
 
         // Check for Ctrl+Space — toggle dropdown
@@ -335,10 +331,6 @@ export class TerminalView {
     container.innerHTML = `
       <div class="terminal-view">
         <div class="tv-topbar">
-          <div class="tv-topbar-left">
-            <button class="btn-text tv-back-btn">← Back</button>
-            <button class="btn-text tv-close-btn">${icons.x} Close</button>
-          </div>
           <span class="tv-host-info">Connecting...</span>
           <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
@@ -391,16 +383,6 @@ export class TerminalView {
     this.root = container.firstElementChild as HTMLElement;
 
     this.initTerminal();
-
-    // Back button — detach (keep session alive)
-    this.$(".tv-back-btn")!.addEventListener("click", () => {
-      this.backToHosts();
-    });
-
-    // Close button — request close via App (shows confirmation)
-    this.$(".tv-close-btn")!.addEventListener("click", () => {
-      this.onRequestCloseCb(this.host?.id ?? "");
-    });
 
     // Terminal theme toggle
     const themeBtn = this.$(".tv-theme-btn")!;
@@ -466,7 +448,7 @@ export class TerminalView {
   async connect(host: Host) {
     // If we're already connected to this host, just reattach — no reconnect needed
     if (this.state === "connected" && this.host?.id === host.id) {
-      log.info("terminal", `Reattaching to existing session for '${host.display_name}'`);
+      log.info(LogTag.Terminal, `Reattaching to existing session for '${host.display_name}'`);
       this.hideOverlay();
       this.hideDisconnectBanner();
       this.updateHostInfo();
@@ -476,7 +458,7 @@ export class TerminalView {
     }
 
     this.host = host;
-    log.info("terminal", `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
+    log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
 
     // Update top bar
     this.updateHostInfo();
@@ -497,9 +479,9 @@ export class TerminalView {
         this.promptDetector.loadPatterns(this.platformIndex.prompt_patterns, this.platformIndex.default_mode);
         this.currentMode = this.platformIndex.default_mode;
         this.suggestionEngine.setMode(this.currentMode);
-        log.info("terminal", `Platform index loaded: ${this.platformIndex.name}, default mode: ${this.platformIndex.default_mode}`);
+        log.info(LogTag.Terminal, `Platform index loaded: ${this.platformIndex.name}, default mode: ${this.platformIndex.default_mode}`);
       } catch (e) {
-        log.warn("terminal", `Failed to load platform index: ${e}`);
+        log.warn(LogTag.Terminal, `Failed to load platform index: ${e}`);
       }
 
       // Clean up any existing SSH listeners before registering new ones
@@ -539,9 +521,9 @@ export class TerminalView {
         sessionId: this.sessionId,
       });
 
-      log.info("terminal", `sshConnect resolved successfully (session_id=${this.sessionId})`);
+      log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.sessionId})`);
     } catch (err) {
-      log.error("terminal", `Connection failed: ${err}`);
+      log.error(LogTag.Terminal, `Connection failed: ${err}`);
       this.showError(String(err));
     }
   }
@@ -594,12 +576,12 @@ export class TerminalView {
     this.unlistenConnected = await listen<{ reason: string; session_id: number }>("ssh-connected", (event) => {
       // Ignore connected events for other tabs' sessions — see session-filter.ts
       if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
-        log.debug("terminal", `Ignoring foreign ssh-connected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
+        log.debug(LogTag.Terminal, `Ignoring foreign ssh-connected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
         return;
       }
       this.cleanDisconnect = false; // Reset — stale disconnects before this are ignored
       this.connectedAtLeastOnce = true;
-      log.info("terminal", `SSH connected event received (session_id=${this.sessionId})`);
+      log.info(LogTag.Terminal, `SSH connected event received (session_id=${this.sessionId})`);
       this.setState("connected");
       // Update last_connected timestamp
       if (this.host) {
@@ -641,18 +623,18 @@ export class TerminalView {
     this.unlistenDisconnected = await listen<{ reason: string; session_id: number }>("ssh-disconnected", (event) => {
       // Ignore stale disconnect events from old connections
       if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
-        log.debug("terminal", `Ignoring stale ssh-disconnected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
+        log.debug(LogTag.Terminal, `Ignoring stale ssh-disconnected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
         return;
       }
 
       this.clearOutputBuffer();
-      log.info("terminal", `SSH disconnected event: ${event.payload.reason}`);
+      log.info(LogTag.Terminal, `SSH disconnected event: ${event.payload.reason}`);
       if (this.cleanDisconnect) return; // User initiated — handled elsewhere
       if (!this.connectedAtLeastOnce) {
         // Session died before (or just as) it reached "connected" — treat as a
         // failed connect, not a dropped session. Bouncing to the host list here
         // is what made the first connect flash "connecting" then vanish.
-        log.warn("terminal", `Ignoring ssh-disconnected before ever connected: ${event.payload.reason}`);
+        log.warn(LogTag.Terminal, `Ignoring ssh-disconnected before ever connected: ${event.payload.reason}`);
         this.showError(`Connection dropped during setup (${event.payload.reason})`);
         return;
       }
@@ -678,21 +660,21 @@ export class TerminalView {
     this.unlistenError = await listen<{ reason: string; session_id: number }>("ssh-error", (event) => {
       // Ignore stale error events from old connections
       if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
-      log.error("terminal", `SSH error event: ${event.payload.reason}`);
+      log.error(LogTag.Terminal, `SSH error event: ${event.payload.reason}`);
       this.showError(event.payload.reason);
     });
 
     // TOFU: new host key accepted (visibility only, no dialog)
     this.unlistenTofu = await listen<{ reason: string; session_id: number }>("ssh-tofu", (event) => {
       if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
-      log.info("terminal", event.payload.reason);
+      log.info(LogTag.Terminal, event.payload.reason);
     });
 
     // Auth URL: browser-auth gateway detected — browser already opened in backend
     this.unlistenAuthUrl = await listen<{ url: string; session_id: number }>("ssh-auth-url", (event) => {
       if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
       const url = event.payload.url;
-      log.info("terminal", `Auth URL opened in browser: ${url}`);
+      log.info(LogTag.Terminal, `Auth URL opened in browser: ${url}`);
       // Update overlay stage text
       const stageEl = this.$(".tv-overlay-stage");
       if (stageEl) {
@@ -849,20 +831,11 @@ export class TerminalView {
   // ─── Navigation / lifecycle ──────────────────────────────────────
 
   /**
-   * Back button — detach view without disconnecting SSH.
-   * Session stays alive; host card shows green dot.
-   */
-  private async backToHosts() {
-    log.info("terminal", "Detaching from terminal (session stays active)");
-    this.onDetachCb();
-  }
-
-  /**
    * Full disconnect — terminate SSH session and clean up.
    * Called on Ctrl+Shift+W or programmatic disconnect.
    */
   async disconnect() {
-    log.info("terminal", "Full disconnect requested");
+    log.info(LogTag.Terminal, "Full disconnect requested");
     this.cleanDisconnect = true;
     const hostId = this.host?.id ?? "";
     if (this.sessionId) {
@@ -957,13 +930,13 @@ export class TerminalView {
 
   private async loadKbCommands(platform: string, version: string | null, negationPrefix?: string | null) {
     try {
-      log.info("kb", `Loading commands for platform=${platform}, version=${version}`);
+      log.info(LogTag.Kb, `Loading commands for platform=${platform}, version=${version}`);
       const commands = await queryKb("", platform, null, version);
-      log.info("kb", `queryKb returned ${commands.length} commands`);
+      log.info(LogTag.Kb, `queryKb returned ${commands.length} commands`);
       this.suggestionEngine.loadCommands(commands, platform, negationPrefix);
-      log.info("terminal", `Loaded ${commands.length} commands for ${platform}`);
+      log.info(LogTag.Terminal, `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
-      log.warn("terminal", `Failed to load KB commands: ${e}`);
+      log.warn(LogTag.Terminal, `Failed to load KB commands: ${e}`);
     }
   }
 
@@ -987,7 +960,7 @@ export class TerminalView {
 
   private showSuggestions(text: string) {
     const results = this.suggestionEngine.query(text);
-    log.debug("suggest", `query('${text}') mode='${this.currentMode}' → ${results.length} results`);
+    log.debug(LogTag.Suggest, `query('${text}') mode='${this.currentMode}' → ${results.length} results`);
 
     if (results.length === 0) {
       this.ghostText?.hide();

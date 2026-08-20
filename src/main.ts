@@ -5,8 +5,9 @@ import { KbScreen } from "./components/kb-screen";
 import { NavPanel } from "./components/nav-panel";
 import { GlobalSearch } from "./components/global-search";
 import { SettingsScreen } from "./components/settings-screen";
-import { Host } from "./lib/tauri-api";
-import { log } from "./lib/logger";
+import { Host, getLogLevel } from "./lib/tauri-api";
+import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
+import { listen } from "@tauri-apps/api/event";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme } from "./lib/theme";
 import "@fontsource/inter/400.css";
@@ -158,9 +159,24 @@ class App {
     });
     void this.navPanel.mount();
 
-    log.info("app", "Initialized");
+    log.info(LogTag.App, "Initialized");
+    this.syncLogLevel();
     this.registerGlobalShortcuts();
     this.renderTitleBar();
+  }
+
+  private async syncLogLevel() {
+    const level = await getLogLevel().catch(() => null);
+    if (level) {
+      setLogLevel(level as LogLevel);
+    }
+    try {
+      await listen<string>("log-level-changed", (event) => {
+        setLogLevel(event.payload as LogLevel);
+      });
+    } catch {
+      // Tauri not running (unit test) — ignore
+    }
   }
 
   private renderTitleBar() {
@@ -243,7 +259,6 @@ class App {
   }
 
   private onConnect(host: Host) {
-    log.info("app", `Connecting to '${host.display_name}' (${host.hostname}:${host.port})`);
     this.activeSessions.add(host.id);
     this.navPanel.refreshSessionDots();
 
@@ -318,7 +333,7 @@ class App {
    * Back button — keep SSH session alive, just switch view.
    */
   private onDetach(hostId: string) {
-    log.info("app", `Detached from terminal for host ${hostId} (session stays active)`);
+    log.info(LogTag.App, `Detached from terminal for host ${hostId} (session stays active)`);
     this.showView("connections");
     this.hostScreen.refresh();
   }
@@ -327,7 +342,7 @@ class App {
    * Session actually ended. Remove tab, return to host list.
    */
   private onFullDisconnect(hostId: string) {
-    log.info("app", `Session ended for host ${hostId}`);
+    log.info(LogTag.App, `Session ended for host ${hostId}`);
     const tab = this.tabs.get(hostId);
     if (tab) {
       this.tabs.delete(hostId);
@@ -356,7 +371,7 @@ class App {
    * Session died silently. Remove tab, refresh dots.
    */
   private onSessionDied(hostId: string) {
-    log.info("app", `Session silently ended for host ${hostId}`);
+    log.info(LogTag.App, `Session silently ended for host ${hostId}`);
     const tab = this.tabs.get(hostId);
     if (tab) {
       this.tabs.delete(hostId);

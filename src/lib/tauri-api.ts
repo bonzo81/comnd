@@ -228,10 +228,24 @@ export interface AppConfig {
   ollama_model: string;
   ollama_api_key: string | null;
   ollama_context_length: number;
+  log_level: string;
+  log_max_size_mb: number;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
   return invoke<AppConfig>("get_app_config");
+}
+
+export async function getLogLevel(): Promise<string> {
+  return invoke<string>("get_log_level");
+}
+
+export async function setLogLevel(level: string): Promise<void> {
+  return invoke<void>("set_log_level", { level });
+}
+
+export async function setLogMaxSize(maxMb: number): Promise<void> {
+  return invoke<void>("set_log_max_size", { maxMb });
 }
 
 export async function saveOllamaSettings(

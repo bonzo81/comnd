@@ -18,6 +18,10 @@ pub struct AppConfig {
     pub ollama_api_key: Option<String>,
     #[serde(default = "default_ollama_context_length")]
     pub ollama_context_length: u32,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+    #[serde(default = "default_log_max_size_mb")]
+    pub log_max_size_mb: u32,
 }
 
 impl Default for AppConfig {
@@ -27,6 +31,8 @@ impl Default for AppConfig {
             ollama_model: default_ollama_model(),
             ollama_api_key: default_ollama_api_key(),
             ollama_context_length: default_ollama_context_length(),
+            log_level: default_log_level(),
+            log_max_size_mb: default_log_max_size_mb(),
         }
     }
 }
@@ -45,6 +51,26 @@ fn default_ollama_api_key() -> Option<String> {
 
 fn default_ollama_context_length() -> u32 {
     64000
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+fn default_log_max_size_mb() -> u32 {
+    10
+}
+
+/// Map a config log-level string to a `log` crate level filter.
+/// Unknown values fall back to `Info`.
+pub fn parse_log_level_filter(level: &str) -> log::LevelFilter {
+    match level.to_ascii_lowercase().as_str() {
+        "debug" => log::LevelFilter::Debug,
+        "info" => log::LevelFilter::Info,
+        "warn" => log::LevelFilter::Warn,
+        "error" => log::LevelFilter::Error,
+        _ => log::LevelFilter::Info,
+    }
 }
 
 // ─── Config Store ──────────────────────────────────────────────────
@@ -106,6 +132,18 @@ impl ConfigStore {
         self.persist()
     }
 
+    /// Update the log level and persist.
+    pub fn save_log_level(&mut self, level: String) -> Result<(), String> {
+        self.config.log_level = level;
+        self.persist()
+    }
+
+    /// Update the log file size cap (MB, 0 = off) and persist.
+    pub fn save_log_max_size_mb(&mut self, max_mb: u32) -> Result<(), String> {
+        self.config.log_max_size_mb = max_mb;
+        self.persist()
+    }
+
     /// Get the writable KB path (in app data directory).
     pub fn user_kb_path(&self) -> PathBuf {
         self.config_path
@@ -148,6 +186,8 @@ mod tests {
         assert_eq!(config.ollama_model, "gemma4:26b");
         assert!(config.ollama_api_key.is_none());
         assert_eq!(config.ollama_context_length, 64000);
+        assert_eq!(config.log_level, "info");
+        assert_eq!(config.log_max_size_mb, 10);
     }
 
     #[test]
@@ -157,5 +197,15 @@ mod tests {
         let parsed: AppConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.ollama_base_url, config.ollama_base_url);
         assert_eq!(parsed.ollama_model, config.ollama_model);
+        assert_eq!(parsed.log_level, config.log_level);
+    }
+
+    #[test]
+    fn test_parse_log_level_filter() {
+        assert_eq!(parse_log_level_filter("debug"), log::LevelFilter::Debug);
+        assert_eq!(parse_log_level_filter("INFO"), log::LevelFilter::Info);
+        assert_eq!(parse_log_level_filter("warn"), log::LevelFilter::Warn);
+        assert_eq!(parse_log_level_filter("error"), log::LevelFilter::Error);
+        assert_eq!(parse_log_level_filter("bogus"), log::LevelFilter::Info);
     }
 }

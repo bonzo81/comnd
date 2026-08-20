@@ -5,7 +5,7 @@
  * The Ollama sub-item owns the LLM connection settings used by KB import.
  */
 
-import { getAppConfig, saveOllamaSettings, testOllamaConnection, AppConfig } from "../lib/tauri-api";
+import { getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel, setLogMaxSize, AppConfig } from "../lib/tauri-api";
 import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
@@ -126,10 +126,38 @@ export class SettingsScreen {
     const tsOn = getTimestampsEnabled();
     const fmt = getTimestampFormat();
     const tagsOn = getSearchIncludeTags();
+    const logLevel = this.config?.log_level ?? "info";
+    const maxSizeMb = this.config?.log_max_size_mb ?? 10;
     const opt = (value: TimestampFormat, label: string) =>
       `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
+    const levelOpt = (value: string, label: string) =>
+      `<option value="${value}" ${logLevel === value ? "selected" : ""}>${label}</option>`;
+    const sizeOpt = (value: number, label: string) =>
+      `<option value="${value}" ${maxSizeMb === value ? "selected" : ""}>${label}</option>`;
     return `
       <div class="settings-form">
+        <h3 class="settings-section-title">Logging</h3>
+        <div class="import-field">
+          <label for="log-level">Log level</label>
+          <select id="log-level">
+            ${levelOpt("debug", "Debug")}
+            ${levelOpt("info", "Info")}
+            ${levelOpt("warn", "Warn")}
+            ${levelOpt("error", "Error")}
+          </select>
+          <span class="import-hint">Applies immediately. Debug shows suggestion queries and PTY resize events.</span>
+        </div>
+        <div class="import-field">
+          <label for="log-max-size">Log file size cap</label>
+          <select id="log-max-size">
+            ${sizeOpt(0, "Off")}
+            ${sizeOpt(5, "5 MB")}
+            ${sizeOpt(10, "10 MB")}
+            ${sizeOpt(50, "50 MB")}
+            ${sizeOpt(100, "100 MB")}
+          </select>
+          <span class="import-hint">File is truncated when the cap is reached. Applies on next app start.</span>
+        </div>
         <h3 class="settings-section-title">Terminal</h3>
         <label class="settings-toggle">
           <input type="checkbox" id="ts-enabled" ${tsOn ? "checked" : ""} />
@@ -196,6 +224,14 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLSelectElement>("#ts-format")?.addEventListener("change", (e) => {
       setTimestampFormat((e.target as HTMLSelectElement).value as TimestampFormat);
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#log-level")?.addEventListener("change", (e) => {
+      void setLogLevel((e.target as HTMLSelectElement).value);
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#log-max-size")?.addEventListener("change", (e) => {
+      void setLogMaxSize(parseInt((e.target as HTMLSelectElement).value, 10));
     });
 
     const form = this.container?.querySelector<HTMLElement>("#ollama-settings-form");

@@ -25,7 +25,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 base64 = "0.22"
 log = "0.4"
-env_logger = "0.11"
+simplelog = "0.12"
 async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 scraper = "0.19"

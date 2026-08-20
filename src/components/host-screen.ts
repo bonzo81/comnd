@@ -17,7 +17,7 @@ import {
   getCredential,
   getHostGroups,
 } from "../lib/tauri-api";
-import { log } from "../lib/logger";
+import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
 import { ALL_GROUP_ID, recentHosts } from "../lib/host-filters";
@@ -561,7 +561,7 @@ export class HostScreen {
   private connectToHost(hostId: string) {
     const host = this.hosts.find((h) => h.id === hostId);
     if (!host) return;
-    log.info("host-screen", `Connecting to '${host.display_name}' (${host.hostname}:${host.port})`);
+    log.info(LogTag.HostScreen, `Connecting to '${host.display_name}' (${host.hostname}:${host.port})`);
     this.unmount();
     this._onConnect(host);
   }
@@ -691,7 +691,7 @@ export class HostScreen {
       this.recent = recentHosts(this.hosts);
       this.render();
     } catch (err) {
-      log.error("host-screen", `Duplicate failed: ${err}`);
+      log.error(LogTag.HostScreen, `Duplicate failed: ${err}`);
     }
   }
 
@@ -703,7 +703,7 @@ export class HostScreen {
       this.recent = recentHosts(this.hosts);
       this.render();
     } catch (err) {
-      log.error("host-screen", `Delete failed: ${err}`);
+      log.error(LogTag.HostScreen, `Delete failed: ${err}`);
     }
   }
 

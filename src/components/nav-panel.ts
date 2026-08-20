@@ -18,7 +18,7 @@ import {
 } from "../lib/tauri-api";
 import { ALL_GROUP_ID, hostMatches, sortByRecent } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
-import { log } from "../lib/logger";
+import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 
 export type NavSection = "connections" | "kb" | "settings";
@@ -524,7 +524,7 @@ export class NavPanel {
       await this.refresh();
       this.cb.onTreeChanged();
     } catch (err) {
-      log.error("nav-panel", `Failed to create group: ${err}`);
+      log.error(LogTag.NavPanel, `Failed to create group: ${err}`);
     }
   }
 
@@ -960,7 +960,7 @@ export class NavPanel {
       await this.refresh();
       this.cb.onTreeChanged();
     } catch (err) {
-      log.error("nav-panel", `Failed to move group: ${err}`);
+      log.error(LogTag.NavPanel, `Failed to move group: ${err}`);
     }
   }
 
@@ -975,7 +975,7 @@ export class NavPanel {
       await this.refresh();
       this.cb.onTreeChanged();
     } catch (err) {
-      log.error("nav-panel", `Failed to move host: ${err}`);
+      log.error(LogTag.NavPanel, `Failed to move host: ${err}`);
     }
   }
 

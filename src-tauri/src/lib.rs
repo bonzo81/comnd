@@ -14,12 +14,66 @@ mod import;
 
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
 use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use ssh::SshManager;
-use config::{AppConfig, ConfigStore};
+use config::{AppConfig, ConfigStore, parse_log_level_filter};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
+
+// ─── Log MultiWriter ────────────────────────────────────────────────
+
+/// File writer that truncates to 0 bytes when the file exceeds `max_bytes`.
+/// ponytail: single-file cap, no rotation history. Reopen on truncate.
+struct SizeCapWriter {
+    inner: std::fs::File,
+    path: std::path::PathBuf,
+    max_bytes: u64,
+    size: u64,
+}
+
+impl SizeCapWriter {
+    fn new(file: std::fs::File, path: std::path::PathBuf, max_bytes: u64) -> Self {
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Self { inner: file, path, max_bytes, size }
+    }
+}
+
+impl std::io::Write for SizeCapWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.size += n as u64;
+        if self.max_bytes > 0 && self.size >= self.max_bytes {
+            self.inner.flush()?;
+            self.inner = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&self.path)?;
+            self.size = 0;
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+struct MultiWriter(Vec<Box<dyn std::io::Write + Send + Sync>>);
+
+impl std::io::Write for MultiWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        for w in self.0.iter_mut() {
+            w.write_all(buf)?;
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        for w in self.0.iter_mut() {
+            w.flush()?;
+        }
+        Ok(())
+    }
+}
 
 // ─── Browser URL Opener ─────────────────────────────────────────────
 
@@ -325,6 +379,69 @@ async fn save_ollama_settings(
     config.save_ollama_settings(base_url, model, api_key, context_length)
 }
 
+#[tauri::command]
+async fn get_log_level(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    Ok(config.get().log_level.clone())
+}
+
+#[tauri::command]
+async fn set_log_level(
+    level: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let level = level.to_ascii_lowercase();
+    match level.as_str() {
+        "debug" | "info" | "warn" | "error" => {}
+        _ => return Err(format!("Invalid log level: {}", level)),
+    }
+
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_level(level.clone())?;
+    drop(config);
+
+    // simplelog reads the level filter per-record, so both raising and
+    // lowering take effect live via log::set_max_level.
+    log::set_max_level(parse_log_level_filter(&level));
+    log::info!("Log level set to {}", level);
+
+    let _ = app_handle.emit("log-level-changed", &level);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_log_max_size(
+    max_mb: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_max_size_mb(max_mb)?;
+    log::info!(
+        "Log file size cap set to {}MB (takes effect on next app start)",
+        max_mb
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn log_frontend(level: String, tag: String, msg: String, args: Option<String>) -> Result<(), String> {
+    let line = match args.as_deref() {
+        Some(a) if !a.is_empty() => format!("{} {}", msg, a),
+        _ => msg.clone(),
+    };
+    match level.as_str() {
+        "debug" => log::debug!("[fe:{}] {}", tag, line),
+        "info" => log::info!("[fe:{}] {}", tag, line),
+        "warn" => log::warn!("[fe:{}] {}", tag, line),
+        "error" => log::error!("[fe:{}] {}", tag, line),
+        _ => return Err("invalid level".into()),
+    }
+    Ok(())
+}
+
 // ─── KB Import Commands ──────────────────────────────────────────────
 
 #[tauri::command]
@@ -592,9 +709,41 @@ async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info")
-    ).init();
+    // Read log level from config before initializing the logger.
+    let level = ConfigStore::new()
+        .map(|c| c.get().log_level.clone())
+        .unwrap_or_else(|e| {
+            log::warn!("Failed to read config for log level: {}. Using 'info'.", e);
+            "info".to_string()
+        });
+    let filter = parse_log_level_filter(&level);
+    let config = simplelog::Config::default();
+
+    // stderr always; file only in release (avoid dev noise).
+    let max_mb = ConfigStore::new()
+        .map(|c| c.get().log_max_size_mb)
+        .unwrap_or(10);
+    let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
+        vec![Box::new(std::io::stderr())];
+    if !cfg!(debug_assertions) {
+        if let Some(dir) = dirs::data_dir() {
+            let log_path = dir.join("netsh").join("logs").join("netsh.log");
+            if std::fs::create_dir_all(log_path.parent().unwrap()).is_ok() {
+                if let Ok(file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+                {
+                    let cap_bytes = if max_mb == 0 { u64::MAX } else { max_mb as u64 * 1024 * 1024 };
+                    writers.push(Box::new(SizeCapWriter::new(file, log_path, cap_bytes)));
+                }
+            }
+        }
+    }
+    let multi = MultiWriter(writers);
+    let logger = Box::leak(Box::new(simplelog::WriteLogger::new(filter, config, multi)));
+    let _ = log::set_logger(logger);
+    log::set_max_level(filter);
 
     log::info!("net.sh v{} starting", env!("CARGO_PKG_VERSION"));
 
@@ -682,6 +831,10 @@ pub fn run() {
                 ssh_resize,
                 get_app_config,
                 save_ollama_settings,
+                get_log_level,
+                set_log_level,
+                set_log_max_size,
+                log_frontend,
                 import_kb_url,
                 extract_kb_preview,
                 commit_kb_import,
