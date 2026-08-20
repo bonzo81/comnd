@@ -16,7 +16,7 @@ import {
   saveHost,
   saveHostGroup,
 } from "../lib/tauri-api";
-import { ALL_GROUP_ID, UNGROUPED_ID, hostMatches, sortByRecent } from "../lib/host-filters";
+import { ALL_GROUP_ID, hostMatches, sortByRecent } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
 import { log } from "../lib/logger";
 import { icons } from "../lib/icons";
@@ -31,6 +31,9 @@ export interface NavCallbacks {
   onAddHostToGroup: (groupId: string) => void;
   onSelectSettings: (id: string) => void;
   onTreeChanged: () => void;
+  /** Live set of host ids with an active SSH session. Used to colour the
+   *  host-row dot green in the nav panel, matching the content area. */
+  getActiveSessions: () => Set<string>;
 }
 
 const SETTINGS_ITEMS = [
@@ -46,7 +49,10 @@ export class NavPanel {
   private container: HTMLElement;
   private cb: NavCallbacks;
   private openSections = new Set<NavSection>(["connections"]);
-  private expandedGroups = new Set<string>([ALL_GROUP_ID]);
+  /** Expanded group ids. Persisted to localStorage so a reload preserves the
+   *  tree state. Without persistence, a reload collapses every group except
+   *  All Hosts, which the user perceives as "expand state is flaky". */
+  private expandedGroups = new Set<string>(NavPanel.loadExpanded());
   private groups: { id: string; name: string; icon: string | null; parent_id: string | null; sort_order: number }[] = [];
   private hosts: Host[] = [];
   private selectedHostId: string | null = null;
@@ -56,6 +62,42 @@ export class NavPanel {
   private creatingIn: string | null = null;
   private dragPayload: DragPayload | null = null;
   private dropIndicator: HTMLElement | null = null;
+
+  private static STORAGE_KEY = "netsh.nav.expandedGroups";
+
+  private static loadExpanded(): string[] {
+    try {
+      const raw = localStorage.getItem(NavPanel.STORAGE_KEY);
+      if (!raw) return [ALL_GROUP_ID];
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+        return arr.length > 0 ? arr : [ALL_GROUP_ID];
+      }
+    } catch {
+      // fall through to default
+    }
+    return [ALL_GROUP_ID];
+  }
+
+  private persistExpanded() {
+    try {
+      localStorage.setItem(NavPanel.STORAGE_KEY, JSON.stringify(Array.from(this.expandedGroups)));
+    } catch {
+      // localStorage unavailable / quota — state stays in-memory only
+    }
+  }
+
+  /** Expand a group and persist. */
+  private expandGroup(id: string) {
+    this.expandedGroups.add(id);
+    this.persistExpanded();
+  }
+
+  /** Collapse a group and persist. */
+  private collapseGroup(id: string) {
+    this.expandedGroups.delete(id);
+    this.persistExpanded();
+  }
   private dragStart: { x: number; y: number; el: HTMLElement } | null = null;
   private dragClone: HTMLElement | null = null;
   private dragCloneOff: { x: number; y: number } = { x: 0, y: 0 };
@@ -71,6 +113,22 @@ export class NavPanel {
     await this.loadData();
     this.render();
     this.bindKeys();
+  }
+
+  /** Update the host-row dots to reflect the current active-session set,
+   *  without a full re-render. Called by the App when a session connects or
+   *  disconnects so the nav panel reflects the same green dot the content
+   *  area shows. */
+  refreshSessionDots() {
+    const active = this.cb.getActiveSessions();
+    this.container.querySelectorAll<HTMLElement>(".nav-host-row[data-host-id]").forEach((row) => {
+      const id = row.dataset.hostId ?? "";
+      const dot = row.querySelector<HTMLElement>(".nav-host-dot");
+      if (!dot) return;
+      const isActive = active.has(id);
+      dot.classList.toggle("dot-ok", isActive);
+      dot.title = isActive ? "Session active" : "Previously connected";
+    });
   }
 
   /** Re-render (e.g., after groups/hosts change). */
@@ -250,43 +308,43 @@ export class NavPanel {
       <div class="nav-search-wrap">
         <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts…" value="${escHtml(this.searchQuery)}" />
       </div>
-      <div class="nav-group-row nav-root-zone${this.searchQuery ? " hidden" : ""}" data-drop-root>
-        <button class="nav-item nav-sub">
-          <span class="nav-toggle"></span>
+      <div class="nav-group-row nav-root-zone${this.searchQuery ? " hidden" : ""}" data-drop-root data-group-id="${ALL_GROUP_ID}">
+        <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">
+          <span class="nav-toggle">${this.allHostsHasChildren() ? (this.expandedGroups.has(ALL_GROUP_ID) ? "▾" : "▸") : ""}</span>
           <span class="nav-sub-icon">${icons.folder}</span>
           <span class="nav-item-label">All Hosts</span>
         </button>
       </div>
     `;
-    if (this.creatingIn === ALL_GROUP_ID) {
-      html += this.renderCreateRow(0);
-    }
     const keep = this.visibleGroupIds();
+    const allHostsExpanded = this.expandedGroups.has(ALL_GROUP_ID) || keep !== null;
+    // Ungrouped hosts render directly under the "All Hosts" row, before any
+    // named root groups — so they visually nest under All Hosts, not at the
+    // bottom of the tree. All Hosts acts as the base/default group; there's
+    // no separate "Ungrouped" pseudo-folder.
+    if (allHostsExpanded) {
+      if (this.creatingIn === ALL_GROUP_ID) {
+        html += this.renderCreateRow(0);
+      }
+      const ungrouped = sortByRecent(this.hosts.filter((h) => !h.group_id && this.hostVisible(h)));
+      for (const h of ungrouped) {
+        html += this.renderHostRow(h, 1);
+      }
+    }
+    // Named root groups render after the ungrouped hosts, as siblings under
+    // All Hosts. Each carries its own expand/collapse subtree.
     const roots = this.groups.filter((g) => !g.parent_id);
     for (const g of roots) {
       if (keep && !keep.has(g.id)) continue;
       html += this.renderGroupNode(g, 0);
     }
-    // Pseudo "Ungrouped" node for hosts with group_id === null
-    const ungrouped = sortByRecent(this.hosts.filter((h) => !h.group_id && this.hostVisible(h)));
-    if (ungrouped.length > 0 || keep === null) {
-      const expanded = this.expandedGroups.has(UNGROUPED_ID) || keep !== null;
-      html += `
-        <div class="nav-group-row" data-group-id="${UNGROUPED_ID}">
-          <button class="nav-item nav-sub" data-group-id="${UNGROUPED_ID}">
-            <span class="nav-toggle">${ungrouped.length > 0 ? (expanded ? "▾" : "▸") : ""}</span>
-            <span class="nav-sub-icon">${icons.folder}</span>
-            <span class="nav-item-label">Ungrouped</span>
-          </button>
-        </div>
-      `;
-      if (expanded) {
-        for (const h of ungrouped) {
-          html += this.renderHostRow(h, 1);
-        }
-      }
-    }
     return html;
+  }
+
+  /** Whether the "All Hosts" root has anything to show (ungrouped hosts or root groups). */
+  private allHostsHasChildren(): boolean {
+    return this.groups.some((g) => !g.parent_id)
+      || this.hosts.some((h) => !h.group_id);
   }
 
   private renderGroupNode(group: { id: string; name: string; icon: string | null; parent_id: string | null }, depth: number): string {
@@ -337,11 +395,16 @@ export class NavPanel {
   private renderHostRow(host: Host, depth: number): string {
     const indent = 12 + depth * 14;
     const selected = this.selectedHostId === host.id;
+    const active = this.cb.getActiveSessions().has(host.id);
+    // Reuse the content-area dot classes so the nav and the content panel
+    // show the same green state for an active session.
+    const dotClass = active ? "nav-host-dot dot-ok" : "nav-host-dot";
+    const dotTitle = active ? "Session active" : (host.last_connected ? "Previously connected" : "Never connected");
     return `
       <div class="nav-host-row ${selected ? "nav-selected" : ""}" data-host-id="${host.id}">
         <button class="nav-item nav-sub" data-host-id="${host.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle"></span>
-          <span class="nav-sub-icon nav-host-dot"></span>
+          <span class="${dotClass}" title="${escHtml(dotTitle)}"></span>
           <span class="nav-item-label">${escHtml(host.display_name)}</span>
         </button>
       </div>
@@ -381,7 +444,7 @@ export class NavPanel {
     if (toggle) toggle.textContent = expanded ? "▾" : "▸";
   }
 
-  /** Animate-collapse the group's child rows, then re-render. */
+  /** Animate-collapse the group's child rows, then re-render once. */
   private collapseGroupRows(row: HTMLElement) {
     const rows = this.groupChildRows(row);
     if (rows.length === 0) {
@@ -389,13 +452,26 @@ export class NavPanel {
       return;
     }
     rows.forEach((r) => r.classList.add("nav-collapsing"));
+    // Guard against the duplicate-render race: both transitionend and the
+    // 220ms fallback could fire `done()`, and a spurious second render
+    // clobbers an incremental expand that happened in between. The first
+    // caller wins; the other is a no-op.
+    let fired = false;
     const done = () => {
+      if (fired) return;
+      fired = true;
       rows.forEach((r) => r.classList.remove("nav-collapsing"));
       this.render();
     };
-    rows[0].addEventListener("transitionend", (e) => {
-      if (e.propertyName === "margin-bottom") done();
-    });
+    // `transitionend` only fires for `rows[0]`'s margin-bottom; remove the
+    // listener after first fire so a bubbling event from a later transition
+    // can't re-trigger.
+    const onEnd = (e: TransitionEvent) => {
+      if (e.propertyName !== "margin-bottom") return;
+      rows[0].removeEventListener("transitionend", onEnd);
+      done();
+    };
+    rows[0].addEventListener("transitionend", onEnd);
     setTimeout(done, 220);
   }
 
@@ -419,7 +495,16 @@ export class NavPanel {
       while (tmp.firstElementChild) frag.appendChild(tmp.firstElementChild);
     }
     row.after(frag);
-    this.bindEvents();
+    // Bind handlers ONLY on the freshly-inserted rows. The group row itself
+    // already has its handler from the last `render()`; calling `bindEvents()`
+    // here would stack a second handler on every existing row in the panel,
+    // and a single click would toggle the group N times (the "4th click does
+    // nothing" bug — collapse + re-expand cancel out, or vice-versa).
+    this.groupChildRows(row).forEach((r) => {
+      r.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id], .nav-host-row, .nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id], .nav-row-btn").forEach((el) => {
+        this.bindRowEvents(el);
+      });
+    });
     return this.groupChildRows(row);
   }
 
@@ -435,7 +520,7 @@ export class NavPanel {
     const resolvedParent = parentId === ALL_GROUP_ID ? null : parentId;
     try {
       const created = await saveHostGroup(null, name, resolvedParent, null, null);
-      this.expandedGroups.add(created.id);
+      this.expandGroup(created.id);
       await this.refresh();
       this.cb.onTreeChanged();
     } catch (err) {
@@ -471,6 +556,13 @@ export class NavPanel {
 
   // ─── Events ──────────────────────────────────────────────────────
 
+  /**
+   * Bind event handlers for the whole panel. Called after `render()` (which
+   * rebuilds innerHTML, so all elements are fresh and have zero listeners).
+   * NOT called from `mountGroupChildren` — that path inserts rows into the
+   * live DOM and would stack duplicate listeners on existing rows. New rows
+   * inserted by `mountGroupChildren` are bound via `bindRowEvents`.
+   */
   private bindEvents() {
     // Section headers — toggle in place (no re-render) so the collapse/expand animates
     this.container.querySelectorAll<HTMLElement>(".nav-section-header").forEach((el) => {
@@ -481,63 +573,8 @@ export class NavPanel {
       });
     });
 
-    // Group items — click = expand/collapse only
-    this.container.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const groupId = el.dataset.groupId ?? "";
-        const row = el.closest<HTMLElement>(".nav-group-row");
-        if (!row) return;
-        const expanded = this.expandedGroups.has(groupId);
-        if (expanded) {
-          this.expandedGroups.delete(groupId);
-          this.collapseGroupRows(row);
-        } else {
-          this.expandedGroups.add(groupId);
-          const rows = this.mountGroupChildren(groupId, row);
-          rows.forEach((r) => {
-            r.classList.add("nav-expanding");
-            r.addEventListener("animationend", () => r.classList.remove("nav-expanding"), { once: true });
-          });
-        }
-        this.setGroupToggle(row, !expanded);
-      });
-    });
-
-    // Host items — click = select, double-click = connect
-    this.container.querySelectorAll<HTMLElement>(".nav-host-row").forEach((el) => {
-      const id = el.dataset.hostId ?? "";
-      el.addEventListener("click", () => {
-        if (this.dragMoved) return;
-        this.selectedHostId = id;
-        this.cb.onSelectHost(id);
-        this.render();
-      });
-      el.addEventListener("dblclick", () => {
-        if (this.dragMoved) return;
-        this.cb.onConnectHost(id);
-      });
-    });
-
-    // Pointer-based drag sources (HTML5 DnD is unreliable in WebView2).
-    this.container.querySelectorAll<HTMLElement>(".nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id]").forEach((el) => {
-      el.addEventListener("pointerdown", (e) => this.onDragStart(e, el));
-    });
-
-    // Per-row hover actions: add host / add subgroup (inline)
-    this.container.querySelectorAll<HTMLElement>(".nav-row-btn").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const action = el.dataset.action;
-        const parent = el.dataset.parent ?? ALL_GROUP_ID;
-        if (action === "add-host") {
-          this.cb.onAddHostToGroup(parent);
-        } else if (action === "add-subgroup") {
-          this.creatingIn = parent;
-          this.expandedGroups.add(parent);
-          this.render();
-          this.focusCreateInput();
-        }
-      });
+    this.container.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id], .nav-host-row, .nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id], .nav-row-btn").forEach((el) => {
+      this.bindRowEvents(el);
     });
 
     // Inline "new group" input
@@ -592,6 +629,96 @@ export class NavPanel {
     });
   }
 
+  /**
+   * Bind handlers to a single row element (group row, host row, or row
+   * action button). Idempotent-safe: each element gets exactly one listener
+   * per event, because callers only pass freshly-created elements (either
+   * from a full innerHTML rebuild in `render`, or from a freshly-inserted
+   * fragment in `mountGroupChildren`).
+   */
+  private bindRowEvents(el: HTMLElement) {
+    // Group items — click = expand/collapse only
+    if (el.matches(".nav-item.nav-sub[data-group-id]")) {
+      el.addEventListener("click", () => {
+        const groupId = el.dataset.groupId ?? "";
+        const row = el.closest<HTMLElement>(".nav-group-row");
+        if (!row) return;
+        // All Hosts is a pseudo-root: it renders both ungrouped hosts and root
+        // groups in `renderConnectionsItems`, so toggling it needs a full
+        // re-render rather than the incremental `mountGroupChildren` path
+        // (which only knows about real groups in `this.groups`).
+        if (groupId === ALL_GROUP_ID) {
+          const expanded = this.expandedGroups.has(groupId);
+          if (expanded) {
+            this.collapseGroup(groupId);
+          } else {
+            this.expandGroup(groupId);
+          }
+          this.render();
+          return;
+        }
+        const expanded = this.expandedGroups.has(groupId);
+        if (expanded) {
+          this.collapseGroup(groupId);
+          this.collapseGroupRows(row);
+        } else {
+          this.expandGroup(groupId);
+          const rows = this.mountGroupChildren(groupId, row);
+          rows.forEach((r) => {
+            r.classList.add("nav-expanding");
+            r.addEventListener("animationend", () => r.classList.remove("nav-expanding"), { once: true });
+          });
+        }
+        this.setGroupToggle(row, !expanded);
+      });
+      return;
+    }
+
+    // Host items — click = select, double-click = connect
+    if (el.matches(".nav-host-row")) {
+      const id = el.dataset.hostId ?? "";
+      el.addEventListener("click", () => {
+        if (this.dragMoved) return;
+        this.selectedHostId = id;
+        this.cb.onSelectHost(id);
+        this.render();
+      });
+      el.addEventListener("dblclick", () => {
+        if (this.dragMoved) return;
+        this.cb.onConnectHost(id);
+      });
+      return;
+    }
+
+    // Pointer-based drag sources (HTML5 DnD is unreliable in WebView2).
+    // Skip the All Hosts pseudo-group — it has no real HostGroup record and
+    // can't be moved or reparented.
+    if (el.matches(".nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id]")) {
+      const gid = el.dataset.groupId;
+      if (gid === ALL_GROUP_ID) return;
+      el.addEventListener("pointerdown", (e) => this.onDragStart(e, el));
+      return;
+    }
+
+    // Per-row hover actions: add host / add subgroup (inline)
+    if (el.matches(".nav-row-btn")) {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const action = el.dataset.action;
+        const parent = el.dataset.parent ?? ALL_GROUP_ID;
+        if (action === "add-host") {
+          this.cb.onAddHostToGroup(parent);
+        } else if (action === "add-subgroup") {
+          this.creatingIn = parent;
+          this.expandGroup(parent);
+          this.render();
+          this.focusCreateInput();
+        }
+      });
+      return;
+    }
+  }
+
   // ─── Drag & drop (pointer-based; HTML5 DnD is unreliable in WebView2) ─
 
   private onDragStart(e: PointerEvent, el: HTMLElement) {
@@ -622,12 +749,20 @@ export class NavPanel {
     if (!this.dragPayload) {
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      if (dx * dx + dy * dy < 25) return; // 5px threshold — cancels pending hold
+      if (dx * dx + dy * dy < 25) return; // 5px threshold — still within "maybe a click"
+      // Moved past the threshold — arm the drag now (cancel any pending
+      // hold timer). Without this, a quick drag attempt that moves before
+      // the 250ms hold fires leaves dragPayload null and the drag never
+      // starts, so the user has to try again.
       if (this.dragHoldTimer !== null) {
         window.clearTimeout(this.dragHoldTimer);
         this.dragHoldTimer = null;
       }
-      return;
+      const payload = this.payloadFromEl(start.el);
+      if (!payload) return;
+      this.dragPayload = payload;
+      this.liftSource(start.el);
+      this.createClone(start.el, e.clientX, e.clientY);
     }
     this.dragMoved = true;
     this.moveClone(e.clientX, e.clientY);
@@ -734,12 +869,15 @@ export class NavPanel {
         this.markDropTarget(row, true);
         this.dropTarget = { groupId, pos };
       } else {
+        // Host drop. All Hosts is a valid target (sets group_id = null);
+        // any real group sets group_id to that group. Both go through
+        // moveHost which maps ALL_GROUP_ID → null.
         this.markDropTarget(row, true);
         this.dropTarget = { groupId, pos: "below" };
       }
       return;
     }
-    // no row hit — check root zone (only for group reordering to root)
+    // no row hit — root zone still handles group reordering to root level
     if (p.kind === "group" && rootZone) {
       const rrect = rootZone.getBoundingClientRect();
       if (clientY >= rrect.top && clientY <= rrect.bottom) {
@@ -816,7 +954,7 @@ export class NavPanel {
     if (cur.parent_id === targetParent && curSiblings.join(",") === siblings.join(",")) {
       return; // no-op: same parent, same position
     }
-    if (targetParent) this.expandedGroups.add(targetParent);
+    if (targetParent) this.expandGroup(targetParent);
     try {
       await moveHostGroup(dragged, targetParent, order);
       await this.refresh();
@@ -833,7 +971,7 @@ export class NavPanel {
     if (host.group_id === newGroup) return;
     try {
       await saveHost({ ...host, group_id: newGroup });
-      this.expandedGroups.add(newGroup ?? UNGROUPED_ID);
+      this.expandGroup(newGroup ?? ALL_GROUP_ID);
       await this.refresh();
       this.cb.onTreeChanged();
     } catch (err) {
@@ -946,9 +1084,10 @@ export class NavPanel {
             const groupId = ae.dataset.groupId;
             if (groupId && !this.expandedGroups.has(groupId)) {
               const hasKids =
-                this.groups.some((g) => g.parent_id === groupId) ||
-                this.hosts.some((h) => h.group_id === groupId) ||
-                (groupId === UNGROUPED_ID && this.hosts.some((h) => !h.group_id));
+                groupId === ALL_GROUP_ID
+                  ? this.allHostsHasChildren()
+                  : this.groups.some((g) => g.parent_id === groupId) ||
+                    this.hosts.some((h) => h.group_id === groupId);
               if (hasKids) {
                 (ae as HTMLElement).click();
               }

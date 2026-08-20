@@ -5,7 +5,6 @@
 import { Host, HostGroup } from "./tauri-api";
 
 export const ALL_GROUP_ID = "__all__";
-export const UNGROUPED_ID = "__ungrouped__";
 
 /** All group ids reachable from `groupId` (children, grandchildren, …), order-independent. */
 export function groupAndDescendantIds(groups: HostGroup[], groupId: string): Set<string> {

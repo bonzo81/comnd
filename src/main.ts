@@ -154,6 +154,7 @@ class App {
       onTreeChanged: () => {
         void this.hostScreen.refresh();
       },
+      getActiveSessions: () => this.activeSessions,
     });
     void this.navPanel.mount();
 
@@ -244,6 +245,7 @@ class App {
   private onConnect(host: Host) {
     log.info("app", `Connecting to '${host.display_name}' (${host.hostname}:${host.port})`);
     this.activeSessions.add(host.id);
+    this.navPanel.refreshSessionDots();
 
     // Existing tab → activate and switch to terminal view
     const existing = this.tabs.get(host.id);
@@ -332,6 +334,7 @@ class App {
       tab.wrapper.remove();
     }
     this.activeSessions.delete(hostId);
+    this.navPanel.refreshSessionDots();
     if (this.activeHost?.id === hostId) {
       this.activeHost = null;
     }
@@ -360,6 +363,7 @@ class App {
       tab.wrapper.remove();
     }
     this.activeSessions.delete(hostId);
+    this.navPanel.refreshSessionDots();
     if (this.activeTabId === hostId) {
       this.activeTabId = null;
       const next = closeTabState(this.tabStates(), hostId);

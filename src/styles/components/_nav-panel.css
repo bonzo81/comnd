@@ -29,7 +29,14 @@
 }
 
 .nav-section-items.open {
-  max-height: 2000px;
+  /* ponytail: max-height caps the expand animation. A real cap (e.g. 2000px)
+     clips long host lists — the section stops growing, the outer .app-nav
+     overflow-y:auto never sees the extra content, and the bottom of the
+     list becomes unreachable. 100000px is well beyond any realistic nav
+     tree (≈3000 rows at 32px) while still giving the transition a finite
+     ceiling to animate against. If a user genuinely exceeds this, switch
+     to a post-transition `max-height: none` via an `animationend` class. */
+  max-height: 100000px;
   visibility: visible;
   transition: max-height 260ms ease;
 }
@@ -293,6 +300,11 @@
   background: var(--color-text-tertiary);
   flex-shrink: 0;
   margin: 0 3px;
+}
+
+/* Active session — green dot, matching the content-area host card. */
+.nav-host-dot.dot-ok {
+  background: var(--color-accent);
 }
 
 /* ─── Drag & drop (pointer-based) ─────────────────────────────────── */
