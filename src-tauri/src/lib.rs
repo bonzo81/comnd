@@ -834,9 +834,10 @@ pub fn run() {
     let config = simplelog::Config::default();
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
-    // Release-only file logging (same gate as today: !cfg!(debug_assertions)).
+    // File logging — always on (dev + release). A user who sets a custom
+    // path expects it to work regardless of build mode.
     let mut log_fallback_reason: Option<String> = None;
-    if !cfg!(debug_assertions) {
+    {
         let (log_path, used_custom) = resolve_log_path(custom_log_path.as_deref());
         if used_custom {
             // Try the custom path first; on failure, record why and fall
