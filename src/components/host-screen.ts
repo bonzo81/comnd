@@ -255,27 +255,27 @@ export class HostScreen {
               <legend>Authentication</legend>
               <label class="radio-label">
                 <input type="radio" name="auth_type" value="password"
-                       ${(!h || h.auth_type === "password") ? "checked" : ""} />
+                       ${(!h || !h.credential || h.credential.type === "password") ? "checked" : ""} />
                 Password
               </label>
               <label class="radio-label">
                 <input type="radio" name="auth_type" value="ssh_key"
-                       ${h?.auth_type === "ssh_key" ? "checked" : ""} />
+                       ${h?.credential?.type === "ssh_key" ? "checked" : ""} />
                 SSH Key
               </label>
             </fieldset>
-            <div id="hs-auth-password-field" class="auth-conditional ${(!h || h.auth_type === "password") ? "" : "auth-conditional-hidden"}">
+            <div id="hs-auth-password-field" class="auth-conditional ${(!h || !h.credential || h.credential.type === "password") ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>Password ${h && this.editingHasCredential ? `<span class="cred-badge">${icons.lock} Password saved</span>` : ""}</span>
                 <input type="password" name="password"
                        placeholder="${h && this.editingHasCredential ? "Leave blank to keep saved password" : "Enter password"}" />
               </label>
             </div>
-            <div id="hs-auth-key-field" class="auth-conditional ${h?.auth_type === "ssh_key" ? "" : "auth-conditional-hidden"}">
+            <div id="hs-auth-key-field" class="auth-conditional ${h?.credential?.type === "ssh_key" ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>SSH Key Path</span>
                 <input type="text" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
-                       value="${escAttr(h?.ssh_key_path ?? "")}" />
+                       value="${escAttr(h?.credential?.type === "ssh_key" ? h.credential.key_path : "")}" />
               </label>
             </div>
             <label>
@@ -685,8 +685,7 @@ export class HostScreen {
         hostname: original.hostname,
         port: original.port,
         username: original.username,
-        auth_type: original.auth_type,
-        ssh_key_path: original.ssh_key_path,
+        credential: original.credential,
         platform: original.platform,
         os_version: original.os_version,
         notes: original.notes,

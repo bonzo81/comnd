@@ -16,7 +16,6 @@ import {
   sshSend,
   sshDisconnect,
   sshResize,
-  getCredential,
   touchHost,
   loadPlatformIndex,
   queryKb,
@@ -488,18 +487,6 @@ export class TerminalView {
       this.unregisterSshListeners();
       await this.registerSshListeners();
 
-      // Retrieve credential if password auth
-      let password: string | undefined;
-      if (host.auth_type === "password") {
-        this.setProgress("Retrieving credentials...", 10);
-        try {
-          const cred = await getCredential(host.id);
-          password = cred ?? undefined;
-        } catch {
-          // Continue without password — server may prompt
-        }
-      }
-
       // Determine terminal dimensions
       const cols = this.terminal?.cols ?? 80;
       const rows = this.terminal?.rows ?? 24;
@@ -511,11 +498,7 @@ export class TerminalView {
       this.sessionId = mintSessionId();
 
       await sshConnect({
-        hostname: host.hostname,
-        port: host.port,
-        username: host.username,
-        password,
-        keyPath: host.auth_type === "ssh_key" ? (host.ssh_key_path ?? undefined) : undefined,
+        hostId: host.id,
         cols,
         rows,
         sessionId: this.sessionId,

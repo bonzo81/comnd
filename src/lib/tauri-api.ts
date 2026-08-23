@@ -7,7 +7,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export type AuthType = "password" | "ssh_key";
+export type AuthType = "password" | "ssh_key"; // legacy — form payloads only
+
+export type CredentialSource =
+  | { type: "password" }
+  | { type: "ssh_key"; key_path: string };
 
 export interface Host {
   id: string;
@@ -15,8 +19,9 @@ export interface Host {
   hostname: string;
   port: number;
   username: string;
-  auth_type: AuthType;
-  ssh_key_path: string | null;
+  auth_type?: AuthType; // legacy — read-compat only, not serialized by Rust
+  ssh_key_path?: string | null; // legacy — read-compat only, not serialized by Rust
+  credential?: CredentialSource;
   platform: string;
   os_version: string | null;
   notes: string | null;
@@ -181,24 +186,28 @@ export async function getCredential(
   return invoke<string | null>("get_credential", { hostId });
 }
 
+// ─── SSH Agent Commands ─────────────────────────────────────────────
+
+export interface AgentIdentity {
+  /** SHA-256 fingerprint, base64 no-pad. */
+  fingerprint: string;
+  algorithm: string;
+}
+
+export async function agentListIdentities(): Promise<AgentIdentity[]> {
+  return invoke<AgentIdentity[]>("agent_list_identities");
+}
+
 // ─── SSH Commands ───────────────────────────────────────────────────
 
 export async function sshConnect(params: {
-  hostname: string;
-  port: number;
-  username: string;
-  password?: string;
-  keyPath?: string;
+  hostId: string;
   cols: number;
   rows: number;
   sessionId: number;
 }): Promise<void> {
   return invoke<void>("ssh_connect", {
-    hostname: params.hostname,
-    port: params.port,
-    username: params.username,
-    password: params.password ?? null,
-    keyPath: params.keyPath ?? null,
+    hostId: params.hostId,
     cols: params.cols,
     rows: params.rows,
     sessionId: params.sessionId,

@@ -12,6 +12,7 @@ mod config;
 mod ollama;
 mod import;
 mod paths;
+mod secrets;
 
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
@@ -223,6 +224,13 @@ async fn get_credential(host_id: String) -> Result<Option<String>, String> {
     hosts::get_credential(&host_id)
 }
 
+// ─── SSH Agent Commands ─────────────────────────────────────────────
+
+#[tauri::command]
+async fn agent_list_identities() -> Result<Vec<secrets::agent::AgentIdentity>, String> {
+    secrets::agent::list_identities().await
+}
+
 // ─── Host Group Commands ─────────────────────────────────────────────
 
 #[tauri::command]
@@ -317,16 +325,24 @@ async fn delete_host_group(
 #[tauri::command]
 async fn ssh_connect(
     app_handle: tauri::AppHandle,
-    hostname: String,
-    port: u16,
-    username: String,
-    password: Option<String>,
-    key_path: Option<String>,
+    host_id: String,
     cols: u32,
     rows: u32,
     session_id: u64,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    // Resolve credentials Rust-side — secrets never enter the webview.
+    let (hostname, port, username, password, key_path) = {
+        let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        let host = hosts
+            .get_all()?
+            .into_iter()
+            .find(|h| h.id == host_id)
+            .ok_or_else(|| format!("Host not found: {}", host_id))?;
+        let (password, key_path) = host.resolve_credentials();
+        (host.hostname, host.port, host.username, password, key_path)
+    };
+
     let session = ssh::SshSession::connect(
         app_handle,
         &hostname,
@@ -960,6 +976,7 @@ pub fn run() {
                 touch_host,
                 save_credential,
                 get_credential,
+                agent_list_identities,
                 ssh_connect,
                 ssh_send,
                 ssh_disconnect,

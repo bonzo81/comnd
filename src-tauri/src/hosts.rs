@@ -6,6 +6,17 @@ use std::path::PathBuf;
 
 // ─── Host Types ──────────────────────────────────────────────────────
 
+/// How a host's auth secret is sourced. Tagged union; `Agent` and
+/// `SecretRef` variants land in later chunks (serde stays backward compatible).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CredentialSource {
+    /// Keyring entry keyed by host id.
+    Password,
+    /// Local SSH private key file.
+    SshKey { key_path: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Host {
     #[serde(default)]
@@ -15,9 +26,12 @@ pub struct Host {
     #[serde(default = "default_port")]
     pub port: u16,
     pub username: String,
-    #[serde(default = "default_auth_type")]
-    pub auth_type: String, // "password" | "ssh_key"
-    pub ssh_key_path: Option<String>,
+    #[serde(default = "default_auth_type", skip_serializing)]
+    pub auth_type: String, // legacy — read-compat only; use `credential`
+    #[serde(default, skip_serializing)]
+    pub ssh_key_path: Option<String>, // legacy — read-compat only; use `credential`
+    #[serde(default)]
+    pub credential: Option<CredentialSource>,
     #[serde(default = "default_platform")]
     pub platform: String,
     pub os_version: Option<String>,
@@ -36,6 +50,33 @@ pub struct Host {
 fn default_port() -> u16 { 22 }
 fn default_auth_type() -> String { "password".to_string() }
 fn default_platform() -> String { "cisco-iosxe".to_string() }
+
+impl Host {
+    /// Fill `credential` from legacy `auth_type`/`ssh_key_path` when absent.
+    /// Called on every path where a Host enters the store (file load, IPC create/update).
+    pub fn normalize_credential(&mut self) {
+        if self.credential.is_none() {
+            self.credential = Some(match self.auth_type.as_str() {
+                "ssh_key" => CredentialSource::SshKey {
+                    key_path: self.ssh_key_path.clone().unwrap_or_default(),
+                },
+                _ => CredentialSource::Password,
+            });
+        }
+    }
+
+    /// Resolve credentials for an SSH connect attempt. Returns (password, key_path).
+    pub fn resolve_credentials(&self) -> (Option<String>, Option<String>) {
+        match self.credential.as_ref() {
+            Some(CredentialSource::Password) => (get_credential(&self.id).ok().flatten(), None),
+            Some(CredentialSource::SshKey { key_path }) => (
+                None,
+                if key_path.is_empty() { None } else { Some(key_path.clone()) },
+            ),
+            _ => (None, None), // Agent / SecretRef resolve in later chunks
+        }
+    }
+}
 
 // ─── Host Group Types ────────────────────────────────────────────────
 
@@ -95,6 +136,7 @@ impl HostStore {
 
     /// Create a new host with generated UUID and timestamp.
     pub fn create(&mut self, mut host: Host) -> Result<Host, String> {
+        host.normalize_credential();
         host.id = uuid::Uuid::new_v4().to_string();
         host.created_at = chrono::Utc::now().to_rfc3339();
         host.sort_order = self.hosts.len() as u32;
@@ -105,7 +147,8 @@ impl HostStore {
     }
 
     /// Update an existing host by id.
-    pub fn update(&mut self, host: Host) -> Result<Host, String> {
+    pub fn update(&mut self, mut host: Host) -> Result<Host, String> {
+        host.normalize_credential();
         let pos = self.hosts.iter().position(|h| h.id == host.id)
             .ok_or_else(|| format!("Host not found: {}", host.id))?;
         self.hosts[pos] = host.clone();
@@ -148,11 +191,15 @@ impl HostStore {
 fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
-            serde_json::from_str(&content).unwrap_or_else(|e| {
+            let loaded = serde_json::from_str::<Vec<Host>>(&content).unwrap_or_else(|e| {
                 log::error!("Failed to parse hosts.json: {}. Preserving as .corrupt.", e);
                 crate::paths::preserve_corrupt(path);
                 Vec::new()
-            })
+            });
+            loaded.into_iter().map(|mut h| {
+                h.normalize_credential();
+                h
+            }).collect()
         }
         Err(_) => Vec::new(), // File doesn't exist yet
     }
@@ -283,6 +330,7 @@ mod tests {
             username: "admin".to_string(),
             auth_type: "password".to_string(),
             ssh_key_path: None,
+            credential: None,
             platform: "cisco-iosxe".to_string(),
             os_version: None,
             notes: None,
@@ -330,6 +378,29 @@ mod tests {
         store.delete(&created.id).unwrap();
         let all = store.get_all().unwrap();
         assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_legacy_hosts_synthesize_credential() {
+        let json = r#"[{"id":"h1","display_name":"R1","hostname":"10.0.0.1","port":22,"username":"admin","auth_type":"password","ssh_key_path":null,"platform":"cisco-iosxe"},
+                       {"id":"h2","display_name":"R2","hostname":"10.0.0.2","port":22,"username":"admin","auth_type":"ssh_key","ssh_key_path":"~/.ssh/id_rsa","platform":"cisco-iosxe"}]"#;
+        let mut hosts: Vec<Host> = serde_json::from_str(json).unwrap();
+        hosts.iter_mut().for_each(|h| h.normalize_credential());
+        assert_eq!(hosts.remove(0).credential, Some(CredentialSource::Password));
+        assert_eq!(hosts.remove(0).credential, Some(CredentialSource::SshKey { key_path: "~/.ssh/id_rsa".to_string() }));
+    }
+
+    #[test]
+    fn test_roundtrip_serializes_credential_only() {
+        let mut host = make_host("R1", "10.0.0.1");
+        host.normalize_credential();
+        let json = serde_json::to_string(&host).unwrap();
+        assert!(json.contains("\"credential\""), "credential must serialize: {}", json);
+        assert!(!json.contains("auth_type"), "legacy field must not serialize: {}", json);
+        assert!(!json.contains("ssh_key_path"), "legacy field must not serialize: {}", json);
+        // Reload roundtrip keeps the variant
+        let reloaded: Host = serde_json::from_str(&json).unwrap();
+        assert_eq!(reloaded.credential, Some(CredentialSource::Password));
     }
 
     #[test]

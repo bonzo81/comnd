@@ -16,7 +16,8 @@ Communication between frontend and backend via Tauri v2's IPC command system (ty
 * **Platform paths:** `dirs` crate for resolving OS-appropriate config/data directories
 * **Host key verification:** First-connect trust-on-first-use (TOFU) model. Known hosts stored in app data directory. User prompted on first connect and on key change (with clear MITM warning)
 * **Authentication flow:**
-  * Uses the method configured per saved host (password or SSH key)
+  * Uses the method configured per saved host (password or SSH key). Hosts store a `credential` source enum: `Password` (OS keychain entry keyed by host id) or `SshKey` (local key file path); `Agent` and `SecretRef` variants are planned. Legacy `auth_type`/`ssh_key_path` fields in hosts.json are read-compat only — synthesized into `credential` on load, never re-serialized.
+  * **Credential resolution is Rust-side.** `ssh_connect(host_id, cols, rows, session_id)` loads the host from the store and resolves the secret inside Rust before authenticating — passwords never enter the webview or IPC payloads. The frontend sends only the host id.
   * **Keyboard-interactive auth** supported — many network devices (Cisco, F5) use this instead of simple password auth. The app handles challenge/response prompts and passes the stored password.
   * **Key formats:** OpenSSH and PEM (via `russh`). PKCS#8 support post-MVP if needed.
   * **Passphrase-protected keys:** user prompted at connect time. Passphrase optionally stored in OS keychain.
