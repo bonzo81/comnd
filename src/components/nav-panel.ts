@@ -806,12 +806,15 @@ export class NavPanel {
             break;
           case "add-host":
             this.cb.onAddHostToGroup(ctx.id);
+            this.render();
             break;
           case "connect":
             this.cb.onConnectHost(ctx.id);
+            this.render();
             break;
           case "edit":
             this.cb.onEditHost(ctx.id);
+            this.render();
             break;
           case "duplicate":
             void this.doDuplicateHost(ctx.id);
@@ -829,9 +832,12 @@ export class NavPanel {
       });
     });
 
-    // Click outside context menu
+    // Click outside context menu. Listens on pointerdown, not mousedown:
+    // row drag-start calls preventDefault() on pointerdown, which suppresses
+    // the compat mousedown — a mousedown listener never fires when the user
+    // clicks another row and the menu stays open.
     if (this._clickOutsideHandler) {
-      document.removeEventListener("mousedown", this._clickOutsideHandler);
+      document.removeEventListener("pointerdown", this._clickOutsideHandler);
     }
     this._clickOutsideHandler = (e: MouseEvent) => {
       if (this.contextMenu) {
@@ -842,7 +848,7 @@ export class NavPanel {
         }
       }
     };
-    document.addEventListener("mousedown", this._clickOutsideHandler);
+    document.addEventListener("pointerdown", this._clickOutsideHandler);
 
     // Delete confirm
     document.getElementById("nav-delete-cancel")?.addEventListener("click", () => {
