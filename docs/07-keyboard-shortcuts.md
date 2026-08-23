@@ -29,6 +29,8 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `Ctrl+N` | New connection |
 | `Delete` | Delete selected host (with confirmation) |
 
+**Host form (New / Edit):** all fields are native inputs and selects — `Tab` / `Shift+Tab` moves between fields, `↑` / `↓` navigates dropdowns (Group, Platform, Agent identity), `Enter` submits (Save & Connect), `Escape` closes.
+
 ## Global Shortcuts
 
 | Shortcut | Action |

@@ -7,11 +7,10 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export type AuthType = "password" | "ssh_key"; // legacy — form payloads only
-
 export type CredentialSource =
   | { type: "password" }
-  | { type: "ssh_key"; key_path: string };
+  | { type: "ssh_key"; key_path: string }
+  | { type: "agent"; identity: string | null };
 
 export interface Host {
   id: string;
@@ -19,8 +18,6 @@ export interface Host {
   hostname: string;
   port: number;
   username: string;
-  auth_type?: AuthType; // legacy — read-compat only, not serialized by Rust
-  ssh_key_path?: string | null; // legacy — read-compat only, not serialized by Rust
   credential?: CredentialSource;
   platform: string;
   os_version: string | null;

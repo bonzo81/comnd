@@ -8,8 +8,8 @@
 | Hostname / IP | String | Yes      |       |
 | Port  | Integer | No       | Default: 22 |
 | Username | String | Yes      |       |
-| Authentication | Enum | Yes      | Password / SSH key |
-| Password / Key path | Secure | Yes      | Stored in OS keychain |
+| Authentication | Enum | Yes      | Password / SSH key / SSH agent |
+| Password / Key path / Agent identity | Secure | Yes      | Password stored in OS keychain; agent identity is a fingerprint (or null = offer all) |
 | Platform | Enum | Yes      | Selected from supported platform list |
 | OS Version | String | No       | e.g. "17.6", "15.1" — used for version-aware KB filtering |
 | Notes | Text | No       | Free text |
@@ -83,7 +83,7 @@ Clean modal or slide-over panel. Fields in logical order:
 4. **Username**
 5. **Platform** — dropdown with platform icons. On selection, show a brief description ("Cisco IOS-XE — routers, Cat switches, ASR, ISR")
 6. **OS Version** — optional, with placeholder: "e.g. 17.6" and helper text: "Used to filter suggestions to your version. Leave blank to show all commands."
-7. **Authentication** — radio: Password / SSH Key. Conditionally shows password field or key file picker.
+7. **Authentication** — radio: Password / SSH Key / SSH Agent. Conditionally shows password field, key file path, or agent identity picker. The identity picker is a native select (keyboard navigable) populated from the local SSH agent on form open; "Offer all identities" (empty value) means no specific key is pinned. If no agent is detected or it holds no keys, an inline hint explains what to start (`ssh-agent` / 1Password) — saving still works and connect will surface the agent error.
 8. **Notes** — optional, collapsible/expandable
 
 **Save** and **Save & Connect** buttons at bottom. Save & Connect is the primary action (accent colour).

@@ -9,13 +9,14 @@
 import {
   Host,
   HostGroup,
-  AuthType,
   getHosts,
   saveHost,
   deleteHost,
   saveCredential,
   getCredential,
   getHostGroups,
+  agentListIdentities,
+  type AgentIdentity,
 } from "../lib/tauri-api";
 import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
@@ -42,6 +43,8 @@ export class HostScreen {
   private formOpen = false;
   private editingHost: Host | null = null;
   private editingHasCredential = false;
+  private agentIdentities: AgentIdentity[] = [];
+  private agentStatus: string | null = null;
   private editingGroupId: string | null = null;
   private pendingGroupId: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -208,6 +211,9 @@ export class HostScreen {
     const h = this.editingHost;
     const title = h ? "Edit Host" : "New Connection";
     const platforms = Object.entries(PLATFORM_META);
+    const cred = h?.credential;
+    const isAgent = !!(cred && cred.type === "agent");
+    const agentIdentityValue = cred && cred.type === "agent" ? (cred.identity ?? "") : "";
 
     return `
       <div class="modal-backdrop" id="hs-form-backdrop">
@@ -263,6 +269,11 @@ export class HostScreen {
                        ${h?.credential?.type === "ssh_key" ? "checked" : ""} />
                 SSH Key
               </label>
+              <label class="radio-label">
+                <input type="radio" name="auth_type" value="agent"
+                       ${isAgent ? "checked" : ""} />
+                SSH Agent
+              </label>
             </fieldset>
             <div id="hs-auth-password-field" class="auth-conditional ${(!h || !h.credential || h.credential.type === "password") ? "" : "auth-conditional-hidden"}">
               <label>
@@ -277,6 +288,16 @@ export class HostScreen {
                 <input type="text" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
                        value="${escAttr(h?.credential?.type === "ssh_key" ? h.credential.key_path : "")}" />
               </label>
+            </div>
+            <div id="hs-auth-agent-field" class="auth-conditional ${isAgent ? "" : "auth-conditional-hidden"}">
+              <label>
+                <span>Identity</span>
+                <select name="agent_identity">
+                  <option value="" ${agentIdentityValue === "" ? "selected" : ""}>Offer all identities</option>
+                  ${this.agentIdentities.map((id) => `<option value="${escAttr(id.fingerprint)}" ${agentIdentityValue === id.fingerprint ? "selected" : ""}>${escHtml(this.agentIdentityLabel(id))}</option>`).join("")}
+                </select>
+              </label>
+              ${this.agentStatus ? `<div class="form-hint">${escHtml(this.agentStatus)}</div>` : ""}
             </div>
             <label>
               <span>Platform <em>*</em></span>
@@ -440,8 +461,10 @@ export class HostScreen {
         const val = (radio as HTMLInputElement).value;
         const pwField = document.getElementById("hs-auth-password-field");
         const keyField = document.getElementById("hs-auth-key-field");
+        const agentField = document.getElementById("hs-auth-agent-field");
         if (pwField) pwField.classList.toggle("auth-conditional-hidden", val !== "password");
         if (keyField) keyField.classList.toggle("auth-conditional-hidden", val !== "ssh_key");
+        if (agentField) agentField.classList.toggle("auth-conditional-hidden", val !== "agent");
       });
     });
 
@@ -587,6 +610,7 @@ export class HostScreen {
       this.editingHost = null;
       this.editingHasCredential = false;
     }
+    await this.loadAgentIdentities();
     this.formOpen = true;
     this.render();
     setTimeout(() => {
@@ -599,10 +623,24 @@ export class HostScreen {
     }, 50);
   }
 
+  private async loadAgentIdentities() {
+    try {
+      this.agentIdentities = await agentListIdentities();
+      this.agentStatus = this.agentIdentities.length === 0
+        ? "Agent found — no identities loaded. Run ssh-add to add a key."
+        : null;
+    } catch (err) {
+      this.agentIdentities = [];
+      this.agentStatus = String(err);
+    }
+  }
+
   private closeForm() {
     this.formOpen = false;
     this.editingHost = null;
     this.editingHasCredential = false;
+    this.agentIdentities = [];
+    this.agentStatus = null;
     this.render();
   }
 
@@ -615,7 +653,7 @@ export class HostScreen {
     const hostname = (fd.get("hostname") as string)?.trim();
     const port = parseInt(fd.get("port") as string, 10) || 22;
     const username = (fd.get("username") as string)?.trim();
-    const authType = (fd.get("auth_type") as AuthType) ?? "password";
+    const authType = (fd.get("auth_type") as string) ?? "password";
     const password = (fd.get("password") as string) ?? "";
     const sshKeyPath = (fd.get("ssh_key_path") as string)?.trim() || null;
     const platform = (fd.get("platform") as string) ?? "cisco-iosxe";
@@ -644,13 +682,17 @@ export class HostScreen {
         hostname,
         port,
         username,
-        auth_type: authType,
-        ssh_key_path: authType === "ssh_key" ? sshKeyPath : null,
         platform,
         os_version: osVersion,
         notes,
         tags,
         group_id: groupId,
+        credential:
+          authType === "ssh_key"
+            ? { type: "ssh_key", key_path: sshKeyPath ?? "" }
+            : authType === "agent"
+              ? { type: "agent", identity: (fd.get("agent_identity") as string) || null }
+              : { type: "password" },
       };
 
       if (this.editingHost) {
@@ -716,5 +758,10 @@ export class HostScreen {
 
   private getGroupName(groupId: string): string {
     return this.groups.find((g) => g.id === groupId)?.name ?? groupId;
+  }
+
+  private agentIdentityLabel(id: AgentIdentity): string {
+    const short = id.fingerprint.length > 16 ? `${id.fingerprint.slice(0, 16)}…` : id.fingerprint;
+    return `${id.algorithm} · ${short}`;
   }
 }
