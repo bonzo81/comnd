@@ -5,6 +5,9 @@
 //!
 //! The server sends a known `authentication_banner` with a test URL,
 //! accepts any password, and opens a shell session with a welcome message.
+//!
+//! Keyboard-interactive mirrors Tailscale check mode: one InfoRequest round
+//! carrying the URL, then Accept on the (empty) response.
 
 use std::sync::Arc;
 
@@ -39,6 +42,39 @@ impl server::Handler for MockServer {
         _password: &str,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Accept)
+    }
+
+    /// Check-mode semantics (Tailscale): accept ANY publickey. Russh verifies
+    /// the signature; acceptance means the session opens pending browser auth.
+    async fn auth_publickey(
+        &mut self,
+        _user: &str,
+        _public_key: &russh::keys::key::PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        Ok(Auth::Accept)
+    }
+
+    /// Tailscale-style browser auth: first round sends the URL prompt,
+    /// any response (empty = browser login done) is accepted.
+    async fn auth_keyboard_interactive(
+        &mut self,
+        _user: &str,
+        _submethods: &str,
+        response: Option<server::Response<'async_trait>>,
+    ) -> Result<Auth, Self::Error> {
+        if response.is_none() {
+            Ok(Auth::Partial {
+                name: "Tailscale SSH authentication".into(),
+                instructions: "To authenticate, visit:\nhttps://login.tailscale.com/a/test123\n".into(),
+                prompts: vec![(
+                    "Visit https://login.tailscale.com/a/test123 and press enter".into(),
+                    true,
+                )]
+                .into(),
+            })
+        } else {
+            Ok(Auth::Accept)
+        }
     }
 
     /// Accept session channel open requests.
@@ -119,4 +155,89 @@ pub async fn start_mock_server() -> (u16, tokio::task::JoinHandle<()>) {
     });
 
     (port, handle)
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use russh::client::{self, KeyboardInteractiveAuthResponse};
+
+    struct NoopHandler;
+
+    #[async_trait]
+    impl client::Handler for NoopHandler {
+        type Error = russh::Error;
+        async fn check_server_key(
+            &mut self,
+            _key: &russh::keys::key::PublicKey,
+        ) -> Result<bool, Self::Error> {
+            Ok(true) // test key — trust anything
+        }
+    }
+
+    /// Pins the Tailscale-style browser-auth round-trip that
+    /// SshSession::authenticate relies on:
+    /// start(None) → InfoRequest carrying an https URL → empty respond → Success.
+    #[tokio::test]
+    async fn test_keyboard_interactive_browser_auth_roundtrip() {
+        let (port, server) = start_mock_server().await;
+
+        let config = Arc::new(client::Config::default());
+        let mut session = client::connect(
+            config,
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("connect");
+
+        let first = session
+            .authenticate_keyboard_interactive_start("andy", None::<String>)
+            .await
+            .expect("kbd-int start");
+        match first {
+            KeyboardInteractiveAuthResponse::InfoRequest { ref instructions, ref prompts, .. } => {
+                assert!(instructions.contains("https://login.tailscale.com/"));
+                assert_eq!(prompts.len(), 1);
+                assert!(prompts[0].prompt.contains("https://"));
+            }
+            other => panic!("expected InfoRequest, got {:?}", other),
+        }
+
+        let second = session
+            .authenticate_keyboard_interactive_respond(vec![String::new()])
+            .await
+            .expect("kbd-int respond");
+        assert!(matches!(second, KeyboardInteractiveAuthResponse::Success));
+
+        server.abort();
+    }
+
+    /// Pins the ephemeral-key path SshSession::authenticate uses for
+    /// credential-less browser-auth gateways: check-mode server accepts
+    /// an ephemeral (unknown) publickey.
+    #[tokio::test]
+    async fn test_ephemeral_publickey_accepted_check_mode() {
+        let (port, server) = start_mock_server().await;
+
+        let config = Arc::new(client::Config::default());
+        let mut session = client::connect(
+            config,
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("connect");
+
+        let key = KeyPair::generate_ed25519();
+        let ok = session
+            .authenticate_publickey("andy", Arc::new(key))
+            .await
+            .expect("pubkey auth");
+        assert!(ok);
+
+        server.abort();
+    }
 }

@@ -70,6 +70,17 @@ fn extract_https_url(text: &str) -> Option<String> {
         })
 }
 
+/// Choose keyboard-interactive responses for one round of prompts.
+/// Browser-auth rounds (a URL is present) get empty answers — the real auth
+/// happens in the browser and the server holds the reply until login completes.
+/// Credential rounds get the stored password, if we have one.
+fn responses_for_round(url_round: bool, stored_password: Option<&str>, n_prompts: usize) -> Vec<String> {
+    match (url_round, stored_password) {
+        (false, Some(pw)) => vec![pw.to_string(); n_prompts],
+        _ => vec![String::new(); n_prompts],
+    }
+}
+
 fn try_open_auth_url(
     app_handle: &tauri::AppHandle,
     auth_url_opened: &AtomicBool,
@@ -311,7 +322,7 @@ impl SshSession {
 
         if !auth_success {
             log::warn!("SSH authentication failed for {}@{}", username, addr);
-            return Err("Authentication failed — server rejected all offered methods (default SSH keys, password, keyboard-interactive). Check the host's saved credentials.".to_string());
+            return Err("Authentication failed — server rejected all offered methods (SSH key, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
         log::info!("SSH authenticated successfully as {}@{}", username, addr);
@@ -376,7 +387,7 @@ impl SshSession {
         session_id: u64,
         auth_url_opened: &Arc<AtomicBool>,
     ) -> Result<bool, String> {
-        // Try SSH key auth first if key path provided
+        // SSH key auth — only when the host is configured with a key path.
         if let Some(key_path) = key_path {
             let path = Path::new(key_path);
             if path.exists() {
@@ -399,44 +410,10 @@ impl SshSession {
             }
         }
 
-        // Default keys (OpenSSH behavior) when no explicit key configured:
-        // ~/.ssh/id_ed25519, id_rsa, id_ecdsa
-        // ponytail: gated on key_path.is_none(); also run after explicit-key failure if that ever confuses users
-        if key_path.is_none() {
-            if let Some(home) = dirs::home_dir() {
-                for name in ["id_ed25519", "id_rsa", "id_ecdsa"] {
-                    let path = home.join(".ssh").join(name);
-                    if !path.exists() {
-                        continue;
-                    }
-                    log::info!("Attempting default SSH key {}", path.display());
-                    match russh_keys::load_secret_key(&path, None) {
-                        Ok(key) => {
-                            match session
-                                .authenticate_publickey(username, Arc::new(key))
-                                .await
-                            {
-                                Ok(true) => return Ok(true),
-                                Ok(false) => {
-                                    log::info!("Default key {} rejected by server", path.display())
-                                }
-                                Err(e) => {
-                                    log::warn!("Default key {} auth error: {}", path.display(), e)
-                                }
-                            }
-                        }
-                        Err(e) => log::warn!(
-                            "Failed to load default key {}: {} (passphrase-protected keys unsupported)",
-                            path.display(),
-                            e
-                        ),
-                    }
-                }
-            }
-        }
-
-        // Try password auth
-        if let Some(password) = password {
+        // Try password auth (if a password was provided). Keep it around so we can
+        // answer keyboard-interactive prompts with it if the server prefers that method.
+        let stored_password: Option<String> = password.map(|p| p.to_string());
+        if let Some(password) = &stored_password {
             log::info!("Attempting password auth");
             let auth_result = session
                 .authenticate_password(username, password)
@@ -447,46 +424,75 @@ impl SshSession {
             }
         }
 
-        // Fallback: try keyboard-interactive auth
-        // Some servers (e.g. Tailscale) send auth URLs or instructions via
-        // keyboard-interactive prompts rather than rejecting auth outright.
-        // We attempt it to capture those prompts for the user, even though
-        // we can't complete the interactive flow.
-        log::info!("Attempting keyboard-interactive auth as fallback");
-        match session
-            .authenticate_keyboard_interactive_start(username, None::<String>)
-            .await
-        {
-            Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
-                try_open_auth_url(app_handle, auth_url_opened, &instructions, session_id);
-                for prompt in &prompts {
-                    try_open_auth_url(app_handle, auth_url_opened, &prompt.prompt, session_id);
-                }
-                // Forward the server's instructions/prompts to the frontend as ssh-output
-                // so the user can see any auth URLs or instructions
-                if !instructions.is_empty() {
-                    log::info!("Keyboard-interactive instructions: {}", instructions);
-                    let encoded = base64::engine::general_purpose::STANDARD.encode(instructions.as_bytes());
-                    let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
-                }
-                for prompt in &prompts {
-                    if !prompt.prompt.is_empty() {
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
-                        let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
-                    }
-                }
-                // Don't attempt to respond — auth will fail, but the user saw the prompts
-                log::warn!("Keyboard-interactive auth started but no interactive handler — auth will fail");
-            }
-            Ok(_) => {
-                // Success or Failure with no info request — nothing to forward
-                log::info!("Keyboard-interactive auth returned {:?}; no prompts to show", "non-info");
-            }
-            Err(e) => {
-                log::info!("Keyboard-interactive auth not available: {}", e);
+        // Browser-auth gateway rescue (Tailscale check mode): a host with no key
+        // path and no stored password has nothing to offer — but check-mode
+        // gateways accept ANY publickey to open the session, then print a login
+        // URL in the terminal. Offer an ephemeral key, mirroring `tailscale ssh`.
+        // Normal servers reject the unknown key and we fall through.
+        if stored_password.is_none() && key_path.is_none() {
+            log::info!("No credentials configured — trying ephemeral key auth (browser-auth gateways)");
+            let key = russh_keys::key::KeyPair::generate_ed25519();
+            match session.authenticate_publickey(username, Arc::new(key)).await {
+                Ok(true) => return Ok(true),
+                Ok(false) => log::info!("Ephemeral key rejected — server requires configured credentials"),
+                Err(e) => log::info!("Ephemeral key auth error: {}", e),
             }
         }
 
+        // Fallback: keyboard-interactive auth, as a bounded multi-round loop.
+        // Two server families land here:
+        //  - Browser-auth gateways (Tailscale check mode): prompts carry a login URL.
+        //    We open it, reply with EMPTY responses, and the server holds that reply
+        //    open until the user finishes the browser login — then answers Success.
+        //    The respond().await below IS the browser wait (bounded by the 120s
+        //    timeout in connect()).
+        //  - Cisco/F5 style: prompts ask for the password → answer with the stored one.
+        log::info!("Attempting keyboard-interactive auth");
+        let mut current = session
+            .authenticate_keyboard_interactive_start(username, None::<String>)
+            .await;
+        for round in 1..=5u32 {
+            match current {
+                Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
+                    // Open auth URL in browser (first one only) and detect whether
+                    // this round is a browser-auth round.
+                    try_open_auth_url(app_handle, auth_url_opened, &instructions, session_id);
+                    let mut url_round = extract_https_url(&instructions).is_some();
+                    if !instructions.is_empty() {
+                        log::info!("Keyboard-interactive instructions: {}", instructions);
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(instructions.as_bytes());
+                        let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                    }
+                    for prompt in &prompts {
+                        try_open_auth_url(app_handle, auth_url_opened, &prompt.prompt, session_id);
+                        url_round |= extract_https_url(&prompt.prompt).is_some();
+                        if !prompt.prompt.is_empty() {
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
+                            let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                        }
+                    }
+                    let responses = responses_for_round(url_round, stored_password.as_deref(), prompts.len());
+                    log::info!(
+                        "Keyboard-interactive round {} ({} prompt(s), {} round) — responding",
+                        round, prompts.len(), if url_round { "browser-auth" } else { "credential" }
+                    );
+                    current = session.authenticate_keyboard_interactive_respond(responses).await;
+                }
+                Ok(KeyboardInteractiveAuthResponse::Success) => {
+                    log::info!("Keyboard-interactive auth succeeded");
+                    return Ok(true);
+                }
+                Ok(KeyboardInteractiveAuthResponse::Failure) => {
+                    log::info!("Keyboard-interactive auth rejected (server refused method or credentials)");
+                    return Ok(false);
+                }
+                Err(e) => {
+                    log::info!("Keyboard-interactive auth not available: {}", e);
+                    return Ok(false);
+                }
+            }
+        }
+        log::warn!("Keyboard-interactive auth exceeded 5 rounds without resolution");
         Ok(false)
     }
 
@@ -667,5 +673,30 @@ mod tests {
         let m = map_with(&[1]);
         assert!(m.route_resize(1, 80, 24).is_ok());
         assert!(m.route_resize(99, 80, 24).is_err());
+    }
+
+    #[test]
+    fn test_responses_for_round_browser_auth_gets_empty_answers() {
+        // Even with a stored password, URL rounds must answer empty —
+        // the browser login is the real auth.
+        assert_eq!(responses_for_round(true, Some("pw"), 2), vec!["", ""]);
+        assert_eq!(responses_for_round(true, None, 1), vec![""]);
+    }
+
+    #[test]
+    fn test_responses_for_round_credential_rounds_use_password() {
+        assert_eq!(responses_for_round(false, Some("pw"), 2), vec!["pw", "pw"]);
+        // No stored password on a credential round — empty best-effort answer.
+        assert_eq!(responses_for_round(false, None, 1), vec![""]);
+        assert_eq!(responses_for_round(false, Some("pw"), 0), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_extract_https_url_finds_and_trims() {
+        assert_eq!(
+            extract_https_url("visit https://login.tailscale.com/a/abc123, thanks."),
+            Some("https://login.tailscale.com/a/abc123".to_string())
+        );
+        assert_eq!(extract_https_url("Password:"), None);
     }
 }
