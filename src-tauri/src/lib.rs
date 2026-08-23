@@ -24,6 +24,27 @@ use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
 
 // ─── Log MultiWriter ────────────────────────────────────────────────
 
+/// Caps dependency crates (russh, tao, ...) at warn: their debug output is
+/// wire/crypto chatter and dumps raw SSH packets (usernames, key material)
+/// into log files. App crates (netsh*) log at the configured level.
+/// simplelog 0.12 has no per-target filter, hence the wrapper.
+struct DepCapLogger(Box<simplelog::WriteLogger<MultiWriter>>);
+
+impl log::Log for DepCapLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        let t = metadata.target();
+        t.starts_with("netsh_lib") || t.starts_with("netsh") || metadata.level() <= log::Level::Warn
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            self.0.log(record);
+        }
+    }
+    fn flush(&self) {
+        self.0.flush();
+    }
+}
+
 /// File writer that truncates to 0 bytes when the file exceeds `max_bytes`.
 /// ponytail: single-file cap, no rotation history. Reopen on truncate.
 struct SizeCapWriter {
@@ -853,7 +874,9 @@ pub fn run() {
         }
     }
     let multi = MultiWriter(writers);
-    let logger = Box::leak(Box::new(simplelog::WriteLogger::new(filter, config, multi)));
+    let logger = Box::leak(Box::new(DepCapLogger(simplelog::WriteLogger::new(
+        filter, config, multi,
+    ))));
     let _ = log::set_logger(logger);
     log::set_max_level(filter);
 
