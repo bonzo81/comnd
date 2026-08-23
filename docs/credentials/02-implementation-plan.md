@@ -85,6 +85,10 @@ No new crates. `russh` 0.46 (agent client), `reqwest` 0.12 (Vault), `keyring` 3 
 
 **Verification:** unit test for fingerprint filtering; manual: test_server or real device with agent key; wrong-fingerprint → falls through to next method or clean failure.
 
+**Status: done.** Required russh 0.46 → 0.49.2 (key types moved to `ssh-key` crate; `authenticate_future` → `authenticate_publickey_with`). Two compat notes:
+- Fingerprints stored by 0.46 are bare base64 (no `SHA256:` prefix) — `secrets::agent::fingerprint_b64` strips ssh-key's prefix; pinned by `test_fingerprint_b64_matches_russh046_format`.
+- `authenticate_publickey_with`'s future is Send only for specific lifetimes (`Signer` has no `Send` bound), which trips the tauri command's higher-ranked Send check. Fixed by running it via `tokio::task::block_in_place` + `Handle::block_on` (borrows stay synchronous → no Send requirement). Requires a multi-thread runtime (tauri default).
+
 ### Chunk 5 — Host form: agent method + identity picker
 
 **Goal:** user picks agent auth and an identity per host.

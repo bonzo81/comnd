@@ -1,58 +1,68 @@
-//! SSH agent discovery + identity enumeration (credential chunk 3).
+//! SSH agent discovery + identity enumeration (credential chunk 3),
+//! shared by the UI listing and the auth chain (chunk 4).
 //!
-//! Transport only — auth use of the agent lands in chunk 4.
 //! Detection order: SSH_AUTH_SOCK (unix) / OpenSSH agent named pipe
 //! (windows), then Pageant as the windows fallback.
 
 use russh::keys::agent::client::{AgentClient, AgentStream};
-use russh::keys::key::PublicKey;
+use russh::keys::PublicKey;
 use serde::Serialize;
+
+/// SHA-256 fingerprint, bare base64 no-pad — the format russh 0.46 produced
+/// and hosts.json stores. ssh-key's Display adds a "SHA256:" prefix; strip it.
+pub fn fingerprint_b64(key: &PublicKey) -> String {
+    key.fingerprint(russh::keys::HashAlg::Sha256)
+        .to_string()
+        .trim_start_matches("SHA256:")
+        .to_string()
+}
 
 #[derive(Debug, Serialize)]
 pub struct AgentIdentity {
     /// SHA-256 fingerprint, base64 no-pad (russh's format).
     pub fingerprint: String,
-    pub algorithm: &'static str,
+    pub algorithm: String,
 }
 
-/// List identities from the first reachable agent.
-///
-/// `Err` carries a human-readable "no agent" reason for the UI.
-pub async fn list_identities() -> Result<Vec<AgentIdentity>, String> {
-    let mut errors: Vec<String> = Vec::new();
+/// Transport-agnostic agent client — any socket type erased to a dynamic stream.
+pub type DynAgent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
 
+/// Connect to the first reachable SSH agent. The caller owns the socket and
+/// drops it when done (auth opens one per connect attempt).
+pub async fn connect_agent() -> Result<DynAgent, String> {
     #[cfg(unix)]
     {
         match AgentClient::connect_env().await {
-            Ok(client) => return identities(client).await,
-            Err(e) => errors.push(format!("ssh-agent (SSH_AUTH_SOCK): {e}")),
+            Ok(client) => return Ok(client.dynamic()),
+            Err(e) => {
+                return Err(format!(
+                    "No SSH agent detected — start ssh-agent and add a key. Tried: {e}"
+                ))
+            }
         }
     }
 
     #[cfg(windows)]
     {
         match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
-            Ok(client) => return identities(client).await,
-            Err(e) => errors.push(format!("OpenSSH agent service: {e}")),
+            Ok(client) => return Ok(client.dynamic()),
+            Err(_) => {}
         }
         // Pageant: connect always "succeeds" (window-message transport);
-        // the identities request is the real probe.
-        match identities(AgentClient::connect_pageant().await).await {
-            Ok(list) => return Ok(list),
-            Err(e) => errors.push(format!("Pageant: {e}")),
-        }
+        // the identities request is the real probe — callers surface its error.
+        return Ok(AgentClient::connect_pageant().await.dynamic());
     }
-
-    Err(format!(
-        "No SSH agent detected — start ssh-agent (or the OpenSSH Authentication Agent service on Windows) and add a key. Tried: {}",
-        errors.join("; ")
-    ))
 }
 
-async fn identities<S>(mut client: AgentClient<S>) -> Result<Vec<AgentIdentity>, String>
-where
-    S: AgentStream + Unpin,
-{
+/// List identities from the first reachable agent.
+///
+/// `Err` carries a human-readable "no agent" reason for the UI.
+pub async fn list_identities() -> Result<Vec<AgentIdentity>, String> {
+    let client = connect_agent().await?;
+    identities(client).await.map_err(|e| format!("No SSH agent detected — no identities from agent: {e}"))
+}
+
+async fn identities(mut client: DynAgent) -> Result<Vec<AgentIdentity>, String> {
     let keys: Vec<PublicKey> = client
         .request_identities()
         .await
@@ -60,8 +70,8 @@ where
     Ok(keys
         .into_iter()
         .map(|k| AgentIdentity {
-            fingerprint: k.fingerprint(),
-            algorithm: k.name(),
+            fingerprint: fingerprint_b64(&k),
+            algorithm: k.algorithm().as_str().to_string(),
         })
         .collect())
 }

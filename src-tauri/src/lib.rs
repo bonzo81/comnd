@@ -332,15 +332,15 @@ async fn ssh_connect(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // Resolve credentials Rust-side — secrets never enter the webview.
-    let (hostname, port, username, password, key_path) = {
+    let (hostname, port, username, creds) = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         let host = hosts
             .get_all()?
             .into_iter()
             .find(|h| h.id == host_id)
             .ok_or_else(|| format!("Host not found: {}", host_id))?;
-        let (password, key_path) = host.resolve_credentials();
-        (host.hostname, host.port, host.username, password, key_path)
+        let creds = host.resolve_credentials();
+        (host.hostname, host.port, host.username, creds)
     };
 
     let session = ssh::SshSession::connect(
@@ -348,8 +348,9 @@ async fn ssh_connect(
         &hostname,
         port,
         &username,
-        password.as_deref(),
-        key_path.as_deref(),
+        creds.password.as_deref(),
+        creds.key_path.as_deref(),
+        creds.agent,
         cols,
         rows,
         session_id,

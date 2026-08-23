@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use russh::keys::key::PublicKey;
+use russh::keys::PublicKey;
 use russh::{client, ChannelId, Disconnect};
 use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use serde::{Deserialize, Serialize};
@@ -50,12 +50,12 @@ fn save_known_hosts(hosts: &HashMap<String, KnownHostEntry>) -> Result<(), Strin
 }
 
 fn key_to_base64(key: &PublicKey) -> String {
-    use russh_keys::PublicKeyBase64;
-    key.public_key_base64()
+    let bytes = key.to_bytes().unwrap_or_default();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn key_type_name(key: &PublicKey) -> String {
-    key.name().to_string()
+    key.algorithm().as_str().to_string()
 }
 
 // ─── Auth URL Detection ─────────────────────────────────────────────
@@ -78,6 +78,18 @@ fn responses_for_round(url_round: bool, stored_password: Option<&str>, n_prompts
     match (url_round, stored_password) {
         (false, Some(pw)) => vec![pw.to_string(); n_prompts],
         _ => vec![String::new(); n_prompts],
+    }
+}
+
+/// Pick which agent identities to offer, per the host's agent config (chunk 4).
+fn select_agent_keys(agent: &crate::hosts::AgentAuth, keys: Vec<PublicKey>) -> Vec<PublicKey> {
+    match agent {
+        crate::hosts::AgentAuth::Off => Vec::new(),
+        crate::hosts::AgentAuth::All => keys,
+        crate::hosts::AgentAuth::Fingerprint(fp) => keys
+            .into_iter()
+            .filter(|k| crate::secrets::agent::fingerprint_b64(k) == *fp)
+            .collect(),
     }
 }
 
@@ -273,6 +285,7 @@ impl SshSession {
         username: &str,
         password: Option<&str>,
         key_path: Option<&str>,
+        agent: crate::hosts::AgentAuth,
         cols: u32,
         rows: u32,
         session_id: u64,
@@ -314,7 +327,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, username, password, key_path, session_id, &auth_url_opened),
+            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id, &auth_url_opened),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
@@ -384,18 +397,74 @@ impl SshSession {
         username: &str,
         password: Option<&str>,
         key_path: Option<&str>,
+        agent: crate::hosts::AgentAuth,
         session_id: u64,
         auth_url_opened: &Arc<AtomicBool>,
     ) -> Result<bool, String> {
+        // Agent publickey auth — first in the chain (chunk 4). The agent socket is
+        // opened per connect attempt and dropped when this function returns.
+        if agent != crate::hosts::AgentAuth::Off {
+            let mut client = crate::secrets::agent::connect_agent().await?;
+            let keys = client
+                .request_identities()
+                .await
+                .map_err(|e| format!("Failed to query SSH agent identities: {}", e))?;
+            let mut offered = false;
+            for key in select_agent_keys(&agent, keys) {
+                offered = true;
+                let fp = crate::secrets::agent::fingerprint_b64(&key);
+                log::info!("Attempting agent publickey auth ({fp})");
+                // The future of `authenticate_publickey_with` is Send only for
+                // specific lifetimes (Signer has no Send bound), which breaks
+                // the tauri command's higher-ranked Send requirement. Running
+                // it via block_on keeps the borrows synchronous — no Send
+                // needed. The same agent socket signs every identity in turn.
+                // ponytail: requires a multi-thread runtime (tauri default).
+                let result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(
+                        session.authenticate_publickey_with(username, key, &mut client),
+                    )
+                })
+                .map_err(|e| e.to_string());
+                match result {
+                    Ok(true) => return Ok(true),
+                    Ok(false) => log::info!("Agent identity {fp} rejected by server"),
+                    Err(e) => {
+                        log::warn!("Agent auth error: {}", e);
+                        break;
+                    }
+                }
+            }
+            if !offered {
+                return Err(match &agent {
+                    crate::hosts::AgentAuth::Fingerprint(fp) => format!(
+                        "No SSH agent identity with fingerprint {} — run `ssh-add` for that key or pick another identity",
+                        fp
+                    ),
+                    _ => "SSH agent has no identities — run `ssh-add <key>`".to_string(),
+                });
+            }
+        }
+
         // SSH key auth — only when the host is configured with a key path.
         if let Some(key_path) = key_path {
             let path = Path::new(key_path);
             if path.exists() {
                 log::info!("Attempting SSH key auth with {}", key_path);
-                match russh_keys::load_secret_key(path, None) {
+                // RSA signatures need an explicit hash alg (SHA-1 is dead);
+                // everything else ignores it.
+                let loaded = russh::keys::load_secret_key(path, None).and_then(|key| {
+                    let hash = if key.algorithm().is_rsa() {
+                        Some(russh::keys::HashAlg::Sha256)
+                    } else {
+                        None
+                    };
+                    russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), hash)
+                });
+                match loaded {
                     Ok(key) => {
                         let auth_result = session
-                            .authenticate_publickey(username, Arc::new(key))
+                            .authenticate_publickey(username, key)
                             .await
                             .map_err(|e| format!("Key auth error: {}", e))?;
                         if auth_result {
@@ -431,11 +500,22 @@ impl SshSession {
         // Normal servers reject the unknown key and we fall through.
         if stored_password.is_none() && key_path.is_none() {
             log::info!("No credentials configured — trying ephemeral key auth (browser-auth gateways)");
-            let key = russh_keys::key::KeyPair::generate_ed25519();
-            match session.authenticate_publickey(username, Arc::new(key)).await {
-                Ok(true) => return Ok(true),
-                Ok(false) => log::info!("Ephemeral key rejected — server requires configured credentials"),
-                Err(e) => log::info!("Ephemeral key auth error: {}", e),
+            let key = russh::keys::PrivateKey::random(
+                &mut russh::keys::key::safe_rng(),
+                russh::keys::Algorithm::Ed25519,
+            )
+            .map_err(|e| e.to_string())
+            .and_then(|key| {
+                russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None)
+                    .map_err(|e| e.to_string())
+            });
+            match key {
+                Ok(key) => match session.authenticate_publickey(username, key).await {
+                    Ok(true) => return Ok(true),
+                    Ok(false) => log::info!("Ephemeral key rejected — server requires configured credentials"),
+                    Err(e) => log::info!("Ephemeral key auth error: {}", e),
+                },
+                Err(e) => log::info!("Ephemeral key generation failed: {}", e),
             }
         }
 
@@ -689,6 +769,49 @@ mod tests {
         // No stored password on a credential round — empty best-effort answer.
         assert_eq!(responses_for_round(false, None, 1), vec![""]);
         assert_eq!(responses_for_round(false, Some("pw"), 0), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_select_agent_keys_filters_by_fingerprint() {
+        use crate::hosts::AgentAuth;
+        use crate::secrets::agent::fingerprint_b64;
+        use russh::keys::key::safe_rng;
+        let key = |()| {
+            russh::keys::PrivateKey::random(&mut safe_rng(), russh::keys::Algorithm::Ed25519)
+                .unwrap()
+                .public_key()
+                .clone()
+        };
+        let k1 = key(());
+        let k2 = key(());
+        let fp1 = fingerprint_b64(&k1);
+        let keys = vec![k1, k2];
+
+        assert_eq!(select_agent_keys(&AgentAuth::All, keys.clone()).len(), 2);
+
+        let sel = select_agent_keys(&AgentAuth::Fingerprint(fp1.clone()), keys.clone());
+        assert_eq!(sel.len(), 1);
+        assert_eq!(fingerprint_b64(&sel[0]), fp1);
+
+        // Unknown fingerprint offers nothing — caller turns that into a clean error.
+        assert!(select_agent_keys(&AgentAuth::Fingerprint("nonexistent".into()), keys.clone()).is_empty());
+        assert!(select_agent_keys(&AgentAuth::Off, keys).is_empty());
+    }
+
+    #[test]
+    fn test_fingerprint_b64_matches_russh046_format() {
+        // 0.46 format: sha256 → base64 no-pad, no "SHA256:" prefix (43 chars).
+        let key = russh::keys::PrivateKey::random(
+            &mut russh::keys::key::safe_rng(),
+            russh::keys::Algorithm::Ed25519,
+        )
+        .unwrap()
+        .public_key()
+        .clone();
+        let fp = crate::secrets::agent::fingerprint_b64(&key);
+        assert_eq!(fp.len(), 43);
+        assert!(!fp.contains(':'));
+        assert!(fp.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/'));
     }
 
     #[test]

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 // ─── Host Types ──────────────────────────────────────────────────────
 
-/// How a host's auth secret is sourced. Tagged union; `Agent` and
-/// `SecretRef` variants land in later chunks (serde stays backward compatible).
+/// How a host's auth secret is sourced. Tagged union; `SecretRef` lands in
+/// chunk 9 (serde stays backward compatible).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CredentialSource {
@@ -15,6 +15,8 @@ pub enum CredentialSource {
     Password,
     /// Local SSH private key file.
     SshKey { key_path: String },
+    /// Agent-signed key. `identity` = fingerprint; None = offer all identities.
+    Agent { identity: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +53,24 @@ fn default_port() -> u16 { 22 }
 fn default_auth_type() -> String { "password".to_string() }
 fn default_platform() -> String { "cisco-iosxe".to_string() }
 
+/// How agent publickey auth should offer identities (chunk 4).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentAuth {
+    /// No agent auth for this host.
+    Off,
+    /// Offer every identity the agent holds.
+    All,
+    /// Offer only the identity with this fingerprint.
+    Fingerprint(String),
+}
+
+/// Concrete auth inputs resolved from a host's `CredentialSource`.
+pub struct ResolvedCredentials {
+    pub password: Option<String>,
+    pub key_path: Option<String>,
+    pub agent: AgentAuth,
+}
+
 impl Host {
     /// Fill `credential` from legacy `auth_type`/`ssh_key_path` when absent.
     /// Called on every path where a Host enters the store (file load, IPC create/update).
@@ -65,15 +85,32 @@ impl Host {
         }
     }
 
-    /// Resolve credentials for an SSH connect attempt. Returns (password, key_path).
-    pub fn resolve_credentials(&self) -> (Option<String>, Option<String>) {
+    /// Resolve credentials for an SSH connect attempt. Secrets stay Rust-side.
+    pub fn resolve_credentials(&self) -> ResolvedCredentials {
         match self.credential.as_ref() {
-            Some(CredentialSource::Password) => (get_credential(&self.id).ok().flatten(), None),
-            Some(CredentialSource::SshKey { key_path }) => (
-                None,
-                if key_path.is_empty() { None } else { Some(key_path.clone()) },
-            ),
-            _ => (None, None), // Agent / SecretRef resolve in later chunks
+            Some(CredentialSource::Password) => ResolvedCredentials {
+                password: get_credential(&self.id).ok().flatten(),
+                key_path: None,
+                agent: AgentAuth::Off,
+            },
+            Some(CredentialSource::SshKey { key_path }) => ResolvedCredentials {
+                password: None,
+                key_path: if key_path.is_empty() { None } else { Some(key_path.clone()) },
+                agent: AgentAuth::Off,
+            },
+            Some(CredentialSource::Agent { identity }) => ResolvedCredentials {
+                password: None,
+                key_path: None,
+                agent: match identity {
+                    Some(fp) if !fp.is_empty() => AgentAuth::Fingerprint(fp.clone()),
+                    _ => AgentAuth::All,
+                },
+            },
+            None => ResolvedCredentials {
+                password: None,
+                key_path: None,
+                agent: AgentAuth::Off,
+            },
         }
     }
 }

@@ -12,7 +12,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use russh::keys::key::KeyPair;
+use russh::keys::key::safe_rng;
+use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, Pty};
 use tokio::net::TcpListener;
@@ -49,7 +50,7 @@ impl server::Handler for MockServer {
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::key::PublicKey,
+        _public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
         Ok(Auth::Accept)
     }
@@ -99,7 +100,7 @@ impl server::Handler for MockServer {
         _modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        session.channel_success(channel);
+        session.channel_success(channel)?;
         Ok(())
     }
 
@@ -109,11 +110,11 @@ impl server::Handler for MockServer {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        session.channel_success(channel);
+        session.channel_success(channel)?;
         session.data(
             channel,
             "Welcome to mock device\nDocs: https://example.com\r\n$ ".as_bytes().to_vec().into(),
-        );
+        )?;
         Ok(())
     }
 }
@@ -127,7 +128,8 @@ impl server::Handler for MockServer {
 /// - `JoinHandle<()>` — handle to the server task; abort to stop the server
 pub async fn start_mock_server() -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
-    let key = KeyPair::generate_ed25519();
+    let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519)
+        .expect("Failed to generate mock server key");
 
     let config = Arc::new(server::Config {
         keys: vec![key],
@@ -171,7 +173,7 @@ mod tests {
         type Error = russh::Error;
         async fn check_server_key(
             &mut self,
-            _key: &russh::keys::key::PublicKey,
+            _key: &russh::keys::PublicKey,
         ) -> Result<bool, Self::Error> {
             Ok(true) // test key — trust anything
         }
@@ -231,9 +233,11 @@ mod tests {
         .await
         .expect("connect");
 
-        let key = KeyPair::generate_ed25519();
+        let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519).expect("keygen");
+        let key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None)
+            .expect("wrap key");
         let ok = session
-            .authenticate_publickey("andy", Arc::new(key))
+            .authenticate_publickey("andy", key)
             .await
             .expect("pubkey auth");
         assert!(ok);
