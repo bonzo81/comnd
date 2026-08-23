@@ -56,7 +56,7 @@ export class NavPanel {
    *  tree state. Without persistence, a reload collapses every group except
    *  All Hosts, which the user perceives as "expand state is flaky". */
   private expandedGroups = new Set<string>(NavPanel.loadExpanded());
-  private groups: { id: string; name: string; icon: string | null; parent_id: string | null; sort_order: number }[] = [];
+  private groups: { id: string; name: string; icon: string | null; color: string | null; parent_id: string | null; sort_order: number }[] = [];
   private hosts: Host[] = [];
   private selectedHostId: string | null = null;
   private searchQuery = "";
@@ -64,6 +64,7 @@ export class NavPanel {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
+  private renaming: { type: "host" | "group"; id: string } | null = null;
   private deleteConfirmType: "host" | "group" = "host";
   private deleteConfirmId: string | null = null;
   private dragPayload: DragPayload | null = null;
@@ -195,7 +196,7 @@ export class NavPanel {
   private async loadData() {
     try {
       const gs = await getHostGroups();
-      this.groups = gs.map((g) => ({ id: g.id, name: g.name, icon: g.icon, parent_id: g.parent_id, sort_order: g.sort_order }));
+      this.groups = gs.map((g) => ({ id: g.id, name: g.name, icon: g.icon, color: g.color, parent_id: g.parent_id, sort_order: g.sort_order }));
       this.groups.sort((a, b) => a.sort_order - b.sort_order);
     } catch {
       this.groups = [];
@@ -274,7 +275,7 @@ export class NavPanel {
     `;
     this.bindEvents();
     this.applyRovingTabindex();
-    if (prevFocus >= 0) {
+    if (prevFocus >= 0 && !this.renaming) {
       const els = this.focusables();
       const el = els[Math.min(prevFocus, els.length - 1)];
       if (el) this.focusEl(el);
@@ -355,7 +356,7 @@ export class NavPanel {
       || this.hosts.some((h) => !h.group_id);
   }
 
-  private renderGroupNode(group: { id: string; name: string; icon: string | null; parent_id: string | null }, depth: number): string {
+  private renderGroupNode(group: { id: string; name: string; icon: string | null; color: string | null; parent_id: string | null }, depth: number): string {
     const keep = this.visibleGroupIds();
     if (keep && !keep.has(group.id)) return "";
     const children = this.groups.filter((g) => g.parent_id === group.id && (!keep || keep.has(g.id)));
@@ -368,8 +369,15 @@ export class NavPanel {
 
     // Inline "new group" row appears directly under the group being created in
     const creatingHere = this.creatingIn === group.id;
+    const renamingHere = this.renaming?.type === "group" && this.renaming.id === group.id;
 
-    let html = `
+    let html = renamingHere
+      ? `
+      <div class="nav-group-row nav-renaming">
+        <input type="text" class="nav-rename-input" value="${escHtml(group.name)}" style="margin-left:${indent}px" />
+      </div>
+    `
+      : `
       <div class="nav-group-row" data-group-id="${group.id}">
         <button class="nav-item nav-sub" data-group-id="${group.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
@@ -402,6 +410,13 @@ export class NavPanel {
 
   private renderHostRow(host: Host, depth: number): string {
     const indent = 12 + depth * 14;
+    if (this.renaming?.type === "host" && this.renaming.id === host.id) {
+      return `
+      <div class="nav-host-row nav-renaming">
+        <input type="text" class="nav-rename-input" value="${escHtml(host.display_name)}" style="margin-left:${indent}px" />
+      </div>
+    `;
+    }
     const selected = this.selectedHostId === host.id;
     const active = this.cb.getActiveSessions().has(host.id);
     // Reuse the content-area dot classes so the nav and the content panel
@@ -536,6 +551,35 @@ export class NavPanel {
     }
   }
 
+  private async commitRename(rawName: string) {
+    const r = this.renaming;
+    this.renaming = null;
+    if (!r) return;
+    const name = rawName.trim();
+    try {
+      if (r.type === "group") {
+        const g = this.groups.find((x) => x.id === r.id);
+        if (!g || !name || name === g.name) {
+          this.render();
+          return;
+        }
+        await saveHostGroup(g.id, name, g.parent_id, g.color, g.icon);
+      } else {
+        const h = this.hosts.find((x) => x.id === r.id);
+        if (!h || !name || name === h.display_name) {
+          this.render();
+          return;
+        }
+        await saveHost({ ...h, display_name: name });
+      }
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.NavPanel, `Failed to rename: ${err}`);
+      this.render();
+    }
+  }
+
   private renderKbItems(): string {
     return `
       <div class="nav-group-row">
@@ -575,6 +619,7 @@ export class NavPanel {
         <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
         <div class="ctx-item" data-action="add-host">Add Host Here</div>
         <div class="ctx-divider"></div>
+        <div class="ctx-item" data-action="rename">Rename</div>
         <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
     } else {
       const host = this.hosts.find((h) => h.id === cm.id);
@@ -583,6 +628,7 @@ export class NavPanel {
         <div class="ctx-item" data-action="edit">Edit</div>
         <div class="ctx-item" data-action="duplicate">Duplicate</div>
         <div class="ctx-divider"></div>
+        <div class="ctx-item" data-action="rename">Rename</div>
         <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(host?.display_name ?? "Host")}</div>`;
     }
 
@@ -668,6 +714,28 @@ export class NavPanel {
       });
     }
 
+    // Inline rename input
+    const renameInput = this.container.querySelector<HTMLInputElement>(".nav-rename-input");
+    if (renameInput) {
+      renameInput.focus();
+      renameInput.select();
+      renameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void this.commitRename(renameInput.value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          this.renaming = null;
+          this.render();
+        }
+      });
+      renameInput.addEventListener("blur", () => {
+        if (this.renaming !== null) {
+          void this.commitRename(renameInput.value);
+        }
+      });
+    }
+
     // KB tab items (Browse KB / Import KB)
     this.container.querySelectorAll<HTMLElement>(".nav-item[data-kb-tab]").forEach((el) => {
       el.addEventListener("click", () => {
@@ -747,6 +815,10 @@ export class NavPanel {
             break;
           case "duplicate":
             void this.doDuplicateHost(ctx.id);
+            break;
+          case "rename":
+            this.renaming = { type: ctx.type, id: ctx.id };
+            this.render();
             break;
           case "delete":
             this.deleteConfirmType = ctx.type;
@@ -1260,6 +1332,8 @@ export class NavPanel {
     this.keyHandler = (e: KeyboardEvent) => {
       const focusInPanel = this.container.contains(document.activeElement);
       if (!focusInPanel) return;
+      // Typing in the inline rename input must not trigger tree navigation
+      if (this.renaming && (document.activeElement as HTMLElement | null)?.classList.contains("nav-rename-input")) return;
       // Context menu / delete confirm take priority over navigation keys
       if (this.contextMenu || this.deleteConfirmId) {
         if (e.key === "Escape") {
