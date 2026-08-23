@@ -131,6 +131,14 @@ No new crates. `russh` 0.46 (agent client), `reqwest` 0.12 (Vault), `keyring` 3 
 
 **Verification:** `cargo check`; unit tests with mock provider (status/resolve/list wiring, test_ref discards secret).
 
+**Status: done.** Three deviations from the spec above, all simplifications:
+
+1. Registry holds `Arc<dyn SecretProvider>` in a `Mutex`, not `Box` — handles are cloned out before awaiting so the lock is never held across an await point.
+2. `test_ref` does not resolve-then-discard; the trait has a dedicated `async fn test_reference(&self, ref) -> Result<String, String>` (default: Err "not supported") so the secret never enters process memory on the IPC path at all. Providers that can't verify cheaply keep the default.
+3. Shared `run_cli(program, args, env, timeout)` helper for all CLI providers: arg arrays only, secrets via env, stdin null, stdout/stderr piped, `kill_on_drop(true)` so a timed-out wait kills the process. Returns `CliError::{NotInstalled, Timeout, Failed{code, stderr}}`.
+
+`ProviderRegistry::from_config(&AppConfig)` exists but no providers are compiled in yet — chunk 8 adds proton; registry rebuild on settings save lands with chunk 7's UI.
+
 ### Chunk 7 — Settings: Auth Integrations page
 
 **Goal:** enable/config providers, see live status.

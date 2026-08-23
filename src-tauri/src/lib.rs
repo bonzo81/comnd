@@ -127,6 +127,10 @@ struct AppState {
     groups: Mutex<HostGroupStore>,
     ssh: tokio::sync::Mutex<SshManager>,
     config: Mutex<ConfigStore>,
+    /// Secret providers enabled in config. Rebuilt when provider settings
+    /// change (chunk 7). Handles are cloned out before awaiting so the lock
+    /// is never held across an await.
+    providers: Mutex<secrets::ProviderRegistry>,
     /// Human-readable reason the custom log path fell back to the default at
     /// startup, if any. Pulled by the frontend on mount (no emit race).
     log_status: Mutex<Option<String>>,
@@ -513,6 +517,46 @@ async fn log_frontend(level: String, tag: String, msg: String, args: Option<Stri
         _ => return Err("invalid level".into()),
     }
     Ok(())
+}
+
+// ─── Secret Provider Commands (chunk 6) ─────────────────────────────
+
+#[derive(serde::Serialize)]
+struct ProviderInfo {
+    id: &'static str,
+    status: secrets::ProviderStatus,
+}
+
+/// All enabled providers with their live status (settings UI, chunk 7).
+#[tauri::command]
+async fn list_providers(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ProviderInfo>, String> {
+    let providers = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.all()
+    };
+    let mut out = Vec::with_capacity(providers.len());
+    for p in providers {
+        out.push(ProviderInfo { id: p.id(), status: p.status().await });
+    }
+    Ok(out)
+}
+
+/// Validate a provider reference and return its display label without
+/// exposing the secret (host form "Test" button, chunk 9).
+#[tauri::command]
+async fn test_ref(
+    provider: String,
+    reference: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let p = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.get(&provider)
+    }
+    .ok_or_else(|| format!("Unknown or disabled provider: {}", provider))?;
+    p.test_reference(&reference).await
 }
 
 // ─── KB Import Commands ──────────────────────────────────────────────
@@ -955,12 +999,15 @@ pub fn run() {
             let user_kb_path = config_store.user_kb_path();
             log::info!("User KB path: {}", user_kb_path.display());
 
+            let provider_registry = secrets::ProviderRegistry::from_config(config_store.get());
+
             app.manage(AppState {
                 kb: Mutex::new(KbManager::with_user_path(kb_path, user_kb_path)),
                 hosts: Mutex::new(host_store),
                 groups: Mutex::new(group_store),
                 ssh: tokio::sync::Mutex::new(SshManager::new()),
                 config: Mutex::new(config_store),
+                providers: Mutex::new(provider_registry),
                 log_status: Mutex::new(log_fallback_reason),
             });
 
@@ -990,6 +1037,8 @@ pub fn run() {
                 set_log_file_path,
                 get_log_status,
                 log_frontend,
+                list_providers,
+                test_ref,
                 import_kb_url,
                 extract_kb_preview,
                 commit_kb_import,

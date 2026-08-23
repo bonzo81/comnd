@@ -26,6 +26,11 @@ pub struct AppConfig {
     pub log_max_size_mb: u32,
     #[serde(default)]
     pub log_file_path: Option<String>,
+    /// Per-provider settings (chunk 6+). Key = provider id, value =
+    /// provider-specific JSON parsed by that provider. Secrets never live
+    /// here — they go in the OS keychain (`netsh_provider_<id>`).
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Default for AppConfig {
@@ -38,6 +43,7 @@ impl Default for AppConfig {
             log_level: default_log_level(),
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
+            providers: Default::default(),
         }
     }
 }
@@ -97,6 +103,36 @@ pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
 /// Get the Ollama API key from the OS keychain. `None` when unset.
 pub fn get_ollama_api_key() -> Result<Option<String>, String> {
     match keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
+        Ok(k) => Ok(Some(k)),
+        Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// ─── Provider secrets (OS keychain) ────────────────────────────────
+
+/// Save a provider secret (PAT, session key) to the OS keychain under
+/// `netsh_provider_<id>`, or delete it when `None`/empty.
+pub fn save_provider_secret(id: &str, secret: Option<String>) -> Result<(), String> {
+    let entry = keyring::Entry::new("netsh", &format!("netsh_provider_{}", id))
+        .map_err(|e| e.to_string())?;
+    match secret {
+        Some(k) if !k.is_empty() => entry.set_password(&k).map_err(|e| e.to_string()),
+        _ => entry
+            .delete_credential()
+            .or_else(|e| {
+                // Deleting a non-existent entry is not an error.
+                if matches!(e, keyring::Error::NoEntry) { Ok(()) } else { Err(e) }
+            })
+            .map_err(|e| e.to_string()),
+    }
+}
+
+/// Get a provider secret from the OS keychain. `None` when unset.
+pub fn get_provider_secret(id: &str) -> Result<Option<String>, String> {
+    match keyring::Entry::new("netsh", &format!("netsh_provider_{}", id))
+        .and_then(|e| e.get_password())
+    {
         Ok(k) => Ok(Some(k)),
         Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -177,6 +213,36 @@ impl ConfigStore {
     /// Update the custom log file path (None = default) and persist.
     pub fn save_log_file_path(&mut self, path: Option<String>) -> Result<(), String> {
         self.config.log_file_path = path;
+        self.persist()
+    }
+
+    // ─── Provider config (chunk 6) ─────────────────────────────────
+
+    /// Non-secret provider config for `id` (None when unset).
+    pub fn provider_config(&self, id: &str) -> Option<&serde_json::Value> {
+        self.config.providers.get(id)
+    }
+
+    /// Whether the provider is enabled in config.
+    pub fn provider_enabled(&self, id: &str) -> bool {
+        self.config
+            .providers
+            .get(id)
+            .and_then(|v| v.get("enabled"))
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Replace a provider's non-secret config and persist.
+    pub fn save_provider_config(&mut self, id: String, value: serde_json::Value) -> Result<(), String> {
+        self.config.providers.insert(id, value);
+        self.persist()
+    }
+
+    /// Remove a provider's config (and its keyring secret) and persist.
+    pub fn clear_provider(&mut self, id: &str) -> Result<(), String> {
+        self.config.providers.remove(id);
+        save_provider_secret(id, None)?;
         self.persist()
     }
 
@@ -354,5 +420,69 @@ mod tests {
         assert!(raw.contains("\"log_level\": \"debug\""));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_provider_config_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("netsh_test_{}", uuid::Uuid::new_v4()));
+        let config_path = dir.join("config.json");
+        let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
+
+        store
+            .save_provider_config(
+                "proton".into(),
+                serde_json::json!({"enabled": true, "org": "acme"}),
+            )
+            .unwrap();
+        assert!(store.provider_enabled("proton"));
+        assert_eq!(
+            store.provider_config("proton").unwrap().get("org"),
+            Some(&serde_json::json!("acme"))
+        );
+
+        // Reload from disk: providers map survives, unknown provider disabled.
+        let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        assert!(fresh.provider_enabled("proton"));
+        assert!(!fresh.provider_enabled("bitwarden"));
+        assert!(fresh.provider_config("bitwarden").is_none());
+
+        // clear_provider removes the config entry.
+        store.clear_provider("proton").unwrap();
+        let fresh = ConfigStore::new_with_path(config_path).unwrap();
+        assert!(!fresh.provider_enabled("proton"));
+        assert!(fresh.provider_config("proton").is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_legacy_config_without_providers_key() {
+        // Configs written before chunk 6 have no `providers` field — must load.
+        let v: AppConfig = serde_json::from_str(
+            r#"{"ollama_base_url":"http://localhost:11434","ollama_model":"gemma4:26b","log_level":"info","log_max_size_mb":10}"#,
+        )
+        .unwrap();
+        assert!(v.providers.is_empty());
+    }
+
+    #[test]
+    fn test_save_and_get_provider_secret() {
+        // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
+        if keyring::Entry::new("netsh", "netsh_test_probe").is_err() {
+            return;
+        }
+        let id = format!("test_{}", uuid::Uuid::new_v4());
+        // Windows Credential Manager has a session-scoping quirk where a
+        // credential written by one Entry instance may not be visible from a
+        // subsequent Entry instance in the same process. Verify the roundtrip
+        // within a single Entry, then clean up (same approach as the ollama
+        // key test above).
+        let entry = keyring::Entry::new("netsh", &format!("netsh_provider_{}", id)).unwrap();
+        entry.set_password("pat-123").unwrap();
+        assert_eq!(entry.get_password().unwrap(), "pat-123");
+        entry.delete_credential().unwrap();
+
+        // Wrapper: deleting a missing entry is not an error.
+        save_provider_secret(&id, None).unwrap();
     }
 }
