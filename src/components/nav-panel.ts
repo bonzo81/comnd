@@ -10,6 +10,8 @@
 
 import {
   Host,
+  deleteHost,
+  deleteHostGroup,
   getHosts,
   getHostGroups,
   moveHostGroup,
@@ -26,6 +28,7 @@ export type NavSection = "connections" | "kb" | "settings";
 export interface NavCallbacks {
   onSelectHost: (hostId: string) => void;
   onConnectHost: (hostId: string) => void;
+  onEditHost: (hostId: string) => void;
   onKbTab: (tab: "browse" | "import") => void;
   onNewConnection: () => void;
   onAddHostToGroup: (groupId: string) => void;
@@ -60,6 +63,9 @@ export class NavPanel {
   private activeKbTab: "browse" | "import" = "browse";
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
+  private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
+  private deleteConfirmType: "host" | "group" = "host";
+  private deleteConfirmId: string | null = null;
   private dragPayload: DragPayload | null = null;
   private dropIndicator: HTMLElement | null = null;
 
@@ -263,6 +269,8 @@ export class NavPanel {
         ${this.renderSection("kb", "Knowledge Base", this.renderKbItems())}
         ${this.renderSection("settings", "Settings", this.renderSettingsItems())}
       </div>
+      ${this.contextMenu ? this.renderContextMenu() : ""}
+      ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
     `;
     this.bindEvents();
     this.applyRovingTabindex();
@@ -554,6 +562,69 @@ export class NavPanel {
     ).join("");
   }
 
+  // ─── Context Menu ────────────────────────────────────────────────
+
+  private renderContextMenu(): string {
+    if (!this.contextMenu) return "";
+    const cm = this.contextMenu;
+    let items: string;
+
+    if (cm.type === "group") {
+      const group = this.groups.find((g) => g.id === cm.id);
+      items = `
+        <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
+        <div class="ctx-item" data-action="add-host">Add Host Here</div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+    } else {
+      const host = this.hosts.find((h) => h.id === cm.id);
+      items = `
+        <div class="ctx-item" data-action="connect">Connect</div>
+        <div class="ctx-item" data-action="edit">Edit</div>
+        <div class="ctx-item" data-action="duplicate">Duplicate</div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(host?.display_name ?? "Host")}</div>`;
+    }
+
+    return `
+      <div class="context-menu" id="nav-context-menu"
+           style="left:${cm.x}px;top:${cm.y}px">
+        ${items}
+      </div>`;
+  }
+
+  private renderDeleteConfirm(): string {
+    if (this.deleteConfirmType === "group") {
+      const group = this.groups.find((g) => g.id === this.deleteConfirmId);
+      if (!group) return "";
+      return `
+        <div class="modal-backdrop" id="nav-delete-backdrop">
+          <div class="modal-panel delete-confirm">
+            <h3>Delete Group</h3>
+            <p>Delete <strong>${escHtml(group.name)}</strong>? Hosts in this group will be moved to All Hosts. This cannot be undone.</p>
+            <div class="form-actions">
+              <button class="btn-text" id="nav-delete-cancel">Cancel</button>
+              <button class="btn-danger" id="nav-delete-confirm">Delete</button>
+            </div>
+          </div>
+        </div>`;
+    } else {
+      const host = this.hosts.find((h) => h.id === this.deleteConfirmId);
+      if (!host) return "";
+      return `
+        <div class="modal-backdrop" id="nav-delete-backdrop">
+          <div class="modal-panel delete-confirm">
+            <h3>Delete Host</h3>
+            <p>Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.</p>
+            <div class="form-actions">
+              <button class="btn-text" id="nav-delete-cancel">Cancel</button>
+              <button class="btn-danger" id="nav-delete-confirm">Delete</button>
+            </div>
+          </div>
+        </div>`;
+    }
+  }
+
   // ─── Events ──────────────────────────────────────────────────────
 
   /**
@@ -627,6 +698,143 @@ export class NavPanel {
         this.cb.onSelectSettings(el.dataset.settingsId ?? "");
       });
     });
+
+    // Context menu on group rows (right-click)
+    this.container.querySelectorAll<HTMLElement>(".nav-group-row[data-group-id] > .nav-item[data-group-id]").forEach((el) => {
+      const gid = el.dataset.groupId;
+      if (!gid || gid === ALL_GROUP_ID) return;
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        this.contextMenu = { type: "group", id: gid, x: e.clientX, y: e.clientY };
+        this.render();
+      });
+    });
+
+    // Context menu on host rows (right-click)
+    this.container.querySelectorAll<HTMLElement>(".nav-host-row[data-host-id] > .nav-item[data-host-id]").forEach((el) => {
+      const hid = el.dataset.hostId;
+      if (!hid) return;
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        this.contextMenu = { type: "host", id: hid, x: e.clientX, y: e.clientY };
+        this.render();
+      });
+    });
+
+    // Context menu actions
+    this.container.querySelectorAll<HTMLElement>(".ctx-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        const action = el.dataset.action;
+        const ctx = this.contextMenu;
+        this.contextMenu = null;
+        if (!ctx) return;
+
+        switch (action) {
+          case "add-subgroup":
+            this.creatingIn = ctx.id;
+            this.expandGroup(ctx.id);
+            this.render();
+            this.focusCreateInput();
+            break;
+          case "add-host":
+            this.cb.onAddHostToGroup(ctx.id);
+            break;
+          case "connect":
+            this.cb.onConnectHost(ctx.id);
+            break;
+          case "edit":
+            this.cb.onEditHost(ctx.id);
+            break;
+          case "duplicate":
+            void this.doDuplicateHost(ctx.id);
+            break;
+          case "delete":
+            this.deleteConfirmType = ctx.type;
+            this.deleteConfirmId = ctx.id;
+            this.render();
+            break;
+        }
+      });
+    });
+
+    // Click outside context menu
+    if (this._clickOutsideHandler) {
+      document.removeEventListener("mousedown", this._clickOutsideHandler);
+    }
+    this._clickOutsideHandler = (e: MouseEvent) => {
+      if (this.contextMenu) {
+        const menuEl = this.container?.querySelector("#nav-context-menu");
+        if (menuEl && !menuEl.contains(e.target as Node)) {
+          this.contextMenu = null;
+          this.render();
+        }
+      }
+    };
+    document.addEventListener("mousedown", this._clickOutsideHandler);
+
+    // Delete confirm
+    document.getElementById("nav-delete-cancel")?.addEventListener("click", () => {
+      this.deleteConfirmId = null;
+      this.render();
+    });
+    document.getElementById("nav-delete-confirm")?.addEventListener("click", () => {
+      if (!this.deleteConfirmId) return;
+      if (this.deleteConfirmType === "group") {
+        void this.doDeleteGroup(this.deleteConfirmId);
+      } else {
+        void this.doDeleteHost(this.deleteConfirmId);
+      }
+    });
+    document.getElementById("nav-delete-backdrop")?.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).id === "nav-delete-backdrop") {
+        this.deleteConfirmId = null;
+        this.render();
+      }
+    });
+  }
+
+  private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
+
+  private async doDeleteGroup(groupId: string) {
+    try {
+      await deleteHostGroup(groupId);
+      this.deleteConfirmId = null;
+      this.contextMenu = null;
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.NavPanel, `Failed to delete group: ${err}`);
+    }
+  }
+
+  private async doDeleteHost(hostId: string) {
+    try {
+      await deleteHost(hostId);
+      this.deleteConfirmId = null;
+      this.contextMenu = null;
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.NavPanel, `Failed to delete host: ${err}`);
+    }
+  }
+
+  private async doDuplicateHost(hostId: string) {
+    const host = this.hosts.find((h) => h.id === hostId);
+    if (!host) return;
+    try {
+      const copy: Host = {
+        ...host,
+        id: crypto.randomUUID(),
+        display_name: `${host.display_name} (copy)`,
+        last_connected: null,
+      };
+      await saveHost(copy);
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.NavPanel, `Failed to duplicate host: ${err}`);
+    }
   }
 
   /**
@@ -1052,6 +1260,16 @@ export class NavPanel {
     this.keyHandler = (e: KeyboardEvent) => {
       const focusInPanel = this.container.contains(document.activeElement);
       if (!focusInPanel) return;
+      // Context menu / delete confirm take priority over navigation keys
+      if (this.contextMenu || this.deleteConfirmId) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.contextMenu = null;
+          this.deleteConfirmId = null;
+          this.render();
+        }
+        return;
+      }
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();

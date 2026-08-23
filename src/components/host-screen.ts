@@ -95,6 +95,12 @@ export class HostScreen {
     void this.openForm();
   }
 
+  /** Open the edit form for an existing host (driven by the nav panel). */
+  openEditHost(hostId: string) {
+    this.pendingGroupId = null;
+    void this.openForm(hostId);
+  }
+
   unmount() {
     if (this._keyHandler) {
       document.removeEventListener("keydown", this._keyHandler);

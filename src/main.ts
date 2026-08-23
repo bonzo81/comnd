@@ -137,6 +137,10 @@ class App {
         const host = this.navPanel.getHost(hostId);
         if (host) this.onConnect(host);
       },
+      onEditHost: (hostId) => {
+        this.showView("connections");
+        this.hostScreen.openEditHost(hostId);
+      },
       onKbTab: (tab) => {
         this.showView("knowledge-base");
         this.kbScreen.setTab(tab);
