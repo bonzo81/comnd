@@ -64,12 +64,12 @@ Two complementary suggestion modes, matching modern IDE behaviour (e.g. VS Code)
 * Accept with `Tab`
 * Always visible while typing — zero disruption
 
-**Dropdown (on demand)**
+**Dropdown (toggleable auto-show)**
 
-* Triggered by `Ctrl+Space`
-* Shows top N matches as a popup list below the cursor
+* Off by default. Enabled via the lightbulb button in the terminal toolbar or `Ctrl+Space` (both toggle the same persisted state)
+* When enabled, shows top N matches as a popup list below the cursor automatically while typing
 * Navigate with arrow keys, accept with `Enter` or `Tab`
-* Dismiss with `Escape`
+* Dismiss with `Escape`; disabling the toggle hides it immediately
 
 Both update in real time as the user types, filtered by platform + version + current mode.
 

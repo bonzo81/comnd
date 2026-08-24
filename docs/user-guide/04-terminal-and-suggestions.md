@@ -33,12 +33,12 @@ Ghost text is designed to stay out of your way. It's shown at reduced opacity so
 
 **Important:** `Tab` is context-sensitive. When ghost text is showing, `Tab` accepts the suggestion. When no ghost text is visible, `Tab` passes through to the remote device unchanged. This means the normal tab-completion on your remote shell still works as expected.
 
-## Suggestion Dropdown (On-Demand)
+## Suggestion Dropdown (Auto-Show Toggle)
 
-When you want to see more than the top match, open the dropdown.
+The dropdown is off by default. Turn it on to see every match while you type.
 
-- **Press `Ctrl+Space`** to open it
-- The dropdown appears as a list below your cursor (or above if there isn't enough room)
+- **Press `Ctrl+Space`** or click the lightbulb button in the terminal toolbar to toggle it (the setting persists between sessions)
+- When enabled, the dropdown appears as a list below your cursor (or above if there isn't enough room) as soon as you type a recognised prefix
 - Navigate with `↑` and `↓`
 - Accept with `Enter` or `Tab`
 - Dismiss with `Escape`

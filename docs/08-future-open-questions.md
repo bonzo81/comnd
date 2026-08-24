@@ -13,7 +13,6 @@
 | Additional platforms | Junos, PAN-OS, Aruba AOS, EOS, etc. |
 | Session recording | Audit log of commands run |
 | Themes  | Light/dark/custom terminal themes |
-| Suggestion dropdown mode | User setting: auto-show dropdown while typing vs Ctrl+Space only (current default) |
 | Plugin system | Third-party KB extensions |
 | Host import/export | Share device lists across machines and teams |
 | Connection groups | Collapsible groups by site, role, or custom tag |
@@ -56,3 +55,4 @@
 | 2026-03-03 | Empty state with single CTA + tip | First-run experience must be frictionless. One button, one tip, no wizard. |
 | 2026-03-03 | Platform icons in connection manager | Visual scanning is faster than reading text labels for device type |
 | 2026-03-03 | Escape cascades: dropdown → panel → connection manager | Consistent "back out" behaviour across all contexts |
+| 2026-08-24 | Suggestion dropdown auto-show is a persisted toggle (off by default) | Toolbar lightbulb button + `Ctrl+Space` flip the same state; ghost text stays always-on. Resolves the open "dropdown mode" question. |

@@ -391,7 +391,8 @@
 .badge-bash { color: var(--color-success) !important; }
 
 /* ─── Line Timestamps (iTerm-style gutter) ─────────────────────────── */
-.tv-timestamps-btn.active {
+.tv-timestamps-btn.active,
+.tv-suggestions-btn.active {
   color: var(--color-accent);
 }
 

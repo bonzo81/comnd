@@ -67,6 +67,18 @@ const MODE_TINTS: Record<string, string> = {
   "tmsh": "var(--tint-tmos)",
 };
 
+// Auto-suggestion toggle — persisted, synced across tabs via window event
+const SUGGESTIONS_KEY = "netsh-suggestions";
+
+function getSuggestionsEnabled(): boolean {
+  return localStorage.getItem(SUGGESTIONS_KEY) === "1";
+}
+
+function setSuggestionsEnabled(enabled: boolean): void {
+  localStorage.setItem(SUGGESTIONS_KEY, enabled ? "1" : "0");
+  window.dispatchEvent(new CustomEvent("netsh:suggestions", { detail: enabled }));
+}
+
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
 interface ConnectProgress {
@@ -125,6 +137,8 @@ export class TerminalView {
   private timestampsChangeHandler: (() => void) | null = null;
   private timestampsFormatHandler: (() => void) | null = null;
   private timestampGutter: TimestampGutter | null = null;
+  private suggestionsEnabled = false;
+  private suggestionsChangeHandler: (() => void) | null = null;
 
   constructor(
     onDetach: () => void,
@@ -181,6 +195,7 @@ export class TerminalView {
     this.timestampGutter = new TimestampGutter(this.terminal);
     this.syncTerminalChrome();
     this.syncTimestamps();
+    this.syncSuggestions();
     this.fitAddon.fit();
 
     // xterm.js resize event → send PTY resize to remote
@@ -264,9 +279,9 @@ export class TerminalView {
           }
         }
 
-        // Check for Ctrl+Space — toggle dropdown
+        // Check for Ctrl+Space — toggle auto-suggestions
         if (data === "\x00") {
-          this.toggleDropdown();
+          setSuggestionsEnabled(!getSuggestionsEnabled());
           return;
         }
 
@@ -329,6 +344,7 @@ export class TerminalView {
         <div class="tv-topbar">
           <span class="tv-host-info">Connecting...</span>
           <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
+          <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
           <button class="btn-text tv-panel-btn">≡ Panel</button>
         </div>
@@ -402,6 +418,13 @@ export class TerminalView {
     this.timestampsFormatHandler = () => this.syncTimestamps();
     window.addEventListener("netsh:timestamps", this.timestampsChangeHandler);
     window.addEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
+
+    // Command suggestions toggle (auto-show dropdown while typing)
+    this.$(".tv-suggestions-btn")!.addEventListener("click", () => {
+      setSuggestionsEnabled(!getSuggestionsEnabled());
+    });
+    this.suggestionsChangeHandler = () => this.syncSuggestions();
+    window.addEventListener("netsh:suggestions", this.suggestionsChangeHandler);
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
@@ -932,9 +955,15 @@ export class TerminalView {
     const top = results[0];
     this.applyTopMatch(top, text, results.length - 1);
 
-    // Update dropdown if open
-    if (this.dropdown?.isVisible()) {
-      this.dropdown.updateResults(results);
+    // Auto-show dropdown when enabled; keep in sync while open
+    if (this.suggestionsEnabled) {
+      if (this.dropdown?.isVisible()) {
+        this.dropdown.updateResults(results);
+      } else {
+        this.openDropdown(results);
+      }
+    } else if (this.dropdown?.isVisible()) {
+      this.dropdown.hide();
     }
 
     // Update sidebar with top match detail
@@ -1009,14 +1038,7 @@ export class TerminalView {
     this.ghostText?.hide();
   }
 
-  private toggleDropdown() {
-    if (this.dropdown?.isVisible()) {
-      this.dropdown.hide();
-      return;
-    }
-    // Get results — if input empty, show all for current mode
-    const results = this.suggestionEngine.query(this.currentInput || "");
-    if (results.length === 0) return;
+  private openDropdown(results: SuggestionResult[]) {
     if (!this.dropdown && this.terminal) {
       const termContainer = this.$(".tv-terminal")!;
       this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
@@ -1089,6 +1111,27 @@ export class TerminalView {
     this.fitAddon?.fit();
   }
 
+  private syncSuggestions() {
+    this.suggestionsEnabled = getSuggestionsEnabled();
+    const btn = this.$(".tv-suggestions-btn");
+    if (btn) {
+      btn.innerHTML = icons.lightbulb;
+      btn.classList.toggle("active", this.suggestionsEnabled);
+      btn.setAttribute(
+        "aria-label",
+        this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions",
+      );
+    }
+    if (!this.suggestionsEnabled) {
+      this.dropdown?.hide();
+      return;
+    }
+    if (this.currentInput && !this.receivingOutput && this.state === "connected") {
+      const results = this.suggestionEngine.query(this.currentInput);
+      if (results.length > 0) this.openDropdown(results);
+    }
+  }
+
   // ─── Zoom ────────────────────────────────────────────────────────
 
   applyTerminalTheme(t: Theme) {
@@ -1152,6 +1195,10 @@ export class TerminalView {
     if (this.timestampsFormatHandler) {
       window.removeEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
       this.timestampsFormatHandler = null;
+    }
+    if (this.suggestionsChangeHandler) {
+      window.removeEventListener("netsh:suggestions", this.suggestionsChangeHandler);
+      this.suggestionsChangeHandler = null;
     }
 
     this.timestampGutter?.dispose();

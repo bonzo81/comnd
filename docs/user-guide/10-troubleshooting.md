@@ -68,10 +68,10 @@ If sluggishness persists, heavy terminal output with formatting codes can slow d
 **Suggestions don't match the commands you'd expect for this device.**
 Check the platform first — edit the host and make sure it matches the remote device's OS. If the platform is correct, look at the status bar for the detected CLI mode. Mode detection is automatic but can misdetect during rapid command sequences or when prompt patterns are unusual — wait a moment after landing at a prompt for detection to settle. If you're in config mode, only config-mode commands appear; return to exec mode to see the full command set.
 
-### Dropdown not opening
+### Dropdown not showing
 
-**`Ctrl+Space` doesn't open the suggestion panel.**
-On most platforms, `Ctrl+Space` is reserved by the input method editor (IME) on Linux and Windows, or by Spotlight on macOS. Check your OS keyboard settings and either unbind the conflicting shortcut or remap it. As a fallback, click the suggestion panel button in the toolbar.
+**The suggestion dropdown doesn't appear while typing.**
+The dropdown is off by default — press `Ctrl+Space` or click the lightbulb button in the terminal toolbar to enable auto-show (the setting persists). If `Ctrl+Space` does nothing, it is usually reserved by the input method editor (IME) on Linux and Windows, or by Spotlight on macOS. Check your OS keyboard settings and either unbind the conflicting shortcut or remap it; the toolbar button works regardless.
 
 ### Suggestion panel shows commands from the wrong device
 

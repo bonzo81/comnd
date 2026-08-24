@@ -5,7 +5,7 @@ While connected to a device with an active SSH session.
 | Shortcut | Action |
 |---|---|
 | `Tab` | Accept ghost text suggestion (if showing); pass through to remote (otherwise) |
-| `Ctrl+Space` | Open command suggestion dropdown |
+| `Ctrl+Space` | Toggle command suggestions (auto-show the dropdown while typing) |
 | `Escape` | See [Escape Cascade](#escape-cascade) |
 | `↑` / `↓` | Navigate dropdown items (if open); remote command history (if closed) |
 | `Enter` | Select highlighted dropdown item (if open); send typed command (if closed) |
