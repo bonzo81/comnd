@@ -1,9 +1,10 @@
 //! Proton Pass provider — `pass-cli` on PATH (chunk 8).
 //!
-//! Ref format: `pass://<vault>/<item>/<field>`. Auth via the PAT env var when
-//! a token is stored in the keyring, otherwise a persisted interactive session.
-//! CLI invocations follow the implementation plan's shapes — confirm them
-//! against a real install and record findings in
+//! Ref format: `pass://<vault>/<item>/<field>` where vault/item accept either
+//! the human name or the opaque ID (`item view` resolves both; item IDs are
+//! used for generated refs because titles can duplicate). Auth via the PAT env
+//! var when a token is stored in the keyring, otherwise a persisted interactive
+//! session. CLI shapes confirmed against a real install — see
 //! `docs/credentials/plan-provider-proton.md`.
 
 use std::time::Duration;
@@ -44,14 +45,48 @@ fn env_refs(envs: &[(String, String)]) -> Vec<(&str, &str)> {
 }
 
 /// `pass-cli item view "pass://<vault>/<item>/<field>"` — raw stdout is the secret.
-/// ponytail: assumes raw output is a clean single value; switch to
-/// `--output json` + parse once the real schema is confirmed.
 async fn item_view(reference: &str) -> Result<String, String> {
     let env = pat_env();
     let refs = env_refs(&env);
     run_cli(CLI, &["item".into(), "view".into(), reference.to_string()], &refs, TIMEOUT)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Parse a `vault list` line: `- [<share_id>]: <name>` → (share_id, name).
+fn parse_vault_line(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("- [")?;
+    let (id, name) = rest.split_once("]: ")?;
+    if id.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some((id.to_string(), name.to_string()))
+}
+
+#[derive(serde::Deserialize)]
+struct ItemListOutput {
+    items: Vec<ItemEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct ItemEntry {
+    id: String,
+    title: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ItemViewOutput {
+    item: ItemViewContent,
+}
+
+#[derive(serde::Deserialize)]
+struct ItemViewContent {
+    content: ItemViewInner,
+}
+
+#[derive(serde::Deserialize)]
+struct ItemViewInner {
+    title: String,
 }
 
 pub struct ProtonProvider;
@@ -87,38 +122,69 @@ impl SecretProvider for ProtonProvider {
         item_view(reference).await
     }
 
-    /// Validate the ref end-to-end and return the item name as a display
-    /// label — never the secret (host form "Test" button, chunk 9).
+    /// Validate the ref end-to-end and return the item title as a display
+    /// label — never the secret (host form "Test" button, chunk 9). Views the
+    /// item without a field so the JSON includes `content.title`.
     async fn test_reference(&self, reference: &str) -> Result<String, String> {
-        let (_vault, item, _field) = parse_ref(reference)?;
-        item_view(reference).await?;
-        Ok(item)
+        let (vault, item, _field) = parse_ref(reference)?;
+        let env = pat_env();
+        let refs = env_refs(&env);
+        let out = run_cli(
+            CLI,
+            &[
+                "item".into(),
+                "view".into(),
+                format!("pass://{}/{}", vault, item),
+                "--output".into(),
+                "json".to_string(),
+            ],
+            &refs,
+            TIMEOUT,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let parsed: ItemViewOutput = serde_json::from_str(&out).map_err(|e| e.to_string())?;
+        Ok(parsed.item.content.title)
     }
 
-    /// Enumerate credentials for the browse UI (chunk 15).
+    fn can_list(&self) -> bool {
+        true
+    }
+
+    /// Enumerate credentials for the browse UI (chunk 15). Refs use opaque
+    /// IDs (`pass://<share_id>/<item_id>/password`) — titles can duplicate.
     async fn list(&self) -> Result<Vec<CredentialItem>, String> {
         let env = pat_env();
         let refs = env_refs(&env);
-        // ponytail: line-based parse assumed; `vault list` output fed straight
-        // to `--share-id` — confirm both shapes (and whether names vs IDs)
-        // before the browse UI ships. `--output json` is the upgrade path.
         let vaults = run_cli(CLI, &["vault".into(), "list".into()], &refs, TIMEOUT)
             .await
             .map_err(|e| e.to_string())?;
         let mut items = Vec::new();
-        for vault in vaults.lines().map(str::trim).filter(|v| !v.is_empty()) {
+        for line in vaults.lines() {
+            let (share_id, _name) = match parse_vault_line(line.trim()) {
+                Some(v) => v,
+                None => continue,
+            };
             let out = run_cli(
                 CLI,
-                &["item".into(), "list".into(), "--share-id".into(), vault.to_string()],
+                &[
+                    "item".into(),
+                    "list".into(),
+                    "--share-id".into(),
+                    share_id.clone(),
+                    "--output".into(),
+                    "json".to_string(),
+                ],
                 &refs,
                 TIMEOUT,
             )
             .await
             .map_err(|e| e.to_string())?;
-            for item in out.lines().map(str::trim).filter(|i| !i.is_empty()) {
+            let parsed: ItemListOutput = serde_json::from_str(&out).map_err(|e| e.to_string())?;
+            for entry in parsed.items {
                 items.push(CredentialItem {
-                    id: format!("pass://{}/{}/{}", vault, item, DEFAULT_FIELD),
-                    label: item.to_string(),
+                    id: format!("pass://{}/{}/{}", share_id, entry.id, DEFAULT_FIELD),
+                    label: entry.title,
                     username: None,
                 });
             }
@@ -129,7 +195,18 @@ impl SecretProvider for ProtonProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_ref;
+    use super::{parse_ref, parse_vault_line};
+
+    #[test]
+    fn test_parse_vault_line() {
+        assert_eq!(
+            parse_vault_line("- [abc123==]: Personal").unwrap(),
+            ("abc123==".to_string(), "Personal".to_string())
+        );
+        for bad in ["", "- no brackets", "[id]: Name", "- []: x", "- [x]:"] {
+            assert!(parse_vault_line(bad).is_none(), "should reject: {}", bad);
+        }
+    }
 
     #[test]
     fn test_parse_ref_valid() {

@@ -195,6 +195,16 @@ export type ProviderStatus =
 export interface ProviderInfo {
   id: string;
   status: ProviderStatus;
+  /** Provider can enumerate credentials — browse UI available (chunk 15). */
+  can_list: boolean;
+}
+
+/** One credential a provider can enumerate (browse UI, chunk 15). */
+export interface CredentialItem {
+  /** Provider-specific reference — what resolve() takes. */
+  id: string;
+  label: string;
+  username?: string;
 }
 
 export interface ProviderState {
@@ -209,6 +219,11 @@ export async function listProviders(): Promise<ProviderInfo[]> {
 /** Validate a secret-manager reference; resolves to the item's display label. */
 export async function testRef(provider: string, reference: string): Promise<string> {
   return invoke<string>("test_ref", { provider, reference });
+}
+
+/** Enumerate a provider's credentials for the browse UI (chunk 15). */
+export async function listCredentials(provider: string): Promise<CredentialItem[]> {
+  return invoke<CredentialItem[]>("list_credentials", { provider });
 }
 
 export async function getProviderState(

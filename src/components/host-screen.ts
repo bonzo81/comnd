@@ -17,8 +17,9 @@ import {
   getHostGroups,
   agentListIdentities,
   listProviders,
-  testRef,
+  listCredentials,
   type AgentIdentity,
+  type CredentialItem,
   type ProviderInfo,
 } from "../lib/tauri-api";
 import { log, LogTag } from "../lib/logger";
@@ -29,11 +30,6 @@ import { icons } from "../lib/icons";
 
 /** Display names for secret-manager providers (fallback to raw id). */
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
-
-/** Reference help text per provider, shown under the Reference field. */
-const PROVIDER_REF_HINTS: Record<string, string> = {
-  proton: "Format: pass://<vault>/<item>/<field>. Example: pass://Default/Core Router/password. Find vault names with pass-cli vault list. Find item names with pass-cli item list.",
-};
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -58,6 +54,18 @@ export class HostScreen {
   private agentStatus: string | null = null;
   private readyProviders: ProviderInfo[] = [];
   private secretRefLabel: string | null = null;
+
+  // Secret-ref combobox (chunk 15) — in-place DOM, never a full re-render.
+  private comboOpen = false;
+  private comboItems: CredentialItem[] = [];
+  private comboFiltered: CredentialItem[] = [];
+  private comboIndex = 0;
+  private comboNavigated = false;
+  private comboLoading = false;
+  private comboError: string | null = null;
+  private comboProvider: string | null = null;
+  // Item picked from the combobox — input shows its label, we store its id.
+  private comboSelection: CredentialItem | null = null;
   private editingGroupId: string | null = null;
   private pendingGroupId: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -330,16 +338,14 @@ export class HostScreen {
                 </select>
               </label>
               ${this.readyProviders.length === 0 ? `<div class="form-hint">No secret managers ready — enable one in Settings → Auth Integrations.</div>` : ""}
-              <label>
-                <span>Reference</span>
-                <input type="text" name="secret_ref_reference" placeholder="Paste item reference"
-                       spellcheck="false" autocomplete="off"
-                       value="${escAttr(secretRefReference)}" />
-              </label>
-              <div class="form-hint" id="hs-secretref-format">${this.secretRefFormatText(secretRefProvider)}</div>
-              <div class="form-test-row">
-                <button type="button" class="btn-small" id="hs-secretref-test" title="Shows the item name for this reference">Test</button>
-                <span class="form-hint" id="hs-secretref-status"></span>
+              <div class="hs-ref-combo" id="hs-ref-combo-wrap">
+                <label>
+                  <span>Reference</span>
+                  <input type="text" name="secret_ref_reference" placeholder="Search or paste item reference"
+                         spellcheck="false" autocomplete="off"
+                         value="${escAttr(secretRefReference)}" />
+                </label>
+                <div class="hs-ref-combo-list" id="hs-ref-combo-list"></div>
               </div>
             </div>
             <label>
@@ -513,17 +519,23 @@ export class HostScreen {
       });
     });
 
-    // Secret manager: Test button + invalidate cached label on edit
-    document.getElementById("hs-secretref-test")?.addEventListener("click", () => void this.testSecretRef());
-    (this.container.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.addEventListener("change", (e) => {
-      const hint = document.getElementById("hs-secretref-format");
-      if (hint) hint.textContent = this.secretRefFormatText((e.target as HTMLSelectElement).value);
+    // Secret manager: reference combobox, invalidate cached label on edit
+    (this.container.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.addEventListener("change", () => {
+      this.closeCombo();
+      this.comboProvider = null; // cached items belong to the old provider
+      this.comboSelection = null;
     });
-    (this.container.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null)?.addEventListener("input", () => {
-      this.secretRefLabel = null;
-      const status = document.getElementById("hs-secretref-status");
-      if (status) { status.textContent = ""; status.className = "form-hint"; }
-    });
+    const refInput = this.container.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+    if (refInput) {
+      refInput.addEventListener("focus", () => this.openCombo(refInput));
+      refInput.addEventListener("input", () => {
+        this.secretRefLabel = null;
+        this.comboSelection = null; // text edited — treat as manual reference
+        this.comboNavigated = false;
+        this.openCombo(refInput);
+      });
+      refInput.addEventListener("keydown", (e) => this.handleComboKey(e, refInput));
+    }
 
     // Cancel
     document.getElementById("hs-form-cancel")?.addEventListener("click", () => this.closeForm());
@@ -702,6 +714,15 @@ export class HostScreen {
     this.agentStatus = null;
     this.readyProviders = [];
     this.secretRefLabel = null;
+    this.closeCombo();
+    this.comboItems = [];
+    this.comboFiltered = [];
+    this.comboIndex = 0;
+    this.comboNavigated = false;
+    this.comboLoading = false;
+    this.comboError = null;
+    this.comboProvider = null;
+    this.comboSelection = null;
     this.render();
   }
 
@@ -718,7 +739,11 @@ export class HostScreen {
     const password = (fd.get("password") as string) ?? "";
     const sshKeyPath = (fd.get("ssh_key_path") as string)?.trim() || null;
     const secretRefProvider = (fd.get("secret_ref_provider") as string)?.trim() || "";
-    const secretRefReference = (fd.get("secret_ref_reference") as string)?.trim();
+    const secretRefInput = (fd.get("secret_ref_reference") as string)?.trim();
+    // Combobox shows the item name; store the real reference id for it.
+    const secretRefReference = this.comboSelection && secretRefInput === this.comboSelection.label
+      ? this.comboSelection.id
+      : secretRefInput;
     const platform = (fd.get("platform") as string) ?? "cisco-iosxe";
     const osVersion = (fd.get("os_version") as string)?.trim() || null;
     const notes = (fd.get("notes") as string)?.trim() || null;
@@ -853,33 +878,152 @@ export class HostScreen {
     }
   }
 
-  private secretRefFormatText(providerId: string): string {
-    return PROVIDER_REF_HINTS[providerId] ?? "Paste the item reference from your secret manager.";
+  // ─── Secret Ref Combobox (chunk 15) ─────────────────────────────
+
+  private providerCanList(providerId: string): boolean {
+    return this.readyProviders.some((p) => p.id === providerId && p.can_list);
   }
 
-  /** Validate the reference in place (no re-render, keeps input focus). */
-  private async testSecretRef() {
-    const provider = (this.container?.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.value ?? "";
-    const reference = (this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null)?.value.trim();
-    const status = document.getElementById("hs-secretref-status");
-    if (!status) return;
-    if (!provider || !reference) {
-      this.secretRefLabel = null;
-      status.textContent = "Pick a provider and paste a reference first.";
-      status.className = "form-hint";
+  private currentProvider(): string {
+    return (this.container?.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.value ?? "";
+  }
+
+  /** Open the dropdown under the reference input, loading items lazily. */
+  private openCombo(input: HTMLInputElement) {
+    const provider = this.currentProvider();
+    if (!provider || !this.providerCanList(provider)) return;
+    if (!this.comboOpen) {
+      this.comboOpen = true;
+      document.addEventListener("mousedown", this.comboOutsideClose);
+    }
+    this.applyComboFilter(input.value);
+    this.updateComboList();
+    if (this.comboProvider !== provider || this.comboError) void this.loadComboItems(provider);
+  }
+
+  private closeCombo() {
+    if (!this.comboOpen) return;
+    this.comboOpen = false;
+    document.removeEventListener("mousedown", this.comboOutsideClose);
+    const list = document.getElementById("hs-ref-combo-list");
+    if (list) list.innerHTML = "";
+  }
+
+  private comboOutsideClose = (e: MouseEvent) => {
+    const wrap = document.getElementById("hs-ref-combo-wrap");
+    if (wrap && !wrap.contains(e.target as Node)) this.closeCombo();
+  };
+
+  /** Arrow/Enter/Escape on the reference input. Enter selects only after the
+   * user has navigated, so a plain Enter still submits the form. */
+  private handleComboKey(e: KeyboardEvent, input: HTMLInputElement) {
+    if (!this.comboOpen) {
+      if (e.key === "ArrowDown" && this.providerCanList(this.currentProvider())) {
+        e.preventDefault();
+        this.openCombo(input);
+      }
       return;
     }
-    status.textContent = "Testing…";
-    status.className = "form-hint";
-    try {
-      const label = await testRef(provider, reference);
-      this.secretRefLabel = label;
-      status.textContent = `✓ ${label}`;
-      status.className = "form-hint form-test-ok";
-    } catch (err) {
-      this.secretRefLabel = null;
-      status.textContent = String(err);
-      status.className = "form-hint form-test-err";
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        e.stopPropagation();
+        this.moveCombo(1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        e.stopPropagation();
+        this.moveCombo(-1);
+        break;
+      case "Enter":
+        if (this.comboNavigated && this.comboFiltered.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.selectComboItem(this.comboIndex);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeCombo();
+        break;
     }
+  }
+
+  private async loadComboItems(provider: string) {
+    this.comboProvider = provider;
+    this.comboLoading = true;
+    this.comboError = null;
+    this.updateComboList();
+    try {
+      this.comboItems = await listCredentials(provider);
+    } catch (err) {
+      this.comboError = String(err);
+    } finally {
+      this.comboLoading = false;
+      if (!this.comboOpen || this.comboProvider !== provider) return;
+      const input = this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+      this.applyComboFilter(input?.value ?? "");
+      this.updateComboList();
+    }
+  }
+
+  private applyComboFilter(query: string) {
+    const q = query.trim().toLowerCase();
+    this.comboFiltered = q
+      ? this.comboItems.filter(
+          (i) => i.label.toLowerCase().includes(q) || (i.username ?? "").toLowerCase().includes(q),
+        )
+      : [...this.comboItems];
+    this.comboIndex = 0;
+  }
+
+  private renderComboListContent(): string {
+    if (this.comboLoading) return `<div class="hs-browse-empty">Loading…</div>`;
+    if (this.comboError) return `<div class="hs-browse-empty hs-browse-err">${escHtml(this.comboError)}</div>`;
+    if (this.comboFiltered.length === 0) return `<div class="hs-browse-empty">No matches.</div>`;
+    return this.comboFiltered
+      .map(
+        (item, i) => `
+          <div class="hs-browse-item ${i === this.comboIndex ? "hs-browse-item-active" : ""}" data-index="${i}">
+            <span class="hs-browse-label">${escHtml(item.label)}</span>
+            ${item.username ? `<span class="hs-browse-user">${escHtml(item.username)}</span>` : ""}
+          </div>`,
+      )
+      .join("");
+  }
+
+  private updateComboList() {
+    const list = document.getElementById("hs-ref-combo-list");
+    if (!list) return;
+    list.innerHTML = this.renderComboListContent();
+    list.querySelectorAll(".hs-browse-item").forEach((el) => {
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault(); // keep focus in the input
+        this.selectComboItem(parseInt((el as HTMLElement).dataset.index ?? "0", 10));
+      });
+    });
+    list.querySelector(".hs-browse-item-active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  private moveCombo(delta: number) {
+    if (this.comboFiltered.length === 0) return;
+    this.comboIndex = (this.comboIndex + delta + this.comboFiltered.length) % this.comboFiltered.length;
+    this.comboNavigated = true;
+    this.updateComboList();
+  }
+
+  /** Fill the reference input from a picked item and cache its label. */
+  private selectComboItem(index: number) {
+    const item = this.comboFiltered[index];
+    if (!item) return;
+    this.closeCombo();
+    const input = this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+    if (input) {
+      input.value = item.label;
+      input.focus();
+    }
+    this.comboSelection = item;
+    this.secretRefLabel = item.label;
   }
 }

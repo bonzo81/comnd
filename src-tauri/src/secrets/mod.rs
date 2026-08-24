@@ -61,6 +61,11 @@ pub trait SecretProvider: Send + Sync {
     async fn list(&self) -> Result<Vec<CredentialItem>, String> {
         Err("not supported".to_string())
     }
+
+    /// Whether `list()` is implemented — drives the host form's Browse button.
+    fn can_list(&self) -> bool {
+        false
+    }
 }
 
 // ─── Registry ──────────────────────────────────────────────────────

@@ -549,6 +549,7 @@ async fn log_frontend(level: String, tag: String, msg: String, args: Option<Stri
 struct ProviderInfo {
     id: &'static str,
     status: secrets::ProviderStatus,
+    can_list: bool,
 }
 
 /// All enabled providers with their live status (settings UI, chunk 7).
@@ -562,9 +563,23 @@ async fn list_providers(
     };
     let mut out = Vec::with_capacity(providers.len());
     for p in providers {
-        out.push(ProviderInfo { id: p.id(), status: p.status().await });
+        out.push(ProviderInfo { id: p.id(), status: p.status().await, can_list: p.can_list() });
     }
     Ok(out)
+}
+
+/// Enumerate a provider's credentials for the browse UI (chunk 15).
+#[tauri::command]
+async fn list_credentials(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<secrets::CredentialItem>, String> {
+    let p = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.get(&provider)
+    }
+    .ok_or_else(|| format!("Unknown or disabled provider: {}", provider))?;
+    p.list().await
 }
 
 /// Validate a provider reference and return its display label without
@@ -1112,6 +1127,7 @@ pub fn run() {
                 log_frontend,
                 list_providers,
                 test_ref,
+                list_credentials,
                 get_provider_state,
                 save_provider_config,
                 save_provider_secret,
