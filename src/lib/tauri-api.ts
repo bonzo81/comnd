@@ -183,6 +183,48 @@ export async function getCredential(
   return invoke<string | null>("get_credential", { hostId });
 }
 
+// ─── Secret Provider Commands (chunks 6–7) ─────────────────────────
+
+export type ProviderStatus =
+  | { kind: "ready" }
+  | { kind: "not_installed"; message: string }
+  | { kind: "auth_expired"; action: string }
+  | { kind: "error"; message: string };
+
+export interface ProviderInfo {
+  id: string;
+  status: ProviderStatus;
+}
+
+export interface ProviderState {
+  enabled: boolean;
+  has_secret: boolean;
+}
+
+export async function listProviders(): Promise<ProviderInfo[]> {
+  return invoke<ProviderInfo[]>("list_providers");
+}
+
+export async function getProviderState(
+  provider: string,
+): Promise<ProviderState> {
+  return invoke<ProviderState>("get_provider_state", { provider });
+}
+
+export async function saveProviderConfig(
+  provider: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  return invoke<void>("save_provider_config", { provider, config });
+}
+
+export async function saveProviderSecret(
+  provider: string,
+  secret: string | null,
+): Promise<void> {
+  return invoke<void>("save_provider_secret", { provider, secret });
+}
+
 // ─── SSH Agent Commands ─────────────────────────────────────────────
 
 export interface AgentIdentity {

@@ -158,3 +158,70 @@
 .btn-link:hover {
   text-decoration: underline;
 }
+
+/* ─── Auth Integrations (chunk 7) ─────────────────────────────────── */
+.provider-refresh-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+.provider-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface-primary);
+}
+
+.provider-card-disabled {
+  opacity: 0.55;
+}
+
+.provider-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.provider-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.provider-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.provider-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+
+.provider-status-row {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.provider-status {
+  color: var(--color-text-secondary);
+}
+
+.provider-status-ok { color: var(--color-success); }
+.provider-status-warn { color: var(--color-warning, var(--color-text-secondary)); }
+.provider-status-err { color: var(--color-error); }
+.provider-status-soon { font-style: italic; }
+
+.provider-pat-field {
+  margin-top: var(--space-3);
+}

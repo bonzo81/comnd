@@ -559,6 +559,55 @@ async fn test_ref(
     p.test_reference(&reference).await
 }
 
+/// Config + secret state for one provider's settings form (chunk 7).
+#[derive(serde::Serialize)]
+struct ProviderState {
+    enabled: bool,
+    has_secret: bool,
+}
+
+#[tauri::command]
+async fn get_provider_state(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ProviderState, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let enabled = config
+        .get()
+        .providers
+        .get(&provider)
+        .and_then(|v| v.get("enabled"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let has_secret = crate::config::get_provider_secret(&provider)?.is_some();
+    Ok(ProviderState { enabled, has_secret })
+}
+
+/// Persist a provider's config and rebuild the live registry (chunk 7).
+#[tauri::command]
+async fn save_provider_config(
+    provider: String,
+    config: serde_json::Value,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let new_registry = {
+        let mut store = state.config.lock().map_err(|e| e.to_string())?;
+        store.save_provider_config(provider, config)?;
+        secrets::ProviderRegistry::from_config(store.get())
+    };
+    *state.providers.lock().map_err(|e| e.to_string())? = new_registry;
+    Ok(())
+}
+
+/// Store or clear a provider's secret in the OS keyring (chunk 7).
+#[tauri::command]
+async fn save_provider_secret(
+    provider: String,
+    secret: Option<String>,
+) -> Result<(), String> {
+    crate::config::save_provider_secret(&provider, secret)
+}
+
 // ─── KB Import Commands ──────────────────────────────────────────────
 
 #[tauri::command]
@@ -1039,6 +1088,9 @@ pub fn run() {
                 log_frontend,
                 list_providers,
                 test_ref,
+                get_provider_state,
+                save_provider_config,
+                save_provider_secret,
                 import_kb_url,
                 extract_kb_preview,
                 commit_kb_import,

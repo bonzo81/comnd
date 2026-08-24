@@ -5,7 +5,11 @@
  * The Ollama sub-item owns the LLM connection settings used by KB import.
  */
 
-import { getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel, setLogMaxSize, setLogFilePath, AppConfig } from "../lib/tauri-api";
+import {
+  getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
+  setLogMaxSize, setLogFilePath, AppConfig, listProviders, getProviderState,
+  saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
+} from "../lib/tauri-api";
 import { save } from "@tauri-apps/plugin-dialog";
 import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
@@ -24,20 +28,41 @@ const LABELS: Record<string, string> = {
   general: "General",
   theme: "Theme",
   ollama: "Ollama / KB Import",
+  auth: "Auth Integrations",
   shortcuts: "Shortcuts",
 };
+
+/** Planned providers. `available` = config fields render (implementation may
+ *  still land in a later chunk — live status comes from list_providers). */
+interface ProviderCatalogEntry {
+  id: string;
+  name: string;
+  available: boolean;
+  fields: ("pat")[];
+}
+
+const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
+  { id: "proton", name: "Proton Pass", available: true, fields: ["pat"] },
+  { id: "passbolt", name: "Passbolt", available: false, fields: [] },
+  { id: "onepassword", name: "1Password", available: false, fields: [] },
+  { id: "bitwarden", name: "Bitwarden", available: false, fields: [] },
+  { id: "vault", name: "HashiCorp Vault", available: false, fields: [] },
+];
 
 export class SettingsScreen {
   private container: HTMLElement | null = null;
   private itemId = "ollama";
   private config: AppConfig | null = null;
   private availableModels: string[] = [];
+  private providerStatuses = new Map<string, ProviderInfo>();
+  private providerStates = new Map<string, ProviderState>();
 
   setItem(id: string) {
-    if (this.itemId !== id) {
-      this.itemId = id;
-      this.render();
-    }
+    // Auth re-fetches on every show (refresh-on-mount); other items no-op.
+    if (this.itemId === id && id !== "auth") return;
+    this.itemId = id;
+    if (id === "auth") void this.loadProviders().then(() => this.render());
+    else this.render();
   }
 
   async mount(container: HTMLElement) {
@@ -61,6 +86,7 @@ export class SettingsScreen {
       this.itemId === "ollama" ? this.renderOllama()
       : this.itemId === "general" ? this.renderGeneral()
       : this.itemId === "theme" ? this.renderTheme()
+      : this.itemId === "auth" ? this.renderAuth()
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
@@ -219,6 +245,86 @@ export class SettingsScreen {
     `;
   }
 
+  private async loadProviders() {
+    try {
+      const infos = await listProviders();
+      this.providerStatuses = new Map(infos.map((p) => [p.id, p]));
+    } catch {
+      this.providerStatuses = new Map();
+    }
+    const states = await Promise.all(
+      PROVIDER_CATALOG.filter((p) => p.available).map(async (p) => {
+        try {
+          return [p.id, await getProviderState(p.id)] as const;
+        } catch {
+          return [p.id, { enabled: false, has_secret: false }] as const;
+        }
+      }),
+    );
+    this.providerStates = new Map(states);
+  }
+
+  private renderAuth(): string {
+    return `
+      <div class="settings-form">
+        <div class="provider-refresh-row">
+          <button type="button" class="btn-link" id="providers-refresh">Refresh status</button>
+        </div>
+        ${PROVIDER_CATALOG.map((p) => this.renderProviderCard(p)).join("")}
+      </div>
+    `;
+  }
+
+  private renderProviderCard(p: ProviderCatalogEntry): string {
+    const state = this.providerStates.get(p.id) ?? { enabled: false, has_secret: false };
+    const disabled = !p.available;
+    return `
+      <div class="provider-card${disabled ? " provider-card-disabled" : ""}">
+        <div class="provider-card-head">
+          <span class="provider-name">${icons.lock}${escHtml(p.name)}</span>
+          <label class="provider-toggle">
+            <input type="checkbox" data-provider-toggle="${p.id}" ${state.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} />
+            Enable
+          </label>
+        </div>
+        <div class="provider-status-row">${this.providerStatusLine(p)}</div>
+        ${!disabled && p.fields.includes("pat") ? `
+          <div class="import-field provider-pat-field">
+            <label for="pat-${p.id}">Personal Access Token</label>
+            <div class="log-file-row">
+              <input type="password" id="pat-${p.id}"
+                placeholder="${state.has_secret ? "Saved — enter a new token to replace" : "pt_..."}"
+                autocomplete="off" spellcheck="false" />
+              <button type="button" class="btn-secondary" data-provider-save-pat="${p.id}">Save</button>
+            </div>
+            <span class="import-hint">No token needed if you use an interactive pass-cli login session in your terminal.</span>
+          </div>
+        ` : ""}
+      </div>
+    `;
+  }
+
+  private providerStatusLine(p: ProviderCatalogEntry): string {
+    if (!p.available) return '<span class="provider-status provider-status-soon">Coming soon</span>';
+    const info = this.providerStatuses.get(p.id);
+    if (info) {
+      switch (info.status.kind) {
+        case "ready":
+          return '<span class="provider-status provider-status-ok">Ready</span>';
+        case "not_installed":
+          return `<span class="provider-status provider-status-err">${escHtml(info.status.message)}</span>`;
+        case "auth_expired":
+          return `<span class="provider-status provider-status-warn">${escHtml(info.status.action)}</span>`;
+        case "error":
+          return `<span class="provider-status provider-status-err">${escHtml(info.status.message)}</span>`;
+      }
+    }
+    const state = this.providerStates.get(p.id);
+    return state?.enabled
+      ? '<span class="provider-status">Enabled</span>'
+      : '<span class="provider-status">Off</span>';
+  }
+
   private renderPlaceholder(label: string): string {
     return `<p class="settings-placeholder">Coming soon — ${escHtml(label)} settings are not implemented yet.</p>`;
   }
@@ -286,6 +392,35 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
       setAppTheme((e.target as HTMLSelectElement).value as Theme);
+    });
+
+    this.container?.querySelector<HTMLElement>("#providers-refresh")?.addEventListener("click", () => {
+      void this.loadProviders().then(() => this.render());
+    });
+
+    this.container?.querySelectorAll<HTMLInputElement>("[data-provider-toggle]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const id = el.dataset.providerToggle!;
+        // ponytail: config saved as { enabled } only — replaces any other keys for this provider; merge when chunk 8+ adds per-provider fields
+        void saveProviderConfig(id, { enabled: el.checked })
+          .then(() => showToast(`${id} ${el.checked ? "enabled" : "disabled"}`, "success"))
+          .catch((e) => showToast(`Failed to update ${id}: ${e}`, "error"));
+      });
+    });
+
+    this.container?.querySelectorAll<HTMLButtonElement>("[data-provider-save-pat]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.providerSavePat!;
+        const input = this.container?.querySelector<HTMLInputElement>(`#pat-${id}`);
+        const value = (input?.value ?? "").trim();
+        void saveProviderSecret(id, value || null)
+          .then(async () => {
+            showToast(value ? "Token saved" : "Token cleared", "success");
+            await this.loadProviders();
+            this.render();
+          })
+          .catch((e) => showToast(`Failed to save token: ${e}`, "error"));
+      });
     });
   }
 
