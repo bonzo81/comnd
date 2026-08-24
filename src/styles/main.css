@@ -60,6 +60,65 @@
   color: #fff;
 }
 
+/* ─── Global status bar (bottom, VS Code style) ─── */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+
+.statusbar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.statusbar-spacer {
+  margin-left: auto;
+}
+
+.sb-dot {
+  color: var(--color-text-tertiary);
+}
+
+.sb-dot.on {
+  color: var(--color-success);
+}
+
+.statusbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.statusbar-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.statusbar-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* ─── Inline SVG icon sizing (see src/lib/icons.ts) ─── */
 .btn-text svg,
 .btn-small svg,

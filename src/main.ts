@@ -11,6 +11,7 @@ import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
 import { listen } from "@tauri-apps/api/event";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme } from "./lib/theme";
+import { icons } from "./lib/icons";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -59,6 +60,10 @@ class App {
   // Global shortcuts modal (lives in app tab bar, visible in all views)
   private showShortcuts = false;
   private globalSearch: GlobalSearch | null = null;
+
+  // Bottom status bar (VS Code style)
+  private sbSessions: HTMLElement | null = null;
+  private sbView: HTMLElement | null = null;
 
   constructor() {
     this.container = document.getElementById("app")!;
@@ -169,6 +174,7 @@ class App {
     this.syncLogStatus();
     this.registerGlobalShortcuts();
     this.renderTitleBar();
+    this.renderStatusBar();
   }
 
   private async syncLogLevel() {
@@ -255,6 +261,64 @@ class App {
     this.container.insertBefore(bar, this.container.firstChild);
   }
 
+  private renderStatusBar() {
+    const bar = document.createElement("div");
+    bar.className = "statusbar";
+    bar.id = "statusbar";
+
+    const sessions = document.createElement("span");
+    sessions.className = "statusbar-item sb-sessions";
+
+    const view = document.createElement("span");
+    view.className = "statusbar-item sb-view";
+
+    const spacer = document.createElement("span");
+    spacer.className = "statusbar-spacer";
+
+    const makeBtn = (id: string, label: string, action: () => void): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.className = "statusbar-btn";
+      b.id = id;
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.addEventListener("click", action);
+      return b;
+    };
+
+    const appBtn = makeBtn("sb-app-theme", "Toggle app theme", () => {
+      setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
+    });
+
+    const syncIcon = () => {
+      appBtn.innerHTML = getAppTheme() === "dark" ? icons.sun : icons.moon;
+    };
+    window.addEventListener("netsh:theme", syncIcon);
+    syncIcon();
+
+    bar.appendChild(sessions);
+    bar.appendChild(view);
+    bar.appendChild(spacer);
+    bar.appendChild(appBtn);
+    this.container.appendChild(bar);
+
+    this.sbSessions = sessions;
+    this.sbView = view;
+    this.refreshStatusBar();
+  }
+
+  private refreshStatusBar() {
+    if (!this.sbSessions || !this.sbView) return;
+    const n = this.activeSessions.size;
+    this.sbSessions.innerHTML = `<span class="sb-dot${n > 0 ? " on" : ""}">●</span>${n} session${n === 1 ? "" : "s"}`;
+    const labels: Record<AppView, string> = {
+      connections: "Connections",
+      terminal: "Terminal",
+      "knowledge-base": "Knowledge Base",
+      settings: "Settings",
+    };
+    this.sbView.textContent = labels[this.currentView];
+  }
+
   private showView(view: AppView) {
     this.currentView = view;
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
@@ -276,6 +340,7 @@ class App {
     if (view === "terminal") {
       this.renderSessionTabBar();
     }
+    this.refreshStatusBar();
   }
 
   private onConnect(host: Host) {
@@ -384,6 +449,7 @@ class App {
       }
     }
     this.renderSessionTabBar();
+    this.refreshStatusBar();
     this.hostScreen.refresh();
   }
 
@@ -409,6 +475,7 @@ class App {
       }
     }
     this.renderSessionTabBar();
+    this.refreshStatusBar();
     this.hostScreen.refresh();
   }
 
