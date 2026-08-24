@@ -141,6 +141,11 @@
   overflow: hidden;
   /* Containing block for ghost text / dropdown overlays */
   position: relative;
+  /* Inset the screen from the clip edges so ghost text on row 0 / the last
+     row is not cut off (pill background + glyph descenders). FitAddon
+     subtracts this padding when proposing rows, like the timestamp gutter. */
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
 }
 
 .tv-sidebar {
@@ -384,46 +389,6 @@
 .badge-nxos { color: var(--badge-nxos) !important; }
 .badge-tmos { color: var(--color-warning) !important; }
 .badge-bash { color: var(--color-success) !important; }
-
-/* ─── Inline Suggestion Bar ──────────────────────────────────────── */
-.tv-suggestion-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  background: var(--color-surface-secondary);
-  border-top: 1px solid var(--color-border);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
-  color: var(--color-text-secondary);
-  min-height: 28px;
-  transition: opacity 0.15s ease, visibility 0.15s;
-}
-
-/* Space stays reserved — toggling display would resize the terminal (PTY
-   resize → remote redraw → ghost text flicker). */
-.tv-suggestion-bar.hidden {
-  visibility: hidden;
-  opacity: 0;
-}
-
-.tv-suggestion-bar .sb-label {
-  color: var(--color-accent);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: var(--font-size-xs);
-}
-
-.tv-suggestion-bar .sb-command {
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-
-.tv-suggestion-bar .sb-remainder {
-  color: var(--color-text-secondary);
-  opacity: 0.7;
-}
 
 /* ─── Line Timestamps (iTerm-style gutter) ─────────────────────────── */
 .tv-timestamps-btn.active {

@@ -161,7 +161,7 @@ Hidden by default. Toggled via `Ctrl+Shift+S` or the panel button. Pushes termin
 
 ## Dropdown Rendering
 
-* Anchored bottom-left of the terminal pane, above the suggestion bar — never obscures the current input line
+* Anchored bottom-left of the terminal pane — never obscures the current input line
 * Maximum 8 visible items, scroll indicator if more
 * Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief)
 * Selected item has highlighted background (accent tint)

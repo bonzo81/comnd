@@ -182,8 +182,3 @@ export function ghostPayloadAcceptText(p: GhostPayload): string | null {
       return null;
   }
 }
-
-/** Short display string for the suggestion bar (e.g. "brief", "<interface-name>"). */
-export function ghostPayloadDisplay(p: GhostPayload): string {
-  return ghostPayloadText(p);
-}

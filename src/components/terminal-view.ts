@@ -27,7 +27,7 @@ import { log, LogTag } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
 import { ShadowBuffer } from "../lib/shadow-buffer";
 import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/suggestion-engine";
-import { GhostText, GhostPayload, ghostPayloadAcceptText, ghostPayloadDisplay } from "../lib/ghost-text";
+import { GhostText, GhostPayload, ghostPayloadAcceptText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
 import { stripAnsi } from "../lib/ansi";
@@ -241,7 +241,6 @@ export class TerminalView {
               this.shadowBuffer.reset();
             }
             this.ghostText.hide();
-            this.hideSuggestionBar();
             return;
           }
           // No suggestion visible — pass Tab through to remote
@@ -254,7 +253,6 @@ export class TerminalView {
         if (data === "\x1b") {
           if (this.dropdown?.isVisible()) {
             this.dropdown.hide();
-            this.hideSuggestionBar();
             return;
           }
           if (this.sidePanelOpen) {
@@ -263,7 +261,6 @@ export class TerminalView {
           }
           if (this.ghostText?.isShowing()) {
             this.ghostText.hide();
-            this.hideSuggestionBar();
           }
         }
 
@@ -292,7 +289,6 @@ export class TerminalView {
           this.shadowBuffer.reset();
           this.ghostText?.hide();
           this.dropdown?.hide();
-          this.hideSuggestionBar();
         } else if (data === "\x7f" || data === "\b") {
           // Backspace
           this.shadowBuffer.backspace();
@@ -301,12 +297,10 @@ export class TerminalView {
           this.shadowBuffer.reset();
           this.ghostText?.hide();
           this.dropdown?.hide();
-          this.hideSuggestionBar();
         } else if (data === "\x1b[A" || data === "\x1b[B") {
           // Arrow up/down — history navigation, reset
           this.shadowBuffer.reset();
           this.ghostText?.hide();
-          this.hideSuggestionBar();
         } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
           // Printable character
           this.shadowBuffer.append(data);
@@ -368,11 +362,6 @@ export class TerminalView {
               <p class="sb-placeholder">Select a suggestion to see command details</p>
             </div>
           </div>
-        </div>
-        <div class="tv-suggestion-bar hidden">
-          <span class="sb-label">Suggestion</span>
-          <span class="sb-command"></span>
-          <span class="sb-remainder"></span>
         </div>
         <div class="tv-statusbar">
           <span class="sb-indicator sb-connecting tv-sb-dot">●</span>
@@ -552,7 +541,6 @@ export class TerminalView {
         this.receivingOutput = true;
         this.ghostText?.hide();
         this.dropdown?.hide();
-        this.hideSuggestionBar();
         if (this.outputTimer) clearTimeout(this.outputTimer);
         this.outputTimer = setTimeout(() => {
           this.receivingOutput = false;
@@ -878,28 +866,6 @@ export class TerminalView {
     }, 250);
   }
 
-  // ─── Inline Suggestion Bar ───────────────────────────────────────
-
-  private showSuggestionBar(input: string, commandName: string, remainder: string) {
-    const bar = this.$(".tv-suggestion-bar");
-    const cmdEl = this.$(".sb-command");
-    const remEl = this.$(".sb-remainder");
-    if (bar && cmdEl && remEl) {
-      bar.classList.remove("hidden");
-      cmdEl.textContent = input;
-      remEl.textContent = remainder;
-    }
-    // No fit() — bar space is permanently reserved, so the terminal never
-    // resizes (a PTY resize made the remote redraw and hid the ghost text).
-  }
-
-  private hideSuggestionBar() {
-    const bar = this.$(".tv-suggestion-bar");
-    if (bar) {
-      bar.classList.add("hidden");
-    }
-  }
-
   // ─── Mode display ────────────────────────────────────────────────
 
   private updateModeDisplay(mode: string) {
@@ -938,7 +904,6 @@ export class TerminalView {
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
     if (!text || this.receivingOutput || this.state !== "connected") {
       this.ghostText?.hide();
-      this.hideSuggestionBar();
       if (this.dropdown?.isVisible()) {
         this.dropdown.updateResults([]);
       }
@@ -956,7 +921,6 @@ export class TerminalView {
 
     if (results.length === 0) {
       this.ghostText?.hide();
-      this.hideSuggestionBar();
       if (this.dropdown?.isVisible()) {
         this.dropdown.updateResults([]);
       }
@@ -978,18 +942,16 @@ export class TerminalView {
   }
 
   /**
-   * Build ghost text + suggestion bar for the top result. Token-aware
-   * commands render the next expected token (Phase 3); legacy commands and
-   * name-prefix matches render the name remainder.
+   * Build ghost text for the top result. Token-aware commands render the
+   * next expected token (Phase 3); legacy commands and name-prefix matches
+   * render the name remainder.
    */
   private applyTopMatch(top: SuggestionResult, input: string, extraMatchCount: number) {
     const payload = this.ghostPayloadForTop(top, input);
     if (payload && this.terminal) {
       this.ghostText?.showPayload(payload, extraMatchCount);
-      this.showSuggestionBar(input, top.command.name, ghostPayloadDisplay(payload));
     } else {
       this.ghostText?.hide();
-      this.hideSuggestionBar();
     }
   }
 
@@ -1045,7 +1007,6 @@ export class TerminalView {
     }
     this.dropdown?.hide();
     this.ghostText?.hide();
-    this.hideSuggestionBar();
   }
 
   private toggleDropdown() {
@@ -1193,7 +1154,6 @@ export class TerminalView {
       this.timestampsFormatHandler = null;
     }
 
-    this.hideSuggestionBar();
     this.timestampGutter?.dispose();
     this.timestampGutter = null;
     this.ghostText?.destroy();
