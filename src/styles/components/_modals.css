@@ -45,11 +45,7 @@
   font-style: normal;
 }
 
-.host-form input[type="text"],
-.host-form input[type="number"],
-.host-form input[type="password"],
-.host-form select,
-.host-form textarea {
+.form-input {
   width: 100%;
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-primary);
@@ -62,21 +58,33 @@
   transition: border-color 0.15s ease;
 }
 
-.host-form input:focus,
-.host-form select:focus,
-.host-form textarea:focus {
+.form-input:focus {
   border-color: var(--color-accent);
-  outline: none;
 }
 
-.host-form textarea {
+.form-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+textarea.form-input {
   resize: vertical;
   min-height: 60px;
 }
 
-.host-form select {
+select.form-input {
   appearance: none;
   cursor: pointer;
+}
+
+.form-input-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.form-input-mono option {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
 }
 
 .form-auth-group {

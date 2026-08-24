@@ -225,8 +225,8 @@ export class KbViewerDialog {
     return `
       <div class="kb-detail-wrapper">
         <div class="kb-detail-actions">
-          <button class="btn-small kb-btn-edit" id="kb-cmd-edit-btn">${icons.pencil} Edit</button>
-          <button class="btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} Delete</button>
+          <button class="btn-secondary btn-small kb-btn-edit" id="kb-cmd-edit-btn">${icons.pencil} Edit</button>
+          <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} Delete</button>
         </div>
         <div class="kb-detail-sidebar">
           ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null)}
@@ -243,35 +243,35 @@ export class KbViewerDialog {
         <h3 style="margin-bottom:12px">Edit Command</h3>
         <label class="kb-edit-field">
           <span>Name</span>
-          <input type="text" id="kb-edit-name" value="${this.escAttr(this.editName)}" />
+          <input type="text" class="form-input" id="kb-edit-name" value="${this.escAttr(this.editName)}" />
         </label>
         <label class="kb-edit-field">
           <span>Syntax</span>
-          <input type="text" id="kb-edit-syntax" value="${this.escAttr(this.editSyntax)}" />
+          <input type="text" class="form-input" id="kb-edit-syntax" value="${this.escAttr(this.editSyntax)}" />
         </label>
         <label class="kb-edit-field">
           <span>Description</span>
-          <textarea id="kb-edit-desc" rows="3">${escHtml(this.editDescription)}</textarea>
+          <textarea class="form-input" id="kb-edit-desc" rows="3">${escHtml(this.editDescription)}</textarea>
         </label>
         <label class="kb-edit-field">
           <span>Mode</span>
-          <input type="text" id="kb-edit-mode" value="${this.escAttr(this.editMode)}" />
+          <input type="text" class="form-input" id="kb-edit-mode" value="${this.escAttr(this.editMode)}" />
         </label>
         <label class="kb-edit-field">
           <span>Aliases (comma-separated)</span>
-          <input type="text" id="kb-edit-aliases" value="${this.escAttr(this.editAliases)}" />
+          <input type="text" class="form-input" id="kb-edit-aliases" value="${this.escAttr(this.editAliases)}" />
         </label>
         <label class="kb-edit-field">
           <span>Tags (comma-separated)</span>
-          <input type="text" id="kb-edit-tags" value="${this.escAttr(this.editTags)}" />
+          <input type="text" class="form-input" id="kb-edit-tags" value="${this.escAttr(this.editTags)}" />
         </label>
         <label class="kb-edit-field">
           <span>Tokens (JSON array — empty for legacy)</span>
-          <textarea id="kb-edit-tokens" rows="4" placeholder='[{"lit":"show ip interface"},{"choice":["brief"],"optional":true}]'>${escHtml(this.editTokensJson)}</textarea>
+          <textarea class="form-input" id="kb-edit-tokens" rows="4" placeholder='[{"lit":"show ip interface"},{"choice":["brief"],"optional":true}]'>${escHtml(this.editTokensJson)}</textarea>
         </label>
         <label class="kb-edit-field kb-edit-row">
           <span>Order</span>
-          <select id="kb-edit-order">
+          <select class="form-input" id="kb-edit-order">
             <option value="fixed"${this.editOrder === "fixed" ? " selected" : ""}>fixed</option>
             <option value="flags-anywhere"${this.editOrder === "flags-anywhere" ? " selected" : ""}>flags-anywhere</option>
             <option value="free"${this.editOrder === "free" ? " selected" : ""}>free</option>

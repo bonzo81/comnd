@@ -105,22 +105,6 @@
   margin-bottom: var(--space-1);
 }
 
-.import-field input[type="url"] {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-ui);
-  outline: none;
-}
-
-.import-field input[type="url"]:focus {
-  border-color: var(--color-accent);
-}
-
 .import-hint {
   display: block;
   font-size: var(--font-size-xs);
@@ -136,24 +120,6 @@
 
 .import-row .import-field {
   flex: 1;
-}
-
-.import-field select {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-ui);
-  outline: none;
-  appearance: none;
-  cursor: pointer;
-}
-
-.import-field select:focus {
-  border-color: var(--color-accent);
 }
 
 .import-config-row {
@@ -421,6 +387,28 @@
   flex-shrink: 0;
 }
 
+.kb-edit-field {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.kb-edit-field span {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.kb-edit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.kb-edit-row span {
+  margin-bottom: 0;
+}
+
 .kb-btn-edit {
   color: var(--color-accent);
   border-color: var(--color-accent);
@@ -436,34 +424,6 @@
   margin-top: var(--space-2);
 }
 
-.import-models label {
-  display: block;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-1);
-}
-
-.import-models select {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
-  outline: none;
-}
-
-.import-models select:focus {
-  border-color: var(--color-accent);
-}
-
-.import-models select option {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
 /* ─── Import: URL Pre-validation ───────────────────────────────────── */
 .import-url-row {
   display: flex;
@@ -474,26 +434,9 @@
   flex: 1;
 }
 
-.btn-try-url {
-  background: var(--color-surface-selected);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  font-family: inherit;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
+.import-try-url {
   white-space: nowrap;
   align-self: flex-end;
-}
-
-.btn-try-url:hover {
-  background: var(--color-border);
-}
-
-.btn-try-url:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .url-status {

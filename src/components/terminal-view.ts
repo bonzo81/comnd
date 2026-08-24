@@ -358,7 +358,7 @@ export class TerminalView {
             <div class="tv-banner hidden">
               <span class="tv-banner-msg">Connection lost</span>
               <div class="tv-banner-actions">
-                <button class="btn-primary btn-sm tv-banner-reconnect">Reconnect</button>
+                <button class="btn-primary btn-small tv-banner-reconnect">Reconnect</button>
                 <button class="btn-text tv-banner-back">Back to hosts</button>
               </div>
             </div>
@@ -755,7 +755,7 @@ export class TerminalView {
     }
     if (actionsEl) {
       actionsEl.innerHTML = `
-        <button class="btn-primary btn-sm tv-overlay-retry">Retry</button>
+        <button class="btn-primary btn-small tv-overlay-retry">Retry</button>
         <button class="btn-text tv-overlay-back">Back to hosts</button>
       `;
       this.$(".tv-overlay-retry")?.addEventListener("click", () => this.reconnect());

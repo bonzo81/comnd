@@ -108,25 +108,25 @@ export class SettingsScreen {
       <form class="settings-form" id="ollama-settings-form">
         <div class="import-field">
           <label for="ollama-url">Base URL</label>
-          <input type="url" id="ollama-url" value="${this.escAttr(baseUrl)}" required />
+          <input type="url" class="form-input" id="ollama-url" value="${this.escAttr(baseUrl)}" required />
           <span class="import-hint">http://localhost:11434 for local, https://ollama.com/api for cloud</span>
         </div>
         <div class="import-field">
           <label for="ollama-model">Model</label>
-          <input type="text" id="ollama-model" value="${this.escAttr(model)}" required />
+          <input type="text" class="form-input" id="ollama-model" value="${this.escAttr(model)}" required />
           <span class="import-hint">e.g., gemma4:26b, llama3.2, mistral</span>
         </div>
         <div class="import-field">
           <label for="ollama-key">API Key (cloud only)</label>
-          <input type="password" id="ollama-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local Ollama" autocomplete="off" />
+          <input type="password" class="form-input" id="ollama-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local Ollama" autocomplete="off" />
         </div>
         <div class="import-field">
           <label for="ollama-ctx">Context Length</label>
-          <input type="number" id="ollama-ctx" value="${ctxLen}" min="4096" step="1024" />
+          <input type="number" class="form-input" id="ollama-ctx" value="${ctxLen}" min="4096" step="1024" />
           <span class="import-hint">Higher = can process longer pages, but uses more memory</span>
         </div>
         <div class="import-config-row">
-          <button type="button" class="btn-small" id="ollama-test-btn">${icons.bot} Test Connection</button>
+          <button type="button" class="btn-secondary btn-small" id="ollama-test-btn">${icons.bot} Test Connection</button>
           <span class="import-model-info" id="ollama-test-status"></span>
         </div>
         ${this.availableModels.length > 0 ? this.renderModelSelect(model) : ""}
@@ -141,7 +141,7 @@ export class SettingsScreen {
     return `
       <div class="import-field import-models">
         <label for="ollama-model-select">Available Models</label>
-        <select id="ollama-model-select">
+        <select class="form-input form-input-mono" id="ollama-model-select">
           ${this.availableModels.map((m) => `<option value="${this.escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
         </select>
         <span class="import-hint">Selecting a model updates the Model field above</span>
@@ -166,7 +166,7 @@ export class SettingsScreen {
         <h3 class="settings-section-title">Logging</h3>
         <div class="import-field">
           <label for="log-level">Log level</label>
-          <select id="log-level">
+          <select class="form-input" id="log-level">
             ${levelOpt("debug", "Debug")}
             ${levelOpt("info", "Info")}
             ${levelOpt("warn", "Warn")}
@@ -176,7 +176,7 @@ export class SettingsScreen {
         </div>
         <div class="import-field">
           <label for="log-max-size">Log file size cap</label>
-          <select id="log-max-size">
+          <select class="form-input" id="log-max-size">
             ${sizeOpt(0, "Off")}
             ${sizeOpt(5, "5 MB")}
             ${sizeOpt(10, "10 MB")}
@@ -188,7 +188,7 @@ export class SettingsScreen {
         <div class="import-field">
           <label for="log-file-path">Log file location</label>
           <div class="log-file-row">
-            <input type="text" id="log-file-path"
+            <input type="text" class="form-input" id="log-file-path"
               value="${this.escAttr(this.config?.log_file_path ?? "")}"
               placeholder="Default: app data dir"
               spellcheck="false" autocomplete="off" />
@@ -207,7 +207,7 @@ export class SettingsScreen {
         </label>
         <div class="import-field">
           <label for="ts-format">Timestamp format</label>
-          <select id="ts-format" ${tsOn ? "" : "disabled"}>
+          <select class="form-input" id="ts-format" ${tsOn ? "" : "disabled"}>
             ${opt("24h", "24-hour — 14:32:05")}
             ${opt("12h", "12-hour — 2:32:05 PM")}
             ${opt("24h-ms", "24-hour with ms — 14:32:05.123")}
@@ -235,7 +235,7 @@ export class SettingsScreen {
         <h3 class="settings-section-title">Appearance</h3>
         <div class="import-field">
           <label for="theme-app">App theme</label>
-          <select id="theme-app">
+          <select class="form-input" id="theme-app">
             ${opt("dark", "Dark")}
             ${opt("light", "Light")}
           </select>
@@ -292,7 +292,7 @@ export class SettingsScreen {
           <div class="import-field provider-pat-field">
             <label for="pat-${p.id}">Personal Access Token</label>
             <div class="log-file-row">
-              <input type="password" id="pat-${p.id}"
+              <input type="password" class="form-input" id="pat-${p.id}"
                 placeholder="${state.has_secret ? "Saved — enter a new token to replace" : "pt_..."}"
                 autocomplete="off" spellcheck="false" />
               <button type="button" class="btn-secondary" data-provider-save-pat="${p.id}">Save</button>

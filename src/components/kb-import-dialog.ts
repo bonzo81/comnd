@@ -190,9 +190,9 @@ export class KbImportDialog {
         <div class="import-field">
           <label for="import-url">Documentation URL</label>
           <div class="import-url-row">
-            <input type="url" id="import-url" placeholder="https://www.cisco.com/c/en/us/td/docs/ios-xml/..." 
+            <input type="url" class="form-input" id="import-url" placeholder="https://www.cisco.com/c/en/us/td/docs/ios-xml/..." 
                    ${isImporting ? 'disabled' : ''} />
-            <button class="btn-try-url" id="import-try-url-btn" ${isImporting ? 'disabled' : ''}>Try URL</button>
+            <button class="btn-secondary btn-small import-try-url" id="import-try-url-btn" ${isImporting ? 'disabled' : ''}>Try URL</button>
           </div>
           <span class="import-hint">Paste a link to a command reference page</span>
           <div class="url-status" id="import-url-status"></div>
@@ -201,14 +201,14 @@ export class KbImportDialog {
         <div class="import-row">
           <div class="import-field">
             <label for="import-platform">Platform</label>
-            <select id="import-platform" ${isImporting ? 'disabled' : ''}>
+            <select class="form-input" id="import-platform" ${isImporting ? 'disabled' : ''}>
               ${PLATFORM_OPTIONS.map(p => `<option value="${p.value}">${p.label}</option>`).join("")}
             </select>
           </div>
 
           <div class="import-field">
             <label for="import-category">Category</label>
-            <select id="import-category" ${isImporting ? 'disabled' : ''}>
+            <select class="form-input" id="import-category" ${isImporting ? 'disabled' : ''}>
               ${CATEGORY_OPTIONS.map(c => `<option value="${c.value}">${c.label}</option>`).join("")}
             </select>
           </div>

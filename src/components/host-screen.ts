@@ -247,29 +247,29 @@ export class HostScreen {
           <form id="hs-host-form" autocomplete="off">
             <label>
               <span>Display Name <em>*</em></span>
-              <input type="text" name="display_name" required placeholder="e.g. Core Router - LON"
+              <input type="text" class="form-input" name="display_name" required placeholder="e.g. Core Router - LON"
                      value="${escAttr(h?.display_name ?? "")}" />
             </label>
             <label>
               <span>Hostname / IP <em>*</em></span>
-              <input type="text" name="hostname" required placeholder="e.g. 192.168.1.1 or router.example.com"
+              <input type="text" class="form-input" name="hostname" required placeholder="e.g. 192.168.1.1 or router.example.com"
                      value="${escAttr(h?.hostname ?? "")}" />
             </label>
             <label>
               <span>Port</span>
-              <input type="number" name="port" min="1" max="65535" placeholder="22"
+              <input type="number" class="form-input" name="port" min="1" max="65535" placeholder="22"
                      value="${h?.port ?? 22}" />
             </label>
             <label>
               <span>Username <em>*</em></span>
-              <input type="text" name="username" required placeholder="admin"
+              <input type="text" class="form-input" name="username" required placeholder="admin"
                      value="${escAttr(h?.username ?? "")}" />
             </label>
 
             <!-- Group -->
             <label>
               <span>Group</span>
-              <select name="group_id" style="width:100%;padding:8px 12px;background:var(--color-surface-primary);border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-primary);font-size:13px;outline:none;appearance:none">
+              <select class="form-input" name="group_id">
                 <option value="">— No Group —</option>
                 ${this.groups.map((g) => `<option value="${g.id}" ${h?.group_id === g.id ? "selected" : ""}>${escHtml(g.name)}</option>`).join("")}
               </select>
@@ -278,7 +278,7 @@ export class HostScreen {
             <!-- Tags -->
             <label>
               <span>Tags (comma-separated)</span>
-              <input type="text" name="tags" placeholder="e.g. core, london, production"
+              <input type="text" class="form-input" name="tags" placeholder="e.g. core, london, production"
                      value="${escAttr((h?.tags ?? []).join(", "))}" />
             </label>
 
@@ -308,21 +308,21 @@ export class HostScreen {
             <div id="hs-auth-password-field" class="auth-conditional ${(!h || !h.credential || h.credential.type === "password") ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>Password ${h && this.editingHasCredential ? `<span class="cred-badge">${icons.lock} Password saved</span>` : ""}</span>
-                <input type="password" name="password"
+                <input type="password" class="form-input" name="password"
                        placeholder="${h && this.editingHasCredential ? "Leave blank to keep saved password" : "Enter password"}" />
               </label>
             </div>
             <div id="hs-auth-key-field" class="auth-conditional ${h?.credential?.type === "ssh_key" ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>SSH Key Path</span>
-                <input type="text" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
-                       value="${escAttr(h?.credential?.type === "ssh_key" ? h.credential.key_path : "")}" />
+              <input type="text" class="form-input" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
+                     value="${escAttr(h?.credential?.type === "ssh_key" ? h.credential.key_path : "")}" />
               </label>
             </div>
             <div id="hs-auth-agent-field" class="auth-conditional ${isAgent ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>Identity</span>
-                <select name="agent_identity">
+                <select class="form-input" name="agent_identity">
                   <option value="" ${agentIdentityValue === "" ? "selected" : ""}>Offer all identities</option>
                   ${this.agentIdentities.map((id) => `<option value="${escAttr(id.fingerprint)}" ${agentIdentityValue === id.fingerprint ? "selected" : ""}>${escHtml(this.agentIdentityLabel(id))}</option>`).join("")}
                 </select>
@@ -333,7 +333,7 @@ export class HostScreen {
             <div id="hs-auth-secretref-field" class="auth-conditional auth-conditional-tall ${isSecretRef ? "" : "auth-conditional-hidden"}">
               <label>
                 <span>Provider</span>
-                <select name="secret_ref_provider">
+                <select class="form-input" name="secret_ref_provider">
                   ${this.secretRefProviderOptions(isSecretRef, secretRefProvider)}
                 </select>
               </label>
@@ -341,7 +341,7 @@ export class HostScreen {
               <div class="hs-ref-combo" id="hs-ref-combo-wrap">
                 <label>
                   <span>Reference</span>
-                  <input type="text" name="secret_ref_reference" placeholder="Search or paste item reference"
+                  <input type="text" class="form-input" name="secret_ref_reference" placeholder="Search or paste item reference"
                          spellcheck="false" autocomplete="off"
                          value="${escAttr(secretRefReference)}" />
                 </label>
@@ -350,7 +350,7 @@ export class HostScreen {
             </div>
             <label>
               <span>Platform <em>*</em></span>
-              <select name="platform" required>
+              <select class="form-input" name="platform" required>
                 ${platforms
                   .map(
                     ([id, meta]) =>
@@ -361,12 +361,12 @@ export class HostScreen {
             </label>
             <label>
               <span>OS Version</span>
-              <input type="text" name="os_version" placeholder="e.g. 17.6 — Leave blank to show all commands"
+              <input type="text" class="form-input" name="os_version" placeholder="e.g. 17.6 — Leave blank to show all commands"
                      value="${escAttr(h?.os_version ?? "")}" />
             </label>
             <label>
               <span>Notes</span>
-              <textarea name="notes" rows="3" placeholder="Optional notes">${escHtml(h?.notes ?? "")}</textarea>
+              <textarea class="form-input" name="notes" rows="3" placeholder="Optional notes">${escHtml(h?.notes ?? "")}</textarea>
             </label>
             <div class="form-actions">
               <button type="button" class="btn-text" id="hs-form-cancel">Cancel</button>

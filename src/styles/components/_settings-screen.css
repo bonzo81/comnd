@@ -27,43 +27,6 @@
   margin-bottom: var(--space-4);
 }
 
-.settings-form .import-field input {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-ui);
-  outline: none;
-}
-
-.settings-form .import-field input:focus {
-  border-color: var(--color-accent);
-}
-
-.settings-form .import-models select {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
-  outline: none;
-}
-
-.settings-form .import-models select:focus {
-  border-color: var(--color-accent);
-}
-
-.settings-form .import-models select option {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
 .settings-form .import-config-row {
   margin-bottom: var(--space-4);
 }
@@ -88,27 +51,6 @@
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0 0 var(--space-4);
-}
-
-.settings-form select {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-ui);
-  outline: none;
-}
-
-.settings-form select:focus {
-  border-color: var(--color-accent);
-}
-
-.settings-form select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .settings-toggle {
@@ -142,21 +84,6 @@
 .log-file-row input {
   flex: 1;
   min-width: 0;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  font-family: var(--font-ui);
-  padding: var(--space-1) var(--space-2);
-  white-space: nowrap;
-}
-
-.btn-link:hover {
-  text-decoration: underline;
 }
 
 /* ─── Auth Integrations (chunk 7) ─────────────────────────────────── */

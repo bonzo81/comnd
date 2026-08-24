@@ -70,13 +70,27 @@
   font-size: var(--font-size-sm);
 }
 
-.btn-small:hover {
-  background: var(--color-border);
-}
-
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled,
 .btn-small:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  padding: var(--space-1) var(--space-2);
+  white-space: nowrap;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
 }
 
 /* ─── Shortcuts Button in Header ───────────────────────────────────── */
