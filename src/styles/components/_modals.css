@@ -218,3 +218,18 @@
   margin-bottom: 0 !important;
   overflow: hidden;
 }
+
+/* Secret-manager field is taller (provider + reference + test row). */
+.auth-conditional-tall {
+  max-height: 260px;
+}
+
+.form-test-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.form-test-ok { color: var(--color-success); }
+.form-test-err { color: var(--color-error); }

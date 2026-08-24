@@ -16,13 +16,19 @@ import {
   getCredential,
   getHostGroups,
   agentListIdentities,
+  listProviders,
+  testRef,
   type AgentIdentity,
+  type ProviderInfo,
 } from "../lib/tauri-api";
 import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
 import { ALL_GROUP_ID, recentHosts } from "../lib/host-filters";
 import { icons } from "../lib/icons";
+
+/** Display names for secret-manager providers (fallback to raw id). */
+const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -45,6 +51,8 @@ export class HostScreen {
   private editingHasCredential = false;
   private agentIdentities: AgentIdentity[] = [];
   private agentStatus: string | null = null;
+  private readyProviders: ProviderInfo[] = [];
+  private secretRefLabel: string | null = null;
   private editingGroupId: string | null = null;
   private pendingGroupId: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -187,6 +195,7 @@ export class HostScreen {
             <span>${escHtml(host.hostname)}${host.port !== 22 ? `:${host.port}` : ""}</span>
             <span class="hs-meta-sep">·</span>
             <span>${escHtml(host.username)}</span>
+            ${host.credential?.type === "secret_ref" ? `<span class="hs-meta-sep">·</span><span class="hs-meta-secretref">${escHtml(host.credential.label ?? host.credential.reference)} · ${escHtml(this.providerName(host.credential.provider))}</span>` : ""}
             ${host.group_id ? `<span class="hs-meta-sep">·</span><span class="hs-meta-group">${escHtml(this.getGroupName(host.group_id))}</span>` : ""}
           </div>
         </div>
@@ -214,6 +223,9 @@ export class HostScreen {
     const cred = h?.credential;
     const isAgent = !!(cred && cred.type === "agent");
     const agentIdentityValue = cred && cred.type === "agent" ? (cred.identity ?? "") : "";
+    const isSecretRef = !!(cred && cred.type === "secret_ref");
+    const secretRefProvider = cred && cred.type === "secret_ref" ? cred.provider : "";
+    const secretRefReference = cred && cred.type === "secret_ref" ? cred.reference : "";
 
     return `
       <div class="modal-backdrop" id="hs-form-backdrop">
@@ -274,6 +286,11 @@ export class HostScreen {
                        ${isAgent ? "checked" : ""} />
                 SSH Agent
               </label>
+              <label class="radio-label">
+                <input type="radio" name="auth_type" value="secret_ref"
+                       ${isSecretRef ? "checked" : ""} />
+                Secret Manager
+              </label>
             </fieldset>
             <div id="hs-auth-password-field" class="auth-conditional ${(!h || !h.credential || h.credential.type === "password") ? "" : "auth-conditional-hidden"}">
               <label>
@@ -298,6 +315,25 @@ export class HostScreen {
                 </select>
               </label>
               ${this.agentStatus ? `<div class="form-hint">${escHtml(this.agentStatus)}</div>` : ""}
+            </div>
+            <div id="hs-auth-secretref-field" class="auth-conditional auth-conditional-tall ${isSecretRef ? "" : "auth-conditional-hidden"}">
+              <label>
+                <span>Provider</span>
+                <select name="secret_ref_provider">
+                  ${this.secretRefProviderOptions(isSecretRef, secretRefProvider)}
+                </select>
+              </label>
+              ${this.readyProviders.length === 0 ? `<div class="form-hint">No secret managers ready — enable one in Settings → Auth Integrations.</div>` : ""}
+              <label>
+                <span>Reference</span>
+                <input type="text" name="secret_ref_reference" placeholder="Paste item reference"
+                       spellcheck="false" autocomplete="off"
+                       value="${escAttr(secretRefReference)}" />
+              </label>
+              <div class="form-test-row">
+                <button type="button" class="btn-small" id="hs-secretref-test">Test</button>
+                <span class="form-hint" id="hs-secretref-status"></span>
+              </div>
             </div>
             <label>
               <span>Platform <em>*</em></span>
@@ -462,10 +498,20 @@ export class HostScreen {
         const pwField = document.getElementById("hs-auth-password-field");
         const keyField = document.getElementById("hs-auth-key-field");
         const agentField = document.getElementById("hs-auth-agent-field");
+        const refField = document.getElementById("hs-auth-secretref-field");
         if (pwField) pwField.classList.toggle("auth-conditional-hidden", val !== "password");
         if (keyField) keyField.classList.toggle("auth-conditional-hidden", val !== "ssh_key");
         if (agentField) agentField.classList.toggle("auth-conditional-hidden", val !== "agent");
+        if (refField) refField.classList.toggle("auth-conditional-hidden", val !== "secret_ref");
       });
+    });
+
+    // Secret manager: Test button + invalidate cached label on edit
+    document.getElementById("hs-secretref-test")?.addEventListener("click", () => void this.testSecretRef());
+    (this.container.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null)?.addEventListener("input", () => {
+      this.secretRefLabel = null;
+      const status = document.getElementById("hs-secretref-status");
+      if (status) { status.textContent = ""; status.className = "form-hint"; }
     });
 
     // Cancel
@@ -610,7 +656,8 @@ export class HostScreen {
       this.editingHost = null;
       this.editingHasCredential = false;
     }
-    await this.loadAgentIdentities();
+    await Promise.all([this.loadAgentIdentities(), this.loadReadyProviders()]);
+    this.secretRefLabel = null;
     this.formOpen = true;
     this.render();
     setTimeout(() => {
@@ -641,6 +688,8 @@ export class HostScreen {
     this.editingHasCredential = false;
     this.agentIdentities = [];
     this.agentStatus = null;
+    this.readyProviders = [];
+    this.secretRefLabel = null;
     this.render();
   }
 
@@ -656,6 +705,8 @@ export class HostScreen {
     const authType = (fd.get("auth_type") as string) ?? "password";
     const password = (fd.get("password") as string) ?? "";
     const sshKeyPath = (fd.get("ssh_key_path") as string)?.trim() || null;
+    const secretRefProvider = (fd.get("secret_ref_provider") as string)?.trim() || "";
+    const secretRefReference = (fd.get("secret_ref_reference") as string)?.trim();
     const platform = (fd.get("platform") as string) ?? "cisco-iosxe";
     const osVersion = (fd.get("os_version") as string)?.trim() || null;
     const notes = (fd.get("notes") as string)?.trim() || null;
@@ -669,6 +720,8 @@ export class HostScreen {
     if (!hostname) errors.push("Hostname is required.");
     if (!username) errors.push("Username is required.");
     if (port < 1 || port > 65535) errors.push("Port must be 1-65535.");
+    if (authType === "secret_ref" && !secretRefProvider) errors.push("Select a secret manager provider.");
+    if (authType === "secret_ref" && !secretRefReference) errors.push("Secret reference is required.");
 
     const errEl = document.getElementById("hs-form-errors");
     if (errors.length) {
@@ -692,7 +745,9 @@ export class HostScreen {
             ? { type: "ssh_key", key_path: sshKeyPath ?? "" }
             : authType === "agent"
               ? { type: "agent", identity: (fd.get("agent_identity") as string) || null }
-              : { type: "password" },
+              : authType === "secret_ref"
+                ? { type: "secret_ref", provider: secretRefProvider, reference: secretRefReference ?? "", label: this.secretRefLabel }
+                : { type: "password" },
       };
 
       if (this.editingHost) {
@@ -763,5 +818,52 @@ export class HostScreen {
   private agentIdentityLabel(id: AgentIdentity): string {
     const short = id.fingerprint.length > 16 ? `${id.fingerprint.slice(0, 16)}…` : id.fingerprint;
     return `${id.algorithm} · ${short}`;
+  }
+
+  private providerName(id: string): string {
+    return PROVIDER_NAMES[id] ?? id;
+  }
+
+  /** Ready providers, plus the saved one when it is no longer ready (so edits still show). */
+  private secretRefProviderOptions(isSecretRef: boolean, savedProvider: string): string {
+    const ids = [...new Set([...this.readyProviders.map((p) => p.id), ...(isSecretRef && savedProvider ? [savedProvider] : [])])];
+    if (ids.length === 0) return `<option value="" disabled selected>No secret managers ready</option>`;
+    return ids
+      .map((id) => `<option value="${escAttr(id)}" ${savedProvider === id ? "selected" : ""}>${escHtml(this.providerName(id))}</option>`)
+      .join("");
+  }
+
+  private async loadReadyProviders() {
+    try {
+      this.readyProviders = (await listProviders()).filter((p) => p.status.kind === "ready");
+    } catch {
+      this.readyProviders = [];
+    }
+  }
+
+  /** Validate the reference in place (no re-render, keeps input focus). */
+  private async testSecretRef() {
+    const provider = (this.container?.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.value ?? "";
+    const reference = (this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null)?.value.trim();
+    const status = document.getElementById("hs-secretref-status");
+    if (!status) return;
+    if (!provider || !reference) {
+      this.secretRefLabel = null;
+      status.textContent = "Pick a provider and paste a reference first.";
+      status.className = "form-hint";
+      return;
+    }
+    status.textContent = "Testing…";
+    status.className = "form-hint";
+    try {
+      const label = await testRef(provider, reference);
+      this.secretRefLabel = label;
+      status.textContent = `✓ ${label}`;
+      status.className = "form-hint form-test-ok";
+    } catch (err) {
+      this.secretRefLabel = null;
+      status.textContent = String(err);
+      status.className = "form-hint form-test-err";
+    }
   }
 }

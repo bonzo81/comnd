@@ -6,8 +6,7 @@ use std::path::PathBuf;
 
 // ─── Host Types ──────────────────────────────────────────────────────
 
-/// How a host's auth secret is sourced. Tagged union; `SecretRef` lands in
-/// chunk 9 (serde stays backward compatible).
+/// How a host's auth secret is sourced. Tagged union (serde stays backward compatible).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CredentialSource {
@@ -17,6 +16,9 @@ pub enum CredentialSource {
     SshKey { key_path: String },
     /// Agent-signed key. `identity` = fingerprint; None = offer all identities.
     Agent { identity: Option<String> },
+    /// Secret-manager item. `provider` = provider id (e.g. "proton"),
+    /// `reference` = item reference pasted by the user, `label` = cached display name.
+    SecretRef { provider: String, reference: String, label: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +108,8 @@ impl Host {
                     _ => AgentAuth::All,
                 },
             },
-            None => ResolvedCredentials {
+            // ponytail: secret resolved at connect time via provider registry (chunk 10); empty here until then
+            Some(CredentialSource::SecretRef { .. }) | None => ResolvedCredentials {
                 password: None,
                 key_path: None,
                 agent: AgentAuth::Off,
@@ -438,6 +441,19 @@ mod tests {
         // Reload roundtrip keeps the variant
         let reloaded: Host = serde_json::from_str(&json).unwrap();
         assert_eq!(reloaded.credential, Some(CredentialSource::Password));
+    }
+
+    #[test]
+    fn test_secret_ref_roundtrip() {
+        let with_label = r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":"Lab Router"}"#;
+        assert_eq!(
+            serde_json::from_str::<CredentialSource>(with_label).unwrap(),
+            CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: Some("Lab Router".into()) }
+        );
+        let json = serde_json::to_string(&CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: None }).unwrap();
+        assert_eq!(json, r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":null}"#);
+        // Old files without the variant still parse
+        assert_eq!(serde_json::from_str::<CredentialSource>(r#"{"type":"password"}"#).unwrap(), CredentialSource::Password);
     }
 
     #[test]

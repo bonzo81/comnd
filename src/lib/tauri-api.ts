@@ -10,7 +10,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type CredentialSource =
   | { type: "password" }
   | { type: "ssh_key"; key_path: string }
-  | { type: "agent"; identity: string | null };
+  | { type: "agent"; identity: string | null }
+  | { type: "secret_ref"; provider: string; reference: string; label: string | null };
 
 export interface Host {
   id: string;
@@ -203,6 +204,11 @@ export interface ProviderState {
 
 export async function listProviders(): Promise<ProviderInfo[]> {
   return invoke<ProviderInfo[]>("list_providers");
+}
+
+/** Validate a secret-manager reference; resolves to the item's display label. */
+export async function testRef(provider: string, reference: string): Promise<string> {
+  return invoke<string>("test_ref", { provider, reference });
 }
 
 export async function getProviderState(
