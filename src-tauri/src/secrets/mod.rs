@@ -105,6 +105,17 @@ fn provider_enabled(config: &crate::config::AppConfig, id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Map a failed `resolve()` to an actionable connect error (chunk 10).
+/// Re-probes status to classify: expired auth and missing binary surface
+/// their own hints; anything else falls back to the provider's message + ref.
+pub async fn resolve_error_message(p: &Arc<dyn SecretProvider>, reference: &str, msg: &str) -> String {
+    match p.status().await {
+        ProviderStatus::AuthExpired { action } => action,
+        ProviderStatus::NotInstalled { message } => message,
+        _ => format!("{} failed to resolve '{}': {}", p.id(), reference, msg),
+    }
+}
+
 // ─── Shared CLI runner ─────────────────────────────────────────────
 
 /// Failure of a provider CLI invocation.
@@ -298,6 +309,24 @@ mod tests {
 
         let empty = ProviderRegistry::from_config(&crate::config::AppConfig::default());
         assert!(empty.all().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_error_message_mapping() {
+        const VAR: &str = "NETSH_TEST_RESOLVE_ERR";
+        std::env::remove_var(VAR);
+
+        let p: Arc<dyn SecretProvider> = Arc::new(MockProvider { id: "mock", secret_env: VAR });
+
+        // NotInstalled status → its install hint wins over the resolve error.
+        assert_eq!(resolve_error_message(&p, "ref", "boom").await, "mock not configured");
+
+        // Ready status + resolve failure → provider message + ref.
+        std::env::set_var(VAR, "fail");
+        let msg = resolve_error_message(&p, "ref", "boom").await;
+        assert!(msg.contains("mock") && msg.contains("ref") && msg.contains("boom"), "{}", msg);
+
+        std::env::remove_var(VAR);
     }
 
     #[test]

@@ -50,6 +50,9 @@ const PLATFORM_LABELS: Record<string, string> = {
   "linux-bash": "Linux Bash",
 };
 
+// Secret provider display names (connect progress, chunk 10)
+const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
+
 // Ambient chrome tint per platform mode
 const MODE_TINTS: Record<string, string> = {
   "cisco-iosxe": "var(--tint-iosxe)",
@@ -491,8 +494,14 @@ export class TerminalView {
       const cols = this.terminal?.cols ?? 80;
       const rows = this.terminal?.rows ?? 24;
 
-      // Initiate SSH connection
-      this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
+      // Initiate SSH connection. Secret-ref hosts resolve credentials in the
+      // backend during this await — show that stage (chunk 10).
+      if (host.credential?.type === "secret_ref") {
+        const name = PROVIDER_NAMES[host.credential.provider] ?? host.credential.provider;
+        this.setProgress(`Resolving credentials via ${name}...`, 25);
+      } else {
+        this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
+      }
 
       // Generate unique session_id BEFORE sshConnect so all events are correlated correctly
       this.sessionId = mintSessionId();

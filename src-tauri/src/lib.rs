@@ -18,7 +18,7 @@ use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
-use hosts::{Host, HostStore, HostGroup, HostGroupStore};
+use hosts::{AgentAuth, CredentialSource, Host, HostStore, HostGroup, HostGroupStore, ResolvedCredentials};
 use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter, get_ollama_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
@@ -336,15 +336,39 @@ async fn ssh_connect(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // Resolve credentials Rust-side — secrets never enter the webview.
-    let (hostname, port, username, creds) = {
+    // Host is cloned out before any await: `hosts` is a std Mutex and its
+    // guard must not be held across an await point.
+    let (host, hostname, port, username) = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         let host = hosts
             .get_all()?
             .into_iter()
             .find(|h| h.id == host_id)
             .ok_or_else(|| format!("Host not found: {}", host_id))?;
-        let creds = host.resolve_credentials();
-        (host.hostname, host.port, host.username, creds)
+        (host.clone(), host.hostname, host.port, host.username)
+    };
+
+    // SecretRef resolves through the provider registry at connect time. The
+    // secret is transient: dropped when `creds` dies at the end of this fn,
+    // never logged or persisted.
+    let creds = match host.credential.as_ref() {
+        Some(CredentialSource::SecretRef { provider, reference, .. }) => {
+            let p = state
+                .providers
+                .lock()
+                .map_err(|e| e.to_string())?
+                .get(provider)
+                .ok_or_else(|| format!("Provider '{}' is not enabled — enable it in Settings → Auth Integrations", provider))?;
+            match p.resolve(reference).await {
+                Ok(secret) => ResolvedCredentials {
+                    password: Some(secret),
+                    key_path: None,
+                    agent: AgentAuth::Off,
+                },
+                Err(msg) => return Err(secrets::resolve_error_message(&p, reference, &msg).await),
+            }
+        }
+        _ => host.resolve_credentials(),
     };
 
     let session = ssh::SshSession::connect(
