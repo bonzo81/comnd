@@ -297,7 +297,7 @@ export class SettingsScreen {
                 autocomplete="off" spellcheck="false" />
               <button type="button" class="btn-secondary" data-provider-save-pat="${p.id}">Save</button>
             </div>
-            <span class="import-hint">No token needed if you use an interactive pass-cli login session in your terminal.</span>
+            <span class="import-hint">Create a Personal Access Token in Proton Pass. Paste it here. If you use an interactive pass-cli login session, leave this field empty.</span>
           </div>
         ` : ""}
       </div>

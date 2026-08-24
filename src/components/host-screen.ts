@@ -30,6 +30,11 @@ import { icons } from "../lib/icons";
 /** Display names for secret-manager providers (fallback to raw id). */
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
 
+/** Reference help text per provider, shown under the Reference field. */
+const PROVIDER_REF_HINTS: Record<string, string> = {
+  proton: "Format: pass://<vault>/<item>/<field>. Example: pass://Default/Core Router/password. Find vault names with pass-cli vault list. Find item names with pass-cli item list.",
+};
+
 // ─── Main Class ────────────────────────────────────────────────────
 
 export class HostScreen {
@@ -314,6 +319,7 @@ export class HostScreen {
                   ${this.agentIdentities.map((id) => `<option value="${escAttr(id.fingerprint)}" ${agentIdentityValue === id.fingerprint ? "selected" : ""}>${escHtml(this.agentIdentityLabel(id))}</option>`).join("")}
                 </select>
               </label>
+              <div class="form-hint">The agent offers only this key at login. "Offer all" sends every loaded key in turn. Devices with login limits can block you after repeated failures.</div>
               ${this.agentStatus ? `<div class="form-hint">${escHtml(this.agentStatus)}</div>` : ""}
             </div>
             <div id="hs-auth-secretref-field" class="auth-conditional auth-conditional-tall ${isSecretRef ? "" : "auth-conditional-hidden"}">
@@ -330,8 +336,9 @@ export class HostScreen {
                        spellcheck="false" autocomplete="off"
                        value="${escAttr(secretRefReference)}" />
               </label>
+              <div class="form-hint" id="hs-secretref-format">${this.secretRefFormatText(secretRefProvider)}</div>
               <div class="form-test-row">
-                <button type="button" class="btn-small" id="hs-secretref-test">Test</button>
+                <button type="button" class="btn-small" id="hs-secretref-test" title="Shows the item name for this reference">Test</button>
                 <span class="form-hint" id="hs-secretref-status"></span>
               </div>
             </div>
@@ -508,6 +515,10 @@ export class HostScreen {
 
     // Secret manager: Test button + invalidate cached label on edit
     document.getElementById("hs-secretref-test")?.addEventListener("click", () => void this.testSecretRef());
+    (this.container.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.addEventListener("change", (e) => {
+      const hint = document.getElementById("hs-secretref-format");
+      if (hint) hint.textContent = this.secretRefFormatText((e.target as HTMLSelectElement).value);
+    });
     (this.container.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null)?.addEventListener("input", () => {
       this.secretRefLabel = null;
       const status = document.getElementById("hs-secretref-status");
@@ -678,7 +689,8 @@ export class HostScreen {
         : null;
     } catch (err) {
       this.agentIdentities = [];
-      this.agentStatus = String(err);
+      log.warn(LogTag.HostScreen, `Agent identity probe failed: ${err}`);
+      this.agentStatus = "No SSH agent detected. Start an SSH agent. Add a key with ssh-add.";
     }
   }
 
@@ -839,6 +851,10 @@ export class HostScreen {
     } catch {
       this.readyProviders = [];
     }
+  }
+
+  private secretRefFormatText(providerId: string): string {
+    return PROVIDER_REF_HINTS[providerId] ?? "Paste the item reference from your secret manager.";
   }
 
   /** Validate the reference in place (no re-render, keeps input focus). */
