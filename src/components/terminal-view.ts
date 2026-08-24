@@ -391,6 +391,12 @@ export class TerminalView {
 
     this.initTerminal();
 
+    // Toolbar buttons are state toggles, not text entry — keep keyboard
+    // focus in the terminal instead of moving it to the clicked button
+    const topbar = this.$(".tv-topbar")!;
+    topbar.addEventListener("mousedown", (e) => e.preventDefault());
+    topbar.addEventListener("click", () => this.terminal?.focus());
+
     // Terminal theme toggle
     const themeBtn = this.$(".tv-theme-btn")!;
     const syncThemeIcon = () => {
