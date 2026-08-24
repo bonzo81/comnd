@@ -266,8 +266,13 @@ class App {
     bar.className = "statusbar";
     bar.id = "statusbar";
 
-    const sessions = document.createElement("span");
+    const sessions = document.createElement("button");
     sessions.className = "statusbar-item sb-sessions";
+    sessions.title = "Show terminal";
+    sessions.setAttribute("aria-label", "Show terminal");
+    sessions.addEventListener("click", () => {
+      if (this.activeSessions.size > 0) this.showView("terminal");
+    });
 
     const view = document.createElement("span");
     view.className = "statusbar-item sb-view";

@@ -87,6 +87,21 @@
   margin-left: auto;
 }
 
+.sb-sessions {
+  padding: 0 var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sb-sessions:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
 .sb-dot {
   color: var(--color-text-tertiary);
 }
