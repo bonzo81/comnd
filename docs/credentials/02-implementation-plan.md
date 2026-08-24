@@ -168,6 +168,14 @@ No new crates. `russh` 0.46 (agent client), `reqwest` 0.12 (Vault), `keyring` 3 
 
 **Verification:** `cargo check`; manual with real account: PAT status ready; `test_ref` on a real ref returns item title; bad field name → clean error; session expired → AuthExpired message.
 
+**Status: done.** First real provider; trait validated against the researched CLI shapes. Deviations, all simplifications grounded in `01-provider-research.md`:
+
+1. No separate `--version` pre-check — one `vault list` probe doubles as install + auth check (spawn failure = NotInstalled, non-zero exit = AuthExpired/Timeout).
+2. `item view` takes the full ref with scheme (`pass-cli item view "pass://..."`); raw stdout is treated as the secret (no `--output json` parse yet — centralized in `item_view()`, a one-line change once the schema is confirmed).
+3. List uses `item list --share-id <vault>` with line-based parsing; `--output json` is the upgrade path.
+
+CLI invocations are best-effort pending a real account — see `plan-provider-proton.md` for the verification checklist. `cargo check` + `cargo test` (parse_ref) green.
+
 ### Chunk 9 — Host form: secret-ref source UI
 
 **Goal:** host auth can be "Secret manager: Proton Pass, ref X".

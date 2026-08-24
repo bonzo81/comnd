@@ -3,6 +3,7 @@
 //! Chunk 3: agent. Chunk 6: SecretProvider trait, registry, shared CLI runner.
 
 pub mod agent;
+pub mod providers;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,12 +76,13 @@ impl ProviderRegistry {
         Self { providers }
     }
 
-    /// Build the registry from config. Chunk 8+ pushes enabled providers here.
+    /// Build the registry from config. Only enabled providers are included.
     pub fn from_config(config: &crate::config::AppConfig) -> Self {
-        let providers = Vec::new();
-        // ponytail: no providers compiled in yet — chunk 8 adds proton.
-        let _ = config;
-        Self::new(providers)
+        let mut list: Vec<Arc<dyn SecretProvider>> = Vec::new();
+        if provider_enabled(config, "proton") {
+            list.push(Arc::new(providers::proton::ProtonProvider));
+        }
+        Self::new(list)
     }
 
     /// Clone the handle for `id` (None when unknown or disabled).
@@ -91,6 +93,16 @@ impl ProviderRegistry {
     pub fn all(&self) -> Vec<Arc<dyn SecretProvider>> {
         self.providers.clone()
     }
+}
+
+/// True when the provider's config entry has `"enabled": true`.
+fn provider_enabled(config: &crate::config::AppConfig, id: &str) -> bool {
+    config
+        .providers
+        .get(id)
+        .and_then(|v| v.get("enabled"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 // ─── Shared CLI runner ─────────────────────────────────────────────
