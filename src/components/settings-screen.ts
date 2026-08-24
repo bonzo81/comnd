@@ -15,8 +15,6 @@ import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
 import {
-  getTimestampsEnabled,
-  setTimestampsEnabled,
   getTimestampFormat,
   setTimestampFormat,
   TimestampFormat,
@@ -150,7 +148,6 @@ export class SettingsScreen {
   }
 
   private renderGeneral(): string {
-    const tsOn = getTimestampsEnabled();
     const fmt = getTimestampFormat();
     const tagsOn = getSearchIncludeTags();
     const logLevel = this.config?.log_level ?? "info";
@@ -198,16 +195,9 @@ export class SettingsScreen {
           <span class="import-hint">Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.</span>
         </div>
         <h3 class="settings-section-title">Terminal</h3>
-        <label class="settings-toggle">
-          <input type="checkbox" id="ts-enabled" ${tsOn ? "checked" : ""} />
-          <span>
-            Show line timestamps
-            <span class="import-hint">            Timestamps are recorded continuously; toggle to show them in the terminal gutter</span>
-          </span>
-        </label>
         <div class="import-field">
           <label for="ts-format">Timestamp format</label>
-          <select class="form-input" id="ts-format" ${tsOn ? "" : "disabled"}>
+          <select class="form-input" id="ts-format">
             ${opt("24h", "24-hour — 14:32:05")}
             ${opt("12h", "12-hour — 2:32:05 PM")}
             ${opt("24h-ms", "24-hour with ms — 14:32:05.123")}
@@ -330,13 +320,6 @@ export class SettingsScreen {
   }
 
   private bindEvents() {
-    this.container?.querySelector<HTMLInputElement>("#ts-enabled")?.addEventListener("change", (e) => {
-      const on = (e.target as HTMLInputElement).checked;
-      setTimestampsEnabled(on);
-      const select = this.container?.querySelector<HTMLSelectElement>("#ts-format");
-      if (select) select.disabled = !on;
-    });
-
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
     });
