@@ -20,6 +20,7 @@ import {
   TimestampFormat,
 } from "../lib/timestamps";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
+import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getAppTheme, setAppTheme, Theme } from "../lib/theme";
 
 const LABELS: Record<string, string> = {
@@ -150,6 +151,7 @@ export class SettingsScreen {
   private renderGeneral(): string {
     const fmt = getTimestampFormat();
     const tagsOn = getSearchIncludeTags();
+    const autoCopy = getAutoCopyEnabled();
     const logLevel = this.config?.log_level ?? "info";
     const maxSizeMb = this.config?.log_max_size_mb ?? 10;
     const opt = (value: TimestampFormat, label: string) =>
@@ -204,6 +206,13 @@ export class SettingsScreen {
           </select>
           <span class="import-hint">Re-renders timestamps in open terminals immediately</span>
         </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="auto-copy" ${autoCopy ? "checked" : ""} />
+          <span>
+            Copy text on selection
+            <span class="import-hint">Automatically copies highlighted terminal text to the clipboard as you select it</span>
+          </span>
+        </label>
         <h3 class="settings-section-title">Global Search</h3>
         <label class="settings-toggle">
           <input type="checkbox" id="search-tags" ${tagsOn ? "checked" : ""} />
@@ -322,6 +331,10 @@ export class SettingsScreen {
   private bindEvents() {
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#auto-copy")?.addEventListener("change", (e) => {
+      setAutoCopyEnabled((e.target as HTMLInputElement).checked);
     });
 
     this.container?.querySelector<HTMLSelectElement>("#ts-format")?.addEventListener("change", (e) => {

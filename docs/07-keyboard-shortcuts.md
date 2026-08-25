@@ -12,7 +12,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `Ctrl+Space` | Toggle command suggestions (auto-show dropdown while typing) | Terminal |
 | `Escape` | Dismiss dropdown / dismiss side panel | Dropdown or panel open |
 | `↑` / `↓` | Navigate dropdown (if open) / pass through to remote (if closed) | Terminal |
-| `Enter`  | Select dropdown item (if open) / send command to remote (if closed) | Terminal |
+| `Enter`  | Send command to remote (always); closes dropdown if open | Terminal |
 | ``` Ctrl+``  ``` | Toggle side panel | Terminal |
 | `Ctrl+Shift+W` | Close active tab (with confirm) | Terminal |
 | `Ctrl++` / `Ctrl+-` | Zoom terminal font | Terminal |

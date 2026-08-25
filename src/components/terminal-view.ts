@@ -41,6 +41,7 @@ import {
   getTimestampFormat,
   TimestampGutter,
 } from "../lib/timestamps";
+import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -139,6 +140,12 @@ export class TerminalView {
   private timestampGutter: TimestampGutter | null = null;
   private suggestionsEnabled = false;
   private suggestionsChangeHandler: (() => void) | null = null;
+  private autoCopyChangeHandler: (() => void) | null = null;
+
+  // Right-click context menu (terminal area)
+  private ctxMenuEl: HTMLDivElement | null = null;
+  private ctxOutsideHandler: ((e: MouseEvent) => void) | null = null;
+  private ctxEscapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(
     onDetach: () => void,
@@ -205,14 +212,21 @@ export class TerminalView {
       }
     });
 
+    // Auto-copy on selection — scoped to this terminal instance only; fires as
+    // the in-terminal selection changes. Native DOM selection elsewhere is a
+    // separate state and never reaches here.
+    this.terminal.onSelectionChange(() => {
+      if (!getAutoCopyEnabled()) return;
+      const selection = this.terminal?.getSelection();
+      if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+    });
+
     // Ctrl+C copy / Ctrl+V paste — intercept before xterm processes them
     this.terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       // Ctrl+C with selection → copy to clipboard
       if (e.ctrlKey && e.key === "c" && e.type === "keydown") {
-        const selection = this.terminal?.getSelection();
-        if (selection) {
-          navigator.clipboard.writeText(selection);
-          this.terminal?.clearSelection();
+        if (this.terminal?.getSelection()) {
+          this.copySelection();
           return false; // prevent xterm from sending \x03
         }
         // No selection — let xterm send \x03 (interrupt)
@@ -222,17 +236,7 @@ export class TerminalView {
       // Ctrl+V → read clipboard and send to SSH manually
       if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
         e.preventDefault(); // block browser paste event to avoid double-paste
-        navigator.clipboard.readText().then((text) => {
-          if (text && this.state === "connected" && this.sessionId) {
-            sshSend(this.sessionId, text).catch(() => {});
-            // Feed pasted text to shadow buffer
-            for (const ch of text) {
-              if (ch.charCodeAt(0) >= 32) {
-                this.shadowBuffer.append(ch);
-              }
-            }
-          }
-        });
+        this.pasteClipboard();
         return false; // block xterm from also processing this key
       }
 
@@ -285,14 +289,11 @@ export class TerminalView {
           return;
         }
 
-        // Arrow keys in dropdown
+        // Arrow keys in dropdown. Enter always submits to remote — it falls
+        // through to sendData below and the reset block hides the dropdown.
         if (this.dropdown?.isVisible()) {
           if (data === "\x1b[A") { this.dropdown.moveUp(); this.syncDropdownToGhostText(); return; }
           if (data === "\x1b[B") { this.dropdown.moveDown(); this.syncDropdownToGhostText(); return; }
-          if (data === "\r") {
-            this.acceptDropdownSelection();
-            return;
-          }
         }
 
         // Send to SSH
@@ -338,6 +339,89 @@ export class TerminalView {
     }
   }
 
+  // ─── Clipboard ───────────────────────────────────────────────────
+
+  /** Copy terminal selection to clipboard (no-op without a selection). */
+  private copySelection() {
+    const selection = this.terminal?.getSelection();
+    if (!selection) return;
+    navigator.clipboard.writeText(selection);
+    this.terminal?.clearSelection();
+  }
+
+  /** Read clipboard and send it to the remote session + shadow buffer. */
+  private pasteClipboard() {
+    navigator.clipboard.readText().then((text) => {
+      if (text && this.state === "connected" && this.sessionId) {
+        sshSend(this.sessionId, text).catch(() => {});
+        for (const ch of text) {
+          if (ch.charCodeAt(0) >= 32) {
+            this.shadowBuffer.append(ch);
+          }
+        }
+      }
+    });
+  }
+
+  // ─── Context menu ────────────────────────────────────────────────
+
+  private showContextMenu(x: number, y: number) {
+    this.hideContextMenu();
+    const items = [
+      { label: "Copy", enabled: !!this.terminal?.getSelection(), action: () => this.copySelection() },
+      { label: "Paste", enabled: this.state === "connected", action: () => this.pasteClipboard() },
+    ];
+
+    const menu = document.createElement("div");
+    menu.className = "context-menu";
+    for (const item of items) {
+      const el = document.createElement("div");
+      el.className = item.enabled ? "ctx-item" : "ctx-item ctx-disabled";
+      el.textContent = item.label;
+      if (item.enabled) {
+        el.addEventListener("click", () => {
+          this.hideContextMenu();
+          item.action();
+          this.terminal?.focus();
+        });
+      }
+      menu.appendChild(el);
+    }
+    document.body.appendChild(menu);
+
+    // Keep the menu on screen
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 4)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 4)}px`;
+    this.ctxMenuEl = menu;
+
+    this.ctxOutsideHandler = (e: MouseEvent) => {
+      if (!this.ctxMenuEl?.contains(e.target as Node)) this.hideContextMenu();
+    };
+    document.addEventListener("mousedown", this.ctxOutsideHandler);
+    // Capture phase so Escape closes the menu before xterm sees it
+    this.ctxEscapeHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        this.hideContextMenu();
+      }
+    };
+    document.addEventListener("keydown", this.ctxEscapeHandler, true);
+  }
+
+  private hideContextMenu() {
+    this.ctxMenuEl?.remove();
+    this.ctxMenuEl = null;
+    if (this.ctxOutsideHandler) {
+      document.removeEventListener("mousedown", this.ctxOutsideHandler);
+      this.ctxOutsideHandler = null;
+    }
+    if (this.ctxEscapeHandler) {
+      document.removeEventListener("keydown", this.ctxEscapeHandler, true);
+      this.ctxEscapeHandler = null;
+    }
+  }
+
   mount(container: HTMLElement) {
     container.innerHTML = `
       <div class="terminal-view">
@@ -345,8 +429,9 @@ export class TerminalView {
           <span class="tv-host-info">Connecting...</span>
           <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
           <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions"></button>
+          <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
-          <button class="btn-text tv-panel-btn">≡ Panel</button>
+          <button class="btn-text tv-panel-btn" title="Toggle side panel">≡ Panel</button>
         </div>
         <div class="tv-main">
           <div class="tv-terminal-wrap">
@@ -397,12 +482,18 @@ export class TerminalView {
     topbar.addEventListener("mousedown", (e) => e.preventDefault());
     topbar.addEventListener("click", () => this.terminal?.focus());
 
+    // Right-click context menu on the terminal area
+    this.$(".tv-terminal-wrap")!.addEventListener("contextmenu", (e: MouseEvent) => {
+      e.preventDefault();
+      this.showContextMenu(e.clientX, e.clientY);
+    });
+
     // Terminal theme toggle
     const themeBtn = this.$(".tv-theme-btn")!;
     const syncThemeIcon = () => {
       const dark = getTerminalTheme() === "dark";
       themeBtn.innerHTML = dark ? icons.sun : icons.moon;
-      themeBtn.setAttribute("aria-label", dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
+      this.setBtnLabel(themeBtn, dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
     };
     themeBtn.addEventListener("click", () => {
       setTerminalTheme(getTerminalTheme() === "dark" ? "light" : "dark");
@@ -431,6 +522,14 @@ export class TerminalView {
     });
     this.suggestionsChangeHandler = () => this.syncSuggestions();
     window.addEventListener("netsh:suggestions", this.suggestionsChangeHandler);
+
+    // Auto-copy on selection toggle
+    this.$(".tv-autocopy-btn")!.addEventListener("click", () => {
+      setAutoCopyEnabled(!getAutoCopyEnabled());
+    });
+    this.autoCopyChangeHandler = () => this.syncAutoCopy();
+    window.addEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
+    this.syncAutoCopy();
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
@@ -1101,6 +1200,11 @@ export class TerminalView {
     if (bg) container.style.backgroundColor = bg;
   }
 
+  private setBtnLabel(btn: HTMLElement, label: string) {
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+  }
+
   private syncTimestamps() {
     const on = getTimestampsEnabled();
     const format = getTimestampFormat();
@@ -1112,7 +1216,7 @@ export class TerminalView {
     if (btn) {
       btn.innerHTML = icons.clock;
       btn.classList.toggle("active", on);
-      btn.setAttribute("aria-label", on ? "Hide line timestamps" : "Show line timestamps");
+      this.setBtnLabel(btn, on ? "Hide line timestamps" : "Show line timestamps");
     }
     this.fitAddon?.fit();
   }
@@ -1123,10 +1227,7 @@ export class TerminalView {
     if (btn) {
       btn.innerHTML = icons.lightbulb;
       btn.classList.toggle("active", this.suggestionsEnabled);
-      btn.setAttribute(
-        "aria-label",
-        this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions",
-      );
+      this.setBtnLabel(btn, this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions");
     }
     if (!this.suggestionsEnabled) {
       this.dropdown?.hide();
@@ -1135,6 +1236,18 @@ export class TerminalView {
     if (this.currentInput && !this.receivingOutput && this.state === "connected") {
       const results = this.suggestionEngine.query(this.currentInput);
       if (results.length > 0) this.openDropdown(results);
+    }
+  }
+
+  private syncAutoCopy() {
+    const on = getAutoCopyEnabled();
+    const btn = this.$(".tv-autocopy-btn");
+    if (btn) {
+      btn.innerHTML = icons.copy;
+      btn.classList.toggle("active", on);
+      const label = on ? "Disable auto-copy on selection" : "Enable auto-copy on selection";
+      btn.setAttribute("aria-label", label);
+      btn.title = label;
     }
   }
 
@@ -1180,6 +1293,7 @@ export class TerminalView {
   // ─── Cleanup ─────────────────────────────────────────────────────
 
   private cleanup() {
+    this.hideContextMenu();
     this.unregisterSshListeners();
 
     if (this.resizeHandler) {
@@ -1205,6 +1319,10 @@ export class TerminalView {
     if (this.suggestionsChangeHandler) {
       window.removeEventListener("netsh:suggestions", this.suggestionsChangeHandler);
       this.suggestionsChangeHandler = null;
+    }
+    if (this.autoCopyChangeHandler) {
+      window.removeEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
+      this.autoCopyChangeHandler = null;
     }
 
     this.timestampGutter?.dispose();

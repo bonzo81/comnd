@@ -391,9 +391,30 @@
 .badge-bash { color: var(--color-success) !important; }
 
 /* ─── Line Timestamps (iTerm-style gutter) ─────────────────────────── */
+/* All topbar buttons share the pill shape; tint only appears on hover */
+.tv-topbar .btn-text {
+  border-radius: var(--radius-md);
+}
+
 .tv-timestamps-btn.active,
-.tv-suggestions-btn.active {
+.tv-suggestions-btn.active,
+.tv-autocopy-btn.active {
   color: var(--color-accent);
+}
+
+/* Active toggles keep their accent family on hover — the default white
+   .btn-text:hover would read as "off" for a colored (enabled) icon.
+   Tint pill + brighter shade make the hover clearly perceptible. */
+.tv-timestamps-btn.active:hover,
+.tv-suggestions-btn.active:hover,
+.tv-autocopy-btn.active:hover {
+  color: var(--color-accent-hover);
+  background: var(--accent-tint-soft);
+}
+
+/* Non-active topbar buttons get the same pill with a neutral tint */
+.tv-topbar .btn-text:not(.active):hover {
+  background: var(--color-surface-hover);
 }
 
 /* Stamps are recorded continuously; hidden unless the gutter is shown.

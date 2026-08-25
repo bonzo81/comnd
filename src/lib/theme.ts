@@ -25,6 +25,6 @@ export function setTerminalTheme(t: Theme): void {
 }
 
 export const TERMINAL_THEMES: Record<Theme, ITheme> = {
-  dark: { background: "#0F172A", foreground: "#F8FAFC", cursor: "#22C55E", selectionBackground: "#1E293B" },
-  light: { background: "#F8FAFC", foreground: "#0F172A", cursor: "#16A34A", selectionBackground: "#E2E8F0" },
+  dark: { background: "#0F172A", foreground: "#F8FAFC", cursor: "#22C55E", selectionBackground: "#334155" },
+  light: { background: "#F8FAFC", foreground: "#0F172A", cursor: "#16A34A", selectionBackground: "#CBD5E1" },
 };

@@ -106,7 +106,7 @@ Press **Tab** to accept the suggestion — it fills in the rest of the command f
 
 ### Browse All Matches
 
-Press **Ctrl+Space** to open a dropdown listing every command that matches what you've typed so far. Use **↑** and **↓** to navigate, **Enter** to select.
+Press **Ctrl+Space** to open a dropdown listing every command that matches what you've typed so far. Use **↑** and **↓** to navigate, **Tab** to select.
 
 ### Side Panel
 

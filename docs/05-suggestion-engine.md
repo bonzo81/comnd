@@ -68,7 +68,7 @@ Two complementary suggestion modes, matching modern IDE behaviour (e.g. VS Code)
 
 * Off by default. Enabled via the lightbulb button in the terminal toolbar or `Ctrl+Space` (both toggle the same persisted state)
 * When enabled, shows top N matches as a popup list below the cursor automatically while typing
-* Navigate with arrow keys, accept with `Enter` or `Tab`
+* Navigate with arrow keys, accept with `Tab` (`Enter` always submits to the remote)
 * Dismiss with `Escape`; disabling the toggle hides it immediately
 
 Both update in real time as the user types, filtered by platform + version + current mode.

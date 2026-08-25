@@ -20,6 +20,11 @@
   background: var(--color-surface-selected);
 }
 
+.ctx-item.ctx-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .ctx-danger {
   color: var(--color-error);
 }

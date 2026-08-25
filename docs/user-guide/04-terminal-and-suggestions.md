@@ -40,7 +40,7 @@ The dropdown is off by default. Turn it on to see every match while you type.
 - **Press `Ctrl+Space`** or click the lightbulb button in the terminal toolbar to toggle it (the setting persists between sessions)
 - When enabled, the dropdown appears as a list below your cursor (or above if there isn't enough room) as soon as you type a recognised prefix
 - Navigate with `↑` and `↓`
-- Accept with `Enter` or `Tab`
+- Accept with `Tab` (`Enter` always submits the typed command to the device)
 - Dismiss with `Escape`
 
 Each item in the dropdown shows the **matched prefix in bold**, the full command, and its category in muted text. A maximum of 8 items are visible at once; scroll if there are more.

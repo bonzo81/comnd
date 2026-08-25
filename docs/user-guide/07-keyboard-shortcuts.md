@@ -8,7 +8,7 @@ While connected to a device with an active SSH session.
 | `Ctrl+Space` | Toggle command suggestions (auto-show the dropdown while typing) |
 | `Escape` | See [Escape Cascade](#escape-cascade) |
 | `↑` / `↓` | Navigate dropdown items (if open); remote command history (if closed) |
-| `Enter` | Select highlighted dropdown item (if open); send typed command (if closed) |
+| `Enter` | Send typed command to device (always); closes dropdown if open |
 | `` Ctrl+` `` | Toggle side panel (sessions, host details, suggestions) |
 | `Ctrl+Shift+W` | Close active tab (with confirm) |
 | `Ctrl++` / `Ctrl+-` | Zoom terminal font in / out |
