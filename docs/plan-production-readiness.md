@@ -183,9 +183,9 @@ chars. Security-conscious users comparing against `ssh-keyscan` /
 
 ### P2.4 — Session reconnect and keep-alive UI feedback
 
-- [ ] Surface keepalive state via Tauri events (reconnecting / lost)
-- [ ] Add a "Reconnecting…" indicator in the terminal topbar
-- [ ] Add a manual "Reconnect" button on disconnected sessions
+- [x] Surface keepalive state via Tauri events (reconnecting / lost)
+- [x] Add a "Reconnecting…" indicator in the terminal topbar
+- [x] Add a manual "Reconnect" button on disconnected sessions
 - [ ] Consider configurable keepalive interval / max in Settings
 
 **Why:** After ~45s of network loss (keepalive_interval 15s × max 3), the
