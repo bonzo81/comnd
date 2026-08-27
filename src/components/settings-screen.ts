@@ -511,8 +511,56 @@ export class SettingsScreen {
         multiple: false,
       });
       if (!src || typeof src !== "string") return;
-      await importData(src);
-      showToast("Data restored. Restart the app to apply.", "success", 8000);
+      this.showImportModeDialog(src);
+    } catch (e) {
+      showToast(`Restore failed: ${e}`, "error", 8000);
+    }
+  }
+
+  private showImportModeDialog(srcPath: string): void {
+    // Modal overlay so the user picks overwrite vs merge before we touch data.
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.innerHTML = `
+      <div class="modal-panel" style="max-width: 480px;">
+        <h3 class="modal-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
+        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-4); line-height: 1.5;">
+          Choose how to restore from <strong style="color: var(--color-text-primary);">${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
+        </p>
+        <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+          <button class="btn-primary" id="import-overwrite" style="display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); text-align: left;">
+            <span>Overwrite everything</span>
+            <span class="import-hint">Replaces all current data with the backup. Files not in the backup are deleted.</span>
+          </button>
+          <button class="btn-secondary" id="import-merge" style="display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); text-align: left;">
+            <span>Merge</span>
+            <span class="import-hint">Only restores files present in the backup. Existing data not in the backup is kept.</span>
+          </button>
+          <button class="btn-text" id="import-cancel" style="align-self: center;">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+
+    overlay.querySelector<HTMLButtonElement>("#import-cancel")?.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    overlay.querySelector<HTMLButtonElement>("#import-overwrite")?.addEventListener("click", () => {
+      close();
+      void this.doImport(srcPath, "overwrite");
+    });
+    overlay.querySelector<HTMLButtonElement>("#import-merge")?.addEventListener("click", () => {
+      close();
+      void this.doImport(srcPath, "merge");
+    });
+  }
+
+  private async doImport(srcPath: string, mode: "overwrite" | "merge"): Promise<void> {
+    try {
+      await importData(srcPath, mode);
+      showToast(`Data restored (${mode}). Restart the app to apply.`, "success", 8000);
     } catch (e) {
       showToast(`Restore failed: ${e}`, "error", 8000);
     }

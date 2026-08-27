@@ -196,14 +196,22 @@ fn add_to_zip(
     Ok(())
 }
 
+/// Import mode: `overwrite` replaces all data with the zip contents (deleting
+/// current files not in the zip); `merge` only overwrites files present in
+/// the zip, leaving everything else untouched.
+pub enum ImportMode {
+    Overwrite,
+    Merge,
+}
+
 /// Import app data from a zip file at `src`. Extracts to a temp dir,
-/// validates that it contains expected files, then replaces the current
-/// data dir contents (after backing up the current data to a timestamped
+/// validates that it contains expected files, then replaces or merges the
+/// current data (after backing up the current data to a timestamped
 /// sibling directory).
 ///
 /// The caller should restart the app after a successful import so all
 /// in-memory state reloads from the new files.
-pub fn import_data(src: &Path) -> Result<(), String> {
+pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     let data_dir = app_data_dir()?;
     let file = std::fs::File::open(src)
         .map_err(|e| format!("Failed to open import file: {}", e))?;
@@ -262,9 +270,26 @@ pub fn import_data(src: &Path) -> Result<(), String> {
     }
 
     // Overwrite the live data files with the imported versions. Use
-    // atomic_write for files (tmp + rename) so a crash mid-import doesn't
+    // secure_write for files (tmp + rename) so a crash mid-import doesn't
     // leave a half-written file. For the knowledge-base directory, copy
     // file-by-file over the existing tree.
+    //
+    // Overwrite mode: delete current entries NOT in the zip first, so the
+    // result is a clean replace. Merge mode: only touch files present in
+    // the zip — everything else stays as-is.
+    if matches!(mode, ImportMode::Overwrite) {
+        for &name in BACKUP_ENTRIES {
+            let dest_path = data_dir.join(name);
+            if dest_path.exists() && !temp_dir.join(name).exists() {
+                if dest_path.is_dir() {
+                    let _ = std::fs::remove_dir_all(&dest_path);
+                } else {
+                    let _ = std::fs::remove_file(&dest_path);
+                }
+            }
+        }
+    }
+
     for &name in BACKUP_ENTRIES {
         let src_path = temp_dir.join(name);
         if !src_path.exists() {
@@ -272,12 +297,27 @@ pub fn import_data(src: &Path) -> Result<(), String> {
         }
         let dest_path = data_dir.join(name);
         if src_path.is_dir() {
+            // Overwrite mode: clear existing dir entirely (clean replace).
+            // Merge mode: clear only the platform dirs that exist in the zip
+            // so KB categories not in the zip are preserved.
+            if matches!(mode, ImportMode::Overwrite) {
+                let _ = std::fs::remove_dir_all(&dest_path);
+            } else {
+                // Merge: remove platform subdirs that are present in the import
+                let src_kb = &src_path;
+                if dest_path.exists() {
+                    if let Ok(entries) = std::fs::read_dir(src_kb) {
+                        for entry in entries.flatten() {
+                            let platform_dir = dest_path.join(entry.file_name());
+                            if platform_dir.exists() {
+                                let _ = std::fs::remove_dir_all(&platform_dir);
+                            }
+                        }
+                    }
+                }
+            }
             std::fs::create_dir_all(&dest_path)
                 .map_err(|e| format!("Failed to create {}: {}", dest_path.display(), e))?;
-            // Clear existing KB dir contents first so removed files don't linger
-            let _ = std::fs::remove_dir_all(&dest_path);
-            std::fs::create_dir_all(&dest_path)
-                .map_err(|e| format!("Failed to recreate {}: {}", dest_path.display(), e))?;
             copy_dir_recursive(&src_path, &dest_path)?;
         } else {
             let bytes = std::fs::read(&src_path)

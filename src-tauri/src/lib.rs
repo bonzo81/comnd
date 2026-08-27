@@ -553,10 +553,14 @@ async fn export_data(dest_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn import_data(src_path: String) -> Result<(), String> {
+async fn import_data(src_path: String, mode: String) -> Result<(), String> {
     let path = std::path::PathBuf::from(&src_path);
-    crate::paths::import_data(&path)?;
-    // Tell the frontend to restart — all in-memory state is stale now.
+    let import_mode = match mode.as_str() {
+        "overwrite" => crate::paths::ImportMode::Overwrite,
+        "merge" => crate::paths::ImportMode::Merge,
+        _ => return Err("Invalid import mode: must be 'overwrite' or 'merge'".to_string()),
+    };
+    crate::paths::import_data(&path, import_mode)?;
     Ok(())
 }
 

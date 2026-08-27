@@ -330,8 +330,8 @@ export async function exportData(destPath: string): Promise<void> {
   return invoke<void>("export_data", { destPath });
 }
 
-export async function importData(srcPath: string): Promise<void> {
-  return invoke<void>("import_data", { srcPath });
+export async function importData(srcPath: string, mode: "overwrite" | "merge"): Promise<void> {
+  return invoke<void>("import_data", { srcPath, mode });
 }
 
 export async function setLogFilePath(path: string | null): Promise<void> {
