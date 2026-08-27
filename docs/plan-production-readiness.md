@@ -233,7 +233,7 @@ string.
 
 ### P2.8 — Crash reporting / panic hook
 
-- [ ] Install a `std::panic::set_hook` that writes panics to `netsh.log`
+- [x] Install a `std::panic::set_hook` that writes panics to `netsh.log`
       (currently only `log::error!` calls are captured, not actual panics)
 - [ ] Optionally: add `tauri-plugin-log` for structured logging
 - [ ] Optionally: opt-in Sentry integration (privacy-respecting, off by
