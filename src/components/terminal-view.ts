@@ -796,17 +796,35 @@ export class TerminalView {
       const wasConnected = this.state === "connected";
       this.setState("disconnected");
 
-      // Check if terminal is visible (user is looking at it)
-      const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
-      const terminalVisible = wrapper && wrapper.style.display !== "none";
+      // "connection_lost" = TCP dropped / keepalive failed (network blip,
+      // VPN flap, server reboot). Show the reconnect banner so the user can
+      // get back in without navigating to the host list.
+      //
+      // "channel_closed" / "channel_eof" = the remote end closed the channel
+      // (user typed `exit`, server shutdown, admin reset). Treat as a clean
+      // session end — bounce to host list or clean up the green dot.
+      const reason = event.payload.reason;
+      const isConnectionLost = reason === "connection_lost";
 
-      if (terminalVisible && wasConnected && this.host) {
-        // Session ended while user was in the terminal — close the terminal
-        // and return to host list (no banner, no reconnect prompt)
-        this.onDisconnectCb(this.host.id);
-      } else if (wasConnected && this.host) {
-        // Session died while user was in host list — silently clean up green dot
+      if (wasConnected && this.host && isConnectionLost) {
+        // Unexpected network drop — show reconnect banner in the terminal
+        this.showDisconnectBanner(reason);
+        this.updateStatusBar("disconnected");
+        // Notify the app that the session died (green dot) but DON'T close
+        // the terminal — the user stays on this tab and can reconnect.
         this.onSessionDiedCb(this.host.id);
+      } else if (wasConnected && this.host) {
+        // Clean session end (exit / channel closed / EOF)
+        const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
+        const terminalVisible = wrapper && wrapper.style.display !== "none";
+
+        if (terminalVisible) {
+          // User was looking at the terminal — close it and return to host list
+          this.onDisconnectCb(this.host.id);
+        } else {
+          // User was in host list — silently clean up green dot
+          this.onSessionDiedCb(this.host.id);
+        }
       }
     });
 
@@ -935,11 +953,14 @@ export class TerminalView {
     const msgEl = this.$(".tv-banner-msg");
     banner?.classList.remove("hidden");
     if (msgEl) {
-      const reasonText = reason === "channel_closed" ? "Session ended"
+      const reasonText = reason === "connection_lost"
+        ? "Connection lost — network dropped or server unreachable"
+        : reason === "channel_closed" ? "Session ended"
         : reason === "channel_eof" ? "Remote closed connection"
         : "Connection lost";
       msgEl.textContent = reasonText;
     }
+    this.updateStatusBar("disconnected");
   }
 
   private hideDisconnectBanner() {
@@ -1026,6 +1047,10 @@ export class TerminalView {
     this.unregisterSshListeners();
     this.terminal?.clear();
     this.timestampGutter?.reset();
+    // Show "reconnecting" state in the status bar while the new connection
+    // is being established. The ssh-connected listener will flip it back
+    // to "connected" on success; ssh-error will show the error overlay.
+    this.updateStatusBar("connecting");
     await this.connect(this.host);
   }
 
