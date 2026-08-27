@@ -564,6 +564,14 @@ async fn import_data(src_path: String) -> Result<(), String> {
 /// Restart the app process (used after data restore).
 #[tauri::command]
 async fn restart_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Dev builds serve the frontend from the Vite dev server managed by
+    // `tauri dev`. That server's lifecycle is tied to the ORIGINAL process:
+    // restarting the exe directly leaves the new webview pointing at a dead
+    // devUrl (ERR_CONNECTION_REFUSED). Only allow real restarts in release
+    // builds, where assets are bundled into the binary.
+    if cfg!(debug_assertions) {
+        return Err("Restart is only supported in release builds — in dev, quit the app and re-run `npm run tauri dev`".to_string());
+    }
     log::info!("Restart requested by user — relaunching app");
     app_handle.restart();
 }

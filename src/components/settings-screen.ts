@@ -555,10 +555,24 @@ export class SettingsScreen {
     });
   }
 
+  /**
+   * Success toast after a restore. Release builds get a working "Restart now"
+   * button; dev builds can't self-restart (the Vite dev server dies with the
+   * original process, leaving the new webview at a dead devUrl) — so dev
+   * shows instructions instead of a button.
+   */
+  private restoreSuccessToast(msg: string): void {
+    if (import.meta.env.DEV) {
+      showToast(`${msg}. Restart manually: quit the app and re-run \`npm run tauri dev\`.`, "success", 12000);
+    } else {
+      showToastWithAction(`${msg}.`, "Restart now", () => void restartApp(), "success", 30000);
+    }
+  }
+
   private async doOverwrite(srcPath: string): Promise<void> {
     try {
       await importData(srcPath);
-      showToastWithAction("Data overwritten.", "Restart now", () => void restartApp(), "success", 30000);
+      this.restoreSuccessToast("Data overwritten");
     } catch (e) {
       showToast(`Restore failed: ${e}`, "error", 8000);
     }
@@ -577,7 +591,7 @@ export class SettingsScreen {
       // No conflicts — apply directly
       try {
         const msg = await applyMerge(scan.temp_dir, {});
-        showToastWithAction(msg + ".", "Restart now", () => void restartApp(), "success", 30000);
+        this.restoreSuccessToast(msg);
       } catch (e) {
         showToast(`Merge failed: ${e}`, "error", 8000);
       }
@@ -671,7 +685,7 @@ export class SettingsScreen {
   ): Promise<void> {
     try {
       const msg = await applyMerge(tempDir, resolutions);
-      showToastWithAction(msg + ".", "Restart now", () => void restartApp(), "success", 30000);
+      this.restoreSuccessToast(msg);
     } catch (e) {
       showToast(`Merge failed: ${e}`, "error", 8000);
     }
