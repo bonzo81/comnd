@@ -279,10 +279,10 @@ window without keyboard shortcuts.
 
 ### P3.3 — Data export / backup
 
-- [ ] Settings → Export: zip the app data dir (hosts, groups, config,
+- [x] Settings → Export: zip the app data dir (hosts, groups, config,
       known_hosts, user KB) to a user-chosen path
-- [ ] Settings → Import: unzip + restart the app
-- [ ] Confirm overwrite / merge behavior; warn on conflicts
+- [x] Settings → Import: unzip + restart the app
+- [x] Confirm overwrite / merge behavior; warn on conflicts
 
 **Why:** Users have hosts, groups, KB, known_hosts — all in JSON/YAML. No
 backup / restore flow. A professional app lets users back up before a
