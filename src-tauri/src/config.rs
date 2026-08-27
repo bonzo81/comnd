@@ -244,11 +244,13 @@ impl ConfigStore {
     // ─── Provider config (chunk 6) ─────────────────────────────────
 
     /// Non-secret provider config for `id` (None when unset).
+    #[cfg(test)]
     pub fn provider_config(&self, id: &str) -> Option<&serde_json::Value> {
         self.config.providers.get(id)
     }
 
     /// Whether the provider is enabled in config.
+    #[cfg(test)]
     pub fn provider_enabled(&self, id: &str) -> bool {
         self.config
             .providers
@@ -265,6 +267,7 @@ impl ConfigStore {
     }
 
     /// Remove a provider's config (and its keyring secret) and persist.
+    #[cfg(test)]
     pub fn clear_provider(&mut self, id: &str) -> Result<(), String> {
         self.config.providers.remove(id);
         save_provider_secret(id, None)?;
