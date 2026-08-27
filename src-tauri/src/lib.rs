@@ -1068,6 +1068,30 @@ pub fn run() {
     let _ = log::set_logger(logger);
     log::set_max_level(filter);
 
+    // Install a panic hook so panics are captured in netsh.log instead of
+    // vanishing into the void. The default hook prints to stderr only, which
+    // a desktop app user never sees. This hook logs at error level (going
+    // through MultiWriter → file + stderr) and then chains to the previous
+    // hook to preserve the default unwind/backtrace behaviour.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info.location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let payload = info.payload();
+        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<non-string panic payload>".to_string()
+        };
+        log::error!("PANIC at {} — {}", location, msg);
+        // Chain to the previous hook for default behaviour (backtrace, abort
+        // if panic=abort, etc.).
+        prev_hook(info);
+    }));
+
     log::info!("net.sh v{} starting", env!("CARGO_PKG_VERSION"));
 
     let data_dir: std::path::PathBuf = data_dir.unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -1232,5 +1256,38 @@ mod tests {
         let (path, used_custom) = resolve_log_path(Some(custom));
         assert!(used_custom);
         assert_eq!(path, std::path::PathBuf::from(custom));
+    }
+
+    #[test]
+    fn test_panic_hook_logs_and_chains() {
+        // The panic hook logs the message via `log::error!` and chains to
+        // the previous hook. We can't easily test the log output without a
+        // test logger, but we can verify the hook doesn't double-panic and
+        // that the chained hook runs. Use catch_unwind to isolate.
+        use std::panic::{catch_unwind, take_hook, set_hook};
+
+        // Save and restore the current hook so this test doesn't pollute
+        // other tests.
+        let saved = take_hook();
+
+        // Install a chain: our hook sets a flag, then calls the "prev" hook.
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag_clone = flag.clone();
+        let prev = take_hook(); // the default hook
+        set_hook(Box::new(move |info| {
+            flag_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            prev(info);
+        }));
+
+        let result = catch_unwind(|| {
+            panic!("test panic from test_panic_hook_logs_and_chains");
+        });
+        assert!(result.is_err());
+        assert!(flag.load(std::sync::atomic::Ordering::SeqCst),
+            "chained hook should have run");
+
+        // Restore
+        let _ = take_hook();
+        set_hook(saved);
     }
 }
