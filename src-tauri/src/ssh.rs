@@ -178,7 +178,15 @@ impl client::Handler for ClientHandler {
 
         // First time — TOFU: accept and save
         log::info!("TOFU: accepting new host key for {} ({})", self.host_key, key_type);
-        let fingerprint = format!("SHA256:{}", &key_b64[..16.min(key_b64.len())]);
+        // Full SHA-256 fingerprint in standard ssh-keygen format:
+        // SHA256:<base64-no-pad>. Matches `ssh-keygen -lf` output so users
+        // can compare against ssh-keyscan / known_hosts.
+        let fingerprint = format!(
+            "SHA256:{}",
+            server_public_key.fingerprint(russh::keys::HashAlg::Sha256)
+                .to_string()
+                .trim_start_matches("SHA256:")
+        );
         known.insert(
             self.host_key.clone(),
             KnownHostEntry {
