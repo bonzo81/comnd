@@ -45,9 +45,9 @@ test gate. CI is the foundation of reproducible releases.
 
 ### P0.3 — Commit `Cargo.lock`
 
-- [ ] Remove `src-tauri/Cargo.lock` (or `Cargo.lock`) from `.gitignore`
-- [ ] `git add src-tauri/Cargo.lock` and commit
-- [ ] Verify `cargo build` is reproducible across machines
+- [x] Remove `src-tauri/Cargo.lock` (or `Cargo.lock`) from `.gitignore`
+- [x] `git add src-tauri/Cargo.lock` and commit
+- [x] Verify `cargo build` is reproducible across machines
 
 **Why:** For a binary application, `Cargo.lock` MUST be committed. Without
 it, dependency versions resolve differently on each machine — unreproducible
@@ -64,10 +64,10 @@ Resolve before public release; acceptable for private beta without these.
 
 ### P1.1 — Remove `.unwrap()` in SSH IPC paths
 
-- [ ] `ssh_send` (`src-tauri/src/lib.rs:402`): replace `mgr.get_session(session_id).unwrap()`
+- [x] `ssh_send` (`src-tauri/src/lib.rs:402`): replace `mgr.get_session(session_id).unwrap()`
       with `ok_or_else(|| "Session not found".to_string())?`
-- [ ] `ssh_resize` (`src-tauri/src/lib.rs:427`): same fix
-- [ ] Audit for any other `.unwrap()` / `.expect()` in non-test Rust code
+- [x] `ssh_resize` (`src-tauri/src/lib.rs:427`): same fix
+- [x] Audit for any other `.unwrap()` / `.expect()` in non-test Rust code
       that could panic on runtime data
 
 **Why:** A disconnect between `route_send` and `get_session` (no lock held
@@ -78,7 +78,7 @@ down.
 
 ### P1.2 — Remove `panic!` on config store init failure
 
-- [ ] `lib.rs:1084`: replace `panic!("Cannot continue without config store")`
+- [x] `lib.rs:1084`: replace `panic!("Cannot continue without config store")`
       with an in-memory `ConfigStore` fallback (mirrors `HostStore::in_memory()`)
       or surface a fatal-error dialog
 
@@ -89,10 +89,10 @@ recourse.
 
 ### P1.3 — `open_url` command injection on Windows
 
-- [ ] `lib.rs:106`: `cmd /C start` with a crafted URL can execute arbitrary
+- [x] `lib.rs:106`: `cmd /C start` with a crafted URL can execute arbitrary
       commands (URL content after `http(s)://` is unchecked for shell
       metacharacters)
-- [ ] Replace with `ShellExecuteW` via the `windows` crate, or use
+- [x] Replace with `ShellExecuteW` via the `windows` crate, or use
       `tauri-plugin-shell` `open` API (avoids `cmd.exe` parsing entirely)
 
 **Why:** `open_url_cmd` validates the `http(s)://` prefix but not the URL
