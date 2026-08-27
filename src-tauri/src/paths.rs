@@ -242,30 +242,47 @@ pub fn import_data(src: &Path) -> Result<(), String> {
         return Err("Import file does not contain any recognizable net.sh data files".to_string());
     }
 
-    // Back up the current data dir (rename to .backup-<ts>).
+    // Back up the current data files. We can't rename the whole data dir
+    // because the running app holds open handles (log file, config store)
+    // — Windows blocks the rename with "Access is denied". Instead, copy
+    // each backed-up entry to a sibling .backup-<ts> directory.
     let backup_dir = data_dir.with_extension(format!("backup-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
-    if data_dir.exists() {
-        std::fs::rename(&data_dir, &backup_dir)
-            .map_err(|e| format!("Failed to back up current data dir: {}", e))?;
+    ensure_data_dir(&backup_dir)?;
+    for &name in BACKUP_ENTRIES {
+        let current = data_dir.join(name);
+        if current.exists() {
+            let backup_path = backup_dir.join(name);
+            if current.is_dir() {
+                copy_dir_recursive(&current, &backup_path)?;
+            } else {
+                std::fs::copy(&current, &backup_path)
+                    .map_err(|e| format!("Failed to back up {}: {}", name, e))?;
+            }
+        }
     }
 
-    // Move the extracted files into the data dir.
-    ensure_data_dir(&data_dir)?;
+    // Overwrite the live data files with the imported versions. Use
+    // atomic_write for files (tmp + rename) so a crash mid-import doesn't
+    // leave a half-written file. For the knowledge-base directory, copy
+    // file-by-file over the existing tree.
     for &name in BACKUP_ENTRIES {
         let src_path = temp_dir.join(name);
-        if src_path.exists() {
-            let dest_path = data_dir.join(name);
-            if src_path.is_dir() {
-                std::fs::create_dir_all(&dest_path)
-                    .map_err(|e| format!("Failed to create {}: {}", dest_path.display(), e))?;
-                copy_dir_recursive(&src_path, &dest_path)?;
-            } else {
-                if let Some(parent) = dest_path.parent() {
-                    std::fs::create_dir_all(parent).ok();
-                }
-                std::fs::copy(&src_path, &dest_path)
-                    .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
-            }
+        if !src_path.exists() {
+            continue;
+        }
+        let dest_path = data_dir.join(name);
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Failed to create {}: {}", dest_path.display(), e))?;
+            // Clear existing KB dir contents first so removed files don't linger
+            let _ = std::fs::remove_dir_all(&dest_path);
+            std::fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Failed to recreate {}: {}", dest_path.display(), e))?;
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            let bytes = std::fs::read(&src_path)
+                .map_err(|e| format!("Failed to read {}: {}", src_path.display(), e))?;
+            secure_write(&dest_path, &bytes)?;
         }
     }
 
