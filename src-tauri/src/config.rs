@@ -26,6 +26,9 @@ pub struct AppConfig {
     pub log_max_size_mb: u32,
     #[serde(default)]
     pub log_file_path: Option<String>,
+    /// Maximum concurrent SSH sessions. Default 30. 0 = unlimited.
+    #[serde(default = "default_max_sessions")]
+    pub max_sessions: u32,
     /// Per-provider settings (chunk 6+). Key = provider id, value =
     /// provider-specific JSON parsed by that provider. Secrets never live
     /// here — they go in the OS keychain (`netsh_provider_<id>`).
@@ -43,6 +46,7 @@ impl Default for AppConfig {
             log_level: default_log_level(),
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
+            max_sessions: default_max_sessions(),
             providers: Default::default(),
         }
     }
@@ -66,6 +70,10 @@ fn default_log_level() -> String {
 
 fn default_log_max_size_mb() -> u32 {
     10
+}
+
+fn default_max_sessions() -> u32 {
+    30
 }
 
 /// Map a config log-level string to a `log` crate level filter.
@@ -224,6 +232,12 @@ impl ConfigStore {
     /// Update the custom log file path (None = default) and persist.
     pub fn save_log_file_path(&mut self, path: Option<String>) -> Result<(), String> {
         self.config.log_file_path = path;
+        self.persist()
+    }
+
+    /// Update the max concurrent SSH sessions and persist.
+    pub fn save_max_sessions(&mut self, max: u32) -> Result<(), String> {
+        self.config.max_sessions = max;
         self.persist()
     }
 

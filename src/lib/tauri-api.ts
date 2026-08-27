@@ -301,6 +301,7 @@ export interface AppConfig {
   log_level: string;
   log_max_size_mb: number;
   log_file_path: string | null;
+  max_sessions: number;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -317,6 +318,10 @@ export async function setLogLevel(level: string): Promise<void> {
 
 export async function setLogMaxSize(maxMb: number): Promise<void> {
   return invoke<void>("set_log_max_size", { maxMb });
+}
+
+export async function setMaxSessions(max: number): Promise<void> {
+  return invoke<void>("set_max_sessions", { max });
 }
 
 export async function setLogFilePath(path: string | null): Promise<void> {

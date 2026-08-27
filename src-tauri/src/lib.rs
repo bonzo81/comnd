@@ -357,6 +357,23 @@ async fn ssh_connect(
         (host.clone(), host.hostname, host.port, host.username)
     };
 
+    // Enforce max concurrent sessions. 0 = unlimited. Check before connecting
+    // so we don't consume a TCP connection + auth round-trip just to reject.
+    let max_sessions = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.get().max_sessions
+    };
+    if max_sessions > 0 {
+        let mgr = state.ssh.lock().await;
+        let current = mgr.session_count();
+        if current >= max_sessions as usize {
+            return Err(format!(
+                "Session limit reached ({} of {}). Disconnect a session or raise the limit in Settings → Terminal.",
+                current, max_sessions
+            ));
+        }
+    }
+
     // SecretRef resolves through the provider registry at connect time. The
     // secret is transient: dropped when `creds` dies at the end of this fn,
     // never logged or persisted.
@@ -513,6 +530,17 @@ async fn set_log_max_size(
         "Log file size cap set to {}MB (takes effect on next app start)",
         max_mb
     );
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_max_sessions(
+    max: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_max_sessions(max)?;
+    log::info!("Max sessions set to {}", if max == 0 { "unlimited".into() } else { max.to_string() });
     Ok(())
 }
 
@@ -1135,6 +1163,7 @@ pub fn run() {
                 get_log_level,
                 set_log_level,
                 set_log_max_size,
+                set_max_sessions,
                 set_log_file_path,
                 get_log_status,
                 log_frontend,

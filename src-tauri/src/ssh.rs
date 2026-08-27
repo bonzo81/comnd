@@ -643,6 +643,11 @@ impl<S> SessionMap<S> {
         self.sessions.contains_key(&id)
     }
 
+    /// Number of active sessions.
+    pub fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
     /// Routing guard for ssh_send / ssh_resize — the Tauri command locks
     /// state, calls this, then performs the real send/resize on the session.
     pub fn route_send(&self, id: u64) -> Result<(), String> {
@@ -673,6 +678,11 @@ impl SshManager {
 
     pub fn insert_session(&mut self, session: SshSession) {
         self.sessions.insert_with(session.session_id, session);
+    }
+
+    /// Current number of active sessions.
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
     }
 
     pub fn take_session(&mut self, session_id: u64) -> Option<SshSession> {
@@ -751,6 +761,21 @@ mod tests {
         // Exactly one entry: second take yields nothing.
         assert!(m.take(1).is_some());
         assert!(m.take(1).is_none());
+    }
+
+    #[test]
+    fn test_session_count() {
+        assert_eq!(map_with(&[]).len(), 0);
+        assert_eq!(map_with(&[1]).len(), 1);
+        assert_eq!(map_with(&[1, 2, 3]).len(), 3);
+        // Duplicate inserts overwrite — count stays at 1
+        let mut m = SessionMap::new();
+        m.insert_with(1, DummySession);
+        m.insert_with(1, DummySession);
+        assert_eq!(m.len(), 1);
+        // Take reduces count
+        m.take(1);
+        assert_eq!(m.len(), 0);
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 import {
   getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
-  setLogMaxSize, setLogFilePath, AppConfig, listProviders, getProviderState,
+  setLogMaxSize, setLogFilePath, setMaxSessions, AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
 } from "../lib/tauri-api";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -156,12 +156,15 @@ export class SettingsScreen {
     const highlight = getOutputHighlightEnabled();
     const logLevel = this.config?.log_level ?? "info";
     const maxSizeMb = this.config?.log_max_size_mb ?? 10;
+    const maxSessions = this.config?.max_sessions ?? 30;
     const opt = (value: TimestampFormat, label: string) =>
       `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
     const levelOpt = (value: string, label: string) =>
       `<option value="${value}" ${logLevel === value ? "selected" : ""}>${label}</option>`;
     const sizeOpt = (value: number, label: string) =>
       `<option value="${value}" ${maxSizeMb === value ? "selected" : ""}>${label}</option>`;
+    const sessionOpt = (value: number, label: string) =>
+      `<option value="${value}" ${maxSessions === value ? "selected" : ""}>${label}</option>`;
     return `
       <div class="settings-form">
         <h3 class="settings-section-title">Logging</h3>
@@ -222,6 +225,18 @@ export class SettingsScreen {
             <span class="import-hint">Colorizes IPs, interface names, status keywords (up/down/error), and config keywords in command output. Off by default.</span>
           </span>
         </label>
+        <div class="import-field">
+          <label for="max-sessions">Maximum concurrent sessions</label>
+          <select class="form-input" id="max-sessions">
+            ${sessionOpt(10, "10")}
+            ${sessionOpt(20, "20")}
+            ${sessionOpt(30, "30 (default)")}
+            ${sessionOpt(50, "50")}
+            ${sessionOpt(100, "100")}
+            ${sessionOpt(0, "Unlimited")}
+          </select>
+          <span class="import-hint">Prevents runaway resource usage from too many open SSH connections. Applies immediately.</span>
+        </div>
         <h3 class="settings-section-title">Global Search</h3>
         <label class="settings-toggle">
           <input type="checkbox" id="search-tags" ${tagsOn ? "checked" : ""} />
@@ -360,6 +375,10 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLSelectElement>("#log-max-size")?.addEventListener("change", (e) => {
       void setLogMaxSize(parseInt((e.target as HTMLSelectElement).value, 10));
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#max-sessions")?.addEventListener("change", (e) => {
+      void setMaxSessions(parseInt((e.target as HTMLSelectElement).value, 10));
     });
 
     this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("change", (e) => {
