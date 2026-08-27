@@ -561,6 +561,13 @@ async fn import_data(src_path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Restart the app process (used after data restore).
+#[tauri::command]
+async fn restart_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+    log::info!("Restart requested by user — relaunching app");
+    app_handle.restart();
+}
+
 /// Merge step 1: scan the backup for conflicts without writing anything.
 #[tauri::command]
 async fn scan_merge(src_path: String) -> Result<MergeScan, String> {
@@ -1248,6 +1255,7 @@ pub fn run() {
                 import_data,
                 scan_merge,
                 apply_merge,
+                restart_app,
                 #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]

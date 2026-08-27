@@ -8,12 +8,12 @@
 import {
   getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
   setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
-  scanMerge, applyMerge, MergeConflict,
+  scanMerge, applyMerge, restartApp, MergeConflict,
   AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
 } from "../lib/tauri-api";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { showToast } from "../lib/toast";
+import { showToast, showToastWithAction } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
 import {
@@ -558,7 +558,7 @@ export class SettingsScreen {
   private async doOverwrite(srcPath: string): Promise<void> {
     try {
       await importData(srcPath);
-      showToast("Data overwritten. Restart the app to apply.", "success", 8000);
+      showToastWithAction("Data overwritten.", "Restart now", () => void restartApp(), "success", 30000);
     } catch (e) {
       showToast(`Restore failed: ${e}`, "error", 8000);
     }
@@ -577,7 +577,7 @@ export class SettingsScreen {
       // No conflicts — apply directly
       try {
         const msg = await applyMerge(scan.temp_dir, {});
-        showToast(msg + ". Restart the app to apply.", "success", 8000);
+        showToastWithAction(msg + ".", "Restart now", () => void restartApp(), "success", 30000);
       } catch (e) {
         showToast(`Merge failed: ${e}`, "error", 8000);
       }
@@ -671,7 +671,7 @@ export class SettingsScreen {
   ): Promise<void> {
     try {
       const msg = await applyMerge(tempDir, resolutions);
-      showToast(msg + ". Restart the app to apply.", "success", 8000);
+      showToastWithAction(msg + ".", "Restart now", () => void restartApp(), "success", 30000);
     } catch (e) {
       showToast(`Merge failed: ${e}`, "error", 8000);
     }

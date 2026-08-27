@@ -187,6 +187,16 @@
   color: var(--color-text-primary);
 }
 
+.toast-with-action {
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toast-action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

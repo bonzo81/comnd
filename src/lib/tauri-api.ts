@@ -361,6 +361,11 @@ export async function applyMerge(
   return invoke<string>("apply_merge", { tempDir, resolutions });
 }
 
+/** Restart the app process. */
+export async function restartApp(): Promise<void> {
+  return invoke<void>("restart_app");
+}
+
 export async function setLogFilePath(path: string | null): Promise<void> {
   return invoke<void>("set_log_file_path", { path });
 }

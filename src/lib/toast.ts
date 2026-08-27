@@ -46,3 +46,40 @@ export function showToast(message: string, type: "success" | "error" | "info" = 
   };
   setTimeout(remove, duration);
 }
+
+/**
+ * Show a toast with an action button. The button persists until the toast
+ * auto-dismisses or the user closes it. Use for prompts like "Restart now".
+ */
+export function showToastWithAction(
+  message: string,
+  actionLabel: string,
+  onAction: () => void,
+  type: "success" | "error" | "info" = "info",
+  duration = 10000,
+) {
+  const container = getToastContainer();
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type} toast-with-action`;
+  if (type === "error") toast.setAttribute("role", "alert");
+  const iconsByType: Record<string, string> = { success: icons.check, error: icons.x, info: icons.info };
+  toast.innerHTML = `
+    <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
+    <span class="toast-message">${escHtml(message)}</span>
+    <button class="toast-action btn-primary btn-small">${escHtml(actionLabel)}</button>
+    <button class="toast-close" aria-label="Dismiss notification">&times;</button>
+  `;
+  toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
+  toast.querySelector(".toast-action")?.addEventListener("click", () => {
+    toast.remove();
+    onAction();
+  });
+  container.appendChild(toast);
+  const remove = () => {
+    if (!document.body.contains(toast)) return;
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.3s ease";
+    setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 300);
+  };
+  setTimeout(remove, duration);
+}
