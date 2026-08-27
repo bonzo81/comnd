@@ -196,9 +196,9 @@ action.
 
 ### P2.5 — Max connections limit
 
-- [ ] Cap concurrent SSH sessions (suggest 20)
-- [ ] Surface a user-friendly error when the limit is reached
-- [ ] Optionally: make the limit configurable in Settings
+- [x] Cap concurrent SSH sessions (suggest 20)
+- [x] Surface a user-friendly error when the limit is reached
+- [x] Optionally: make the limit configurable in Settings
 
 **Why:** `SshManager` is an unbounded `HashMap`. 100 tabs = 100 SSH
 sessions = unbounded memory + file descriptors + agent socket handles.
