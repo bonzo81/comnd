@@ -128,6 +128,179 @@ pub fn preserve_corrupt(path: &Path) {
     }
 }
 
+// ─── Backup / Restore ────────────────────────────────────────────────
+
+/// Files and directories to include in a backup export. Everything else
+/// (logs, tmp files) is excluded.
+const BACKUP_ENTRIES: &[&str] = &[
+    "hosts.json",
+    "groups.json",
+    "config.json",
+    "known_hosts.json",
+    "knowledge-base",
+];
+
+/// Export app data to a zip file at `dest`. Excludes the `logs/` directory
+/// (ephemeral, potentially large, contains hostnames/usernames).
+pub fn export_data(dest: &Path) -> Result<(), String> {
+    let data_dir = app_data_dir()?;
+    let file = std::fs::File::create(dest)
+        .map_err(|e| format!("Failed to create export file: {}", e))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options: zip::write::SimpleFileOptions = zip::write::FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    for &name in BACKUP_ENTRIES {
+        let path = data_dir.join(name);
+        if !path.exists() {
+            continue;
+        }
+        add_to_zip(&mut zip, &path, name, options)?;
+    }
+
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize zip: {}", e))?;
+    log::info!("Exported app data to {}", dest.display());
+    Ok(())
+}
+
+/// Recursively add a file or directory to a zip archive.
+fn add_to_zip(
+    zip: &mut zip::ZipWriter<std::fs::File>,
+    path: &Path,
+    archive_name: &str,
+    options: zip::write::SimpleFileOptions,
+) -> Result<(), String> {
+    if path.is_dir() {
+        // Add the directory entry itself
+        let dir_options = options.clone();
+        zip.add_directory(archive_name, dir_options)
+            .map_err(|e| format!("Failed to add dir {} to zip: {}", archive_name, e))?;
+        // Recurse into children
+        let entries = std::fs::read_dir(path)
+            .map_err(|e| format!("Failed to read dir {}: {}", path.display(), e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
+            let child_path = entry.path();
+            let child_name = format!("{}/{}", archive_name, entry.file_name().to_string_lossy());
+            add_to_zip(zip, &child_path, &child_name, options)?;
+        }
+    } else if path.is_file() {
+        zip.start_file(archive_name, options)
+            .map_err(|e| format!("Failed to start zip entry {}: {}", archive_name, e))?;
+        let mut file = std::fs::File::open(path)
+            .map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+        std::io::copy(&mut file, zip)
+            .map_err(|e| format!("Failed to write {} to zip: {}", archive_name, e))?;
+    }
+    Ok(())
+}
+
+/// Import app data from a zip file at `src`. Extracts to a temp dir,
+/// validates that it contains expected files, then replaces the current
+/// data dir contents (after backing up the current data to a timestamped
+/// sibling directory).
+///
+/// The caller should restart the app after a successful import so all
+/// in-memory state reloads from the new files.
+pub fn import_data(src: &Path) -> Result<(), String> {
+    let data_dir = app_data_dir()?;
+    let file = std::fs::File::open(src)
+        .map_err(|e| format!("Failed to open import file: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("Failed to read zip: {}", e))?;
+
+    // Extract to a temp dir first — validate before replacing live data.
+    let temp_dir = std::env::temp_dir().join(format!("netsh-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    ensure_data_dir(&temp_dir)?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+        let outpath = match entry.enclosed_name() {
+            Some(p) => temp_dir.join(p),
+            None => continue, // Skip unsafe paths (.. traversal)
+        };
+        if entry.is_dir() {
+            std::fs::create_dir_all(&outpath)
+                .map_err(|e| format!("Failed to create dir {}: {}", outpath.display(), e))?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| format!("Failed to extract {}: {}", outpath.display(), e))?;
+        }
+    }
+
+    // Validate: at least one expected file must be present.
+    let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
+    if !has_valid {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err("Import file does not contain any recognizable net.sh data files".to_string());
+    }
+
+    // Back up the current data dir (rename to .backup-<ts>).
+    let backup_dir = data_dir.with_extension(format!("backup-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    if data_dir.exists() {
+        std::fs::rename(&data_dir, &backup_dir)
+            .map_err(|e| format!("Failed to back up current data dir: {}", e))?;
+    }
+
+    // Move the extracted files into the data dir.
+    ensure_data_dir(&data_dir)?;
+    for &name in BACKUP_ENTRIES {
+        let src_path = temp_dir.join(name);
+        if src_path.exists() {
+            let dest_path = data_dir.join(name);
+            if src_path.is_dir() {
+                std::fs::create_dir_all(&dest_path)
+                    .map_err(|e| format!("Failed to create {}: {}", dest_path.display(), e))?;
+                copy_dir_recursive(&src_path, &dest_path)?;
+            } else {
+                if let Some(parent) = dest_path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                std::fs::copy(&src_path, &dest_path)
+                    .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
+            }
+        }
+    }
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    // Apply restrictive perms to the restored files
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700));
+    }
+
+    log::info!("Imported app data from {} (backup at {})", src.display(), backup_dir.display());
+    Ok(())
+}
+
+/// Recursively copy a directory's contents.
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| format!("Failed to read {}: {}", src.display(), e))? {
+        let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            std::fs::copy(&src_path, &dest_path)
+                .map_err(|e| format!("Failed to copy {}: {}", src_path.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

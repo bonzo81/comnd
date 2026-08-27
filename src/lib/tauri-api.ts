@@ -324,6 +324,16 @@ export async function setMaxSessions(max: number): Promise<void> {
   return invoke<void>("set_max_sessions", { max });
 }
 
+// ─── Backup / Restore Commands ──────────────────────────────────────
+
+export async function exportData(destPath: string): Promise<void> {
+  return invoke<void>("export_data", { destPath });
+}
+
+export async function importData(srcPath: string): Promise<void> {
+  return invoke<void>("import_data", { srcPath });
+}
+
 export async function setLogFilePath(path: string | null): Promise<void> {
   return invoke<void>("set_log_file_path", { path });
 }

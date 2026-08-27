@@ -544,6 +544,22 @@ async fn set_max_sessions(
     Ok(())
 }
 
+// ─── Backup / Restore Commands ──────────────────────────────────────
+
+#[tauri::command]
+async fn export_data(dest_path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(&dest_path);
+    crate::paths::export_data(&path)
+}
+
+#[tauri::command]
+async fn import_data(src_path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(&src_path);
+    crate::paths::import_data(&path)?;
+    // Tell the frontend to restart — all in-memory state is stale now.
+    Ok(())
+}
+
 #[tauri::command]
 async fn get_log_status(
     state: tauri::State<'_, AppState>,
@@ -1210,6 +1226,8 @@ pub fn run() {
                 move_host_group,
                 open_url_cmd,
                 delete_host_group,
+                export_data,
+                import_data,
                 #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]

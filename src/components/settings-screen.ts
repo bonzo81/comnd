@@ -7,10 +7,11 @@
 
 import {
   getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
-  setLogMaxSize, setLogFilePath, setMaxSessions, AppConfig, listProviders, getProviderState,
+  setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
+  AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
 } from "../lib/tauri-api";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import { showToast } from "../lib/toast";
 import { escHtml } from "../lib/format";
 import { icons } from "../lib/icons";
@@ -245,6 +246,15 @@ export class SettingsScreen {
             <span class="import-hint">When off, global search and KB search match command name and aliases only</span>
           </span>
         </label>
+        <h3 class="settings-section-title">Data Management</h3>
+        <div class="import-field">
+          <label>Backup & Restore</label>
+          <div class="log-file-row">
+            <button type="button" id="data-export" class="btn-secondary">Export backup...</button>
+            <button type="button" id="data-import" class="btn-secondary">Restore from backup...</button>
+          </div>
+          <span class="import-hint">Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.</span>
+        </div>
       </div>
     `;
   }
@@ -381,6 +391,9 @@ export class SettingsScreen {
       void setMaxSessions(parseInt((e.target as HTMLSelectElement).value, 10));
     });
 
+    this.container?.querySelector<HTMLButtonElement>("#data-export")?.addEventListener("click", () => void this.exportData());
+    this.container?.querySelector<HTMLButtonElement>("#data-import")?.addEventListener("click", () => void this.importData());
+
     this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("change", (e) => {
       const v = (e.target as HTMLInputElement).value.trim();
       void setLogFilePath(v || null).then(() => this.refreshConfig()).catch(() => {
@@ -474,6 +487,34 @@ export class SettingsScreen {
       }
     } catch {
       // User cancelled — no-op.
+    }
+  }
+
+  private async exportData(): Promise<void> {
+    try {
+      const dest = await save({
+        defaultPath: "netsh-backup.zip",
+        filters: [{ name: "Backup files", extensions: ["zip"] }],
+      });
+      if (!dest) return;
+      await exportData(dest);
+      showToast("Backup exported successfully", "success");
+    } catch (e) {
+      showToast(`Export failed: ${e}`, "error", 8000);
+    }
+  }
+
+  private async importData(): Promise<void> {
+    try {
+      const src = await open({
+        filters: [{ name: "Backup files", extensions: ["zip"] }],
+        multiple: false,
+      });
+      if (!src || typeof src !== "string") return;
+      await importData(src);
+      showToast("Data restored. Restart the app to apply.", "success", 8000);
+    } catch (e) {
+      showToast(`Restore failed: ${e}`, "error", 8000);
     }
   }
 
