@@ -39,6 +39,11 @@ pub struct Host {
     #[serde(default = "default_platform")]
     pub platform: String,
     pub os_version: Option<String>,
+    /// Syntax highlighting profile for terminal output. `"auto"` (default)
+    /// uses the host's platform. Other values force a specific rule set.
+    /// `None` is treated as `"auto"` for legacy hosts.
+    #[serde(default)]
+    pub highlight_profile: Option<String>,
     pub notes: Option<String>,
     pub last_connected: Option<String>,
     #[serde(default)]

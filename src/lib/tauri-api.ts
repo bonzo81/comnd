@@ -22,6 +22,7 @@ export interface Host {
   credential?: CredentialSource;
   platform: string;
   os_version: string | null;
+  highlight_profile: string | null;
   notes: string | null;
   last_connected: string | null;
   created_at: string;

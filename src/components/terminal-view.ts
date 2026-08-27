@@ -42,6 +42,8 @@ import {
   TimestampGutter,
 } from "../lib/timestamps";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
+import { OutputHighlighter } from "../lib/output-highlighter";
+import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -141,6 +143,8 @@ export class TerminalView {
   private suggestionsEnabled = false;
   private suggestionsChangeHandler: (() => void) | null = null;
   private autoCopyChangeHandler: (() => void) | null = null;
+  private outputHighlighter: OutputHighlighter | null = null;
+  private highlightChangeHandler: (() => void) | null = null;
 
   // Right-click context menu (terminal area)
   private ctxMenuEl: HTMLDivElement | null = null;
@@ -430,6 +434,7 @@ export class TerminalView {
           <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
           <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions"></button>
           <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection"></button>
+          <button class="btn-text tv-highlight-btn" aria-label="Toggle output highlighting"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
           <button class="btn-text tv-panel-btn" title="Toggle side panel">≡ Panel</button>
         </div>
@@ -530,6 +535,14 @@ export class TerminalView {
     this.autoCopyChangeHandler = () => this.syncAutoCopy();
     window.addEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
     this.syncAutoCopy();
+
+    // Output highlighting toggle
+    this.$(".tv-highlight-btn")!.addEventListener("click", () => {
+      setOutputHighlightEnabled(!getOutputHighlightEnabled());
+    });
+    this.highlightChangeHandler = () => this.syncHighlight();
+    window.addEventListener("netsh:output-highlight", this.highlightChangeHandler);
+    this.syncHighlight();
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
@@ -649,10 +662,31 @@ export class TerminalView {
       if (this.state === "connected") {
         const buf = this.terminal!.buffer.active;
         const lineBefore = buf.baseY + buf.cursorY;
-        this.terminal?.write(bytes, () => {
-          const b = this.terminal?.buffer.active;
-          if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
-        });
+
+        // Output highlighting — gate on "this chunk is real output". The
+        // receivingOutput flag is set AFTER the write below, so the first
+        // output chunk (which flips the flag) would otherwise pass through
+        // raw. Use text.includes("\n") as the same output signal that sets
+        // the flag, so the first chunk is highlighted too.
+        const highlightOn = getOutputHighlightEnabled()
+          && (this.receivingOutput || text.includes("\n"))
+          && !this.promptDetector.isPassthrough
+          && this.outputHighlighter !== null;
+
+        if (highlightOn) {
+          const transformed = this.outputHighlighter!.transform(text);
+          this.terminal?.write(transformed, () => {
+            const b = this.terminal?.buffer.active;
+            if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
+          });
+        } else {
+          this.terminal?.write(bytes, () => {
+            const b = this.terminal?.buffer.active;
+            if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
+          });
+        }
+        // Prompt detector ALWAYS receives original (untransformed) text —
+        // injected ANSI would corrupt prompt regex matching.
         this.promptDetector.feed(text);
       } else {
         // Connection phase — capture output for the output pane
@@ -719,6 +753,18 @@ export class TerminalView {
           this.ghostText?.hide();
         });
         this.sidebarContent = new SidebarContent();
+        // Output highlighter — per-host profile ("auto" → use platform)
+        const hlProfile = this.host?.highlight_profile;
+        const hlPlatform = hlProfile && hlProfile !== "auto"
+          ? hlProfile
+          : this.host?.platform ?? "linux-bash";
+        if (hlPlatform === "none") {
+          this.outputHighlighter = null;
+        } else {
+          this.outputHighlighter = new OutputHighlighter(hlPlatform);
+        }
+        // Update toolbar button state (disabled when profile is "none")
+        this.syncHighlight();
       }
 
       // Load KB commands into frontend suggestion engine
@@ -1251,6 +1297,25 @@ export class TerminalView {
     }
   }
 
+  private syncHighlight() {
+    const on = getOutputHighlightEnabled();
+    const btn = this.$<HTMLButtonElement>(".tv-highlight-btn");
+    if (btn) {
+      btn.innerHTML = icons.paintbrush;
+      // Disable when no highlighter is active (host profile = "none" or
+      // highlighter not yet initialized). Prevents toggling a no-op.
+      const disabled = this.outputHighlighter === null;
+      btn.disabled = disabled;
+      btn.classList.toggle("btn-disabled", disabled);
+      btn.classList.toggle("active", on && !disabled);
+      if (disabled) {
+        this.setBtnLabel(btn, "Output highlighting disabled for this host");
+      } else {
+        this.setBtnLabel(btn, on ? "Disable output highlighting" : "Enable output highlighting");
+      }
+    }
+  }
+
   // ─── Zoom ────────────────────────────────────────────────────────
 
   applyTerminalTheme(t: Theme) {
@@ -1324,6 +1389,10 @@ export class TerminalView {
       window.removeEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
       this.autoCopyChangeHandler = null;
     }
+    if (this.highlightChangeHandler) {
+      window.removeEventListener("netsh:output-highlight", this.highlightChangeHandler);
+      this.highlightChangeHandler = null;
+    }
 
     this.timestampGutter?.dispose();
     this.timestampGutter = null;
@@ -1331,6 +1400,7 @@ export class TerminalView {
     this.ghostText = null;
     this.dropdown?.destroy();
     this.dropdown = null;
+    this.outputHighlighter = null;
     this.sidebarContent = null;
     this.platformIndex = null;
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);

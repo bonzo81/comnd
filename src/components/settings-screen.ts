@@ -21,6 +21,7 @@ import {
 } from "../lib/timestamps";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
+import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
 import { getAppTheme, setAppTheme, Theme } from "../lib/theme";
 
 const LABELS: Record<string, string> = {
@@ -152,6 +153,7 @@ export class SettingsScreen {
     const fmt = getTimestampFormat();
     const tagsOn = getSearchIncludeTags();
     const autoCopy = getAutoCopyEnabled();
+    const highlight = getOutputHighlightEnabled();
     const logLevel = this.config?.log_level ?? "info";
     const maxSizeMb = this.config?.log_max_size_mb ?? 10;
     const opt = (value: TimestampFormat, label: string) =>
@@ -211,6 +213,13 @@ export class SettingsScreen {
           <span>
             Copy text on selection
             <span class="import-hint">Automatically copies highlighted terminal text to the clipboard as you select it</span>
+          </span>
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="output-highlight" ${highlight ? "checked" : ""} />
+          <span>
+            Syntax highlighting in terminal output
+            <span class="import-hint">Colorizes IPs, interface names, status keywords (up/down/error), and config keywords in command output. Off by default.</span>
           </span>
         </label>
         <h3 class="settings-section-title">Global Search</h3>
@@ -335,6 +344,10 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLInputElement>("#auto-copy")?.addEventListener("change", (e) => {
       setAutoCopyEnabled((e.target as HTMLInputElement).checked);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#output-highlight")?.addEventListener("change", (e) => {
+      setOutputHighlightEnabled((e.target as HTMLInputElement).checked);
     });
 
     this.container?.querySelector<HTMLSelectElement>("#ts-format")?.addEventListener("change", (e) => {

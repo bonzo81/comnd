@@ -365,6 +365,17 @@ export class HostScreen {
                      value="${escAttr(h?.os_version ?? "")}" />
             </label>
             <label>
+              <span>Syntax Highlighting</span>
+              <select class="form-input" name="highlight_profile">
+                <option value="auto" ${(!h?.highlight_profile || h?.highlight_profile === "auto") ? "selected" : ""}>Auto (use platform)</option>
+                <option value="cisco-iosxe" ${h?.highlight_profile === "cisco-iosxe" ? "selected" : ""}>Cisco IOS-XE</option>
+                <option value="cisco-nxos" ${h?.highlight_profile === "cisco-nxos" ? "selected" : ""}>Cisco NX-OS</option>
+                <option value="f5-tmos" ${h?.highlight_profile === "f5-tmos" ? "selected" : ""}>F5 TMOS</option>
+                <option value="linux-bash" ${h?.highlight_profile === "linux-bash" ? "selected" : ""}>Linux Bash</option>
+                <option value="none" ${h?.highlight_profile === "none" ? "selected" : ""}>Off (no highlighting)</option>
+              </select>
+            </label>
+            <label>
               <span>Notes</span>
               <textarea class="form-input" name="notes" rows="3" placeholder="Optional notes">${escHtml(h?.notes ?? "")}</textarea>
             </label>
@@ -746,6 +757,7 @@ export class HostScreen {
       : secretRefInput;
     const platform = (fd.get("platform") as string) ?? "cisco-iosxe";
     const osVersion = (fd.get("os_version") as string)?.trim() || null;
+    const highlightProfile = (fd.get("highlight_profile") as string)?.trim() || null;
     const notes = (fd.get("notes") as string)?.trim() || null;
     const groupId = (fd.get("group_id") as string)?.trim() || null;
     const tagsRaw = (fd.get("tags") as string) ?? "";
@@ -774,6 +786,7 @@ export class HostScreen {
         username,
         platform,
         os_version: osVersion,
+        highlight_profile: highlightProfile,
         notes,
         tags,
         group_id: groupId,
@@ -822,6 +835,7 @@ export class HostScreen {
         credential: original.credential,
         platform: original.platform,
         os_version: original.os_version,
+        highlight_profile: original.highlight_profile,
         notes: original.notes,
         tags: original.tags,
         group_id: original.group_id,

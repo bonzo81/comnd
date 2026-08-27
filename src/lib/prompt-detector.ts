@@ -19,7 +19,13 @@ export class PromptDetector {
   private onModeChange: (mode: string) => void;
   private onPromptDetected: () => void;
 
+  // Interactive-app passthrough: set when no prompt has matched for >2s while
+  // data keeps arriving (vi/more/top). Suppresses output highlighting.
+  private passthrough = false;
+  private noMatchTimer: ReturnType<typeof setTimeout> | null = null;
+
   private static readonly IDLE_MS = 200;
+  private static readonly PASSTHROUGH_MS = 2000;
 
   constructor(
     onModeChange: (mode: string) => void,
@@ -39,6 +45,13 @@ export class PromptDetector {
       this.patterns.set(mode, new RegExp(`^(?:${pattern})$`));
     }
     this.currentMode = defaultMode;
+    // No patterns → can't detect prompts → passthrough is meaningless. Leave
+    // it off so highlighting is never suppressed by a stuck passthrough flag.
+    this.passthrough = false;
+    if (this.noMatchTimer) {
+      clearTimeout(this.noMatchTimer);
+      this.noMatchTimer = null;
+    }
   }
 
   /** Feed SSH output data through the detector */
@@ -57,6 +70,17 @@ export class PromptDetector {
     // Reset idle timer
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.checkPrompt(), PromptDetector.IDLE_MS);
+
+    // Passthrough timer — only arm on real output (contains newline) AND only
+    // when prompt patterns exist. Without patterns (e.g. linux-bash has {}),
+    // checkPrompt() can never match, so passthrough would flip true and never
+    // reset — suppressing all highlighting. Skip the timer entirely in that case.
+    if (this.patterns.size > 0 && clean.includes("\n")) {
+      if (this.noMatchTimer) clearTimeout(this.noMatchTimer);
+      this.noMatchTimer = setTimeout(() => {
+        this.passthrough = true;
+      }, PromptDetector.PASSTHROUGH_MS);
+    }
   }
 
   /** Check if pending text matches a prompt pattern */
@@ -70,6 +94,12 @@ export class PromptDetector {
           this.currentMode = mode;
           this.onModeChange(mode);
         }
+        // Successful prompt match — clear passthrough (interactive app exited)
+        this.passthrough = false;
+        if (this.noMatchTimer) {
+          clearTimeout(this.noMatchTimer);
+          this.noMatchTimer = null;
+        }
         this.onPromptDetected();
         return;
       }
@@ -78,5 +108,10 @@ export class PromptDetector {
 
   get mode(): string {
     return this.currentMode;
+  }
+
+  /** True when no prompt matched for >2s while output kept arriving (vi/more/top). */
+  get isPassthrough(): boolean {
+    return this.passthrough;
   }
 }
