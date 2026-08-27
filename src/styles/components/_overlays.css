@@ -158,6 +158,17 @@
   animation: toast-in 0.25s ease-out;
 }
 
+.toast-with-action {
+  max-width: 520px;
+  flex-wrap: wrap;
+}
+
+.toast-with-action .toast-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
 .toast-success { border-left: 3px solid var(--color-success); }
 .toast-error { border-left: 3px solid var(--color-error); }
 .toast-info { border-left: 3px solid var(--color-accent); }
