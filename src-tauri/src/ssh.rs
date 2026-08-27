@@ -99,11 +99,16 @@ fn try_open_auth_url(
     text: &str,
     session_id: u64,
 ) {
-    if auth_url_opened.load(Ordering::Relaxed) {
-        return;
-    }
     if let Some(url) = extract_https_url(text) {
-        auth_url_opened.store(true, Ordering::Relaxed);
+        // Atomic check-and-set: the banner callback and the keyboard-interactive
+        // loop run on separate tasks and can race. Only the first caller that
+        // flips false→true opens the browser; others see true and bail.
+        if auth_url_opened
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
         log::info!("Auth URL detected: {}", url);
         let _ = app_handle.emit("ssh-auth-url", SshAuthUrlPayload {
             url: url.clone(),

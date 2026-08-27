@@ -101,6 +101,7 @@ impl std::io::Write for MultiWriter {
 // ─── Browser URL Opener ─────────────────────────────────────────────
 
 fn open_url(url: &str) {
+    log::info!("Opening URL in browser: {}", url);
     let _ = if cfg!(target_os = "windows") {
         StdCommand::new("cmd").args(["/C", "start", "", url]).spawn()
     } else if cfg!(target_os = "macos") {
