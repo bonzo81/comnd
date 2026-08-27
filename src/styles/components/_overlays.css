@@ -158,15 +158,36 @@
   animation: toast-in 0.25s ease-out;
 }
 
+/* Action toast: row 1 = icon | message | close (top-right),
+   row 2 = action button (aligned with the message, below the text). */
 .toast-with-action {
   max-width: 520px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icon message close"
+    ".    action  .";
+  align-items: start;
+  row-gap: var(--space-2);
+}
+
+.toast-with-action .toast-icon {
+  grid-area: icon;
 }
 
 .toast-with-action .toast-message {
-  flex: 1 1 auto;
+  grid-area: message;
   min-width: 0;
   word-break: break-word;
+}
+
+.toast-with-action .toast-close {
+  grid-area: close;
+}
+
+.toast-with-action .toast-action {
+  grid-area: action;
+  justify-self: start;
 }
 
 .toast-success { border-left: 3px solid var(--color-success); }

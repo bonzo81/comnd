@@ -66,8 +66,8 @@ export function showToastWithAction(
   toast.innerHTML = `
     <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
     <span class="toast-message">${escHtml(message)}</span>
-    <button class="toast-action btn-primary btn-small">${escHtml(actionLabel)}</button>
     <button class="toast-close" aria-label="Dismiss notification">&times;</button>
+    <button class="toast-action btn-primary btn-small">${escHtml(actionLabel)}</button>
   `;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
   toast.querySelector(".toast-action")?.addEventListener("click", () => {
