@@ -139,13 +139,13 @@ Address before wide release; acceptable for limited beta.
 
 ### P2.1 — Host field input validation
 
-- [ ] Validate `hostname` (RFC 1123: letters, digits, hyphens, dots; reject
+- [x] Validate `hostname` (RFC 1123: letters, digits, hyphens, dots; reject
       control characters, whitespace, newlines)
-- [ ] Reject control characters in `username`, `display_name`
-- [ ] Cap string field lengths (hostname ≤253, display_name ≤128,
+- [x] Reject control characters in `username`, `display_name`
+- [x] Cap string field lengths (hostname ≤253, display_name ≤128,
       username ≤128, notes ≤4096)
-- [ ] Validate `platform` is one of the known platform ids
-- [ ] Return validation errors to the frontend; surface in the host form
+- [x] Validate `platform` is one of the known platform ids
+- [x] Return validation errors to the frontend; surface in the host form
 
 **Why:** `save_host` accepts arbitrary strings. Not exploitable via russh
 (TCP connect fails), but the log file gets polluted and the UI may render
@@ -171,9 +171,9 @@ revoke trust.
 
 ### P2.3 — Full SSH fingerprint format
 
-- [ ] `ssh.rs:181`: replace `&key_b64[..16.min(key_b64.len())]` with the
+- [x] `ssh.rs:181`: replace `&key_b64[..16.min(key_b64.len())]` with the
       full base64 SHA-256 (43 chars, no truncation)
-- [ ] Verify format matches `ssh-keygen -lf` output: `SHA256:base64nopad`
+- [x] Verify format matches `ssh-keygen -lf` output: `SHA256:base64nopad`
 
 **Why:** Standard SSH fingerprints are full base64 SHA-256, not first 16
 chars. Security-conscious users comparing against `ssh-keyscan` /
