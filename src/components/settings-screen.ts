@@ -8,6 +8,7 @@
 import {
   getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
   setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
+  scanMerge, applyMerge, MergeConflict,
   AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
 } from "../lib/tauri-api";
@@ -518,12 +519,11 @@ export class SettingsScreen {
   }
 
   private showImportModeDialog(srcPath: string): void {
-    // Modal overlay so the user picks overwrite vs merge before we touch data.
     const overlay = document.createElement("div");
     overlay.className = "modal-backdrop";
     overlay.innerHTML = `
       <div class="modal-panel" style="max-width: 480px;">
-        <h3 class="modal-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
+        <h3 style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
         <p style="color: var(--color-text-secondary); margin-bottom: var(--space-4); line-height: 1.5;">
           Choose how to restore from <strong style="color: var(--color-text-primary);">${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
         </p>
@@ -534,7 +534,7 @@ export class SettingsScreen {
           </button>
           <button class="btn-secondary" id="import-merge" style="display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); text-align: left;">
             <span>Merge</span>
-            <span class="import-hint">Only restores files present in the backup. Existing data not in the backup is kept.</span>
+            <span class="import-hint">Combines current and backup data. You'll review any conflicts before anything is changed.</span>
           </button>
           <button class="btn-text" id="import-cancel" style="align-self: center;">Cancel</button>
         </div>
@@ -543,26 +543,137 @@ export class SettingsScreen {
     document.body.appendChild(overlay);
 
     const close = () => overlay.remove();
-
     overlay.querySelector<HTMLButtonElement>("#import-cancel")?.addEventListener("click", close);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-
     overlay.querySelector<HTMLButtonElement>("#import-overwrite")?.addEventListener("click", () => {
       close();
-      void this.doImport(srcPath, "overwrite");
+      void this.doOverwrite(srcPath);
     });
     overlay.querySelector<HTMLButtonElement>("#import-merge")?.addEventListener("click", () => {
       close();
-      void this.doImport(srcPath, "merge");
+      void this.doMerge(srcPath);
     });
   }
 
-  private async doImport(srcPath: string, mode: "overwrite" | "merge"): Promise<void> {
+  private async doOverwrite(srcPath: string): Promise<void> {
     try {
-      await importData(srcPath, mode);
-      showToast(`Data restored (${mode}). Restart the app to apply.`, "success", 8000);
+      await importData(srcPath);
+      showToast("Data overwritten. Restart the app to apply.", "success", 8000);
     } catch (e) {
       showToast(`Restore failed: ${e}`, "error", 8000);
+    }
+  }
+
+  private async doMerge(srcPath: string): Promise<void> {
+    let scan;
+    try {
+      scan = await scanMerge(srcPath);
+    } catch (e) {
+      showToast(`Merge scan failed: ${e}`, "error", 8000);
+      return;
+    }
+
+    if (scan.conflicts.length === 0) {
+      // No conflicts — apply directly
+      try {
+        const msg = await applyMerge(scan.temp_dir, {});
+        showToast(msg + ". Restart the app to apply.", "success", 8000);
+      } catch (e) {
+        showToast(`Merge failed: ${e}`, "error", 8000);
+      }
+      return;
+    }
+
+    // Show conflict resolution dialog
+    this.showConflictDialog(scan.temp_dir, scan.new_count, scan.conflicts);
+  }
+
+  private showConflictDialog(tempDir: string, newCount: number, conflicts: MergeConflict[]): void {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+
+    // Group conflicts by file for readability
+    const byFile = new Map<string, MergeConflict[]>();
+    for (const c of conflicts) {
+      if (!byFile.has(c.file)) byFile.set(c.file, []);
+      byFile.get(c.file)!.push(c);
+    }
+
+    const conflictRows = conflicts.map((c, i) => `
+      <div class="conflict-row" data-index="${i}" data-key="${escHtml(c.key)}">
+        <div class="conflict-info">
+          <span class="conflict-file">${escHtml(c.file)}</span>
+          <div class="conflict-labels">
+            <label class="conflict-option">
+              <input type="radio" name="conflict-${i}" value="keep_current" checked />
+              <span>Keep current: ${escHtml(c.current_label)}</span>
+            </label>
+            <label class="conflict-option">
+              <input type="radio" name="conflict-${i}" value="use_backup" />
+              <span>Use backup: ${escHtml(c.backup_label)}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    `).join("");
+
+    overlay.innerHTML = `
+      <div class="modal-panel" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
+        <h3 style="font-size: var(--font-size-xl); margin-bottom: var(--space-2);">Merge conflicts</h3>
+        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-3); line-height: 1.5;">
+          ${newCount} new entries will be added. ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} need resolution:
+        </p>
+        <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-3);">
+          <button class="btn-text" id="conflict-all-keep" style="font-size: var(--font-size-xs);">Keep all current</button>
+          <button class="btn-text" id="conflict-all-backup" style="font-size: var(--font-size-xs);">Use all backup</button>
+        </div>
+        <div class="conflict-list" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4);">
+          ${conflictRows}
+        </div>
+        <div style="display: flex; gap: var(--space-3); justify-content: flex-end;">
+          <button class="btn-text" id="conflict-cancel">Cancel</button>
+          <button class="btn-primary" id="conflict-apply">Apply merge</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+
+    overlay.querySelector<HTMLButtonElement>("#conflict-cancel")?.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    // "Apply to all" buttons
+    overlay.querySelector<HTMLButtonElement>("#conflict-all-keep")?.addEventListener("click", () => {
+      overlay.querySelectorAll<HTMLInputElement>('input[type="radio"][value="keep_current"]').forEach(r => r.checked = true);
+    });
+    overlay.querySelector<HTMLButtonElement>("#conflict-all-backup")?.addEventListener("click", () => {
+      overlay.querySelectorAll<HTMLInputElement>('input[type="radio"][value="use_backup"]').forEach(r => r.checked = true);
+    });
+
+    // Apply button — collect resolutions and call applyMerge
+    overlay.querySelector<HTMLButtonElement>("#conflict-apply")?.addEventListener("click", () => {
+      const resolutions: Record<string, "keep_current" | "use_backup"> = {};
+      conflicts.forEach((c, i) => {
+        const selected = overlay.querySelector<HTMLInputElement>(`input[name="conflict-${i}"]:checked`);
+        if (selected) {
+          resolutions[c.key] = selected.value as "keep_current" | "use_backup";
+        }
+      });
+      close();
+      void this.applyMergeWithResolutions(tempDir, resolutions);
+    });
+  }
+
+  private async applyMergeWithResolutions(
+    tempDir: string,
+    resolutions: Record<string, "keep_current" | "use_backup">,
+  ): Promise<void> {
+    try {
+      const msg = await applyMerge(tempDir, resolutions);
+      showToast(msg + ". Restart the app to apply.", "success", 8000);
+    } catch (e) {
+      showToast(`Merge failed: ${e}`, "error", 8000);
     }
   }
 

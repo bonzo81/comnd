@@ -330,8 +330,35 @@ export async function exportData(destPath: string): Promise<void> {
   return invoke<void>("export_data", { destPath });
 }
 
-export async function importData(srcPath: string, mode: "overwrite" | "merge"): Promise<void> {
-  return invoke<void>("import_data", { srcPath, mode });
+/** Overwrite mode: replaces all data with the zip contents. */
+export async function importData(srcPath: string): Promise<void> {
+  return invoke<void>("import_data", { srcPath });
+}
+
+export interface MergeConflict {
+  file: string;
+  key: string;
+  current_label: string;
+  backup_label: string;
+}
+
+export interface MergeScan {
+  temp_dir: string;
+  new_count: number;
+  conflicts: MergeConflict[];
+}
+
+/** Merge step 1: scan backup for conflicts without writing anything. */
+export async function scanMerge(srcPath: string): Promise<MergeScan> {
+  return invoke<MergeScan>("scan_merge", { srcPath });
+}
+
+/** Merge step 2: apply the merge with user-provided conflict resolutions. */
+export async function applyMerge(
+  tempDir: string,
+  resolutions: Record<string, "keep_current" | "use_backup">,
+): Promise<string> {
+  return invoke<string>("apply_merge", { tempDir, resolutions });
 }
 
 export async function setLogFilePath(path: string | null): Promise<void> {

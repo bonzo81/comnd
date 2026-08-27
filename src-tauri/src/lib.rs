@@ -22,6 +22,7 @@ use hosts::{AgentAuth, CredentialSource, Host, HostStore, HostGroup, HostGroupSt
 use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter, get_ollama_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
+use paths::{MergeScan, ConflictResolution};
 
 // ─── Log MultiWriter ────────────────────────────────────────────────
 
@@ -552,16 +553,29 @@ async fn export_data(dest_path: String) -> Result<(), String> {
     crate::paths::export_data(&path)
 }
 
+/// Overwrite mode: replaces all data with the zip contents.
 #[tauri::command]
-async fn import_data(src_path: String, mode: String) -> Result<(), String> {
+async fn import_data(src_path: String) -> Result<(), String> {
     let path = std::path::PathBuf::from(&src_path);
-    let import_mode = match mode.as_str() {
-        "overwrite" => crate::paths::ImportMode::Overwrite,
-        "merge" => crate::paths::ImportMode::Merge,
-        _ => return Err("Invalid import mode: must be 'overwrite' or 'merge'".to_string()),
-    };
-    crate::paths::import_data(&path, import_mode)?;
+    crate::paths::import_data(&path, crate::paths::ImportMode::Overwrite)?;
     Ok(())
+}
+
+/// Merge step 1: scan the backup for conflicts without writing anything.
+#[tauri::command]
+async fn scan_merge(src_path: String) -> Result<MergeScan, String> {
+    let path = std::path::PathBuf::from(&src_path);
+    crate::paths::scan_merge(&path)
+}
+
+/// Merge step 2: apply the merge with user-provided conflict resolutions.
+#[tauri::command]
+async fn apply_merge(
+    temp_dir: String,
+    resolutions: std::collections::HashMap<String, ConflictResolution>,
+) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&temp_dir);
+    crate::paths::apply_merge(&path, &resolutions)
 }
 
 #[tauri::command]
@@ -1232,6 +1246,8 @@ pub fn run() {
                 delete_host_group,
                 export_data,
                 import_data,
+                scan_merge,
+                apply_merge,
                 #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]

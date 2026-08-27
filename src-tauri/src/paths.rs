@@ -196,12 +196,494 @@ fn add_to_zip(
     Ok(())
 }
 
-/// Import mode: `overwrite` replaces all data with the zip contents (deleting
-/// current files not in the zip); `merge` only overwrites files present in
-/// the zip, leaving everything else untouched.
+/// Import mode for the overwrite path. Merge goes through scan_merge →
+/// apply_merge (two-phase with conflict resolution).
 pub enum ImportMode {
     Overwrite,
-    Merge,
+}
+
+/// A conflict between a current entry and a backup entry with the same key.
+/// `current` and `backup` are human-readable summaries (not full JSON) so
+/// the frontend can show them without understanding the full data model.
+#[derive(serde::Serialize)]
+pub struct MergeConflict {
+    /// Which file this conflict is in: "hosts", "groups", "known_hosts", "config".
+    pub file: String,
+    /// Unique key within that file (host id, group id, hostname:port, or
+    /// config key name).
+    pub key: String,
+    /// Human-readable label for the current entry (e.g. display name).
+    pub current_label: String,
+    /// Human-readable label for the backup entry.
+    pub backup_label: String,
+}
+
+/// Result of scanning a backup for merge conflicts.
+#[derive(serde::Serialize)]
+pub struct MergeScan {
+    /// Path to the extracted temp dir (passed back so apply_merge can find it).
+    pub temp_dir: String,
+    /// New entries in the backup that don't conflict (will be added).
+    pub new_count: usize,
+    /// Conflicts — same key exists in both current and backup with different data.
+    pub conflicts: Vec<MergeConflict>,
+}
+
+/// Resolution choice for a single conflict.
+#[derive(serde::Deserialize, Clone, Copy)]
+pub enum ConflictResolution {
+    /// Keep the current entry, ignore the backup.
+    KeepCurrent,
+    /// Replace with the backup entry.
+    UseBackup,
+}
+
+/// Scan a backup zip for merge conflicts without writing anything.
+/// Extracts to a temp dir, parses both sides, and returns a conflict list.
+/// The temp dir path is returned so the subsequent `apply_merge` can reuse it.
+pub fn scan_merge(src: &Path) -> Result<MergeScan, String> {
+    let data_dir = app_data_dir()?;
+    let temp_dir = extract_zip_to_temp(src)?;
+
+    // Validate: at least one expected file must be present.
+    let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
+    if !has_valid {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err("Import file does not contain any recognizable net.sh data files".to_string());
+    }
+
+    let mut conflicts = Vec::new();
+    let mut new_count = 0usize;
+
+    // Hosts: conflict key = id
+    new_count += scan_json_array_conflicts::<crate::hosts::Host>(
+        &data_dir.join("hosts.json"),
+        &temp_dir.join("hosts.json"),
+        "hosts",
+        |h| h.id.clone(),
+        |h| format!("{} ({}@{}:{})", h.display_name, h.username, h.hostname, h.port),
+        &mut conflicts,
+    );
+
+    // Groups: conflict key = id
+    new_count += scan_json_array_conflicts::<crate::hosts::HostGroup>(
+        &data_dir.join("groups.json"),
+        &temp_dir.join("groups.json"),
+        "groups",
+        |g| g.id.clone(),
+        |g| g.name.clone(),
+        &mut conflicts,
+    );
+
+    // Known hosts: conflict key = hostname:port (the JSON map key)
+    new_count += scan_known_hosts_conflicts(
+        &data_dir.join("known_hosts.json"),
+        &temp_dir.join("known_hosts.json"),
+        &mut conflicts,
+    );
+
+    // Config: conflict = keys where both sides have a value and they differ.
+    // Not a "merge or skip" — config is a single object. We treat each
+    // top-level key as a potential conflict.
+    new_count += scan_config_conflicts(
+        &data_dir.join("config.json"),
+        &temp_dir.join("config.json"),
+        &mut conflicts,
+    );
+
+    Ok(MergeScan {
+        temp_dir: temp_dir.to_string_lossy().to_string(),
+        new_count,
+        conflicts,
+    })
+}
+
+/// Apply a merge with user-provided conflict resolutions.
+/// `resolutions` is a map of conflict key (file:key) to the user's choice.
+/// Entries with no conflict are auto-merged (new entries added, matching
+/// entries kept as-is). The temp_dir from scan_merge is reused.
+pub fn apply_merge(
+    temp_dir: &Path,
+    resolutions: &std::collections::HashMap<String, ConflictResolution>,
+) -> Result<String, String> {
+    let data_dir = app_data_dir()?;
+
+    // Back up current data first.
+    let backup_dir = data_dir.with_extension(format!("backup-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    ensure_data_dir(&backup_dir)?;
+    for &name in BACKUP_ENTRIES {
+        let current = data_dir.join(name);
+        if current.exists() {
+            let backup_path = backup_dir.join(name);
+            if current.is_dir() {
+                copy_dir_recursive(&current, &backup_path)?;
+            } else {
+                std::fs::copy(&current, &backup_path)
+                    .map_err(|e| format!("Failed to back up {}: {}", name, e))?;
+            }
+        }
+    }
+
+    let mut added = 0usize;
+
+    // Hosts
+    added += merge_json_array::<crate::hosts::Host>(
+        &data_dir.join("hosts.json"),
+        &temp_dir.join("hosts.json"),
+        "hosts",
+        |h| h.id.clone(),
+        &resolutions,
+    )?;
+    // Groups
+    added += merge_json_array::<crate::hosts::HostGroup>(
+        &data_dir.join("groups.json"),
+        &temp_dir.join("groups.json"),
+        "groups",
+        |g| g.id.clone(),
+        &resolutions,
+    )?;
+    // Known hosts
+    added += merge_known_hosts(
+        &data_dir.join("known_hosts.json"),
+        &temp_dir.join("known_hosts.json"),
+        &resolutions,
+    )?;
+    // Config
+    merge_config(
+        &data_dir.join("config.json"),
+        &temp_dir.join("config.json"),
+        &resolutions,
+    )?;
+
+    // KB: per-platform merge (copy platform dirs from backup that don't exist
+    // locally; overwrite platform dirs that do exist in the backup)
+    let kb_temp = temp_dir.join("knowledge-base");
+    if kb_temp.exists() {
+        let kb_dest = data_dir.join("knowledge-base");
+        if let Ok(platforms) = std::fs::read_dir(&kb_temp) {
+            for platform in platforms.flatten() {
+                let platform_name = platform.file_name();
+                let dest_platform = kb_dest.join(&platform_name);
+                if dest_platform.exists() {
+                    let _ = std::fs::remove_dir_all(&dest_platform);
+                }
+                std::fs::create_dir_all(&dest_platform)
+                    .map_err(|e| format!("Failed to create KB platform dir: {}", e))?;
+                copy_dir_recursive(&platform.path(), &dest_platform)?;
+                added += 1;
+            }
+        }
+    }
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(temp_dir);
+
+    // Apply restrictive perms
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700));
+    }
+
+    let msg = format!(
+        "Merge complete: {} entries added, {} conflicts resolved. Backup at {}",
+        added,
+        resolutions.len(),
+        backup_dir.display()
+    );
+    log::info!("{}", msg);
+    Ok(msg)
+}
+
+// ─── Merge helpers ───────────────────────────────────────────────────
+
+/// Extract a zip to a temp dir and return the path. Shared by scan and apply.
+fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
+    let file = std::fs::File::open(src)
+        .map_err(|e| format!("Failed to open import file: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("Failed to read zip: {}", e))?;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "netsh-import-{}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%S%3f")
+    ));
+    ensure_data_dir(&temp_dir)?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+        let outpath = match entry.enclosed_name() {
+            Some(p) => temp_dir.join(p),
+            None => continue,
+        };
+        if entry.is_dir() {
+            std::fs::create_dir_all(&outpath)
+                .map_err(|e| format!("Failed to create dir {}: {}", outpath.display(), e))?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| format!("Failed to extract {}: {}", outpath.display(), e))?;
+        }
+    }
+    Ok(temp_dir)
+}
+
+/// Scan a JSON array file for conflicts. Returns the count of new (non-conflicting)
+/// entries from the backup.
+fn scan_json_array_conflicts<T>(
+    current_path: &Path,
+    backup_path: &Path,
+    file_label: &str,
+    get_key: impl Fn(&T) -> String,
+    get_label: impl Fn(&T) -> String,
+    conflicts: &mut Vec<MergeConflict>,
+) -> usize
+where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+{
+    if !backup_path.exists() {
+        return 0;
+    }
+
+    let current: Vec<T> = read_json_file(current_path).unwrap_or_default();
+    let backup: Vec<T> = read_json_file(backup_path).unwrap_or_default();
+
+    let current_keys: std::collections::HashMap<String, T> = current
+        .into_iter()
+        .map(|item| (get_key(&item), item))
+        .collect();
+
+    let mut new_count = 0;
+    for item in &backup {
+        let key = get_key(item);
+        if let Some(current_item) = current_keys.get(&key) {
+            // Same key exists — check if data differs by comparing serialized form
+            let current_json = serde_json::to_string(current_item).unwrap_or_default();
+            let backup_json = serde_json::to_string(item).unwrap_or_default();
+            if current_json != backup_json {
+                conflicts.push(MergeConflict {
+                    file: file_label.to_string(),
+                    key: format!("{}:{}", file_label, key),
+                    current_label: get_label(current_item),
+                    backup_label: get_label(item),
+                });
+            }
+        } else {
+            new_count += 1;
+        }
+    }
+    new_count
+}
+
+/// Merge a JSON array file: keep all current entries, add new backup entries,
+/// and resolve conflicts per the user's choices.
+fn merge_json_array<T>(
+    current_path: &Path,
+    backup_path: &Path,
+    file_label: &str,
+    get_key: impl Fn(&T) -> String,
+    resolutions: &std::collections::HashMap<String, ConflictResolution>,
+) -> Result<usize, String>
+where
+    T: serde::de::DeserializeOwned + serde::Serialize + Clone,
+{
+    if !backup_path.exists() {
+        return Ok(0);
+    }
+
+    let mut current: Vec<T> = read_json_file(current_path).unwrap_or_default();
+    let backup: Vec<T> = read_json_file(backup_path).unwrap_or_default();
+
+    let current_keys: std::collections::HashMap<String, usize> = current
+        .iter()
+        .enumerate()
+        .map(|(i, item)| (get_key(item), i))
+        .collect();
+
+    let mut added = 0;
+    for item in backup {
+        let key = get_key(&item);
+        let conflict_key = format!("{}:{}", file_label, key);
+        if let Some(&idx) = current_keys.get(&key) {
+            // Conflict — check resolution
+            if let Some(ConflictResolution::UseBackup) = resolutions.get(&conflict_key) {
+                current[idx] = item;
+            }
+            // KeepCurrent → do nothing
+        } else {
+            // New entry — add it
+            current.push(item);
+            added += 1;
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&current)
+        .map_err(|e| format!("Failed to serialize {}: {}", file_label, e))?;
+    secure_write(current_path, json.as_bytes())?;
+    Ok(added)
+}
+
+/// Scan known_hosts.json for conflicts (keyed by hostname:port).
+fn scan_known_hosts_conflicts(
+    current_path: &Path,
+    backup_path: &Path,
+    conflicts: &mut Vec<MergeConflict>,
+) -> usize {
+    if !backup_path.exists() {
+        return 0;
+    }
+
+    let current: std::collections::HashMap<String, serde_json::Value> =
+        read_json_file(current_path).unwrap_or_default();
+    let backup: std::collections::HashMap<String, serde_json::Value> =
+        read_json_file(backup_path).unwrap_or_default();
+
+    let mut new_count = 0;
+    for (key, backup_val) in &backup {
+        if let Some(current_val) = current.get(key) {
+            let current_json = serde_json::to_string(current_val).unwrap_or_default();
+            let backup_json = serde_json::to_string(backup_val).unwrap_or_default();
+            if current_json != backup_json {
+                conflicts.push(MergeConflict {
+                    file: "known_hosts".to_string(),
+                    key: format!("known_hosts:{}", key),
+                    current_label: format!("{} (current)", key),
+                    backup_label: format!("{} (backup)", key),
+                });
+            }
+        } else {
+            new_count += 1;
+        }
+    }
+    new_count
+}
+
+/// Merge known_hosts.json: keep all current entries, add new backup entries,
+/// resolve conflicts per user choices.
+fn merge_known_hosts(
+    current_path: &Path,
+    backup_path: &Path,
+    resolutions: &std::collections::HashMap<String, ConflictResolution>,
+) -> Result<usize, String> {
+    if !backup_path.exists() {
+        return Ok(0);
+    }
+
+    let mut current: std::collections::HashMap<String, serde_json::Value> =
+        read_json_file(current_path).unwrap_or_default();
+    let backup: std::collections::HashMap<String, serde_json::Value> =
+        read_json_file(backup_path).unwrap_or_default();
+
+    let mut added = 0;
+    for (key, backup_val) in backup {
+        let conflict_key = format!("known_hosts:{}", key);
+        if current.contains_key(&key) {
+            if let Some(ConflictResolution::UseBackup) = resolutions.get(&conflict_key) {
+                current.insert(key, backup_val);
+            }
+        } else {
+            current.insert(key, backup_val);
+            added += 1;
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&current)
+        .map_err(|e| format!("Failed to serialize known_hosts: {}", e))?;
+    secure_write(current_path, json.as_bytes())?;
+    Ok(added)
+}
+
+/// Scan config.json for conflicts (top-level keys where both sides differ).
+fn scan_config_conflicts(
+    current_path: &Path,
+    backup_path: &Path,
+    conflicts: &mut Vec<MergeConflict>,
+) -> usize {
+    if !backup_path.exists() {
+        return 0;
+    }
+
+    let current: serde_json::Value = read_json_file(current_path).unwrap_or(serde_json::Value::Null);
+    let backup: serde_json::Value = read_json_file(backup_path).unwrap_or(serde_json::Value::Null);
+
+    let empty = serde_json::Map::new();
+    let current_obj = current.as_object().unwrap_or(&empty);
+    let backup_obj = backup.as_object().unwrap_or(&empty);
+
+    let mut new_count = 0;
+    for (key, backup_val) in backup_obj {
+        if let Some(current_val) = current_obj.get(key) {
+            if current_val != backup_val {
+                conflicts.push(MergeConflict {
+                    file: "config".to_string(),
+                    key: format!("config:{}", key),
+                    current_label: format!("{} = {}", key, summarize_json(current_val)),
+                    backup_label: format!("{} = {}", key, summarize_json(backup_val)),
+                });
+            }
+        } else {
+            new_count += 1;
+        }
+    }
+    new_count
+}
+
+/// Merge config.json: keep all current keys, add new backup keys, resolve
+/// conflicts per user choices.
+fn merge_config(
+    current_path: &Path,
+    backup_path: &Path,
+    resolutions: &std::collections::HashMap<String, ConflictResolution>,
+) -> Result<(), String> {
+    if !backup_path.exists() {
+        return Ok(());
+    }
+
+    let mut current: serde_json::Value = read_json_file(current_path).unwrap_or(serde_json::Value::Null);
+    let backup: serde_json::Value = read_json_file(backup_path).unwrap_or(serde_json::Value::Null);
+
+    if let (Some(current_obj), Some(backup_obj)) = (current.as_object_mut(), backup.as_object()) {
+        for (key, backup_val) in backup_obj {
+            let conflict_key = format!("config:{}", key);
+            if current_obj.contains_key(key) {
+                if let Some(ConflictResolution::UseBackup) = resolutions.get(&conflict_key) {
+                    current_obj.insert(key.clone(), backup_val.clone());
+                }
+            } else {
+                current_obj.insert(key.clone(), backup_val.clone());
+            }
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&current)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    secure_write(current_path, json.as_bytes())?;
+    Ok(())
+}
+
+/// Read a JSON file and deserialize into T. Returns None on any error.
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+/// Summarize a JSON value for display in a conflict dialog (truncate long values).
+fn summarize_json(v: &serde_json::Value) -> String {
+    let s = match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    if s.len() > 60 {
+        format!("{}...", &s[..57])
+    } else {
+        s
+    }
 }
 
 /// Import app data from a zip file at `src`. Extracts to a temp dir,
