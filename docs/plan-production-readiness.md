@@ -264,9 +264,9 @@ open source; should be explicit either way.
 
 ### P3.2 — Window decorations audit
 
-- [ ] Verify the frontend has custom title-bar drag region + window controls
+- [x] Verify the frontend has custom title-bar drag region + window controls
       (min / max / close)
-- [ ] If not: re-enable `decorations: true` in `tauri.conf.json`, or
+- [x] If not: re-enable `decorations: true` in `tauri.conf.json`, or
       implement custom controls
 - [ ] Test on Linux (Wayland + X11) — no OS controls without decorations
 
