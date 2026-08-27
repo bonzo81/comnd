@@ -103,7 +103,10 @@ impl std::io::Write for MultiWriter {
 fn open_url(url: &str) {
     log::info!("Opening URL in browser: {}", url);
     let _ = if cfg!(target_os = "windows") {
-        StdCommand::new("cmd").args(["/C", "start", "", url]).spawn()
+        // Avoid `cmd /C start` — cmd.exe re-parses the URL and shell
+        // metacharacters (&, |, >) in the URL can chain arbitrary commands.
+        // `explorer.exe` opens URLs via ShellExecute without shell parsing.
+        StdCommand::new("explorer.exe").arg(url).spawn()
     } else if cfg!(target_os = "macos") {
         StdCommand::new("open").arg(url).spawn()
     } else {
@@ -113,8 +116,13 @@ fn open_url(url: &str) {
 
 #[tauri::command]
 async fn open_url_cmd(url: String) -> Result<(), String> {
+    // Validate scheme AND reject control characters that could confuse the
+    // OS opener on any platform.
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err("Only HTTP/HTTPS URLs are allowed".to_string());
+    }
+    if url.chars().any(|c| c.is_control()) {
+        return Err("URL contains control characters".to_string());
     }
     open_url(&url);
     Ok(())
@@ -399,7 +407,8 @@ async fn ssh_send(
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
     mgr.route_send(session_id)?;
-    let session = mgr.get_session(session_id).unwrap();
+    let session = mgr.get_session(session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
     session.send(data.as_bytes()).await
 }
 
@@ -424,7 +433,8 @@ async fn ssh_resize(
 ) -> Result<(), String> {
     let mgr = state.ssh.lock().await;
     mgr.route_resize(session_id, cols, rows)?;
-    let session = mgr.get_session(session_id).unwrap();
+    let session = mgr.get_session(session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
     session.resize(cols, rows).await
 }
 
@@ -1077,13 +1087,15 @@ pub fn run() {
 
             log::info!("Group store initialized");
 
-            let config_store = ConfigStore::new(&data_dir).unwrap_or_else(|e| {
-                log::warn!("Failed to init config store: {}. Using in-memory fallback.", e);
-                ConfigStore::new_with_path(data_dir.join("config.json")).unwrap_or_else(|e| {
-                    log::error!("Failed to create config store: {}", e);
-                    panic!("Cannot continue without config store")
+            let config_store = ConfigStore::new(&data_dir)
+                .or_else(|e| {
+                    log::warn!("Failed to init config store: {}. Trying fallback path.", e);
+                    ConfigStore::new_with_path(data_dir.join("config.json"))
                 })
-            });
+                .unwrap_or_else(|e| {
+                    log::error!("Failed to create config store: {}. Using in-memory fallback — settings will not persist.", e);
+                    ConfigStore::in_memory()
+                });
 
             let user_kb_path = config_store.user_kb_path();
             log::info!("User KB path: {}", user_kb_path.display());

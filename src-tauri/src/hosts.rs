@@ -378,6 +378,7 @@ mod tests {
             credential: None,
             platform: "cisco-iosxe".to_string(),
             os_version: None,
+            highlight_profile: None,
             notes: None,
             last_connected: None,
             created_at: String::new(),

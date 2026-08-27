@@ -176,6 +176,17 @@ impl ConfigStore {
         })
     }
 
+    /// Create an in-memory-only ConfigStore (fallback if filesystem fails).
+    /// `persist()` will be a no-op (writes to a path that nothing reads back),
+    /// but all get/set operations work for the session.
+    pub fn in_memory() -> Self {
+        let path = std::env::temp_dir().join("netsh-config-in-memory.json");
+        ConfigStore {
+            config_path: path,
+            config: AppConfig::default(),
+        }
+    }
+
     /// Get the current config.
     pub fn get(&self) -> &AppConfig {
         &self.config
