@@ -31,6 +31,7 @@ export const LogTag = {
   KbImport: "kb-import",
   HostScreen: "host-screen",
   NavPanel: "nav-panel",
+  Netbox: "netbox",
 } as const;
 export type LogTag = (typeof LogTag)[keyof typeof LogTag];
 

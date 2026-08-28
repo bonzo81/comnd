@@ -1,10 +1,19 @@
 # Plan: NetBox Host Source Integration
 
-Status: approved design, not yet implemented. All decisions below are user-confirmed.
-Audience: implementation agents with no prior context. This document is self-contained —
-read it fully before writing code. Obey `AGENTS.md` rules throughout (no local echo changes,
-verification gates, serde_yml vs serde_yaml, etc. — nothing in this plan touches those areas,
-but the general rules apply).
+Status: implemented (all phases, 2026-08-28). Implementation notes: Phase 0
+landed `credentials.rs` (keyring keys `host:<id>` with lazy bare-id fallback);
+NetBox client/cache/mapping live in `netbox.rs`; IPC commands are the nine
+`netbox_*` commands in `lib.rs`; frontend pieces are the Settings -> NetBox
+section (`settings-screen.ts`), the nav tree integration + guards
+(`nav-panel.ts`, `host-screen.ts`), and the Configure dialog
+(`netbox-configure-dialog.ts`). Deviations from this doc: `netbox_save_config`
+and `netbox_set_device_overlay` take an extra password argument (secret rides
+the keyring, never config); `netbox_get_status` also reports `has_default_pw`;
+`fetch_devices` returns a `FetchResult` struct (devices + no-primary-IP count).
+Audience: implementation agents with no prior context. This document is
+self-contained — read it fully before writing code. Obey `AGENTS.md` rules
+throughout (no local echo changes, verification gates, serde_yml vs serde_yaml,
+etc. — nothing in this plan touches those areas, but the general rules apply).
 
 ## 1. Goal
 

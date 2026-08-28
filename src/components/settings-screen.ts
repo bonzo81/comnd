@@ -11,11 +11,17 @@ import {
   scanMerge, applyMerge, restartApp, MergeConflict,
   AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
+  netboxGetConfig, netboxSaveConfig, netboxSaveToken, netboxTestConnection,
+  netboxSync, netboxGetDevices, netboxSetDeviceEnabled, netboxGetStatus,
+  NetBoxConfig, NetBoxDeviceEntry,
 } from "../lib/tauri-api";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { showToast, showToastWithAction } from "../lib/toast";
+import { log, LogTag } from "../lib/logger";
 import { escHtml } from "../lib/format";
+import { relativeTime } from "../lib/format";
 import { icons } from "../lib/icons";
+import { platformBadge, platformColorClass } from "../lib/platforms";
 import {
   getTimestampFormat,
   setTimestampFormat,
@@ -31,6 +37,7 @@ const LABELS: Record<string, string> = {
   theme: "Theme",
   ollama: "Ollama / KB Import",
   auth: "Auth Integrations",
+  netbox: "NetBox",
   shortcuts: "Shortcuts",
 };
 
@@ -58,12 +65,27 @@ export class SettingsScreen {
   private availableModels: string[] = [];
   private providerStatuses = new Map<string, ProviderInfo>();
   private providerStates = new Map<string, ProviderState>();
+  // ── NetBox state ──
+  private netboxConfig: NetBoxConfig | null = null;
+  private netboxHasToken = false;
+  private netboxDefaultPwSaved = false;
+  private netboxLastSynced: string | null = null;
+  private netboxDevices: NetBoxDeviceEntry[] = [];
+  private netboxDeviceSearch = "";
+  private netboxTestLine: { text: string; ok: boolean } | null = null;
+  /** True only after a successful Test using the *current* URL+token field
+   *  values — drives the Save Token button highlight. Reset on any input. */
+  private netboxTestOk = false;
+  /** Called when a NetBox action changes the merged host tree (sync, enable
+   *  toggle, device toggle) so the nav panel can re-fetch. */
+  onTreeChanged: () => void = () => {};
 
   setItem(id: string) {
     // Auth re-fetches on every show (refresh-on-mount); other items no-op.
-    if (this.itemId === id && id !== "auth") return;
+    if (this.itemId === id && id !== "auth" && id !== "netbox") return;
     this.itemId = id;
     if (id === "auth") void this.loadProviders().then(() => this.render());
+    else if (id === "netbox") void this.loadNetbox().then(() => this.render());
     else this.render();
   }
 
@@ -83,12 +105,19 @@ export class SettingsScreen {
 
   private render() {
     if (!this.container) return;
+    // Preserve live NetBox toggle state across re-renders: a pending
+    // loadNetbox() completing after the user toggled would otherwise reset
+    // the checkbox to the stale saved value, and the next autosave would
+    // persist that stale `enabled: false` (bug: "Sync failed: disabled").
+    const enabledNow = this.container.querySelector<HTMLInputElement>("#netbox-enabled")?.checked;
+    if (enabledNow !== undefined && this.netboxConfig) this.netboxConfig.enabled = enabledNow;
     const label = LABELS[this.itemId] ?? "Settings";
     const body =
       this.itemId === "ollama" ? this.renderOllama()
       : this.itemId === "general" ? this.renderGeneral()
       : this.itemId === "theme" ? this.renderTheme()
       : this.itemId === "auth" ? this.renderAuth()
+      : this.itemId === "netbox" ? this.renderNetBox()
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
@@ -279,6 +308,289 @@ export class SettingsScreen {
     `;
   }
 
+  // ─── NetBox (plan §9.2) ─────────────────────────────────────────
+
+  private async loadNetbox() {
+    try {
+      const state = await netboxGetConfig();
+      this.netboxConfig = state.config;
+      this.netboxHasToken = state.has_token;
+    } catch {
+      this.netboxConfig = null;
+      this.netboxHasToken = false;
+    }
+    try {
+      const status = await netboxGetStatus();
+      this.netboxHasToken = status.has_token;
+      this.netboxDefaultPwSaved = status.has_default_pw;
+      this.netboxLastSynced = status.last_synced;
+    } catch {
+      this.netboxDefaultPwSaved = false;
+      this.netboxLastSynced = null;
+    }
+    try {
+      this.netboxDevices = await netboxGetDevices();
+    } catch {
+      this.netboxDevices = [];
+    }
+    // Provider list feeds the default-auth secret-ref select
+    try {
+      const infos = await listProviders();
+      this.providerStatuses = new Map(infos.map((p) => [p.id, p]));
+    } catch {
+      this.providerStatuses = new Map();
+    }
+  }
+
+  private renderNetBox(): string {
+    const cfg = this.netboxConfig;
+    const enabled = cfg?.enabled ?? false;
+    const cred = cfg?.default_credential ?? null;
+    const authType = cred?.type ?? "none";
+    const filters = cfg?.filters ?? { status: null, sites: [], roles: [], tags: [] };
+    const overridesText = Object.entries(cfg?.platform_overrides ?? {})
+      .map(([slug, platform]) => `${slug}=${platform}`)
+      .join("\n");
+    const platformOpt = (value: string, label: string) =>
+      `<option value="${value}" ${cfg?.platform_fallback === value ? "selected" : ""}>${label}</option>`;
+    const readyProviders = [...this.providerStatuses.values()].filter(
+      (p) => p.status.kind === "ready",
+    );
+    const providerOpt = (p: ProviderInfo) =>
+      `<option value="${p.id}" ${cred?.type === "secret_ref" && cred.provider === p.id ? "selected" : ""}>${escHtml(p.id)}</option>`;
+    const testLine = this.netboxTestLine;
+
+    return `
+      <div class="settings-form" id="netbox-settings">
+        <label class="settings-toggle">
+          <input type="checkbox" id="netbox-enabled" ${enabled ? "checked" : ""} />
+          <span>
+            Enable NetBox host source
+            <span class="import-hint">Pulls devices from a NetBox instance into the host list under their own NetBox folder. Nothing syncs until you click Refresh. Changes here save automatically.</span>
+          </span>
+        </label>
+
+        <div class="netbox-body${enabled ? "" : " netbox-body-disabled"}">
+          <h3 class="settings-section-title">Instance</h3>
+          <div class="import-field">
+            <label for="netbox-url">NetBox URL</label>
+            <input type="url" class="form-input" id="netbox-url"
+                   placeholder="https://netbox.example.com" spellcheck="false" autocomplete="off"
+                   value="${this.escAttr(cfg?.base_url ?? "")}" />
+          </div>
+          <div class="import-field">
+            <label for="netbox-token">API Token</label>
+            <input type="password" class="form-input" id="netbox-token"
+                   placeholder="${this.netboxHasToken ? "Saved — enter a new token to replace" : "Paste a NetBox API token"}"
+                   autocomplete="off" spellcheck="false" />
+            <span class="import-hint">Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.</span>
+          </div>
+          <div class="import-config-row">
+            <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
+            <button type="button" class="btn-secondary btn-small${this.netboxTestOk ? " netbox-save-token-ready" : ""}" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>${icons.lock} Save Connection</button>
+            <span class="import-model-info${testLine ? (testLine.ok ? " import-test-ok" : " import-test-err") : ""}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
+          </div>
+          <label class="settings-toggle">
+            <input type="checkbox" id="netbox-invalid-certs" ${cfg?.allow_invalid_certs ? "checked" : ""} />
+            <span>
+              Allow self-signed certificates
+              <span class="import-hint">Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.</span>
+            </span>
+          </label>
+
+          <h3 class="settings-section-title">Sync Filters</h3>
+          <div class="import-field">
+            <label for="netbox-filter-status">Device status</label>
+            <input type="text" class="form-input" id="netbox-filter-status" placeholder="active"
+                   value="${this.escAttr(filters.status ?? "active")}" />
+            <span class="import-hint">NetBox status slug. Leave blank to sync devices in any status.</span>
+          </div>
+          <div class="import-field">
+            <label for="netbox-filter-sites">Sites</label>
+            <input type="text" class="form-input" id="netbox-filter-sites" placeholder="dc1, dc2"
+                   value="${this.escAttr(filters.sites.join(", "))}" />
+            <span class="import-hint">Comma-separated NetBox site slugs. Blank = all sites.</span>
+          </div>
+          <div class="import-field">
+            <label for="netbox-filter-roles">Roles</label>
+            <input type="text" class="form-input" id="netbox-filter-roles" placeholder="router, switch"
+                   value="${this.escAttr(filters.roles.join(", "))}" />
+            <span class="import-hint">Comma-separated NetBox device-role slugs. Blank = all roles.</span>
+          </div>
+          <div class="import-field">
+            <label for="netbox-filter-tags">Tags</label>
+            <input type="text" class="form-input" id="netbox-filter-tags" placeholder="prod"
+                   value="${this.escAttr(filters.tags.join(", "))}" />
+            <span class="import-hint">Comma-separated NetBox tag slugs. Blank = all tags.</span>
+          </div>
+
+          <h3 class="settings-section-title">Platform Mapping</h3>
+          <div class="import-field">
+            <label for="netbox-platform-policy">Unknown platform slugs</label>
+            <select class="form-input" id="netbox-platform-policy">
+              <option value="skip" ${cfg?.platform_policy !== "fallback" ? "selected" : ""}>Skip device (report in sync summary)</option>
+              <option value="fallback" ${cfg?.platform_policy === "fallback" ? "selected" : ""}>Treat as fallback platform</option>
+            </select>
+            <select class="form-input" id="netbox-platform-fallback">
+              <option value="">— Fallback platform —</option>
+              ${platformOpt("cisco-iosxe", "Cisco IOS-XE")}
+              ${platformOpt("cisco-nxos", "Cisco NX-OS")}
+              ${platformOpt("f5-tmos", "F5 TMOS")}
+              ${platformOpt("linux-bash", "Linux Bash")}
+            </select>
+            <span class="import-hint">Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.</span>
+          </div>
+          <div class="import-field">
+            <label for="netbox-platform-overrides">Platform overrides</label>
+            <textarea class="form-input" id="netbox-platform-overrides" rows="3"
+                      placeholder="juniper-junos=linux-bash">${escHtml(overridesText)}</textarea>
+            <span class="import-hint">One per line: netbox-slug=platform. Wins over the built-in table.</span>
+          </div>
+
+          <h3 class="settings-section-title">Default Authentication</h3>
+          <span class="import-hint">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
+          <div class="import-field">
+            <label for="netbox-default-username">Username</label>
+            <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
+                   autocomplete="off" value="${this.escAttr(cfg?.default_username ?? "")}" />
+          </div>
+          <div class="import-field">
+            <label for="netbox-default-port">Port</label>
+            <input type="number" class="form-input" id="netbox-default-port" min="1" max="65535"
+                   value="${cfg?.default_port ?? 22}" />
+          </div>
+          <fieldset class="form-auth-group">
+            <legend>Authentication</legend>
+            <label class="radio-label">
+              <input type="radio" name="netbox_auth_type" value="none" ${authType === "none" ? "checked" : ""} />
+              None
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="netbox_auth_type" value="password" ${authType === "password" ? "checked" : ""} />
+              Password
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="netbox_auth_type" value="ssh_key" ${authType === "ssh_key" ? "checked" : ""} />
+              SSH Key
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="netbox_auth_type" value="agent" ${authType === "agent" ? "checked" : ""} />
+              SSH Agent
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="netbox_auth_type" value="secret_ref" ${authType === "secret_ref" ? "checked" : ""} />
+              Secret Manager
+            </label>
+          </fieldset>
+          <div id="netbox-auth-password-field" class="auth-conditional ${authType === "password" ? "" : "auth-conditional-hidden"}">
+            <label>
+              <span>Password ${this.netboxHasDefaultPw() ? `<span class="cred-badge">${icons.lock} Saved</span>` : ""}</span>
+              <input type="password" class="form-input" id="netbox-default-password"
+                     placeholder="${this.netboxHasDefaultPw() ? "Leave blank to keep saved password" : "Enter default password"}"
+                     autocomplete="off" />
+            </label>
+          </div>
+          <div id="netbox-auth-key-field" class="auth-conditional ${authType === "ssh_key" ? "" : "auth-conditional-hidden"}">
+            <label>
+              <span>SSH Key Path</span>
+              <input type="text" class="form-input" id="netbox-default-key" placeholder="~/.ssh/id_rsa"
+                     value="${this.escAttr(cred?.type === "ssh_key" ? cred.key_path : "")}" />
+            </label>
+          </div>
+          <div id="netbox-auth-agent-field" class="auth-conditional ${authType === "agent" ? "" : "auth-conditional-hidden"}">
+            <label>
+              <span>Identity fingerprint</span>
+              <input type="text" class="form-input" id="netbox-default-agent" placeholder="Blank = offer all identities"
+                     spellcheck="false" autocomplete="off"
+                     value="${this.escAttr(cred?.type === "agent" ? (cred.identity ?? "") : "")}" />
+            </label>
+          </div>
+          <div id="netbox-auth-secretref-field" class="auth-conditional ${authType === "secret_ref" ? "" : "auth-conditional-hidden"}">
+            <label>
+              <span>Provider</span>
+              <select class="form-input" id="netbox-default-ref-provider">
+                ${readyProviders.length > 0
+                  ? readyProviders.map(providerOpt).join("")
+                  : `<option value="">No secret managers ready</option>`}
+              </select>
+            </label>
+            <label>
+              <span>Reference</span>
+              <input type="text" class="form-input" id="netbox-default-ref-reference" placeholder="Item reference"
+                     spellcheck="false" autocomplete="off"
+                     value="${this.escAttr(cred?.type === "secret_ref" ? cred.reference : "")}" />
+            </label>
+            ${readyProviders.length === 0 ? `<div class="form-hint">Enable a secret manager in Settings → Auth Integrations first.</div>` : ""}
+          </div>
+
+          <div class="settings-actions">
+            <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.folder} Refresh Now</button>
+          </div>
+
+          <h3 class="settings-section-title">Devices</h3>
+          <div class="import-field">
+            <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
+                   value="${this.escAttr(this.netboxDeviceSearch)}" />
+            <span class="import-hint" id="netbox-status-line">${this.netboxStatusLine()}</span>
+          </div>
+          <div class="netbox-device-list" id="netbox-device-list">${this.renderNetBoxDeviceList()}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  private netboxHasDefaultPw(): boolean {
+    return this.netboxConfig?.default_credential?.type === "password" && this.netboxDefaultPwSaved;
+  }
+
+  private netboxStatusLine(): string {
+    const devices = this.netboxDevices;
+    if (!this.netboxConfig?.enabled) return "Disabled — enable above, then Refresh to sync devices.";
+    if (devices.length === 0) return "No devices cached — click Refresh Now to sync from NetBox.";
+    const enabledCount = devices.filter((d) => d.enabled).length;
+    const lastSynced = this.netboxLastSynced ? relativeTime(this.netboxLastSynced) : "never";
+    return `${devices.length} device${devices.length !== 1 ? "s" : ""} cached (${enabledCount} enabled) · last synced ${lastSynced}`;
+  }
+
+  private renderNetBoxDeviceList(): string {
+    const q = this.netboxDeviceSearch.toLowerCase().trim();
+    const devices = this.netboxDevices.filter((d) => {
+      if (!q) return true;
+      return (
+        d.name.toLowerCase().includes(q) ||
+        d.address.toLowerCase().includes(q) ||
+        (d.site ?? "").toLowerCase().includes(q) ||
+        (d.location ?? "").toLowerCase().includes(q) ||
+        d.platform.toLowerCase().includes(q) ||
+        d.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+    if (devices.length === 0) {
+      return `<p class="settings-placeholder">No cached devices${q ? " match the search" : ""}.</p>`;
+    }
+    return devices
+      .map((d) => {
+        const meta = [
+          d.address,
+          [d.site, d.location].filter(Boolean).join(" / "),
+          d.status,
+        ]
+          .filter((s) => s)
+          .join(" · ");
+        return `
+          <div class="netbox-device-row${d.enabled ? "" : " netbox-device-disabled"}">
+            <input type="checkbox" data-netbox-device="${d.netbox_id}" ${d.enabled ? "checked" : ""}
+                   aria-label="Enable ${escHtml(d.name)}" />
+            <span class="hs-host-badge ${platformColorClass(d.platform)}">[${escHtml(platformBadge(d.platform))}]</span>
+            <div class="netbox-device-info">
+              <span class="netbox-device-name">${escHtml(d.name)}</span>
+              <span class="netbox-device-meta">${escHtml(meta)}</span>
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
   private async loadProviders() {
     try {
       const infos = await listProviders();
@@ -464,6 +776,329 @@ export class SettingsScreen {
           .catch((e) => showToast(`Failed to save token: ${e}`, "error"));
       });
     });
+
+    // ─── NetBox bindings (plan §9.2) ──────────────────────────────
+
+    // Enable toggle + every non-URL/non-token field auto-saves on change/blur.
+    // The URL and token are committed via the Save Connection button only.
+    // NOTE: #netbox-enabled is NOT here — it has its own handler below that
+    // saves only the toggle, merged onto the saved config.
+    const autosaveFields = [
+      "#netbox-invalid-certs",
+      "#netbox-filter-status", "#netbox-filter-sites", "#netbox-filter-roles", "#netbox-filter-tags",
+      "#netbox-platform-policy", "#netbox-platform-fallback", "#netbox-platform-overrides",
+      "#netbox-default-username", "#netbox-default-port", "#netbox-default-key",
+      "#netbox-default-agent", "#netbox-default-ref-provider", "#netbox-default-ref-reference",
+      "#netbox-default-password",
+    ];
+    autosaveFields.forEach((sel) => {
+      const el = this.container?.querySelector<HTMLElement>(sel);
+      if (!el) return;
+      const ev = el.tagName === "TEXTAREA" || el.tagName === "INPUT" ? "change" : "change";
+      el.addEventListener(ev, () => void this.autosaveNetboxConfig());
+    });
+    // Enable toggle also flips the live disabled styling — autosave never
+    // re-renders, so without this the form stays greyed out until reload.
+    // It saves ONLY the toggle merged onto the saved config: never collect
+    // the whole form here, a stale read would persist enabled=false.
+    this.container?.querySelector<HTMLInputElement>("#netbox-enabled")?.addEventListener("change", async (e) => {
+      const on = (e.target as HTMLInputElement).checked;
+      this.container?.querySelector<HTMLElement>(".netbox-body")?.classList.toggle("netbox-body-disabled", !on);
+      const saved = this.netboxConfig;
+      if (!saved) return;
+      try {
+        this.netboxConfig = await netboxSaveConfig({ ...saved, enabled: on }, null);
+        log.debug(LogTag.Netbox, "enable toggle saved", { enabled: on });
+        this.onTreeChanged();
+      } catch (err) {
+        log.error(LogTag.Netbox, "enable toggle save failed", err);
+        showToast(`Failed to save NetBox settings: ${err}`, "error", 8000);
+      }
+    });
+    // Auth radios
+    this.container?.querySelectorAll<HTMLInputElement>('input[name="netbox_auth_type"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        this.updateNetboxAuthVisibility();
+        void this.autosaveNetboxConfig();
+      });
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#netbox-test-btn")?.addEventListener("click", () => {
+      void this.testNetboxConnection();
+    });
+
+    // Reset the stale "test ok" state whenever the URL, token, or TLS toggle
+    // changes — the previous test result no longer applies.
+    const resetTest = () => {
+      if (this.netboxTestOk || this.netboxTestLine) {
+        this.netboxTestOk = false;
+        this.netboxTestLine = null;
+        this.updateNetboxTestUi();
+      }
+    };
+    this.container?.querySelector<HTMLInputElement>("#netbox-url")?.addEventListener("input", resetTest);
+    this.container?.querySelector<HTMLInputElement>("#netbox-token")?.addEventListener("input", resetTest);
+
+    this.container?.querySelector<HTMLButtonElement>("#netbox-token-save")?.addEventListener("click", () => {
+      void this.saveConnection();
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#netbox-sync-btn")?.addEventListener("click", () => {
+      void this.syncNetbox();
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#netbox-device-search")?.addEventListener("input", (e) => {
+      this.netboxDeviceSearch = (e.target as HTMLInputElement).value;
+      const list = this.container?.querySelector<HTMLElement>("#netbox-device-list");
+      if (list) list.innerHTML = this.renderNetBoxDeviceList();
+      this.bindNetboxDeviceToggles();
+    });
+
+    this.bindNetboxDeviceToggles();
+  }
+
+  private bindNetboxDeviceToggles() {
+    this.container?.querySelectorAll<HTMLInputElement>("[data-netbox-device]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const id = parseInt(el.dataset.netboxDevice!, 10);
+        const enabled = el.checked;
+        el.closest(".netbox-device-row")?.classList.toggle("netbox-device-disabled", !enabled);
+        void netboxSetDeviceEnabled(id, enabled)
+          .then(() => {
+            const d = this.netboxDevices.find((x) => x.netbox_id === id);
+            if (d) d.enabled = enabled;
+            const line = this.container?.querySelector<HTMLElement>("#netbox-status-line");
+            if (line) line.textContent = this.netboxStatusLine();
+            this.onTreeChanged();
+          })
+          .catch((e) => showToast(`Failed to update device: ${e}`, "error"));
+      });
+    });
+  }
+
+  private updateNetboxAuthVisibility() {
+    const selected = this.container?.querySelector<HTMLInputElement>('input[name="netbox_auth_type"]:checked');
+    const type = selected?.value ?? "none";
+    const show = (id: string, on: boolean) => {
+      const el = this.container?.querySelector<HTMLElement>(id);
+      el?.classList.toggle("auth-conditional-hidden", !on);
+    };
+    show("#netbox-auth-password-field", type === "password");
+    show("#netbox-auth-key-field", type === "ssh_key");
+    show("#netbox-auth-agent-field", type === "agent");
+    show("#netbox-auth-secretref-field", type === "secret_ref");
+  }
+
+  /** Read the NetBox form into a config for auto-save. The URL always comes
+   *  from the saved config — it only changes via Save Connection. */
+  private collectNetboxConfig(): { config: NetBoxConfig; password: string | null } {
+    const q = (id: string) => this.container?.querySelector<HTMLInputElement>(id);
+    const val = (id: string) => (q(id)?.value ?? "").trim();
+    const listVal = (id: string) =>
+      val(id)
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s);
+    const authType =
+      this.container?.querySelector<HTMLInputElement>('input[name="netbox_auth_type"]:checked')?.value ?? "none";
+    const keyPath = val("netbox-default-key");
+    const agentIdentity = val("netbox-default-agent");
+    const refProvider = this.container?.querySelector<HTMLSelectElement>("#netbox-default-ref-provider")?.value ?? "";
+    const refReference = val("netbox-default-ref-reference");
+
+    const overrides: Record<string, string> = {};
+    for (const line of (this.container?.querySelector<HTMLTextAreaElement>("#netbox-platform-overrides")?.value ?? "").split("\n")) {
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const slug = line.slice(0, idx).trim();
+      const platform = line.slice(idx + 1).trim();
+      if (slug && platform) overrides[slug] = platform;
+    }
+
+    const credential =
+      authType === "password"
+        ? { type: "password" as const }
+        : authType === "ssh_key"
+          ? { type: "ssh_key" as const, key_path: keyPath }
+          : authType === "agent"
+            ? { type: "agent" as const, identity: agentIdentity || null }
+            : authType === "secret_ref"
+              ? { type: "secret_ref" as const, provider: refProvider, reference: refReference, label: null }
+              : null;
+
+    const status = val("netbox-filter-status");
+    const config: NetBoxConfig = {
+      enabled: !!q("netbox-enabled")?.checked,
+      // URL: from the field on explicit Save Connection, from saved config on
+      // auto-save (so an unsaved/half-typed URL never sneaks into config.json).
+      base_url: this.netboxConfig?.base_url ?? "",
+      filters: {
+        status: status || null,
+        sites: listVal("netbox-filter-sites"),
+        roles: listVal("netbox-filter-roles"),
+        tags: listVal("netbox-filter-tags"),
+      },
+      platform_policy:
+        this.container?.querySelector<HTMLSelectElement>("#netbox-platform-policy")?.value ?? "skip",
+      platform_fallback:
+        this.container?.querySelector<HTMLSelectElement>("#netbox-platform-fallback")?.value || null,
+      platform_overrides: overrides,
+      default_username: val("netbox-default-username") || null,
+      default_port: parseInt(val("netbox-default-port"), 10) || 22,
+      default_credential: credential,
+      allow_invalid_certs: !!q("netbox-invalid-certs")?.checked,
+    };
+    const password = val("netbox-default-password") || null;
+    return { config, password };
+  }
+
+  /** Silent config write for the auto-save fields (enable, filters, platform,
+   *  default auth, certs). The URL is taken from the saved config, not the
+   *  field — it only changes via Save Connection. No toast, no re-render. */
+  private async autosaveNetboxConfig(): Promise<void> {
+    if (!this.container?.querySelector("#netbox-enabled")) return;
+    const { config, password } = this.collectNetboxConfig();
+    log.debug(LogTag.Netbox, "autosave fired", { enabled: config.enabled, base_url: config.base_url });
+    try {
+      this.netboxConfig = await netboxSaveConfig(config, password);
+      log.debug(LogTag.Netbox, "autosave saved ok", { enabled: this.netboxConfig.enabled });
+      if (config.default_credential?.type !== "password") this.netboxDefaultPwSaved = false;
+    } catch (e) {
+      log.error(LogTag.Netbox, "autosave failed", e);
+      showToast(`Failed to save NetBox settings: ${e}`, "error", 8000);
+    }
+  }
+
+  /** Save Connection — commits the URL (to config.json) and, if a new token was
+   *  entered, the token (to the keyring). Only enabled after a successful Test. */
+  private async saveConnection(): Promise<void> {
+    const tokenInput = this.container?.querySelector<HTMLInputElement>("#netbox-token");
+    const newToken = (tokenInput?.value ?? "").trim();
+    try {
+      // Commit ONLY the field URL onto the saved config. Never collect the
+      // whole form here — a stale DOM read would persist enabled=false /
+      // empty fields (bug: "Sync failed: NetBox integration is disabled").
+      const fieldUrl = (this.container?.querySelector<HTMLInputElement>("#netbox-url")?.value ?? "").trim();
+      const saved = this.netboxConfig ?? {
+        enabled: false,
+        base_url: "",
+        filters: { status: null, sites: [], roles: [], tags: [] },
+        platform_policy: "skip",
+        platform_fallback: null,
+        platform_overrides: {},
+        default_username: null,
+        default_port: 22,
+        default_credential: null,
+        allow_invalid_certs: false,
+      };
+      const config: NetBoxConfig = { ...saved, base_url: fieldUrl.trim() };
+      const password = (this.container?.querySelector<HTMLInputElement>("#netbox-default-password")?.value ?? "").trim() || null;
+      this.netboxConfig = await netboxSaveConfig(config, password);
+      if (config.default_credential?.type !== "password") this.netboxDefaultPwSaved = false;
+      // Token: only write when a new one was entered (blank = keep stored).
+      if (newToken) {
+        await netboxSaveToken(newToken);
+        this.netboxHasToken = true;
+      }
+      log.info(LogTag.Netbox, "Connection saved", { base_url: this.netboxConfig?.base_url, token_updated: !!newToken });
+      showToast("Connection saved", "success");
+      if (tokenInput) {
+        tokenInput.value = "";
+        tokenInput.placeholder = "Saved — enter a new token to replace";
+      }
+      // Connection committed — the validated test result is now stale.
+      this.netboxTestOk = false;
+      this.netboxTestLine = null;
+      this.updateNetboxTestUi();
+    } catch (e) {
+      log.error(LogTag.Netbox, "Save connection failed", e);
+      showToast(`Failed to save connection: ${e}`, "error", 8000);
+    }
+  }
+
+  private updateNetboxTestUi(): void {
+    const status = this.container?.querySelector<HTMLElement>("#netbox-test-status");
+    if (status && this.netboxTestLine) {
+      status.textContent = this.netboxTestLine.text;
+      status.className = `import-model-info ${this.netboxTestLine.ok ? "import-test-ok" : "import-test-err"}`;
+    } else if (status) {
+      status.textContent = "";
+      status.className = "import-model-info";
+    }
+    const saveBtn = this.container?.querySelector<HTMLButtonElement>("#netbox-token-save");
+    if (saveBtn) {
+      saveBtn.disabled = !this.netboxTestOk;
+      saveBtn.classList.toggle("netbox-save-token-ready", this.netboxTestOk);
+    }
+  }
+
+  private async testNetboxConnection() {
+    const btn = this.container?.querySelector<HTMLButtonElement>("#netbox-test-btn");
+    const status = this.container?.querySelector<HTMLElement>("#netbox-test-status");
+    const baseUrl = (this.container?.querySelector<HTMLInputElement>("#netbox-url")?.value ?? "").trim();
+    const tokenField = this.container?.querySelector<HTMLInputElement>("#netbox-token");
+    const tokenRaw = (tokenField?.value ?? "").trim();
+    const token = tokenRaw || null;
+    const allowInvalidCerts = !!this.container?.querySelector<HTMLInputElement>("#netbox-invalid-certs")?.checked;
+    if (!baseUrl) {
+      this.netboxTestLine = { text: "Enter a NetBox URL first", ok: false };
+      this.netboxTestOk = false;
+      this.updateNetboxTestUi();
+      return;
+    }
+    if (btn) btn.disabled = true;
+    if (status) {
+      status.textContent = "Testing…";
+      status.className = "import-model-info import-test-progress";
+    }
+    try {
+      const result = await netboxTestConnection(baseUrl, token, allowInvalidCerts);
+      log.info(LogTag.Netbox, "Test connection ok", { base_url: baseUrl, version: result.version, device_count: result.device_count });
+      this.netboxTestLine = {
+        text: `Connected — NetBox API ${result.version}, ${result.device_count} devices`,
+        ok: true,
+      };
+      // Enable Save Connection — the user may have changed the URL and/or
+      // entered a new token. Both deserve an explicit commit.
+      this.netboxTestOk = true;
+    } catch (e) {
+      log.error(LogTag.Netbox, "Test connection failed", { base_url: baseUrl, error: String(e) });
+      this.netboxTestLine = { text: `Connection failed: ${e}`, ok: false };
+      this.netboxTestOk = false;
+    } finally {
+      if (btn) btn.disabled = false;
+      this.updateNetboxTestUi();
+    }
+  }
+
+  private async syncNetbox() {
+    const btn = this.container?.querySelector<HTMLButtonElement>("#netbox-sync-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Syncing…";
+    }
+    try {
+      const report = await netboxSync();
+      log.info(LogTag.Netbox, "Sync complete", { fetched: report.fetched, no_primary_ip: report.no_primary_ip, skipped_platform: report.skipped_platform });
+      const parts = [`Synced ${report.fetched} device${report.fetched !== 1 ? "s" : ""}`];
+      if (report.no_primary_ip > 0) parts.push(`${report.no_primary_ip} without primary IP`);
+      if (report.skipped_platform > 0) {
+        const slugs = report.unmatched_platforms.join(", ");
+        parts.push(`${report.skipped_platform} skipped (unknown platform${slugs ? ` ${slugs}` : ""})`);
+      }
+      showToast(parts.join(" · "), "success", 8000);
+      await this.loadNetbox();
+      this.render();
+      this.onTreeChanged();
+    } catch (e) {
+      log.error(LogTag.Netbox, "Sync failed", e);
+      showToast(`Sync failed: ${e}`, "error", 8000);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `${icons.folder} Refresh Now`;
+      }
+    }
   }
 
   private async refreshConfig() {
@@ -522,8 +1157,8 @@ export class SettingsScreen {
     const overlay = document.createElement("div");
     overlay.className = "modal-backdrop";
     overlay.innerHTML = `
-      <div class="modal-panel" style="max-width: 480px;">
-        <h3 style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="restore-mode-title" style="max-width: 480px;">
+        <h3 id="restore-mode-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
         <p style="color: var(--color-text-secondary); margin-bottom: var(--space-4); line-height: 1.5;">
           Choose how to restore from <strong style="color: var(--color-text-primary);">${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
         </p>
@@ -632,8 +1267,8 @@ export class SettingsScreen {
     `).join("");
 
     overlay.innerHTML = `
-      <div class="modal-panel" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
-        <h3 style="font-size: var(--font-size-xl); margin-bottom: var(--space-2);">Merge conflicts</h3>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="merge-conflicts-title" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
+        <h3 id="merge-conflicts-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-2);">Merge conflicts</h3>
         <p style="color: var(--color-text-secondary); margin-bottom: var(--space-3); line-height: 1.5;">
           ${newCount} new entries will be added. ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} need resolution:
         </p>

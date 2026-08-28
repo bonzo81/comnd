@@ -4,22 +4,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-// ─── Host Types ──────────────────────────────────────────────────────
+// Credential types live in credentials.rs (Phase 0 of the host-source
+// plan); re-exported here so existing `hosts::...` paths keep compiling.
+pub use crate::credentials::{AgentAuth, CredentialSource};
 
-/// How a host's auth secret is sourced. Tagged union (serde stays backward compatible).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CredentialSource {
-    /// Keyring entry keyed by host id.
-    Password,
-    /// Local SSH private key file.
-    SshKey { key_path: String },
-    /// Agent-signed key. `identity` = fingerprint; None = offer all identities.
-    Agent { identity: Option<String> },
-    /// Secret-manager item. `provider` = provider id (e.g. "proton"),
-    /// `reference` = item reference pasted by the user, `label` = cached display name.
-    SecretRef { provider: String, reference: String, label: Option<String> },
-}
+// ─── Host Types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Host {
@@ -54,6 +43,10 @@ pub struct Host {
     pub tags: Vec<String>,
     #[serde(default)]
     pub group_id: Option<String>,
+    /// Host source integration that materialized this host (e.g. "netbox").
+    /// `None` = user-created. NetBox hosts are guarded against save/delete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 fn default_port() -> u16 { 22 }
@@ -62,6 +55,11 @@ fn default_platform() -> String { "cisco-iosxe".to_string() }
 
 /// Platforms that have a knowledge base and platform index.
 const VALID_PLATFORMS: &[&str] = &["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"];
+
+/// Whether `platform` is one of the four known platforms.
+pub fn is_valid_platform(platform: &str) -> bool {
+    VALID_PLATFORMS.contains(&platform)
+}
 
 // ─── Validation ─────────────────────────────────────────────────────
 
@@ -162,24 +160,6 @@ fn validate_hostname(hostname: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// How agent publickey auth should offer identities (chunk 4).
-#[derive(Debug, Clone, PartialEq)]
-pub enum AgentAuth {
-    /// No agent auth for this host.
-    Off,
-    /// Offer every identity the agent holds.
-    All,
-    /// Offer only the identity with this fingerprint.
-    Fingerprint(String),
-}
-
-/// Concrete auth inputs resolved from a host's `CredentialSource`.
-pub struct ResolvedCredentials {
-    pub password: Option<String>,
-    pub key_path: Option<String>,
-    pub agent: AgentAuth,
-}
-
 impl Host {
     /// Fill `credential` from legacy `auth_type`/`ssh_key_path` when absent.
     /// Called on every path where a Host enters the store (file load, IPC create/update).
@@ -191,36 +171,6 @@ impl Host {
                 },
                 _ => CredentialSource::Password,
             });
-        }
-    }
-
-    /// Resolve credentials for an SSH connect attempt. Secrets stay Rust-side.
-    pub fn resolve_credentials(&self) -> ResolvedCredentials {
-        match self.credential.as_ref() {
-            Some(CredentialSource::Password) => ResolvedCredentials {
-                password: get_credential(&self.id).ok().flatten(),
-                key_path: None,
-                agent: AgentAuth::Off,
-            },
-            Some(CredentialSource::SshKey { key_path }) => ResolvedCredentials {
-                password: None,
-                key_path: if key_path.is_empty() { None } else { Some(key_path.clone()) },
-                agent: AgentAuth::Off,
-            },
-            Some(CredentialSource::Agent { identity }) => ResolvedCredentials {
-                password: None,
-                key_path: None,
-                agent: match identity {
-                    Some(fp) if !fp.is_empty() => AgentAuth::Fingerprint(fp.clone()),
-                    _ => AgentAuth::All,
-                },
-            },
-            // ponytail: secret resolved at connect time via provider registry (chunk 10); empty here until then
-            Some(CredentialSource::SecretRef { .. }) | None => ResolvedCredentials {
-                password: None,
-                key_path: None,
-                agent: AgentAuth::Off,
-            },
         }
     }
 }
@@ -439,31 +389,6 @@ fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
     }
 }
 
-// ─── Credential Management ──────────────────────────────────────────
-
-/// Save a credential (password) for a host.
-pub fn save_credential(host_id: &str, password: &str) -> Result<(), String> {
-    keyring::Entry::new("netsh", host_id)
-        .and_then(|e| e.set_password(password))
-        .map_err(|e| e.to_string())
-}
-
-/// Get a credential (password) for a host.
-pub fn get_credential(host_id: &str) -> Result<Option<String>, String> {
-    match keyring::Entry::new("netsh", host_id).and_then(|e| e.get_password()) {
-        Ok(pw) => Ok(Some(pw)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// Delete a credential for a host.
-pub fn delete_credential(host_id: &str) -> Result<(), String> {
-    keyring::Entry::new("netsh", host_id)
-        .and_then(|e| e.delete_credential())
-        .map_err(|e| e.to_string())
-}
-
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -489,6 +414,7 @@ mod tests {
             sort_order: 0,
             tags: vec![],
             group_id: None,
+            source: None,
         }
     }
 
@@ -551,19 +477,6 @@ mod tests {
         // Reload roundtrip keeps the variant
         let reloaded: Host = serde_json::from_str(&json).unwrap();
         assert_eq!(reloaded.credential, Some(CredentialSource::Password));
-    }
-
-    #[test]
-    fn test_secret_ref_roundtrip() {
-        let with_label = r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":"Lab Router"}"#;
-        assert_eq!(
-            serde_json::from_str::<CredentialSource>(with_label).unwrap(),
-            CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: Some("Lab Router".into()) }
-        );
-        let json = serde_json::to_string(&CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: None }).unwrap();
-        assert_eq!(json, r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":null}"#);
-        // Old files without the variant still parse
-        assert_eq!(serde_json::from_str::<CredentialSource>(r#"{"type":"password"}"#).unwrap(), CredentialSource::Password);
     }
 
     #[test]

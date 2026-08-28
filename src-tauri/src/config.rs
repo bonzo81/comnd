@@ -34,6 +34,11 @@ pub struct AppConfig {
     /// here — they go in the OS keychain (`netsh_provider_<id>`).
     #[serde(default)]
     pub providers: std::collections::HashMap<String, serde_json::Value>,
+    /// Host source integrations (NetBox, future LibreNMS). Key = source id,
+    /// value = source-specific JSON. Mirrors `providers`; secrets never live
+    /// here — they go in the OS keyring (`netsh_source_<id>_*`).
+    #[serde(default)]
+    pub host_sources: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Default for AppConfig {
@@ -48,6 +53,7 @@ impl Default for AppConfig {
             log_file_path: None,
             max_sessions: default_max_sessions(),
             providers: Default::default(),
+            host_sources: Default::default(),
         }
     }
 }
@@ -263,6 +269,36 @@ impl ConfigStore {
     /// Replace a provider's non-secret config and persist.
     pub fn save_provider_config(&mut self, id: String, value: serde_json::Value) -> Result<(), String> {
         self.config.providers.insert(id, value);
+        self.persist()
+    }
+
+    // ─── Host source config (NetBox plan §8.1) ─────────────────────
+
+    /// Non-secret host source config for `id` (None when unset).
+    pub fn host_source_config(&self, id: &str) -> Option<&serde_json::Value> {
+        self.config.host_sources.get(id)
+    }
+
+    /// Whether the host source is enabled in config.
+    pub fn host_source_enabled(&self, id: &str) -> bool {
+        self.config
+            .host_sources
+            .get(id)
+            .and_then(|v| v.get("enabled"))
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Replace a host source's non-secret config and persist.
+    pub fn save_host_source_config(&mut self, id: &str, value: serde_json::Value) -> Result<(), String> {
+        self.config.host_sources.insert(id.to_string(), value);
+        self.persist()
+    }
+
+    /// Remove a host source's config and persist.
+    #[cfg(test)]
+    pub fn clear_host_source(&mut self, id: &str) -> Result<(), String> {
+        self.config.host_sources.remove(id);
         self.persist()
     }
 

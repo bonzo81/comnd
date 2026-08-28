@@ -29,6 +29,8 @@ export interface Host {
   sort_order: number;
   tags: string[];
   group_id: string | null;
+  /** Host source integration that materialized this host ("netbox"), null for user hosts. */
+  source?: string | null;
 }
 
 export interface HostGroup {
@@ -488,6 +490,130 @@ export async function deleteKbCommand(
   commandName: string,
 ): Promise<void> {
   return invoke<void>("delete_kb_command", { platform, category, commandName });
+}
+
+// ─── NetBox Host Source Commands (plan §8.2) ─────────────────────────
+
+export interface NetBoxFilters {
+  status: string | null;
+  sites: string[];
+  roles: string[];
+  tags: string[];
+}
+
+export interface NetBoxConfig {
+  enabled: boolean;
+  base_url: string;
+  filters: NetBoxFilters;
+  /** "skip" or "fallback" */
+  platform_policy: string;
+  platform_fallback: string | null;
+  platform_overrides: Record<string, string>;
+  default_username: string | null;
+  default_port: number;
+  default_credential: CredentialSource | null;
+  /** Accept self-signed/unverifiable TLS certs (home labs; off by default). */
+  allow_invalid_certs: boolean;
+}
+
+export interface NetBoxConfigState {
+  config: NetBoxConfig;
+  has_token: boolean;
+}
+
+export interface NetBoxTestResult {
+  version: string;
+  device_count: number;
+}
+
+export interface SyncReport {
+  fetched: number;
+  no_primary_ip: number;
+  skipped_platform: number;
+  unmatched_platforms: string[];
+}
+
+/** Per-device credential/username overlay. Null = inherit source defaults. */
+export interface DeviceOverlay {
+  username: string | null;
+  port: number | null;
+  credential: CredentialSource | null;
+  last_connected: string | null;
+  notes: string | null;
+}
+
+export interface NetBoxDeviceEntry {
+  netbox_id: number;
+  name: string;
+  address: string;
+  platform: string;
+  site: string | null;
+  location: string | null;
+  tags: string[];
+  status: string;
+  enabled: boolean;
+  overlay: DeviceOverlay;
+}
+
+export interface NetBoxStatus {
+  enabled: boolean;
+  has_token: boolean;
+  has_default_pw: boolean;
+  last_synced: string | null;
+  device_count: number;
+}
+
+export async function netboxGetConfig(): Promise<NetBoxConfigState> {
+  return invoke<NetBoxConfigState>("netbox_get_config");
+}
+
+/** `defaultPassword` is stored in the OS keyring, never in config. Blank = unchanged. */
+export async function netboxSaveConfig(
+  config: NetBoxConfig,
+  defaultPassword: string | null,
+): Promise<NetBoxConfig> {
+  return invoke<NetBoxConfig>("netbox_save_config", { config, defaultPassword });
+}
+
+export async function netboxSaveToken(token: string | null): Promise<void> {
+  return invoke<void>("netbox_save_token", { token });
+}
+
+/** Test a URL + token without saving. Blank token falls back to the stored one. */
+export async function netboxTestConnection(
+  baseUrl: string,
+  token: string | null,
+  allowInvalidCerts: boolean,
+): Promise<NetBoxTestResult> {
+  return invoke<NetBoxTestResult>("netbox_test_connection", { baseUrl, token, allowInvalidCerts });
+}
+
+export async function netboxSync(): Promise<SyncReport> {
+  return invoke<SyncReport>("netbox_sync");
+}
+
+export async function netboxGetDevices(): Promise<NetBoxDeviceEntry[]> {
+  return invoke<NetBoxDeviceEntry[]>("netbox_get_devices");
+}
+
+export async function netboxSetDeviceEnabled(
+  netboxId: number,
+  enabled: boolean,
+): Promise<void> {
+  return invoke<void>("netbox_set_device_enabled", { netboxId, enabled });
+}
+
+/** `password` is stored in the OS keyring under the device's host key. Blank = unchanged. */
+export async function netboxSetDeviceOverlay(
+  netboxId: number,
+  overlay: DeviceOverlay,
+  password: string | null,
+): Promise<void> {
+  return invoke<void>("netbox_set_device_overlay", { netboxId, overlay, password });
+}
+
+export async function netboxGetStatus(): Promise<NetBoxStatus> {
+  return invoke<NetBoxStatus>("netbox_get_status");
 }
 
 // ─── Test Helpers (debug builds only) ───────────────────────────────

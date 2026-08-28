@@ -25,8 +25,11 @@ import {
 import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
-import { ALL_GROUP_ID, recentHosts } from "../lib/host-filters";
+import { ALL_GROUP_ID, recentHosts, isNetboxHostId } from "../lib/host-filters";
 import { icons } from "../lib/icons";
+import { initContextMenu } from "../lib/a11y";
+import { showToast } from "../lib/toast";
+import { NetBoxConfigureDialog } from "./netbox-configure-dialog";
 
 /** Display names for secret-manager providers (fallback to raw id). */
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
@@ -171,7 +174,7 @@ export class HostScreen {
             <span class="hs-host-count">${countText}</span>
           </div>
 
-          <div class="hs-host-list" id="hs-host-list">
+          <div class="hs-host-list" id="hs-host-list" role="listbox" aria-label="Recent sessions">
             ${this.recent.length > 0 ? this.renderHostList() : this.renderEmptyState()}
           </div>
         </div>
@@ -194,10 +197,13 @@ export class HostScreen {
   private renderHostItem(host: Host, index: number): string {
     const selected = index === this.selectedHostIndex;
     const tags = host.tags ?? [];
+    const active = this._getActiveSessions().has(host.id);
 
     return `
       <div class="hs-host-item ${selected ? "hs-host-selected" : ""}"
-           data-host-id="${host.id}" data-index="${index}">
+           data-host-id="${host.id}" data-index="${index}"
+           role="option" tabindex="0" aria-selected="${selected}"
+           aria-label="${escAttr(host.display_name)} — ${escAttr(host.username)}@${escAttr(host.hostname)}${host.port !== 22 ? `:${host.port}` : ""}${active ? " (session active)" : ""}">
         <div class="hs-host-badge ${platformColorClass(host.platform)}">[${escHtml(platformBadge(host.platform))}]</div>
         <div class="hs-host-info">
           <div class="hs-host-top">
@@ -242,8 +248,8 @@ export class HostScreen {
 
     return `
       <div class="modal-backdrop" id="hs-form-backdrop">
-        <div class="modal-panel host-form">
-          <h2>${title}</h2>
+        <div class="modal-panel host-form" role="dialog" aria-modal="true" aria-labelledby="hs-form-title">
+          <h2 id="hs-form-title">${title}</h2>
           <form id="hs-host-form" autocomplete="off">
             <label>
               <span>Display Name <em>*</em></span>
@@ -384,7 +390,7 @@ export class HostScreen {
               <button type="button" class="btn-secondary" id="hs-form-save">Save</button>
               <button type="submit" class="btn-primary" id="hs-form-save-connect">Save & Connect</button>
             </div>
-            <div class="form-errors" id="hs-form-errors"></div>
+            <div class="form-errors" id="hs-form-errors" role="alert"></div>
           </form>
         </div>
       </div>`;
@@ -394,6 +400,15 @@ export class HostScreen {
 
   private renderContextMenu(): string {
     if (!this.contextMenu) return "";
+    const host = this.hosts.find((h) => h.id === this.contextMenu!.id);
+    if (host && isNetboxHostId(host.id)) {
+      return `
+        <div class="context-menu" id="hs-context-menu"
+             style="left:${this.contextMenu.x}px;top:${this.contextMenu.y}px">
+          <div class="ctx-item" data-action="connect">Connect</div>
+          <div class="ctx-item" data-action="configure">Configure</div>
+        </div>`;
+    }
     return `
       <div class="context-menu" id="hs-context-menu"
            style="left:${this.contextMenu.x}px;top:${this.contextMenu.y}px">
@@ -412,8 +427,8 @@ export class HostScreen {
     if (!host) return "";
     return `
       <div class="modal-backdrop" id="hs-delete-backdrop">
-        <div class="modal-panel delete-confirm">
-          <h3>Delete Host</h3>
+        <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="hs-delete-title">
+          <h3 id="hs-delete-title">Delete Host</h3>
           <p>Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.</p>
           <div class="form-actions">
             <button class="btn-text" id="hs-delete-cancel">Cancel</button>
@@ -464,6 +479,13 @@ export class HostScreen {
           case "edit":
             this.openForm(ctx.id);
             break;
+          case "configure":
+            void new NetBoxConfigureDialog(ctx.id, async () => {
+              this.hosts = await getHosts();
+              this.recent = recentHosts(this.hosts);
+              this.render();
+            }).open();
+            break;
           case "duplicate":
             this.duplicateHost(ctx.id);
             break;
@@ -475,6 +497,15 @@ export class HostScreen {
         }
       });
     });
+
+    // Context menu ARIA + keyboard navigation (arrows/Enter/Escape)
+    const ctxMenu = this.container.querySelector("#hs-context-menu");
+    if (ctxMenu) {
+      initContextMenu(ctxMenu as HTMLElement, () => {
+        this.contextMenu = null;
+        this.render();
+      });
+    }
 
     // Click outside context menu
     if (this._clickOutsideHandler) {
@@ -613,6 +644,7 @@ export class HostScreen {
           this.selectedHostIndex = Math.min(this.selectedHostIndex + 1, this.recent.length - 1);
           this.render();
           this.scrollSelectedIntoView();
+          this.focusHostItem();
         }
         break;
       case "ArrowUp":
@@ -621,6 +653,7 @@ export class HostScreen {
           this.selectedHostIndex = Math.max(this.selectedHostIndex - 1, 0);
           this.render();
           this.scrollSelectedIntoView();
+          this.focusHostItem();
         }
         break;
       case "Enter":
@@ -665,6 +698,14 @@ export class HostScreen {
     el?.scrollIntoView({ block: "nearest" });
   }
 
+  /** Keep keyboard focus on the selection after an arrow-key re-render. */
+  private focusHostItem() {
+    const el = this.container?.querySelector<HTMLElement>(
+      `.hs-host-item[data-index="${this.selectedHostIndex}"]`,
+    );
+    el?.focus({ preventScroll: true });
+  }
+
   // ─── Host Actions ───────────────────────────────────────────────
 
   private connectToHost(hostId: string) {
@@ -676,6 +717,11 @@ export class HostScreen {
   }
 
   private async openForm(editId?: string) {
+    if (editId && isNetboxHostId(editId)) {
+      log.warn(LogTag.Netbox, `Guard: form open blocked on NetBox host ${editId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — use Configure", "info");
+      return;
+    }
     if (editId) {
       this.editingHost = this.hosts.find((h) => h.id === editId) ?? null;
       if (this.editingHost) {
@@ -823,6 +869,11 @@ export class HostScreen {
   }
 
   private async duplicateHost(hostId: string) {
+    if (isNetboxHostId(hostId)) {
+      log.warn(LogTag.Netbox, `Guard: duplicate blocked on NetBox host ${hostId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — use Configure", "info");
+      return;
+    }
     const original = this.hosts.find((h) => h.id === hostId);
     if (!original) return;
 
@@ -849,6 +900,13 @@ export class HostScreen {
   }
 
   private async doDeleteHost(hostId: string) {
+    if (isNetboxHostId(hostId)) {
+      log.warn(LogTag.Netbox, `Guard: delete blocked on NetBox host ${hostId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — disable it in Settings → NetBox", "info");
+      this.deleteConfirmId = null;
+      this.render();
+      return;
+    }
     try {
       await deleteHost(hostId);
       this.hosts = await getHosts();

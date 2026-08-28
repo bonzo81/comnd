@@ -17,11 +17,16 @@ import {
   moveHostGroup,
   saveHost,
   saveHostGroup,
+  netboxSetDeviceEnabled,
+  netboxSync,
 } from "../lib/tauri-api";
-import { ALL_GROUP_ID, hostMatches, sortByRecent } from "../lib/host-filters";
+import { ALL_GROUP_ID, hostMatches, sortByRecent, isNetboxHostId, isNetboxGroup } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
+import { initContextMenu } from "../lib/a11y";
+import { showToast } from "../lib/toast";
+import { NetBoxConfigureDialog } from "./netbox-configure-dialog";
 
 export type NavSection = "connections" | "kb" | "settings";
 
@@ -44,6 +49,7 @@ const SETTINGS_ITEMS = [
   { id: "theme", label: "Theme", ready: true },
   { id: "ollama", label: "Ollama / KB Import", ready: true },
   { id: "auth", label: "Auth Integrations", ready: true },
+  { id: "netbox", label: "NetBox", ready: true },
   { id: "shortcuts", label: "Shortcuts", ready: false },
 ];
 
@@ -266,7 +272,7 @@ export class NavPanel {
     const search = this.container.querySelector<HTMLInputElement>("#nav-host-search");
     const prevSearchSel = search && search === ae ? search.selectionStart : null;
     this.container.innerHTML = `
-      <div class="nav-panel">
+      <div class="nav-panel" role="navigation" aria-label="App navigation">
         ${this.renderSection("connections", "Connections", this.renderConnectionsItems())}
         ${this.renderSection("kb", "Knowledge Base", this.renderKbItems())}
         ${this.renderSection("settings", "Settings", this.renderSettingsItems())}
@@ -276,6 +282,14 @@ export class NavPanel {
     `;
     this.bindEvents();
     this.applyRovingTabindex();
+    // Context menu ARIA + keyboard navigation (arrows/Enter/Escape)
+    const ctxMenu = this.container.querySelector("#nav-context-menu");
+    if (ctxMenu) {
+      initContextMenu(ctxMenu as HTMLElement, () => {
+        this.contextMenu = null;
+        this.render();
+      });
+    }
     if (prevFocus >= 0 && !this.renaming) {
       const els = this.focusables();
       const el = els[Math.min(prevFocus, els.length - 1)];
@@ -316,7 +330,7 @@ export class NavPanel {
         </button>
       </div>
       <div class="nav-search-wrap">
-        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts…" value="${escHtml(this.searchQuery)}" />
+        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts…" aria-label="Search hosts" value="${escHtml(this.searchQuery)}" />
       </div>
       <div class="nav-group-row nav-root-zone${this.searchQuery ? " hidden" : ""}" data-drop-root data-group-id="${ALL_GROUP_ID}">
         <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">
@@ -382,9 +396,10 @@ export class NavPanel {
       <div class="nav-group-row" data-group-id="${group.id}">
         <button class="nav-item nav-sub" data-group-id="${group.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle">${hasChildren ? (expanded ? "▾" : "▸") : ""}</span>
-          <span class="nav-sub-icon">${group.icon ? escHtml(group.icon) : icons.folder}</span>
+          <span class="nav-sub-icon">${group.icon === "netbox" ? icons.netbox : icons.folder}</span>
           <span class="nav-item-label">${escHtml(group.name)}</span>
         </button>
+        ${isNetboxGroup(group.id) ? "" : `
         <span class="nav-row-actions">
           <button class="nav-row-btn" data-action="add-host" data-parent="${group.id}" title="Add host here" aria-label="Add host">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -393,6 +408,7 @@ export class NavPanel {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.2a1 1 0 0 1 .7.3l1 1a1 1 0 0 0 .7.3H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/><path d="M12 11v4M10 13h4"/></svg>
           </button>
         </span>
+        `}
       </div>
     `;
     if (creatingHere) {
@@ -518,13 +534,20 @@ export class NavPanel {
       tmp.innerHTML = this.renderHostRow(h, depth + 1).trim();
       while (tmp.firstElementChild) frag.appendChild(tmp.firstElementChild);
     }
+    // Remember where the inserted block ends BEFORE `after(frag)` empties it.
+    const lastInserted = frag.lastElementChild;
     row.after(frag);
     // Bind handlers ONLY on the freshly-inserted rows. The group row itself
     // already has its handler from the last `render()`; calling `bindEvents()`
     // here would stack a second handler on every existing row in the panel,
     // and a single click would toggle the group N times (the "4th click does
     // nothing" bug — collapse + re-expand cancel out, or vice-versa).
-    this.groupChildRows(row).forEach((r) => {
+    const inserted: HTMLElement[] = [];
+    for (let n = row.nextElementSibling as HTMLElement | null; n; n = n.nextElementSibling as HTMLElement | null) {
+      inserted.push(n);
+      if (n === lastInserted) break;
+    }
+    inserted.forEach((r) => {
       r.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id], .nav-host-row, .nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id], .nav-row-btn").forEach((el) => {
         this.bindRowEvents(el);
       });
@@ -599,7 +622,7 @@ export class NavPanel {
   private renderSettingsItems(): string {
     return SETTINGS_ITEMS.map(
       (s) => `
-        <button class="nav-item nav-sub${s.ready ? "" : " nav-disabled"}" data-settings-id="${s.id}">
+        <button class="nav-item nav-sub${s.ready ? "" : " nav-disabled"}" data-settings-id="${s.id}" ${s.ready ? "" : "disabled"}>
           <span class="nav-item-label">${s.label}</span>
           ${s.ready ? "" : '<span class="nav-soon">soon</span>'}
         </button>
@@ -615,13 +638,25 @@ export class NavPanel {
     let items: string;
 
     if (cm.type === "group") {
-      const group = this.groups.find((g) => g.id === cm.id);
+      if (isNetboxGroup(cm.id)) {
+        items = `
+          <div class="ctx-item" data-action="netbox-refresh">${icons.netbox} Refresh from NetBox</div>`;
+      } else {
+        const group = this.groups.find((g) => g.id === cm.id);
+        items = `
+          <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
+          <div class="ctx-item" data-action="add-host">Add Host Here</div>
+          <div class="ctx-divider"></div>
+          <div class="ctx-item" data-action="rename">Rename</div>
+          <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+      }
+    } else if (isNetboxHostId(cm.id)) {
+      const host = this.hosts.find((h) => h.id === cm.id);
       items = `
-        <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
-        <div class="ctx-item" data-action="add-host">Add Host Here</div>
+        <div class="ctx-item" data-action="connect">Connect</div>
+        <div class="ctx-item" data-action="configure">Configure</div>
         <div class="ctx-divider"></div>
-        <div class="ctx-item" data-action="rename">Rename</div>
-        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+        <div class="ctx-item ctx-danger" data-action="disable">Disable ${escHtml(host?.display_name ?? "device")}</div>`;
     } else {
       const host = this.hosts.find((h) => h.id === cm.id);
       items = `
@@ -646,8 +681,8 @@ export class NavPanel {
       if (!group) return "";
       return `
         <div class="modal-backdrop" id="nav-delete-backdrop">
-          <div class="modal-panel delete-confirm">
-            <h3>Delete Group</h3>
+          <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="nav-delete-title">
+            <h3 id="nav-delete-title">Delete Group</h3>
             <p>Delete <strong>${escHtml(group.name)}</strong>? Hosts in this group will be moved to All Hosts. This cannot be undone.</p>
             <div class="form-actions">
               <button class="btn-text" id="nav-delete-cancel">Cancel</button>
@@ -660,8 +695,8 @@ export class NavPanel {
       if (!host) return "";
       return `
         <div class="modal-backdrop" id="nav-delete-backdrop">
-          <div class="modal-panel delete-confirm">
-            <h3>Delete Host</h3>
+          <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="nav-delete-title">
+            <h3 id="nav-delete-title">Delete Host</h3>
             <p>Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.</p>
             <div class="form-actions">
               <button class="btn-text" id="nav-delete-cancel">Cancel</button>
@@ -821,6 +856,15 @@ export class NavPanel {
             void this.doDuplicateHost(ctx.id);
             break;
           case "rename":
+            if (
+              (ctx.type === "host" && isNetboxHostId(ctx.id)) ||
+              (ctx.type === "group" && isNetboxGroup(ctx.id))
+            ) {
+              log.warn(LogTag.Netbox, `Guard: rename blocked on NetBox entry ${ctx.id}`);
+              showToast("NetBox entries are managed by the NetBox integration — use Configure", "info");
+              this.render();
+              break;
+            }
             this.renaming = { type: ctx.type, id: ctx.id };
             this.render();
             break;
@@ -828,6 +872,18 @@ export class NavPanel {
             this.deleteConfirmType = ctx.type;
             this.deleteConfirmId = ctx.id;
             this.render();
+            break;
+          case "configure":
+            void new NetBoxConfigureDialog(ctx.id, () => {
+              void this.refresh().then(() => this.cb.onTreeChanged());
+            }).open();
+            this.render();
+            break;
+          case "disable":
+            void this.disableNetboxHost(ctx.id);
+            break;
+          case "netbox-refresh":
+            void this.refreshNetbox();
             break;
         }
       });
@@ -875,6 +931,11 @@ export class NavPanel {
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
 
   private async doDeleteGroup(groupId: string) {
+    if (isNetboxGroup(groupId)) {
+      log.warn(LogTag.Netbox, `Guard: delete blocked on NetBox group ${groupId}`);
+      showToast("NetBox groups are managed by the NetBox integration", "info");
+      return;
+    }
     try {
       await deleteHostGroup(groupId);
       this.deleteConfirmId = null;
@@ -887,6 +948,13 @@ export class NavPanel {
   }
 
   private async doDeleteHost(hostId: string) {
+    if (isNetboxHostId(hostId)) {
+      log.warn(LogTag.Netbox, `Guard: delete blocked on NetBox host ${hostId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — disable it via the context menu or Settings → NetBox", "info");
+      this.deleteConfirmId = null;
+      this.render();
+      return;
+    }
     try {
       await deleteHost(hostId);
       this.deleteConfirmId = null;
@@ -899,6 +967,11 @@ export class NavPanel {
   }
 
   private async doDuplicateHost(hostId: string) {
+    if (isNetboxHostId(hostId)) {
+      log.warn(LogTag.Netbox, `Guard: duplicate blocked on NetBox host ${hostId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — use Configure", "info");
+      return;
+    }
     const host = this.hosts.find((h) => h.id === hostId);
     if (!host) return;
     try {
@@ -913,6 +986,35 @@ export class NavPanel {
       this.cb.onTreeChanged();
     } catch (err) {
       log.error(LogTag.NavPanel, `Failed to duplicate host: ${err}`);
+    }
+  }
+
+  /** Disable a NetBox device (removes it from the host list until re-enabled). */
+  private async disableNetboxHost(hostId: string) {
+    const id = parseInt(hostId.replace("netbox:", ""), 10);
+    if (Number.isNaN(id)) return;
+    try {
+      await netboxSetDeviceEnabled(id, false);
+      showToast("Device disabled — re-enable it in Settings → NetBox", "info");
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.Netbox, `Disable device ${id} failed`, err);
+      showToast(`Failed to disable device: ${err}`, "error");
+    }
+  }
+
+  /** Convenience sync from the NetBox folder context menu. */
+  private async refreshNetbox() {
+    try {
+      const report = await netboxSync();
+      log.info(LogTag.Netbox, "Sync complete (nav refresh)", { fetched: report.fetched });
+      showToast(`Synced ${report.fetched} device${report.fetched !== 1 ? "s" : ""} from NetBox`, "success");
+      await this.refresh();
+      this.cb.onTreeChanged();
+    } catch (err) {
+      log.error(LogTag.Netbox, "Sync failed (nav refresh)", err);
+      showToast(`NetBox sync failed: ${err}`, "error", 8000);
     }
   }
 
@@ -1084,9 +1186,17 @@ export class NavPanel {
 
   private payloadFromEl(el: HTMLElement): DragPayload | null {
     const gid = el.dataset.groupId;
-    if (gid) return { kind: "group", id: gid };
+    if (gid) {
+      // NetBox groups are synthetic — not user-movable.
+      if (isNetboxGroup(gid) || gid === ALL_GROUP_ID) return null;
+      return { kind: "group", id: gid };
+    }
     const hid = el.dataset.hostId;
-    if (hid) return { kind: "host", id: hid };
+    if (hid) {
+      // NetBox hosts live where the sync put them.
+      if (isNetboxHostId(hid)) return null;
+      return { kind: "host", id: hid };
+    }
     return null;
   }
 
@@ -1146,6 +1256,12 @@ export class NavPanel {
       const rect = row.getBoundingClientRect();
       if (clientY < rect.top || clientY > rect.bottom) continue;
       const groupId = row.dataset.groupId ?? "";
+      // NetBox groups are not drop targets — user content can't move in,
+      // and NetBox entries can't be dragged out (payloadFromEl filters).
+      if (isNetboxGroup(groupId)) {
+        this.markDropTarget(row, false);
+        continue;
+      }
       if (p.kind === "group") {
         if (groupId === p.id || this.isDescendant(groupId, p.id)) {
           this.markDropTarget(row, false);
@@ -1252,6 +1368,11 @@ export class NavPanel {
   }
 
   private async moveHost(hostId: string, groupId: string) {
+    if (isNetboxHostId(hostId) || isNetboxGroup(groupId)) {
+      log.warn(LogTag.Netbox, `Guard: group-move blocked on NetBox host ${hostId}`);
+      showToast("NetBox hosts are managed by the NetBox integration — use Configure", "info");
+      return;
+    }
     const host = this.hosts.find((h) => h.id === hostId);
     if (!host) return;
     const newGroup = groupId === ALL_GROUP_ID ? null : groupId;

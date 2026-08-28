@@ -6,6 +6,24 @@ import { Host, HostGroup } from "./tauri-api";
 
 export const ALL_GROUP_ID = "__all__";
 
+/** NetBox root group id (synthetic — rendered by get_host_groups, never editable). */
+export const NETBOX_GROUP_ID = "__netbox__";
+
+/** Whether the host id belongs to a NetBox-sourced host (`netbox:<id>`). */
+export function isNetboxHostId(id: string): boolean {
+  return id.startsWith("netbox:");
+}
+
+/** Whether the host was materialized by the NetBox host source. */
+export function isNetboxHost(host: Host): boolean {
+  return host.source === "netbox" || isNetboxHostId(host.id);
+}
+
+/** Whether the group id is one of the synthetic NetBox groups. */
+export function isNetboxGroup(groupId: string): boolean {
+  return groupId.startsWith(NETBOX_GROUP_ID);
+}
+
 /** All group ids reachable from `groupId` (children, grandchildren, …), order-independent. */
 export function groupAndDescendantIds(groups: HostGroup[], groupId: string): Set<string> {
   const ids = new Set([groupId]);

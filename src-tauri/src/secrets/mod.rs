@@ -71,7 +71,9 @@ pub trait SecretProvider: Send + Sync {
 // ─── Registry ──────────────────────────────────────────────────────
 
 /// Compiled-in providers, filtered to enabled ones. Rebuilt from config when
-/// provider settings change (chunk 7).
+/// provider settings change (chunk 7). `Clone` so callers can snapshot it
+/// out of its std Mutex before awaiting (guard must not cross an await).
+#[derive(Clone)]
 pub struct ProviderRegistry {
     providers: Vec<Arc<dyn SecretProvider>>,
 }

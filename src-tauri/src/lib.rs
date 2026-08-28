@@ -8,6 +8,8 @@ mod ssh;
 pub mod test_server;
 mod kb;
 mod hosts;
+mod credentials;
+mod netbox;
 mod config;
 mod ollama;
 mod import;
@@ -18,7 +20,8 @@ use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
-use hosts::{AgentAuth, CredentialSource, Host, HostStore, HostGroup, HostGroupStore, ResolvedCredentials};
+use hosts::{Host, HostStore, HostGroup, HostGroupStore};
+use credentials::ResolvedCredentials;
 use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter, get_ollama_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
@@ -141,6 +144,9 @@ struct AppState {
     /// change (chunk 7). Handles are cloned out before awaiting so the lock
     /// is never held across an await.
     providers: Mutex<secrets::ProviderRegistry>,
+    /// NetBox device cache (host source). Like the other std-Mutex stores:
+    /// clone data out, never hold the guard across an await.
+    netbox: Mutex<netbox::NetBoxCacheStore>,
     /// Human-readable reason the custom log path fell back to the default at
     /// startup, if any. Pulled by the frontend on mount (no emit race).
     log_status: Mutex<Option<String>>,
@@ -188,8 +194,26 @@ async fn validate_kb(
 async fn get_hosts(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Host>, String> {
-    let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
-    hosts.get_all()
+    let mut all = {
+        let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        hosts.get_all()?
+    };
+
+    // NetBox merge (plan §8.3): read-time only — never written to hosts.json.
+    let (enabled, netbox_cfg) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        (
+            config.host_source_enabled("netbox"),
+            netbox::NetBoxConfig::from_json(config.host_source_config("netbox")),
+        )
+    };
+    if enabled {
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        for device in netbox.get().devices.iter().filter(|d| d.enabled) {
+            all.push(netbox::materialize_host(device, &netbox_cfg));
+        }
+    }
+    Ok(all)
 }
 
 #[tauri::command]
@@ -197,6 +221,10 @@ async fn save_host(
     host: Host,
     state: tauri::State<'_, AppState>,
 ) -> Result<Host, String> {
+    if host.source.as_deref() == Some("netbox") || netbox::is_netbox_host_id(&host.id) {
+        log::warn!("Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)", host.id);
+        return Err("Cannot edit NetBox-sourced hosts".to_string());
+    }
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
     if host.id.is_empty() {
         hosts.create(host)
@@ -210,10 +238,17 @@ async fn delete_host(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if netbox::is_netbox_host_id(&id) {
+        log::warn!("Rejected delete_host on NetBox-sourced host {} (plan §8.4 guard)", id);
+        return Err(
+            "Cannot delete NetBox-sourced hosts — disable the device in Settings → NetBox or remove it in NetBox"
+                .to_string(),
+        );
+    }
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
     hosts.delete(&id)?;
-    // Also delete credential
-    hosts::delete_credential(&id).ok();
+    // Also delete credential (new key + legacy bare-id entry)
+    credentials::delete_secret(&credentials::host_key(&id)).ok();
     Ok(())
 }
 
@@ -222,6 +257,14 @@ async fn touch_host(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if netbox::is_netbox_host_id(&id) {
+        let netbox_id: u64 = id
+            .strip_prefix("netbox:")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| format!("Host not found: {}", id))?;
+        let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        return netbox.touch(netbox_id);
+    }
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
     hosts.touch(&id)
 }
@@ -230,12 +273,12 @@ async fn touch_host(
 
 #[tauri::command]
 async fn save_credential(host_id: String, password: String) -> Result<(), String> {
-    hosts::save_credential(&host_id, &password)
+    credentials::save_secret(&credentials::host_key(&host_id), &password)
 }
 
 #[tauri::command]
 async fn get_credential(host_id: String) -> Result<Option<String>, String> {
-    hosts::get_credential(&host_id)
+    credentials::get_secret(&credentials::host_key(&host_id))
 }
 
 // ─── SSH Agent Commands ─────────────────────────────────────────────
@@ -251,8 +294,22 @@ async fn agent_list_identities() -> Result<Vec<secrets::agent::AgentIdentity>, S
 async fn get_host_groups(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<HostGroup>, String> {
-    let groups = state.groups.lock().map_err(|e| e.to_string())?;
-    groups.get_all()
+    let mut groups = {
+        let group_store = state.groups.lock().map_err(|e| e.to_string())?;
+        group_store.get_all()?
+    };
+
+    // Synthetic NetBox groups (plan §8.3) — emitted only when enabled and
+    // at least one enabled device is cached.
+    let enabled = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.host_source_enabled("netbox")
+    };
+    if enabled {
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        groups.extend(netbox::synthetic_groups(&netbox.get().devices));
+    }
+    Ok(groups)
 }
 
 #[tauri::command]
@@ -264,6 +321,12 @@ async fn save_host_group(
     icon: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<HostGroup, String> {
+    if let Some(ref group_id) = id {
+        if netbox::is_synthetic_group_id(group_id) {
+            log::warn!("Rejected save_host_group on synthetic NetBox group {} (plan §8.4 guard)", group_id);
+            return Err("NetBox groups are managed by the NetBox integration".to_string());
+        }
+    }
     let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
 
     if let Some(group_id) = id {
@@ -300,6 +363,10 @@ async fn move_host_group(
     sort_order: u32,
     state: tauri::State<'_, AppState>,
 ) -> Result<HostGroup, String> {
+    if netbox::is_synthetic_group_id(&id) {
+        log::warn!("Rejected move_host_group on synthetic NetBox group {} (plan §8.4 guard)", id);
+        return Err("NetBox groups are managed by the NetBox integration".to_string());
+    }
     let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
     let existing = groups
         .get_all()?
@@ -318,6 +385,10 @@ async fn delete_host_group(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if netbox::is_synthetic_group_id(&id) {
+        log::warn!("Rejected delete_host_group on synthetic NetBox group {} (plan §8.4 guard)", id);
+        return Err("NetBox groups are managed by the NetBox integration".to_string());
+    }
     // Also un-group any hosts in this group
     {
         let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
@@ -345,17 +416,72 @@ async fn ssh_connect(
     session_id: u64,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // Resolve credentials Rust-side — secrets never enter the webview.
-    // Host is cloned out before any await: `hosts` is a std Mutex and its
-    // guard must not be held across an await point.
-    let (host, hostname, port, username) = {
+    // Resolve connection parameters Rust-side — secrets never enter the
+    // webview. HostStore first (fast path), then the NetBox cache for
+    // `netbox:` ids (plan §8.3). All std-Mutex guards are dropped before
+    // any await point.
+    let (hostname, port, username, credential, secret_key) = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
-        let host = hosts
-            .get_all()?
-            .into_iter()
-            .find(|h| h.id == host_id)
-            .ok_or_else(|| format!("Host not found: {}", host_id))?;
-        (host.clone(), host.hostname, host.port, host.username)
+        match hosts.get_all()?.into_iter().find(|h| h.id == host_id) {
+            Some(host) => (
+                host.hostname,
+                host.port,
+                host.username,
+                host.credential,
+                credentials::host_key(&host_id),
+            ),
+            None if netbox::is_netbox_host_id(&host_id) => {
+                log::info!("Connecting to NetBox-sourced host {}", host_id);
+                // Clone the device out, then read source config separately
+                // (sequential locks — never nested).
+                let device = {
+                    drop(hosts);
+                    let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+                    netbox
+                        .find_by_host_id(&host_id)
+                        .filter(|d| d.enabled)
+                        .ok_or_else(|| format!("Host not found: {}", host_id))?
+                };
+                let netbox_cfg = {
+                    let config = state.config.lock().map_err(|e| e.to_string())?;
+                    netbox::NetBoxConfig::from_json(config.host_source_config("netbox"))
+                };
+
+                // Overlay wins over source defaults (plan §6)
+                let username = device
+                    .overlay
+                    .username
+                    .clone()
+                    .filter(|u| !u.trim().is_empty())
+                    .or_else(|| netbox_cfg.default_username.clone())
+                    .filter(|u| !u.trim().is_empty())
+                    .ok_or_else(|| {
+                        log::warn!("NetBox host {}: no username configured (plan §6)", host_id);
+                        "No username configured for this device — set one via Configure or the NetBox source defaults".to_string()
+                    })?;
+                let port = device.overlay.port.unwrap_or(netbox_cfg.default_port);
+                let credential = device
+                    .overlay
+                    .credential
+                    .clone()
+                    .or_else(|| netbox_cfg.default_credential.clone());
+                if credential.is_none() {
+                    log::warn!("NetBox host {}: no authentication method configured (plan §6)", host_id);
+                    return Err(
+                        "No authentication method configured for this device — set one via Configure or the NetBox source defaults"
+                            .to_string(),
+                    );
+                }
+                // Per-device password secret vs source-default password secret
+                let secret_key = if device.overlay.credential.is_some() {
+                    credentials::host_key(&host_id)
+                } else {
+                    netbox::DEFAULT_PW_KEY.to_string()
+                };
+                (device.address, port, username, credential, secret_key)
+            }
+            None => return Err(format!("Host not found: {}", host_id)),
+        }
     };
 
     // Enforce max concurrent sessions. 0 = unlimited. Check before connecting
@@ -375,27 +501,15 @@ async fn ssh_connect(
         }
     }
 
-    // SecretRef resolves through the provider registry at connect time. The
-    // secret is transient: dropped when `creds` dies at the end of this fn,
-    // never logged or persisted.
-    let creds = match host.credential.as_ref() {
-        Some(CredentialSource::SecretRef { provider, reference, .. }) => {
-            let p = state
-                .providers
-                .lock()
-                .map_err(|e| e.to_string())?
-                .get(provider)
-                .ok_or_else(|| format!("Provider '{}' is not enabled — enable it in Settings → Auth Integrations", provider))?;
-            match p.resolve(reference).await {
-                Ok(secret) => ResolvedCredentials {
-                    password: Some(secret),
-                    key_path: None,
-                    agent: AgentAuth::Off,
-                },
-                Err(msg) => return Err(secrets::resolve_error_message(&p, reference, &msg).await),
-            }
-        }
-        _ => host.resolve_credentials(),
+    // Resolve credentials Rust-side — secrets never enter the webview.
+    // The provider registry is cloned out before the await: `providers` is
+    // a std Mutex and its guard must not be held across an await point.
+    // The resolved secret is transient: dropped when `creds` dies at the
+    // end of this fn, never logged or persisted.
+    let registry = state.providers.lock().map_err(|e| e.to_string())?.clone();
+    let creds = match credential.as_ref() {
+        Some(credential) => credentials::resolve(credential, &secret_key, &registry).await?,
+        None => ResolvedCredentials::default(),
     };
 
     let session = ssh::SshSession::connect(
@@ -733,6 +847,200 @@ async fn save_provider_secret(
     secret: Option<String>,
 ) -> Result<(), String> {
     crate::config::save_provider_secret(&provider, secret)
+}
+
+// ─── NetBox Host Source Commands (plan §8.2) ─────────────────────────
+
+/// Save-or-delete a keyring secret: `None`/empty deletes the entry.
+fn save_optional_secret(key: &str, secret: Option<String>) -> Result<(), String> {
+    match secret {
+        Some(s) if !s.is_empty() => credentials::save_secret(key, &s),
+        _ => credentials::delete_secret(key),
+    }
+}
+
+/// Config + secret state for the NetBox settings form. The token itself is
+/// never serialized to the frontend — only whether one exists.
+#[derive(serde::Serialize)]
+struct NetBoxConfigState {
+    config: netbox::NetBoxConfig,
+    has_token: bool,
+}
+
+#[tauri::command]
+async fn netbox_get_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<NetBoxConfigState, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        netbox::NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    let has_token = credentials::get_secret(netbox::TOKEN_KEY)?.is_some();
+    Ok(NetBoxConfigState { config, has_token })
+}
+
+#[tauri::command]
+async fn netbox_save_config(
+    config: netbox::NetBoxConfig,
+    default_password: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<netbox::NetBoxConfig, String> {
+    config.validate()?;
+    {
+        let mut store = state.config.lock().map_err(|e| e.to_string())?;
+        let json = serde_json::to_value(&config)
+            .map_err(|e| format!("Failed to serialize NetBox config: {}", e))?;
+        store.save_host_source_config("netbox", json)?;
+    }
+    // Source-default password: set when supplied, cleared when the default
+    // credential is no longer Password. Blank = unchanged.
+    match config.default_credential.as_ref() {
+        Some(credentials::CredentialSource::Password) => {
+            if default_password.is_some() {
+                save_optional_secret(netbox::DEFAULT_PW_KEY, default_password)?;
+            }
+        }
+        _ => credentials::delete_secret(netbox::DEFAULT_PW_KEY)?,
+    }
+    log::info!(
+        "NetBox config saved (enabled={} base_url={} default_port={})",
+        config.enabled,
+        config.base_url,
+        config.default_port
+    );
+    Ok(config)
+}
+
+#[tauri::command]
+async fn netbox_save_token(token: Option<String>) -> Result<(), String> {
+    save_optional_secret(netbox::TOKEN_KEY, token.clone())?;
+    log::info!("NetBox API token {}", if token.is_some() { "saved" } else { "cleared" });
+    Ok(())
+}
+
+/// Test a URL + token against the NetBox API without saving anything.
+/// A blank token falls back to the stored one (test-before-save, re-test).
+/// `allow_invalid_certs` must be passed explicitly by the caller so the
+/// toggle state in the form is what gets tested, not the saved config.
+#[tauri::command]
+async fn netbox_test_connection(
+    base_url: String,
+    token: Option<String>,
+    allow_invalid_certs: bool,
+) -> Result<serde_json::Value, String> {
+    let token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => credentials::get_secret(netbox::TOKEN_KEY)?
+            .ok_or_else(|| "No NetBox API token saved — enter one first".to_string())?,
+    };
+    let client = netbox::NetBoxClient::new(&base_url, &token, allow_invalid_certs)?;
+    let (version, device_count) = client.test_connection().await?;
+    Ok(serde_json::json!({ "version": version, "device_count": device_count }))
+}
+
+#[tauri::command]
+async fn netbox_sync(
+    state: tauri::State<'_, AppState>,
+) -> Result<netbox::SyncReport, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        netbox::NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    if !config.enabled {
+        return Err("NetBox integration is disabled — enable it in Settings → NetBox".to_string());
+    }
+    if config.base_url.trim().is_empty() {
+        return Err("No NetBox URL configured — set one in Settings → NetBox".to_string());
+    }
+    let token = credentials::get_secret(netbox::TOKEN_KEY)?
+        .ok_or_else(|| "No NetBox API token saved — enter one in Settings → NetBox".to_string())?;
+
+    let client = netbox::NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)?;
+    let fetch = client.fetch_devices(&config.filters).await?;
+    let (entries, mut report) = netbox::build_entries(&fetch.devices, &config.platform_policy());
+    report.no_primary_ip = fetch.no_primary_ip;
+
+    log::info!(
+        "NetBox sync: {} fetched, {} no primary IP, {} skipped platform (unmatched: {}), {} cached",
+        report.fetched,
+        report.no_primary_ip,
+        report.skipped_platform,
+        if report.unmatched_platforms.is_empty() {
+            "none".to_string()
+        } else {
+            report.unmatched_platforms.join(", ")
+        },
+        entries.len()
+    );
+
+    let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    netbox.apply_sync(report, entries)
+}
+
+#[tauri::command]
+async fn netbox_get_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<netbox::NetBoxDeviceEntry>, String> {
+    let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    Ok(netbox.get().devices.clone())
+}
+
+#[tauri::command]
+async fn netbox_set_device_enabled(
+    netbox_id: u64,
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    netbox.set_enabled(netbox_id, enabled)
+}
+
+/// Save a per-device overlay. A supplied `password` is stored in the keyring
+/// under the device's host key; switching the overlay away from Password
+/// clears the stored per-device secret. Blank password = unchanged.
+#[tauri::command]
+async fn netbox_set_device_overlay(
+    netbox_id: u64,
+    overlay: netbox::DeviceOverlay,
+    password: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let host_key = credentials::host_key(&netbox::host_id(netbox_id));
+    {
+        let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        netbox.set_overlay(netbox_id, overlay.clone())?;
+    }
+    match overlay.credential.as_ref() {
+        Some(credentials::CredentialSource::Password) => {
+            if password.is_some() {
+                save_optional_secret(&host_key, password)?;
+            }
+        }
+        _ => credentials::delete_secret(&host_key)?,
+    }
+    Ok(())
+}
+
+/// Header-line status for the NetBox settings section.
+#[tauri::command]
+async fn netbox_get_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let (enabled, last_synced, device_count) = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        let enabled = store.host_source_enabled("netbox");
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        (enabled, netbox.get().last_synced.clone(), netbox.get().devices.len())
+    };
+    let has_token = credentials::get_secret(netbox::TOKEN_KEY)?.is_some();
+    let has_default_pw = credentials::get_secret(netbox::DEFAULT_PW_KEY)?.is_some();
+    Ok(serde_json::json!({
+        "enabled": enabled,
+        "has_token": has_token,
+        "has_default_pw": has_default_pw,
+        "last_synced": last_synced,
+        "device_count": device_count,
+    }))
 }
 
 // ─── KB Import Commands ──────────────────────────────────────────────
@@ -1203,6 +1511,11 @@ pub fn run() {
 
             let provider_registry = secrets::ProviderRegistry::from_config(config_store.get());
 
+            let netbox_store = netbox::NetBoxCacheStore::new(&data_dir).unwrap_or_else(|e| {
+                log::warn!("Failed to init NetBox cache store: {}. Using in-memory fallback.", e);
+                netbox::NetBoxCacheStore::in_memory()
+            });
+
             app.manage(AppState {
                 kb: Mutex::new(KbManager::with_user_path(kb_path, user_kb_path)),
                 hosts: Mutex::new(host_store),
@@ -1210,6 +1523,7 @@ pub fn run() {
                 ssh: tokio::sync::Mutex::new(SshManager::new()),
                 config: Mutex::new(config_store),
                 providers: Mutex::new(provider_registry),
+                netbox: Mutex::new(netbox_store),
                 log_status: Mutex::new(log_fallback_reason),
             });
 
@@ -1246,6 +1560,15 @@ pub fn run() {
                 get_provider_state,
                 save_provider_config,
                 save_provider_secret,
+                netbox_get_config,
+                netbox_save_config,
+                netbox_save_token,
+                netbox_test_connection,
+                netbox_sync,
+                netbox_get_devices,
+                netbox_set_device_enabled,
+                netbox_set_device_overlay,
+                netbox_get_status,
                 import_kb_url,
                 extract_kb_preview,
                 commit_kb_import,

@@ -87,3 +87,33 @@ Clean modal or slide-over panel. Fields in logical order:
 8. **Notes** — optional, collapsible/expandable
 
 **Save** and **Save & Connect** buttons at bottom. Save & Connect is the primary action (accent colour).
+
+## Host Sources (NetBox)
+
+NetBox-sourced devices appear alongside user hosts, never mixed into them.
+
+- **Opt-in**: disabled until enabled in Settings -> NetBox. Nothing touches the
+  network until the user clicks Refresh.
+- **Storage**: devices cache to `netbox-cache.json` in the app data dir. The
+  sync NEVER writes to `hosts.json`; `get_hosts` merges user hosts + enabled
+  NetBox devices at read time. Devices deleted in NetBox disappear on next sync.
+- **Tree grouping**: NetBox root folder -> site group -> location group
+  (location nullable; devices without one sit directly under their site).
+  Groups are synthetic (`__netbox__...` ids), not user-editable.
+- **Refresh**: manual only (Refresh Now in settings or the folder context
+  menu). No background sync, no polling, no refresh-on-launch.
+- **Sync filters**: status (default `active`), sites, roles, tags -
+  comma-separated slugs passed as NetBox API query filters.
+- **Platform mapping**: NetBox platform slug -> net.sh platform via a built-in
+  table (cisco-ios, nx-os, f5-tmos, ubuntu, ...). Unknown slugs: skip
+  (reported in the sync summary) or fallback platform, plus a slug=platform
+  overrides list.
+- **Credentials**: overlay model. Source-level defaults (username, port,
+  auth method) set in Settings -> NetBox; per-device overrides (username,
+  port, auth method, notes) via Configure on the device. All four auth
+  methods (password / SSH key / agent / secret manager) are available.
+  Passwords live in the OS keyring, the NetBox API token too.
+- **Guards**: NetBox hosts cannot be edited, renamed, duplicated, deleted,
+  or dragged. Grouping is fixed by the sync. Configure / Disable replace the
+  usual host context-menu actions. The backend rejects these mutations even
+  if the UI is bypassed.

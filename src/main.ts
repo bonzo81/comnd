@@ -108,6 +108,7 @@ class App {
     this.contentCol.appendChild(this.settingsWrapper);
 
     this.settingsScreen = new SettingsScreen();
+    this.settingsScreen.onTreeChanged = () => void this.navPanel.refresh();
     void this.settingsScreen.mount(this.settingsWrapper);
 
     // Body row — nav panel left, content right
@@ -265,6 +266,8 @@ class App {
     const bar = document.createElement("div");
     bar.className = "statusbar";
     bar.id = "statusbar";
+    bar.setAttribute("role", "contentinfo");
+    bar.setAttribute("aria-label", "Application status");
 
     const sessions = document.createElement("button");
     sessions.className = "statusbar-item sb-sessions";
@@ -497,6 +500,8 @@ class App {
     if (!this.sessionTabBar) {
       this.sessionTabBar = document.createElement("div");
       this.sessionTabBar.className = "session-tab-bar";
+      this.sessionTabBar.setAttribute("role", "tablist");
+      this.sessionTabBar.setAttribute("aria-label", "SSH sessions");
       this.terminalArea.insertBefore(this.sessionTabBar, this.terminalArea.firstChild);
     }
 
@@ -505,6 +510,15 @@ class App {
       const el = document.createElement("div");
       el.className = "session-tab" + (hostId === this.activeTabId ? " active" : "");
       el.dataset.hostId = hostId;
+      el.setAttribute("role", "tab");
+      el.setAttribute("aria-selected", String(hostId === this.activeTabId));
+      el.tabIndex = 0;
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          this.activateTab(hostId);
+        }
+      });
 
       const label = document.createElement("span");
       label.className = "session-tab-label";
@@ -533,8 +547,8 @@ class App {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML = `
-      <div class="modal-panel delete-confirm">
-        <h3>Close Session</h3>
+      <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
+        <h3 id="close-confirm-title">Close Session</h3>
         <p>Close session to <strong>${esc(hostName)}</strong>?<br/>Your SSH session will be terminated.</p>
         <div class="form-actions">
           <button class="btn-text close-confirm-cancel">Cancel</button>
@@ -605,8 +619,8 @@ class App {
     backdrop.className = "modal-backdrop";
     backdrop.id = "app-shortcuts-backdrop";
     backdrop.innerHTML = `
-      <div class="shortcuts-modal">
-        <h2>Keyboard Shortcuts</h2>
+      <div class="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="app-shortcuts-title">
+        <h2 id="app-shortcuts-title">Keyboard Shortcuts</h2>
         <div class="shortcuts-grid">${items}</div>
         <div class="form-actions" style="margin-top:calc(var(--spacing) * 5)">
           <button class="btn-primary" id="app-shortcuts-close-btn">Got it</button>
