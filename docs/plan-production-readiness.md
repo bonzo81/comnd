@@ -305,10 +305,12 @@ post-1.0.
 
 ### P3.5 — Accessibility audit
 
-- [ ] Add ARIA roles to interactive elements (buttons, dialogs, tabs)
-- [ ] Ensure keyboard focus indicators are visible on all controls
-- [ ] Test with a screen reader (NVDA on Windows, VoiceOver on macOS)
-- [ ] Document a11y conformance level (target: WCAG 2.1 AA)
+- [x] Add ARIA roles to interactive elements (buttons, dialogs, tabs)
+- [x] Ensure keyboard focus indicators are visible on all controls
+- [ ] Test with a screen reader (NVDA on Windows, VoiceOver on macOS) —
+      manual pass required; checklist in `docs/accessibility.md`
+- [x] Document a11y conformance level (target: WCAG 2.1 AA) — see
+      `docs/accessibility.md`
 
 **Why:** No ARIA roles, no documented focus indicators, no screen reader
 testing. Professional apps need at least basic a11y for enterprise

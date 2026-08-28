@@ -44,6 +44,7 @@ import {
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { OutputHighlighter } from "../lib/output-highlighter";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
+import { initContextMenu, setToggleState } from "../lib/a11y";
 
 // Platform display name mapping
 const PLATFORM_LABELS: Record<string, string> = {
@@ -392,6 +393,7 @@ export class TerminalView {
       menu.appendChild(el);
     }
     document.body.appendChild(menu);
+    initContextMenu(menu, () => this.hideContextMenu());
 
     // Keep the menu on screen
     const rect = menu.getBoundingClientRect();
@@ -424,38 +426,40 @@ export class TerminalView {
       document.removeEventListener("keydown", this.ctxEscapeHandler, true);
       this.ctxEscapeHandler = null;
     }
+    // Menu had focus (ARIA pattern) — return it to the terminal
+    this.terminal?.focus();
   }
 
   mount(container: HTMLElement) {
     container.innerHTML = `
       <div class="terminal-view">
-        <div class="tv-topbar">
+        <div class="tv-topbar" role="toolbar" aria-label="Terminal toolbar">
           <span class="tv-host-info">Connecting...</span>
-          <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps"></button>
-          <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions"></button>
-          <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection"></button>
-          <button class="btn-text tv-highlight-btn" aria-label="Toggle output highlighting"></button>
-          <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme"></button>
-          <button class="btn-text tv-panel-btn" title="Toggle side panel">≡ Panel</button>
+          <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps" aria-pressed="false"></button>
+          <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions" aria-pressed="false"></button>
+          <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection" aria-pressed="false"></button>
+          <button class="btn-text tv-highlight-btn" aria-label="Toggle output highlighting" aria-pressed="false"></button>
+          <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme" aria-pressed="false"></button>
+          <button class="btn-text tv-panel-btn" title="Toggle side panel" aria-expanded="false" aria-controls="tv-sidebar">≡ Panel</button>
         </div>
         <div class="tv-main">
           <div class="tv-terminal-wrap">
-            <div class="tv-terminal"></div>
-            <div class="tv-overlay hidden">
+            <div class="tv-terminal" role="region" aria-label="SSH terminal output"></div>
+            <div class="tv-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tv-overlay-title">
               <div class="tv-overlay-content">
-                <div class="tv-overlay-title">Connecting...</div>
+                <div class="tv-overlay-title" id="tv-overlay-title">Connecting...</div>
                 <div class="tv-overlay-progress">
-                  <div class="tv-progress-bar"><div class="tv-progress-fill"></div></div>
+                  <div class="tv-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Connection progress"><div class="tv-progress-fill"></div></div>
                 </div>
-                <div class="tv-overlay-stage"></div>
-                <div class="tv-overlay-error hidden"></div>
+                <div class="tv-overlay-stage" aria-live="polite"></div>
+                <div class="tv-overlay-error hidden" role="alert"></div>
                 <div class="tv-overlay-output hidden"><pre class="tv-output-text"></pre></div>
                 <div class="tv-overlay-actions">
                   <button class="btn-text tv-overlay-cancel">Cancel</button>
                 </div>
               </div>
             </div>
-            <div class="tv-banner hidden">
+            <div class="tv-banner hidden" role="alert">
               <span class="tv-banner-msg">Connection lost</span>
               <div class="tv-banner-actions">
                 <button class="btn-primary btn-small tv-banner-reconnect">Reconnect</button>
@@ -463,13 +467,13 @@ export class TerminalView {
               </div>
             </div>
           </div>
-          <div class="tv-sidebar hidden">
+          <div class="tv-sidebar hidden" id="tv-sidebar">
             <div class="sb-content">
               <p class="sb-placeholder">Select a suggestion to see command details</p>
             </div>
           </div>
         </div>
-        <div class="tv-statusbar">
+        <div class="tv-statusbar" role="status" aria-label="Connection status">
           <span class="sb-indicator sb-connecting tv-sb-dot">●</span>
           <span class="tv-sb-host">—</span>
           <span class="tv-sb-platform">—</span>
@@ -498,7 +502,7 @@ export class TerminalView {
     const syncThemeIcon = () => {
       const dark = getTerminalTheme() === "dark";
       themeBtn.innerHTML = dark ? icons.sun : icons.moon;
-      this.setBtnLabel(themeBtn, dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
+      setToggleState(themeBtn, !dark, dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
     };
     themeBtn.addEventListener("click", () => {
       setTerminalTheme(getTerminalTheme() === "dark" ? "light" : "dark");
@@ -897,6 +901,7 @@ export class TerminalView {
     overlay?.classList.remove("hidden");
     if (stageEl) stageEl.textContent = stage;
     if (fillEl) fillEl.style.width = `${percent}%`;
+    this.$(".tv-progress-bar")?.setAttribute("aria-valuenow", String(percent));
     if (titleEl) titleEl.textContent = `Connecting to ${this.host?.display_name ?? "host"}`;
     errorEl?.classList.add("hidden");
     // Replaces action buttons; does NOT affect sibling elements like .tv-overlay-output
@@ -1058,6 +1063,7 @@ export class TerminalView {
     this.sidePanelOpen = !this.sidePanelOpen;
     const sidebar = this.$(".tv-sidebar")!;
     sidebar.classList.toggle("hidden", !this.sidePanelOpen);
+    this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(this.sidePanelOpen));
     // Refit terminal after sidebar transition
     setTimeout(() => {
       this.fitAddon?.fit();
@@ -1271,11 +1277,6 @@ export class TerminalView {
     if (bg) container.style.backgroundColor = bg;
   }
 
-  private setBtnLabel(btn: HTMLElement, label: string) {
-    btn.setAttribute("aria-label", label);
-    btn.title = label;
-  }
-
   private syncTimestamps() {
     const on = getTimestampsEnabled();
     const format = getTimestampFormat();
@@ -1287,7 +1288,7 @@ export class TerminalView {
     if (btn) {
       btn.innerHTML = icons.clock;
       btn.classList.toggle("active", on);
-      this.setBtnLabel(btn, on ? "Hide line timestamps" : "Show line timestamps");
+      setToggleState(btn, on, on ? "Hide line timestamps" : "Show line timestamps");
     }
     this.fitAddon?.fit();
   }
@@ -1298,7 +1299,7 @@ export class TerminalView {
     if (btn) {
       btn.innerHTML = icons.lightbulb;
       btn.classList.toggle("active", this.suggestionsEnabled);
-      this.setBtnLabel(btn, this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions");
+      setToggleState(btn, this.suggestionsEnabled, this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions");
     }
     if (!this.suggestionsEnabled) {
       this.dropdown?.hide();
@@ -1316,9 +1317,7 @@ export class TerminalView {
     if (btn) {
       btn.innerHTML = icons.copy;
       btn.classList.toggle("active", on);
-      const label = on ? "Disable auto-copy on selection" : "Enable auto-copy on selection";
-      btn.setAttribute("aria-label", label);
-      btn.title = label;
+      setToggleState(btn, on, on ? "Disable auto-copy on selection" : "Enable auto-copy on selection");
     }
   }
 
@@ -1334,9 +1333,9 @@ export class TerminalView {
       btn.classList.toggle("btn-disabled", disabled);
       btn.classList.toggle("active", on && !disabled);
       if (disabled) {
-        this.setBtnLabel(btn, "Output highlighting disabled for this host");
+        setToggleState(btn, false, "Output highlighting disabled for this host");
       } else {
-        this.setBtnLabel(btn, on ? "Disable output highlighting" : "Enable output highlighting");
+        setToggleState(btn, on, on ? "Disable output highlighting" : "Enable output highlighting");
       }
     }
   }

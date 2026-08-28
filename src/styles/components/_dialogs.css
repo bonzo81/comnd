@@ -20,6 +20,16 @@
   background: var(--color-surface-selected);
 }
 
+.ctx-item:focus {
+  outline: none;
+  background: var(--color-surface-selected);
+}
+
+.ctx-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
 .ctx-item.ctx-disabled {
   opacity: 0.45;
   pointer-events: none;
@@ -353,6 +363,11 @@
 
 .kb-command-item:hover {
   background: var(--color-surface-selected);
+}
+
+.kb-command-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .kb-command-selected {

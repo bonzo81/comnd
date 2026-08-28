@@ -169,11 +169,11 @@ export class KbImportDialog {
       this.container.innerHTML = content;
     } else {
       this.container.innerHTML = `
-        <div class="import-overlay" id="import-overlay">
+        <div class="import-overlay" id="import-overlay" role="dialog" aria-modal="true" aria-labelledby="import-title">
           <div class="import-dialog">
             <div class="import-header">
-              <h2>Import Commands from URL</h2>
-              <button class="import-close-btn" id="import-close-btn" ${isImporting ? 'disabled' : ''}>&times;</button>
+              <h2 id="import-title">Import Commands from URL</h2>
+              <button class="import-close-btn" id="import-close-btn" aria-label="Close import dialog" ${isImporting ? 'disabled' : ''}>&times;</button>
             </div>
             ${content}
           </div>
@@ -195,7 +195,7 @@ export class KbImportDialog {
             <button class="btn-secondary btn-small import-try-url" id="import-try-url-btn" ${isImporting ? 'disabled' : ''}>Try URL</button>
           </div>
           <span class="import-hint">Paste a link to a command reference page</span>
-          <div class="url-status" id="import-url-status"></div>
+          <div class="url-status" id="import-url-status" role="status"></div>
         </div>
 
         <div class="import-row">
@@ -228,8 +228,8 @@ export class KbImportDialog {
   private renderProgress(): string {
     const elapsed = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
     return `
-      <div class="import-progress">
-        <div class="import-spinner"></div>
+      <div class="import-progress" role="status" aria-live="polite">
+        <div class="import-spinner" aria-hidden="true"></div>
         <div class="import-stage">${escHtml(this.stageLabel(this.stage))}</div>
         ${this.progressDetail ? `<div class="import-progress-detail">${escHtml(this.progressDetail)}</div>` : ""}
         ${this.startTime ? `<div class="import-elapsed" id="import-elapsed">${elapsed}s elapsed</div>` : ""}
@@ -240,7 +240,7 @@ export class KbImportDialog {
   private renderResult(): string {
     if (!this.result) return "";
     return `
-      <div class="import-result">
+      <div class="import-result" role="status">
         <div class="import-success-icon">${icons.check}</div>
         <h3>Import Complete</h3>
         <div class="import-result-details">
@@ -277,7 +277,7 @@ export class KbImportDialog {
 
   private renderError(): string {
     return `
-      <div class="import-error">
+      <div class="import-error" role="alert">
         <div class="import-error-icon">${icons.x}</div>
         <h3>Import Failed</h3>
         <p class="import-error-message">${escHtml(this.errorMessage)}</p>

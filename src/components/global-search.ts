@@ -68,6 +68,8 @@ export class GlobalSearch {
     this.input.setAttribute("role", "combobox");
     this.input.setAttribute("aria-expanded", "false");
     this.input.setAttribute("aria-label", "Global search");
+    this.input.setAttribute("aria-autocomplete", "list");
+    this.input.setAttribute("aria-controls", "global-search-results");
     this.input.addEventListener("input", () => this.onInput());
     this.input.addEventListener("keydown", (e) => this.onKeydown(e));
     this.input.addEventListener("focus", () => {
@@ -100,7 +102,9 @@ export class GlobalSearch {
     // Results panel — fixed below the titlebar, aligned to the input's left edge
     this.results = document.createElement("div");
     this.results.className = "title-bar-search-results hidden";
+    this.results.id = "global-search-results";
     this.results.setAttribute("role", "listbox");
+    this.results.setAttribute("aria-label", "Search results");
     this.results.addEventListener("mouseenter", () => this.cancelHide());
     this.results.addEventListener("mouseleave", () => this.scheduleHide());
     this.wrapper.addEventListener("mouseleave", () => this.scheduleHide());

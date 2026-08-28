@@ -149,11 +149,11 @@ export class KbViewerDialog {
     if (this.embedMode) {
       this.container.innerHTML = `
         <div class="kb-viewer-toolbar">
-          <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" value="${this.escAttr(this.searchQuery)}" />
+          <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
           <span class="kb-count">${this.filteredCommands.length} commands</span>
         </div>
         <div class="kb-viewer-body">
-          <div class="kb-command-list">
+          <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
             ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
           </div>
           <div class="kb-command-detail" id="kb-command-detail">
@@ -164,18 +164,18 @@ export class KbViewerDialog {
       `;
     } else {
       this.container.innerHTML = `
-        <div class="import-overlay" id="kb-viewer-overlay">
+        <div class="import-overlay" id="kb-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="kb-viewer-title">
           <div class="import-dialog kb-viewer">
             <div class="import-header">
-              <h2>Knowledge Base</h2>
-              <button class="import-close-btn" id="kb-viewer-close">&times;</button>
+              <h2 id="kb-viewer-title">Knowledge Base</h2>
+              <button class="import-close-btn" id="kb-viewer-close" aria-label="Close knowledge base">&times;</button>
             </div>
             <div class="kb-viewer-toolbar">
-              <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" value="${this.escAttr(this.searchQuery)}" />
+              <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
               <span class="kb-count">${this.filteredCommands.length} commands</span>
             </div>
             <div class="kb-viewer-body">
-              <div class="kb-command-list">
+              <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
                 ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
               </div>
               <div class="kb-command-detail" id="kb-command-detail">
@@ -287,7 +287,7 @@ export class KbViewerDialog {
             ${this.saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
-        <div class="kb-edit-errors" id="kb-edit-errors"></div>
+        <div class="kb-edit-errors" id="kb-edit-errors" role="alert"></div>
       </div>
     `;
   }
@@ -295,8 +295,8 @@ export class KbViewerDialog {
   private renderDeleteOverlay(): string {
     return `
       <div class="modal-backdrop" id="kb-delete-backdrop">
-        <div class="modal-panel delete-confirm" style="width:400px">
-          <h3>Delete Command</h3>
+        <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="kb-delete-title" style="width:400px">
+          <h3 id="kb-delete-title">Delete Command</h3>
           <p>Delete <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>?<br/>This cannot be undone.</p>
           <div class="form-actions">
             <button class="btn-text" id="kb-delete-cancel-btn">Cancel</button>
@@ -327,7 +327,8 @@ export class KbViewerDialog {
             const globalIndex = this.filteredCommands.indexOf(cmd);
             const selected = globalIndex === this.selectedIndex;
             return `
-          <div class="kb-command-item ${selected ? "kb-command-selected" : ""}" data-index="${globalIndex}">
+          <div class="kb-command-item ${selected ? "kb-command-selected" : ""}" data-index="${globalIndex}"
+               role="option" tabindex="0" aria-selected="${selected}">
             <span class="kb-command-name">${escHtml(cmd.name)}</span>
             <span class="kb-command-mode">${escHtml(formatMode(cmd.mode))}</span>
           </div>
@@ -372,6 +373,12 @@ export class KbViewerDialog {
         this.selectedCommand = this.filteredCommands[index] ?? null;
         this.editing = false;
         this.render();
+      });
+      el.addEventListener("keydown", (e) => {
+        if ((e as KeyboardEvent).key === "Enter" || (e as KeyboardEvent).key === " ") {
+          e.preventDefault();
+          (el as HTMLElement).click();
+        }
       });
     });
 
