@@ -1,4 +1,6 @@
-﻿## Where the Knowledge Base Lives
+﻿# Customizing the Knowledge Base
+
+## Where the Knowledge Base Lives
 
 net.sh ships with a built-in knowledge base inside the app install directory under `knowledge-base/`. The app also creates an editable copy in your app data directory:
 
@@ -8,7 +10,7 @@ net.sh ships with a built-in knowledge base inside the app install directory und
 | macOS | `~/Library/Application Support/net.sh/knowledge-base/` |
 | Linux | `~/.config/net.sh/knowledge-base/` |
 
-On startup, net.sh checks for the user copy. If it exists, that copy is used. If not, the app falls back to the built-in copy. This means you can modify your knowledge base without touching the app install, and your changes won't be lost when the app updates.
+On startup, net.sh checks for the user copy. If it exists, that copy is used. If not, the app falls back to the built-in copy. This means you can modify your knowledge base without touching the app install, and your changes will not be lost when the app updates.
 
 The file structure mirrors the built-in layout:
 
@@ -27,7 +29,7 @@ knowledge-base/
   linux-bash/
 ```
 
-Each platform is self-contained. Command files live under `commands/` and are grouped by topic — networking, routing, system, etc. The app discovers them automatically, no registration needed.
+Each platform is self-contained. Command files live under `commands/` and are grouped by topic — networking, routing, system, etc. The app discovers them automatically. No registration is required.
 
 ## Platform Index (`index.yaml`)
 
@@ -51,15 +53,15 @@ command_files:
   - commands/routing.yaml
 ```
 
-You generally don't need to edit this file unless you're adding a new platform or changing version ranges. If you modify `prompt_patterns`, the app picks them up on the next connection. If you add a new category file, add its path to `command_files`.
+In most cases, you do not need to edit this file. Edit it only when you add a new platform or change version ranges. If you modify `prompt_patterns`, the app picks them up on the next connection. If you add a new category file, add its path to `command_files`.
 
 For more on how the knowledge base works, see [Knowledge Base Overview](06-knowledge-base-overview.md).
 
 ## Adding a Command
 
-Open the relevant category file under `knowledge-base/<platform>/commands/`. Add a new entry to the `commands` list. Order doesn't matter — entries are found by name.
+Open the relevant category file under `knowledge-base/<platform>/commands/`. Add a new entry to the `commands` list. Order does not matter — entries are found by name.
 
-Here's a minimal working entry:
+Here is a minimal working entry:
 
 ```yaml
 commands:
@@ -87,15 +89,15 @@ commands:
 
 ### Required Fields
 
-**`name`** — The full command string. Used for matching as the user types.
+**`name`** — The full command string. It is used for matching as the user types.
 
 **`syntax`** — The command with placeholders. Use `<placeholder>` for required parameters and `[optional]` for optional ones. This is displayed in the side panel.
 
 **`description`** — What the command does and when to use it. This is the main text shown in the side panel. Use a YAML block scalar (the `|` symbol) for descriptions that span multiple lines — it keeps the text readable in the file.
 
-**`category`** — Logical grouping: `networking`, `routing`, `system`, `security`, `monitoring`, and so on. Must match an existing category used in other entries.
+**`category`** — Logical grouping: `networking`, `routing`, `system`, `security`, `monitoring`, and so on. It must match an existing category used in other entries.
 
-**`mode`** — Which CLI mode the command is valid in. The mode must be one defined in the platform's `index.yaml` prompt patterns. Common values for Cisco platforms: `user-exec`, `privileged-exec`, `global-config`, `interface-config`, `routing-config`. For F5: `tmsh-root`, `ltm`, `net`, `sys`. For Linux: `shell`.
+**`mode`** — Which CLI mode the command is valid in. The mode must match a prompt pattern defined in the `index.yaml` file for that platform. Common values for Cisco platforms: `user-exec`, `privileged-exec`, `global-config`, `interface-config`, `routing-config`. For F5: `tmsh-root`, `ltm`, `net`, `sys`. For Linux: `shell`.
 
 **`examples`** — At least one example with a `command` and `description`. These appear as clickable entries in the side panel for quick reference.
 
@@ -107,7 +109,7 @@ commands:
 
 **`versions.notes`** — Free-form text for version caveats. Displayed with a warning indicator in the side panel.
 
-**`tags`** — Search keywords that help surface the command even when the typed prefix doesn't match. Use lowercase, keep consistent with existing entries.
+**`tags`** — Search keywords that find the command even when the typed prefix does not match. Use lowercase, keep consistent with existing entries.
 
 **`submode`** — If the command enters a sub-configuration mode (like `router ospf`), specify it here. The app uses this to update mode detection context.
 
@@ -115,7 +117,7 @@ commands:
 
 ## Editing an Existing Command
 
-Find the entry in the relevant category file and modify any field. Changes take effect on the next connection. No restart required.
+Find the entry in the relevant category file and modify any field. Changes take effect on the next connection. No restart is required.
 
 Common edits:
 
@@ -127,7 +129,7 @@ Common edits:
 
 ## Adding a New Category File
 
-Create a new `.yaml` file in the platform's `commands/` directory. The filename becomes the category identifier. Structure it like any other category file:
+Create a new `.yaml` file in the `commands/` directory for that platform. The filename becomes the category identifier. Structure it like any other category file:
 
 ```yaml
 commands:
@@ -149,19 +151,19 @@ commands:
 
 Then add the new file to `command_files` in `index.yaml`. The app picks it up on the next connection.
 
-Categories map to functional areas. Not all platforms need the same set. Add only the files relevant to the platform you're working with.
+Categories map to functional areas. Not all platforms need the same set. Add only the files relevant to the platform you are working with.
 
 ## Best Practices
 
 **Include the aliases people actually use.** Engineers rarely type full commands. `sh ip int br` is more common than `show ip interface brief`. Add both.
 
-**Write practical descriptions.** Don't just repeat what the command does. Say when an engineer would reach for it and what output to expect.
+**Write practical descriptions.** Do not just repeat what the command does. State when an engineer needs it and what output to expect.
 
 **Use block scalars for descriptions.** The `|` symbol preserves line breaks and makes multi-line text readable in the YAML source.
 
-**Keep tags lowercase and consistent.** If existing entries tag OSPF commands as `ospf`, don't introduce `OSPF` or `ospf-routing`.
+**Keep tags lowercase and consistent.** If existing entries tag OSPF commands as `ospf`, do not introduce `OSPF` or `ospf-routing`.
 
-**Test your changes.** Connect to a device of that platform after editing. Type a prefix that should match your new or modified command and confirm it appears in suggestions. Check the side panel shows correct information.
+**Test your changes.** Connect to a device of that platform after editing. Type a prefix that matches your new or modified command. Make sure that it appears in suggestions. Make sure that the side panel shows correct information.
 
 ## Next Steps
 

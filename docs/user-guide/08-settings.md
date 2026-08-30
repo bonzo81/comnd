@@ -1,12 +1,14 @@
-﻿## Opening Settings
+﻿# Settings
+
+## Opening Settings
 
 Press `Ctrl+,` (comma) or click **File → Settings** in the menu bar.
 
-The settings panel slides open from the right side of the window. It pushes the terminal — it doesn't overlay it. Press `Escape` to close.
+The settings panel slides open from the right side of the window. It pushes the terminal — it does not overlay it. Press `Escape` to close.
 
 ## Available Settings
 
-The settings screen is deliberately minimal. Here's what you can configure:
+The settings screen is deliberately minimal. Here is what you can configure:
 
 ### Terminal font size
 
@@ -15,11 +17,11 @@ Default is `14px`. You can adjust it two ways:
 - **In-session:** `Ctrl++` to increase, `Ctrl+-` to decrease. The change applies immediately.
 - **In settings:** type a value or use the stepper control.
 
-Your chosen size persists across sessions — it's saved to the app's config file and restored on next launch.
+Your chosen size persists across sessions. The app saves the size to the settings file and restores it on the next launch.
 
 ### Theme
 
-Defaults to **dark** and, by default, follows your OS light/dark preference automatically.
+By default, the theme follows your OS light/dark preference automatically.
 
 Switch to the **Appearance** section to override:
 
@@ -31,12 +33,12 @@ The change takes effect immediately. No restart needed.
 
 ### Knowledge base update channel
 
-Controls how command-suggestion data is updated. Currently a placeholder — not yet implemented.
+This setting controls how command-suggestion data is updated. It is currently a placeholder and not yet implemented.
 
-- **Auto (recommended)** — download and apply KB updates in the background as they're released.
+- **Auto (recommended)** — download and apply KB updates in the background as they are released.
 - **Manual confirmation** — notify when an update is available but wait for your approval.
 
-When this feature ships, you'll find it in the settings panel. For now, the knowledge base is distributed with the app and updated through normal app releases.
+When this feature ships, you will find it in the settings panel. For now, the knowledge base is distributed with the app and updated through normal app releases.
 
 ## Keyboard Shortcuts Reference
 
@@ -44,5 +46,5 @@ For the full shortcut table, see [Keyboard Shortcuts](07-keyboard-shortcuts.md) 
 
 ## Next Steps
 
-- [Terminal & Suggestions](04-terminal-and-suggestions.md) — how the shadow buffer and ghost text work
-- [Getting Started](02-getting-started.md) — first session walkthrough if you haven't read it yet
+- [Terminal & Suggestions](04-terminal-and-suggestions.md) — how input handling and ghost text work
+- [Getting Started](02-getting-started.md) — first session walkthrough if you have not read it yet

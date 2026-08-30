@@ -1,23 +1,25 @@
-﻿## Terminal Shortcuts
+﻿# Keyboard Shortcuts
 
-While connected to a device with an active SSH session.
+## Terminal Shortcuts
+
+These shortcuts work while you are connected to a device with an active SSH session.
 
 | Shortcut | Action |
 |---|---|
-| `Tab` | Accept ghost text suggestion (if showing); pass through to remote (otherwise) |
+| `Tab` | Accept the ghost text suggestion if one is showing. Otherwise, pass through to the remote device |
 | `Ctrl+Space` | Toggle command suggestions (auto-show the dropdown while typing) |
 | `Escape` | See [Escape Cascade](#escape-cascade) |
-| `↑` / `↓` | Navigate dropdown items (if open); remote command history (if closed) |
-| `Enter` | Send typed command to device (always); closes dropdown if open |
+| `↑` / `↓` | Navigate dropdown items if the dropdown is open. Navigate remote command history if it is closed |
+| `Enter` | Send the typed command to the device (always). Closes the dropdown if it is open |
 | `` Ctrl+` `` | Toggle side panel (sessions, host details, suggestions) |
-| `Ctrl+Shift+W` | Close active tab (with confirm) |
+| `Ctrl+Shift+W` | Close active tab (after a confirmation dialog) |
 | `Ctrl++` / `Ctrl+-` | Zoom terminal font in / out |
 
-**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and net.sh doesn't interfere with that.
+**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and net.sh does not interfere with that.
 
 ## Connection Manager Shortcuts
 
-The home screen and host list. Active when no SSH session is in focus.
+These shortcuts work on the home screen and host list. They are active when no SSH session is in focus.
 
 | Shortcut | Action |
 |---|---|
@@ -29,7 +31,7 @@ The home screen and host list. Active when no SSH session is in focus.
 
 ## Global Shortcuts
 
-Work regardless of which panel or view is active.
+These shortcuts work regardless of which panel or view is active.
 
 | Shortcut | Action |
 |---|---|
@@ -39,7 +41,7 @@ Work regardless of which panel or view is active.
 
 ## Escape Cascade
 
-`Escape` follows a consistent back-out path. Each press steps up one level:
+`Escape` follows a consistent back-out path. Each press moves you up one level:
 
 1. Dropdown open → close dropdown
 2. Side panel open → close side panel

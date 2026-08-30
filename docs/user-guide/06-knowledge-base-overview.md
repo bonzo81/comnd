@@ -1,19 +1,21 @@
-﻿## What's Included
+﻿# Knowledge Base Overview
 
-net.sh ships with four platform knowledge bases. Each KB is self-contained: commands are described in full for that platform, with no cross-references needed at runtime.
+## What's Included
+
+net.sh ships with four platform knowledge bases. Each KB is self-contained. Commands are described in full for that platform. No cross-references are needed at runtime.
 
 | Platform ID | Covers |
 |---|---|
 | `linux-bash` | General Linux/bash commands — networking, filesystem, process management, package tools |
 | `cisco-iosxe` | Cisco IOS-XE — routers, Catalyst switches, ASR and ISR platforms |
-| `cisco-nxos` | Cisco NX-OS — Nexus data centre switches |
+| `cisco-nxos` | Cisco NX-OS — Nexus data center switches |
 | `f5-tmos` | F5 BIG-IP TMOS / tmsh — load balancers, application delivery controllers |
 
-When you connect to a device, you select the platform in the host configuration. net.sh loads that platform's knowledge base and uses it for suggestion matching. If you change the platform assignment, the suggestion data changes immediately — no restart needed.
+When you connect to a device, you select the platform in the host settings. net.sh loads the knowledge base for that platform and uses it for suggestion matching. If you change the platform assignment, the suggestion data changes immediately — no restart needed.
 
 ## How Version Filtering Works
 
-Commands in the knowledge base carry version information: when they were introduced, and when they were deprecated (if ever). This lets net.sh filter suggestions to match the actual OS running on your device.
+Commands in the knowledge base carry version information. This covers when a command was introduced and when it was deprecated (if ever). This lets net.sh filter suggestions to match the actual OS running on your device.
 
 **When you set an OS version** in the host settings (for example, `17.6` or `9.3(5)`):
 - Commands introduced *after* your version are hidden
@@ -22,11 +24,11 @@ Commands in the knowledge base carry version information: when they were introdu
 
 **When no OS version is set**, all commands for the platform are shown, regardless of version constraints.
 
-**Example:** A Cisco IOS-XE host set to OS version `17.6` will see commands introduced in 17.x and earlier that are still current. Commands exclusive to 18.x releases won't appear. Commands deprecated in 16.x releases also won't appear.
+**Example:** A Cisco IOS-XE host set to OS version `17.6` will see commands introduced in 17.x and earlier that are still current. Commands exclusive to 18.x releases will not appear. Commands deprecated in 16.x releases will not appear either.
 
 Version comparison uses the **major version number** (the integer before the first dot). For `17.6`, the major version is `17`. This keeps filtering simple and predictable.
 
-Commands that carry version caveats — such as "changed behaviour in 17.3" or "requires 15.2 or later" — show a warning indicator (⚠️) in the suggestion list so you know to check compatibility details before trusting a stored description.
+Some commands carry version caveats, such as "changed behavior in 17.3" or "requires 15.2 or later". These commands show a warning indicator (⚠️) in the suggestion list. Check the compatibility details before you use a stored description.
 
 ## How Mode-Aware Filtering Works
 
@@ -44,18 +46,18 @@ net.sh detects the current CLI mode from the device prompt. This determines whic
 
 The current mode is displayed in the **status bar** at the bottom of the terminal view.
 
-If net.sh can't determine the mode (for example, the prompt format is non-standard), it shows all commands for the platform — so you never lose access to suggestions.
+If net.sh cannot determine the mode (for example, a non-standard prompt format), it shows all commands for the platform. You keep access to suggestions in this case.
 
 ## How Suggestions Are Matched
 
-As you type in the terminal, net.sh looks through the knowledge base for matches. Here's what it checks:
+As you type in the terminal, net.sh looks through the knowledge base for matches. Here is what it checks:
 
 1. **Command names** — the full command string (for example, `show ip interface brief`)
 2. **Aliases** — common shorthand forms stored in the KB (for example, `sh ip int br`)
 
 The search is **case-insensitive**, so typing `SH`, `sh`, or `Sh` all produce the same results.
 
-**Example:** Typing `sh ip` on a Cisco IOS-XE device might match:
+**Example:** Typing `sh ip` on a Cisco IOS-XE device can match:
 - `show ip interface brief` (via alias `sh ip int br`)
 - `show ip route` (via command name prefix `show ip route`)
 - `show ip bgp` (via command name prefix)
@@ -63,7 +65,7 @@ The search is **case-insensitive**, so typing `SH`, `sh`, or `Sh` all produce th
 **How results are ordered:**
 1. Exact name prefix matches appear first
 2. Alias matches appear next
-3. Within each group, commands are ordered by category relevance
+3. net.sh orders commands within each group by category relevance
 
 For a deeper look at the full suggestion UI, see [Terminal & Suggestions](04-terminal-and-suggestions.md).
 
@@ -82,4 +84,4 @@ For detailed instructions on editing and extending the KB, see [Customizing the 
 - [Connecting to Devices](03-connecting-to-devices.md) — setting the platform and OS version for a host
 - [Terminal & Suggestions](04-terminal-and-suggestions.md) — the suggestion UI and how to interact with it
 - [Customizing the Knowledge Base](11-customizing-knowledge-base.md) — editing, adding, and updating command data
-- [Troubleshooting](10-troubleshooting.md) — what to check when suggestions aren't matching as expected
+- [Troubleshooting](10-troubleshooting.md) — what to check when suggestions are not matching as expected
