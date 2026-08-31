@@ -23,3 +23,6 @@ docs/*.pdf
 .opencode/
 .omo/
 .serena/
+
+# Headroom
+.headroom/
