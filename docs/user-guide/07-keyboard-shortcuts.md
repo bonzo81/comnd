@@ -1,4 +1,4 @@
-﻿# Keyboard Shortcuts
+# Keyboard Shortcuts
 
 ## Terminal Shortcuts
 
@@ -15,7 +15,7 @@ These shortcuts work while you are connected to a device with an active SSH sess
 | `Ctrl+Shift+W` | Close active tab (after a confirmation dialog) |
 | `Ctrl++` / `Ctrl+-` | Zoom terminal font in / out |
 
-**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and net.sh does not interfere with that.
+**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and netssh does not interfere with that.
 
 ## Connection Manager Shortcuts
 

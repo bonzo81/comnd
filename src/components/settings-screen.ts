@@ -302,7 +302,7 @@ export class SettingsScreen {
             ${opt("dark", "Dark")}
             ${opt("light", "Light")}
           </select>
-          <span class="import-hint">Applies to the net.sh window chrome, nav panel, and settings</span>
+          <span class="import-hint">Applies to the netssh window chrome, nav panel, and settings</span>
         </div>
       </div>
     `;
@@ -1112,7 +1112,7 @@ export class SettingsScreen {
   private async browseLogFile(): Promise<void> {
     try {
       const selected = await save({
-        defaultPath: "netsh.log",
+        defaultPath: "netssh.log",
         filters: [{ name: "Log files", extensions: ["log"] }],
       });
       if (selected) {
@@ -1129,7 +1129,7 @@ export class SettingsScreen {
   private async exportData(): Promise<void> {
     try {
       const dest = await save({
-        defaultPath: "netsh-backup.zip",
+        defaultPath: "netssh-backup.zip",
         filters: [{ name: "Backup files", extensions: ["zip"] }],
       });
       if (!dest) return;

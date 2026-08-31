@@ -6,7 +6,7 @@
  * See docs/plan-terminal-output-highlighting.md.
  */
 
-const STORAGE_KEY = "netsh-output-highlight";
+const STORAGE_KEY = "netssh-output-highlight";
 
 export function getOutputHighlightEnabled(): boolean {
   return localStorage.getItem(STORAGE_KEY) === "1";
@@ -14,5 +14,5 @@ export function getOutputHighlightEnabled(): boolean {
 
 export function setOutputHighlightEnabled(enabled: boolean): void {
   localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netsh:output-highlight", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("netssh:output-highlight", { detail: enabled }));
 }

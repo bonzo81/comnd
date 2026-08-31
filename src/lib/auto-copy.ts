@@ -5,7 +5,7 @@
  * triggers it.
  */
 
-const STORAGE_KEY = "netsh-auto-copy";
+const STORAGE_KEY = "netssh-auto-copy";
 
 export function getAutoCopyEnabled(): boolean {
   return localStorage.getItem(STORAGE_KEY) === "1";
@@ -13,5 +13,5 @@ export function getAutoCopyEnabled(): boolean {
 
 export function setAutoCopyEnabled(enabled: boolean): void {
   localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netsh:auto-copy", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("netssh:auto-copy", { detail: enabled }));
 }

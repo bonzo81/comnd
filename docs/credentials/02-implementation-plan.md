@@ -124,7 +124,7 @@ No new crates. `russh` 0.46 (agent client), `reqwest` 0.12 (Vault), `keyring` 3 
   }
   ```
 - Registry: `Vec<Box<dyn SecretProvider>>` in `AppState`, constructed at startup from config
-- Provider config in `config.json`: `providers: { proton: { enabled: bool, ...fields }, ... }` — secrets (PATs, session keys) in keyring under `netsh_provider_<id>`, following the ollama-key pattern (`config.rs:82-101`)
+- Provider config in `config.json`: `providers: { proton: { enabled: bool, ...fields }, ... }` — secrets (PATs, session keys) in keyring under `netssh_provider_<id>`, following the ollama-key pattern (`config.rs:82-101`)
 - IPC: `list_providers() -> Vec<{ id, status }>`; `test_ref(provider, reference) -> { label } | Error` (resolve, read title, discard secret)
 - All subprocess spawning: arg arrays, secrets via env (`Command::env`), never argv, never `sh -c`
 - Unit-test mock provider (env-var-backed) exercises trait + registry without a real CLI
@@ -245,7 +245,7 @@ CLI invocations are best-effort pending a real account — see `plan-provider-pr
 
 **Spec (expand when scheduled):**
 - Resolve: `bw get password <id>` with `BW_SESSION` from our keyring
-- Settings card gains "Unlock" flow: one-time `bw unlock` → we capture `BW_SESSION` (user pastes it, or we spawn `bw unlock` and read the session line — decide at impl) → keyring `netsh_provider_bitwarden`
+- Settings card gains "Unlock" flow: one-time `bw unlock` → we capture `BW_SESSION` (user pastes it, or we spawn `bw unlock` and read the session line — decide at impl) → keyring `netssh_provider_bitwarden`
 - Status: session key present → probe `bw sync`/`bw list items --search x`; expired → "Vault locked — Unlock in Auth Integrations settings"
 - List: `bw list items --search` filtered to logins
 

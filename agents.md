@@ -1,10 +1,10 @@
-# Agents.md — net.sh
+# Agents.md — netssh
 
-AI agent behavior and conventions for the net.sh project.
+AI agent behavior and conventions for the netssh project.
 
 ## Project Context
 
-net.sh is a cross-platform desktop SSH client with context-aware command suggestions for network engineers.
+netssh is a cross-platform desktop SSH client with context-aware command suggestions for network engineers.
 
 **Stack:** Tauri v2 (Rust) + TypeScript/Vite frontend + xterm.js terminal emulator
 

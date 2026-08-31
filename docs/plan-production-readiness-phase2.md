@@ -7,11 +7,11 @@ Continuation of the production readiness work from
 paths + audit, config-store init fallback (no more panic), `open_url`
 command-injection fix, host field input validation, full SHA-256
 fingerprints, session reconnect UI + keepalive visibility, max-session cap
-(configurable), panic hook writing to `netsh.log`, window decorations audit
+(configurable), panic hook writing to `netssh.log`, window decorations audit
 (custom title bar verified), data export/backup with merge-conflict dialog,
 ARIA roles + a11y conformance docs.
 
-**Goal:** Move net.sh from beta to a professional, publicly shippable
+**Goal:** Move netssh from beta to a professional, publicly shippable
 desktop application. Focus is on release infrastructure (signing, CI,
 updater), the remaining hardening items, and explicit product decisions —
 not new user-facing features.
@@ -142,7 +142,7 @@ Ollama server and the target doc site. No debounce on the Rust side.
 ### P2.7 — Honest User-Agent in import fetch
 
 - [ ] `import.rs:290`: replace the spoofed Chrome UA with
-      `net.sh/{version} (SSH client; +https://net.sh)`
+      `netssh/{version} (SSH client; +https://netssh)`
 - [ ] Verify import still works against Cisco / F5 / Juniper docs (they
       block by bot-detection, not UA — spoofing buys nothing)
 
@@ -164,7 +164,7 @@ and opt-in remote reporting are polish on top, not blockers.
 **Files:** `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`
 
 *Phase 1 installed the `std::panic::set_hook` that writes panics to
-`netsh.log`.*
+`netssh.log`.*
 
 ---
 

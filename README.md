@@ -1,14 +1,14 @@
-# net.sh — Smart SSH Client for Network Engineers
+# netssh — Smart SSH Client for Network Engineers
 
-net.sh is a desktop SSH client that shows you relevant commands as you type, based on what device you're connected to.
+netssh is a desktop SSH client that shows you relevant commands as you type, based on what device you're connected to.
 
-Instead of memorizing commands for different network devices, net.sh suggests the right commands inline — like a smart autocomplete that understands networking equipment.
+Instead of memorizing commands for different network devices, netssh suggests the right commands inline — like a smart autocomplete that understands networking equipment.
 
-## Why net.sh?
+## Why netssh?
 
 Network engineers typically work with multiple device types daily (Cisco routers, F5 load balancers, Linux servers, etc.). Each has its own command syntax and modes.
 
-**net.sh solves this by:**
+**netssh solves this by:**
 - Automatically detecting what device you're connected to
 - Showing relevant commands as you type (ghost text suggestions)
 - Adapting suggestions based on the device's operating mode
@@ -16,7 +16,7 @@ Network engineers typically work with multiple device types daily (Cisco routers
 
 ## Supported Devices
 
-net.sh includes built-in command knowledge for:
+netssh includes built-in command knowledge for:
 - **Linux / bash** — Standard Linux shell commands
 - **Cisco IOS-XE** — Cisco enterprise routers and switches
 - **Cisco NX-OS** — Cisco Nexus data center switches
@@ -33,7 +33,7 @@ The suggestion engine runs locally on your machine — no cloud dependencies or 
 
 ## Technology
 
-net.sh is built as a cross-platform desktop application:
+netssh is built as a cross-platform desktop application:
 - **Rust backend** — Handles SSH connections and command knowledge base
 - **TypeScript frontend** — Terminal emulator and user interface
 - **YAML knowledge base** — Human-readable command definitions per device type
@@ -43,7 +43,7 @@ Runs on Windows, macOS, and Linux.
 ## Documentation
 
 For detailed specifications and implementation plans:
-- [Overview & Goals](docs/01-overview-goals.md) — What net.sh aims to achieve
+- [Overview & Goals](docs/01-overview-goals.md) — What netssh aims to achieve
 - [Technical Architecture](docs/02-technical-architecture.md) — How SSH connections and suggestions work
 - [Knowledge Base](docs/06-knowledge-base.md) — Command definition format and structure
 - [Implementation Plan](implementation/README.md) — Development stages and progress

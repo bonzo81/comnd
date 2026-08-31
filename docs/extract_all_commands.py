@@ -6,7 +6,7 @@ import fitz
 import re
 import json
 
-doc = fitz.open(r"C:\Users\andyt\development\netsh\docs\b_1715_9200_cr (1).pdf")
+doc = fitz.open(r"C:\Users\andyt\development\netssh\docs\b_1715_9200_cr (1).pdf")
 toc = doc.get_toc()
 
 # Build section mapping and level-3 entries
@@ -158,7 +158,7 @@ for i, (title, page, section) in enumerate(l3_entries):
         print(f"  Processed {i + 1}/{len(l3_entries)} commands...")
 
 # Write output
-out_path = r"C:\Users\andyt\development\netsh\docs\iosxe-17.15-commands-extracted.json"
+out_path = r"C:\Users\andyt\development\netssh\docs\iosxe-17.15-commands-extracted.json"
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2, ensure_ascii=False)
 

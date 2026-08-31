@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 /**
- * Logger — structured frontend logging for net.sh
+ * Logger — structured frontend logging for netssh
  *
  * Usage:
  *   import { log, LogTag } from '../lib/logger';
@@ -66,7 +66,7 @@ function redact(s: string): string {
 
 function format(level: LogLevel, tag: LogTag, msg: string): string {
   const ts = new Date().toISOString();
-  return `[net.sh:${tag}] ${ts} ${level.toUpperCase()} ${redact(msg)}`;
+  return `[netssh:${tag}] ${ts} ${level.toUpperCase()} ${redact(msg)}`;
 }
 
 // ponytail: JSON.stringify + Error name/message only. Circular refs → "[Circular]".

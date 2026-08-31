@@ -2,7 +2,7 @@
 import fitz
 import re
 
-doc = fitz.open(r"C:\Users\andyt\development\netsh\docs\b_1715_9200_cr (1).pdf")
+doc = fitz.open(r"C:\Users\andyt\development\netssh\docs\b_1715_9200_cr (1).pdf")
 toc = doc.get_toc()
 
 # Level-3 entries are the individual commands

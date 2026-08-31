@@ -1,8 +1,12 @@
 # Plan: Over-Engineering Review Fixes (NetBox host source)
 
-Status: approved review, not yet implemented. Scope: shrink/simplify the
+Status: implemented (2026-08-28, commit 8873cbe). Scope: shrink/simplify the
 NetBox implementation per the ponytail review pass. No behavior changes —
 pure deletions and stdlib swaps. Obey `AGENTS.md` verification gates.
+Implementation note: §3.3's test text assumed space→dash, but the proposed
+slugify body strips spaces; tests follow the code (`"Rack Row 1"` →
+`"rackrow1"`). Real NetBox slugs never contain spaces, so behavior is
+identical.
 
 ## 1. Goal
 

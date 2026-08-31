@@ -1,4 +1,4 @@
-﻿# Troubleshooting
+# Troubleshooting
 
 ## Connection Problems
 
@@ -31,9 +31,9 @@ Some devices using keyboard-interactive authentication (common on F5 TMOS and ce
 ### "Host key has changed"
 
 **This is a security warning, not an error.**
-net.sh saves the host key on first connection and checks it on every subsequent connection. If it no longer matches, a common cause is that the device was re-imaged, its OS was reinstalled, or its SSH server keys were regenerated.
+netssh saves the host key on first connection and checks it on every subsequent connection. If it no longer matches, a common cause is that the device was re-imaged, its OS was reinstalled, or its SSH server keys were regenerated.
 
-If you were not expecting this change, stop and ask the device administrator before you proceed. This can also indicate a man-in-the-middle attack. If you are certain the change is legitimate, net.sh will let you accept the new key and update the saved fingerprint. For background on host key verification, see [Security](09-security.md).
+If you were not expecting this change, stop and ask the device administrator before you proceed. This can also indicate a man-in-the-middle attack. If you are certain the change is legitimate, netssh will let you accept the new key and update the saved fingerprint. For background on host key verification, see [Security](09-security.md).
 
 ### Connection drops mid-session
 
@@ -89,7 +89,7 @@ Zoom in-session with `Ctrl++` and out with `Ctrl+-`. Changes affect the current 
 ### Terminal output looks garbled
 
 **Formatting codes or control characters appear as literal text on screen.**
-This happens when the remote device sends output in a format that the terminal emulator of net.sh does not fully support. Most modern devices use a standard format (xterm-compatible ANSI).
+This happens when the remote device sends output in a format that the terminal emulator of netssh does not fully support. Most modern devices use a standard format (xterm-compatible ANSI).
 
 If possible, set the `TERM` environment variable on the remote side to `xterm-256color`. For devices where you cannot change the remote terminal type (locked-down Cisco or F5), reduce color output on the remote side: `terminal no color` on Cisco, or `TERM=dumb` in a shell.
 
@@ -111,7 +111,7 @@ Check that your system meets the [installation requirements](01-installation.md)
 ### Blurry text on high-DPI displays
 
 **Text appears fuzzy, especially on Windows or Linux with fractional scaling.**
-net.sh uses your OS display scaling setting. If text is blurry, adjust the font size in Settings rather than relying on OS fractional scaling (for example, 125% or 150%). Increasing the terminal font size by one or two points often produces a sharper result than OS-level upscaling.
+netssh uses your OS display scaling setting. If text is blurry, adjust the font size in Settings rather than relying on OS fractional scaling (for example, 125% or 150%). Increasing the terminal font size by one or two points often produces a sharper result than OS-level upscaling.
 
 ## Logs & Diagnostics
 
@@ -119,9 +119,9 @@ App logs are plain text files you can open in any editor. They capture connectio
 
 | Platform | Log path |
 |---|---|
-| **Linux** | `~/.config/net.sh/logs/` |
-| **Windows** | `%APPDATA%\net.sh\logs\` |
-| **macOS** | `~/Library/Application Support/net.sh/logs/` |
+| **Linux** | `~/.config/netssh/logs/` |
+| **Windows** | `%APPDATA%\netssh\logs\` |
+| **macOS** | `~/Library/Application Support/netssh/logs/` |
 
 Log files are rotated — the current session writes to the most recent file, and older sessions are kept with timestamps in the filename. Look for lines containing `ERROR` or `WARN` near the time your problem occurred.
 

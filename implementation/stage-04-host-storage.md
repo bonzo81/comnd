@@ -44,7 +44,7 @@ AuthType enum: Password, SshKey
 ### 2. Implement JSON file storage
 
 - Use `dirs::data_dir()` to get the platform-appropriate app data directory
-- Store hosts in `{data_dir}/netsh/hosts.json`
+- Store hosts in `{data_dir}/netssh/hosts.json`
 - Create the directory if it doesn't exist
 - Functions: `load_hosts() -> Vec<Host>`, `save_hosts(hosts: &[Host])`, `get_hosts_path() -> PathBuf`
 - Handle missing file gracefully (return empty vec)
@@ -62,7 +62,7 @@ AuthType enum: Password, SshKey
 
 Add credential functions using the `keyring` crate (add to `Cargo.toml`):
 
-- `save_credential(host_id: &str, password: &str) -> Result<(), String>` — stores in OS keychain with service name `netsh` and user `host_id`
+- `save_credential(host_id: &str, password: &str) -> Result<(), String>` — stores in OS keychain with service name `netssh` and user `host_id`
 - `get_credential(host_id: &str) -> Result<Option<String>, String>` — retrieves from OS keychain
 - `delete_credential(host_id: &str) -> Result<(), String>` — removes from OS keychain
 - Passwords are NEVER stored in the JSON file — only in the OS keychain
@@ -128,7 +128,7 @@ Add typed frontend wrappers for all new commands:
    - Call `getCredential(hostId)` — returns `"mypassword"`
    - Call `deleteHost(hostId)` — succeeds
    - Call `getHosts()` — returns empty array
-3. Check filesystem: `%APPDATA%/netsh/hosts.json` (Windows) or `~/.local/share/netsh/hosts.json` (Linux) or `~/Library/Application Support/netsh/hosts.json` (macOS) exists and contains valid JSON
+3. Check filesystem: `%APPDATA%/netssh/hosts.json` (Windows) or `~/.local/share/netssh/hosts.json` (Linux) or `~/Library/Application Support/netssh/hosts.json` (macOS) exists and contains valid JSON
 4. Verify passwords are NOT in the JSON file
 5. Verify OS keychain has the credential (Windows Credential Manager / macOS Keychain / Linux Secret Service)
 

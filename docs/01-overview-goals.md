@@ -1,4 +1,4 @@
-# net.sh — Overview & Goals
+# netssh — Overview & Goals
 
 **Version:** 0.1 (draft) **Status:** In progress **Author:** Andy Norwood (architect) **Last updated:** 2026-03-03
 
@@ -7,9 +7,9 @@
 
 ## Overview
 
-**net.sh** is a cross-platform desktop SSH client with context-aware, platform-intelligent command suggestions. It targets network engineers who work across multiple device types and OS dialects daily.
+**netssh** is a cross-platform desktop SSH client with context-aware, platform-intelligent command suggestions. It targets network engineers who work across multiple device types and OS dialects daily.
 
-Unlike generic SSH clients, net.sh understands *what you're connected to* and surfaces relevant commands inline — from a structured, version-aware knowledge base. AI-assisted suggestions are a planned future enhancement; the MVP relies entirely on curated structured data.
+Unlike generic SSH clients, netssh understands *what you're connected to* and surfaces relevant commands inline — from a structured, version-aware knowledge base. AI-assisted suggestions are a planned future enhancement; the MVP relies entirely on curated structured data.
 
 
 ---

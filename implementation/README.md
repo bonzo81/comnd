@@ -1,6 +1,6 @@
-# net.sh — Implementation Plan
+# netssh — Implementation Plan
 
-Staged build plan for the net.sh Tauri v2 SSH client. Each stage ends with a local test checkpoint (`cargo tauri dev`). Stages are ordered by dependency chain — later stages depend on earlier ones.
+Staged build plan for the netssh Tauri v2 SSH client. Each stage ends with a local test checkpoint (`cargo tauri dev`). Stages are ordered by dependency chain — later stages depend on earlier ones.
 
 ## Stages Overview
 

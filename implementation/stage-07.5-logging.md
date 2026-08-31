@@ -51,7 +51,7 @@ Stages 08–12 build on a working SSH connection with prompt detection, suggesti
 
 Create `src/lib/logger.ts`:
 - Simple level-based logger (debug, info, warn, error)
-- Each log call prefixed with `[net.sh]` and component tag
+- Each log call prefixed with `[netssh]` and component tag
 - Uses `console.debug/log/warn/error` under the hood
 - Log level configurable (default: `info` in prod, `debug` in dev)
 
@@ -95,7 +95,7 @@ Create `src/lib/logger.ts`:
 1. `cargo tauri dev` — logs visible in terminal: startup, KB path, host store init
 2. Connect to a host — see: connect attempt, auth method, auth result, channel open, data flow
 3. Disconnect — see: disconnect reason logged
-4. Open DevTools console — see: `[net.sh]` prefixed frontend logs with component tags
+4. Open DevTools console — see: `[netssh]` prefixed frontend logs with component tags
 5. `RUST_LOG=debug cargo tauri dev` — see debug-level logs (data byte counts, KB queries)
 6. Auth failure — see: warning logged with details (no credentials leaked)
 

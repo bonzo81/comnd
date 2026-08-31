@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn test_corrupt_file_preserved() {
-        let dir = std::env::temp_dir().join(format!("netsh_hosts_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_hosts_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hosts.json");
         std::fs::write(&path, "{not valid json").unwrap();

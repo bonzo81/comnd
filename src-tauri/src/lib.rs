@@ -1,4 +1,4 @@
-//! net.sh — Tauri backend
+//! netssh — Tauri backend
 //!
 //! Handles: SSH connections (russh), KB loading/querying,
 //! credential management, config, and KB import.
@@ -31,14 +31,14 @@ use paths::{MergeScan, ConflictResolution};
 
 /// Caps dependency crates (russh, tao, ...) at warn: their debug output is
 /// wire/crypto chatter and dumps raw SSH packets (usernames, key material)
-/// into log files. App crates (netsh*) log at the configured level.
+/// into log files. App crates (netssh*) log at the configured level.
 /// simplelog 0.12 has no per-target filter, hence the wrapper.
 struct DepCapLogger(Box<simplelog::WriteLogger<MultiWriter>>);
 
 impl log::Log for DepCapLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         let t = metadata.target();
-        t.starts_with("netsh_lib") || t.starts_with("netsh") || metadata.level() <= log::Level::Warn
+        t.starts_with("netssh_lib") || t.starts_with("netssh") || metadata.level() <= log::Level::Warn
     }
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
@@ -1338,7 +1338,7 @@ fn open_log_file(
 }
 
 /// Resolve the log file path. A `None`/empty/whitespace custom path yields
-/// the default (`paths::log_dir()/netsh.log`, `used_custom = false`). A
+/// the default (`paths::log_dir()/netssh.log`, `used_custom = false`). A
 /// non-absolute custom path is rejected (the logger runs before CWD
 /// stabilizes) and falls back to the default. Otherwise the custom path is
 /// returned as-is — open/create failures are handled by the caller, which
@@ -1346,8 +1346,8 @@ fn open_log_file(
 fn resolve_log_path(custom: Option<&str>) -> (std::path::PathBuf, bool) {
     let default = || {
         crate::paths::log_dir()
-            .map(|d| d.join("netsh.log"))
-            .unwrap_or_else(|_| std::path::PathBuf::from("netsh.log"))
+            .map(|d| d.join("netssh.log"))
+            .unwrap_or_else(|_| std::path::PathBuf::from("netssh.log"))
     };
     let Some(p) = custom.map(str::trim).filter(|s| !s.is_empty()) else {
         return (default(), false);
@@ -1389,7 +1389,7 @@ pub fn run() {
             .unwrap_or_else(|e| {
                 // Logger not yet up; print to stderr as a last resort.
                 eprintln!(
-                    "net.sh: Failed to read config ({}). Using 'info'/10MB/default log path.",
+                    "netssh: Failed to read config ({}). Using 'info'/10MB/default log path.",
                     e
                 );
                 ("info".to_string(), 10, None)
@@ -1410,12 +1410,12 @@ pub fn run() {
             // back to the default path.
             if let Err(e) = open_log_file(&mut writers, &log_path, max_mb) {
                 log_fallback_reason = Some(e);
-                if let Ok(default_path) = crate::paths::log_dir().map(|d| d.join("netsh.log")) {
+                if let Ok(default_path) = crate::paths::log_dir().map(|d| d.join("netssh.log")) {
                     let _ = open_log_file(&mut writers, &default_path, max_mb);
                 }
             }
         } else if let Err(e) = open_log_file(&mut writers, &log_path, max_mb) {
-            eprintln!("net.sh: {}", e);
+            eprintln!("netssh: {}", e);
         }
     }
     let multi = MultiWriter(writers);
@@ -1425,7 +1425,7 @@ pub fn run() {
     let _ = log::set_logger(logger);
     log::set_max_level(filter);
 
-    // Install a panic hook so panics are captured in netsh.log instead of
+    // Install a panic hook so panics are captured in netssh.log instead of
     // vanishing into the void. The default hook prints to stderr only, which
     // a desktop app user never sees. This hook logs at error level (going
     // through MultiWriter → file + stderr) and then chains to the previous
@@ -1449,7 +1449,7 @@ pub fn run() {
         prev_hook(info);
     }));
 
-    log::info!("net.sh v{} starting", env!("CARGO_PKG_VERSION"));
+    log::info!("netssh v{} starting", env!("CARGO_PKG_VERSION"));
 
     let data_dir: std::path::PathBuf = data_dir.unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -1605,7 +1605,7 @@ mod tests {
     fn test_resolve_log_path_none_uses_default() {
         let (path, used_custom) = resolve_log_path(None);
         assert!(!used_custom);
-        assert!(path.to_string_lossy().contains("netsh.log"));
+        assert!(path.to_string_lossy().contains("netssh.log"));
     }
 
     #[test]
@@ -1613,23 +1613,23 @@ mod tests {
         for input in [Some(""), Some("   ")] {
             let (path, used_custom) = resolve_log_path(input);
             assert!(!used_custom, "input {:?} should use default", input);
-            assert!(path.to_string_lossy().contains("netsh.log"));
+            assert!(path.to_string_lossy().contains("netssh.log"));
         }
     }
 
     #[test]
     fn test_resolve_log_path_relative_falls_back_to_default() {
-        let (path, used_custom) = resolve_log_path(Some("relative/path/netsh.log"));
+        let (path, used_custom) = resolve_log_path(Some("relative/path/netssh.log"));
         assert!(!used_custom);
-        assert!(path.to_string_lossy().contains("netsh.log"));
+        assert!(path.to_string_lossy().contains("netssh.log"));
     }
 
     #[test]
     fn test_resolve_log_path_absolute_custom() {
         #[cfg(unix)]
-        let custom = "/tmp/netsh-test-logs/netsh.log";
+        let custom = "/tmp/netssh-test-logs/netssh.log";
         #[cfg(windows)]
-        let custom = "C:\\netsh-test-logs\\netsh.log";
+        let custom = "C:\\netssh-test-logs\\netssh.log";
         let (path, used_custom) = resolve_log_path(Some(custom));
         assert!(used_custom);
         assert_eq!(path, std::path::PathBuf::from(custom));

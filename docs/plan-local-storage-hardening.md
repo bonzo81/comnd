@@ -14,9 +14,9 @@ and `src/components/nav-panel.ts`.
 | P1 | Atomic writes (tmp + rename) | Power loss / panic mid-write = empty JSON, silent data loss |
 | P2 | Use Tauri `app_local_data_dir` instead of `dirs::data_dir` | Wrong dir on Windows (Roaming), wrong under sandboxed/Flatpak |
 | P2 | Preserve corrupt file on parse error, don't auto-overwrite | Parse failure → empty default → save() destroys only copy |
-| P3 | Single `paths.rs` for data dir resolution | 3 copies of `dirs::data_dir().join("netsh")` drift |
+| P3 | Single `paths.rs` for data dir resolution | 3 copies of `dirs::data_dir().join("netssh")` drift |
 | P3 | Remove CWD fallback in `known_hosts_path` | Silently writes into process CWD if `dirs` returns None |
-| P3 | Log file (`netsh.log`) path + perms | Added by plan-logging P3.2; now persists hostnames/usernames in plaintext append-only log, in `dirs::data_dir()` (Roaming on Windows), no rotation, no perms |
+| P3 | Log file (`netssh.log`) path + perms | Added by plan-logging P3.2; now persists hostnames/usernames in plaintext append-only log, in `dirs::data_dir()` (Roaming on Windows), no rotation, no perms |
 
 Non-goals: encrypting `hosts.json` at rest (keychain handles secrets; host
 metadata is not secret enough to justify a key-management surface), migrating
@@ -34,8 +34,8 @@ This plan assumes `plan-logging-improvements.md` is **fully implemented**
   `get_log_level` / `set_log_level` Tauri commands + frontend `setLogLevel`.
   This is a new persisted field in `config.json` that P0.1's migration must
   explicitly preserve when rewriting the file to drop `ollama_api_key`.
-- **`netsh.log` file** (`lib.rs:676`) — release-only, append-only, in
-  `dirs::data_dir().join("netsh").join("logs")`, created with default perms
+- **`netssh.log` file** (`lib.rs:676`) — release-only, append-only, in
+  `dirs::data_dir().join("netssh").join("logs")`, created with default perms
   via `OpenOptions`, no rotation. Captures SSH connect lines (hostname,
   username, port) and therefore needs the same path + perm treatment as the
   other persisted files. See new P3.3 below.
@@ -52,7 +52,7 @@ Three backend stores each independently resolve the data dir:
 // hosts.rs:69, config.rs:60, ssh.rs:29 (identical pattern)
 let data_dir = dirs::data_dir()
     .ok_or_else(|| "Could not find app data directory".to_string())?
-    .join("netsh");
+    .join("netssh");
 ```
 
 `dirs::data_dir()` returns:
@@ -62,16 +62,16 @@ let data_dir = dirs::data_dir()
   a signed/notarized MAS build needs the container path).
 - **Linux**: `$XDG_DATA_HOME` or `~/.local/share` (correct, but Flatpak/snap
   sandboxes redirect differently and `dirs` ignores Tauri's bundle identifier
-  `com.netsh.app`).
+  `com.netssh.app`).
 
 All writes use `std::fs::write` (truncate-then-write, non-atomic). No file in
 `src-tauri` calls `set_permissions` (confirmed by grep). On parse error,
 loaders return `Vec::new()` / `AppConfig::default()` and the next mutation
 overwrites the bad file.
 
-Frontend `localStorage` is out of scope — it only holds: `netsh-theme`,
-`netsh-terminal-theme`, `netsh-timestamps`, `netsh-timestamps-format`,
-`netsh-search-include-tags`, `netsh.nav.expandedGroups`. All UI prefs, no
+Frontend `localStorage` is out of scope — it only holds: `netssh-theme`,
+`netssh-terminal-theme`, `netssh-timestamps`, `netssh-timestamps-format`,
+`netssh-search-include-tags`, `netssh.nav.expandedGroups`. All UI prefs, no
 secrets, no PII. Correct as-is.
 
 ## P0.1 — Move Ollama API key to keychain
@@ -102,13 +102,13 @@ peek so we don't need a second struct.
 
 New `config.rs` helpers, mirroring `hosts.rs::save_credential`:
 ```rust
-const OLLAMA_KEY_ENTRY: &str = "netsh_ollama_api_key";
+const OLLAMA_KEY_ENTRY: &str = "netssh_ollama_api_key";
 
 pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
     match key {
-        Some(k) if !k.is_empty() => keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY)
+        Some(k) if !k.is_empty() => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
             .and_then(|e| e.set_password(&k)).map_err(|e| e.to_string()),
-        _ => keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY)
+        _ => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
             .and_then(|e| e.delete_credential())
             .or_else(|e| matches!(e, keyring::Error::NoEntry).then(|| Ok(())).unwrap_or(Err(e)))
             .map_err(|e| e.to_string()),
@@ -116,7 +116,7 @@ pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
 }
 
 pub fn get_ollama_api_key() -> Result<Option<String>, String> {
-    match keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
+    match keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
         Ok(k) => Ok(Some(k)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -240,7 +240,7 @@ Replace `std::fs::write` in:
 - `kb.rs:682`, `kb.rs:782`, `kb.rs:862` (user KB writes — these are YAML, not
   secrets, so use `atomic_write` without the chmod; low priority, can defer
   if it complicates the KB code paths)
-- `lib.rs:676` (`netsh.log` open) — **see P3.3**; the log file is append-only
+- `lib.rs:676` (`netssh.log` open) — **see P3.3**; the log file is append-only
   and opened once at startup, so `secure_write` doesn't apply. Use
   `ensure_data_dir` + `set_permissions(0o600)` after `OpenOptions::open`
   instead.
@@ -364,19 +364,19 @@ pub fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 ```
 
 `app_local_data_dir` returns:
-- **Windows**: `%LOCALAPPDATA%\com.netsh.app` (Local, not Roaming)
-- **macOS**: `~/Library/Application Support/com.netsh.app` (sandbox-aware
+- **Windows**: `%LOCALAPPDATA%\com.netssh.app` (Local, not Roaming)
+- **macOS**: `~/Library/Application Support/com.netssh.app` (sandbox-aware
   inside a MAS container)
-- **Linux**: `$XDG_DATA_HOME/com.netsh.app` or `~/.local/share/com.netsh.app`
+- **Linux**: `$XDG_DATA_HOME/com.netssh.app` or `~/.local/share/com.netssh.app`
 
-This honors the `identifier` in `tauri.conf.json` (`com.netsh.app`) and is
+This honors the `identifier` in `tauri.conf.json` (`com.netssh.app`) and is
 sandbox-safe. The `dirs` crate is still used by `ssh.rs:409` for
 `dirs::home_dir()` (finding `~/.ssh/id_*` default keys) — that's correct and
 stays.
 
 ### Migration
 
-Existing users have data in `dirs::data_dir().join("netsh")`. On first launch
+Existing users have data in `dirs::data_dir().join("netssh")`. On first launch
 after this change, if the new dir is empty and the old dir exists and has
 `hosts.json`, copy (not move — leave the old dir as a backup) the JSON files
 to the new location. This is a one-shot migration in `lib.rs` `setup`:
@@ -384,7 +384,7 @@ to the new location. This is a one-shot migration in `lib.rs` `setup`:
 ```rust
 let new_dir = paths::app_data_dir(app.handle())?;
 if !new_dir.join("hosts.json").exists() {
-    if let Some(old_dir) = dirs::data_dir().map(|d| d.join("netsh")) {
+    if let Some(old_dir) = dirs::data_dir().map(|d| d.join("netssh")) {
         if old_dir.join("hosts.json").exists() {
             log::info!("Migrating data dir {} -> {}", old_dir.display(), new_dir.display());
             for name in ["hosts.json", "groups.json", "config.json", "known_hosts.json"] {
@@ -402,11 +402,11 @@ if !new_dir.join("hosts.json").exists() {
 }
 ```
 
-Don't migrate `logs/netsh.log` — it's an append-only debug log, not user
+Don't migrate `logs/netssh.log` — it's an append-only debug log, not user
 data; the old one stays where it is and a new one starts in the new location
 (or under `log_dir()` per the ordering note above). No data loss.
 
-Keychain entries are keyed by `("netsh", host_id)` and don't move — no
+Keychain entries are keyed by `("netssh", host_id)` and don't move — no
 credential migration needed.
 
 ### Call site changes
@@ -425,7 +425,7 @@ impl HostStore {
 ```
 
 `lib.rs` `setup` resolves the dir once and passes it to all three constructors.
-This removes the 3 duplicated `dirs::data_dir().join("netsh")` blocks and the
+This removes the 3 duplicated `dirs::data_dir().join("netssh")` blocks and the
 `ConfigStore::new_with_path` fallback (lib.rs:643–653) — `setup` already has
 the `AppHandle`, so the fallback path can be the same `app_data_dir` call with
 error handling in one place.
@@ -456,22 +456,22 @@ options, ranked:
    ```rust
    pub fn log_dir() -> Result<PathBuf, String> {
        // No AppHandle available at log-init time — use dirs, not Tauri.
-       // Same parent as app_data_dir; the log file lives under <data>/netsh/logs.
+       // Same parent as app_data_dir; the log file lives under <data>/netssh/logs.
        dirs::data_local_dir()
-           .map(|d| d.join("netsh").join("logs"))
+           .map(|d| d.join("netssh").join("logs"))
            .ok_or_else(|| "Could not resolve log dir".to_string())
    }
    ```
-   Downside: log file path uses `netsh` not `com.netsh.app`, so it doesn't
+   Downside: log file path uses `netssh` not `com.netssh.app`, so it doesn't
    move when P2.1 migrates the data dir. Acceptable — logs are ephemeral and
    the old log file is harmless. If consistency matters, move logger init
    into `setup` (option 2).
 2. **Move logger init into `setup`** — restructure so the `WriteLogger` is
    constructed after `app_data_dir` resolves. Cleaner but larger diff: the
-   current init logs "net.sh v{} starting" before `setup`, and several early
+   current init logs "netssh v{} starting" before `setup`, and several early
    operations between init and `setup` would lose their log lines. Probably
    not worth the churn just for a bundle-id suffix on the log path.
-3. **Accept the mismatch** — log path uses `dirs::data_local_dir().join("netsh")`,
+3. **Accept the mismatch** — log path uses `dirs::data_local_dir().join("netssh")`,
    data path uses Tauri's `app_local_data_dir()`. Two subdirs under the same
    parent. Harmless, document it.
 
@@ -562,11 +562,11 @@ Subsumed by P2.1 — `app_data_dir` returns `Result`, so the
 `unwrap_or_else(|| PathBuf::from("."))` at `ssh.rs:30` is deleted. No write
 ever lands in CWD.
 
-## P3.3 — Log file (`netsh.log`) path + permissions
+## P3.3 — Log file (`netssh.log`) path + permissions
 
 Added by `plan-logging-improvements.md` P3.2. The log file is created at
 `lib.rs:676` via `OpenOptions::new().create(true).append(true).open()` with
-default umask, in `dirs::data_dir().join("netsh").join("logs")` (Roaming on
+default umask, in `dirs::data_dir().join("netssh").join("logs")` (Roaming on
 Windows). It captures SSH connect lines including hostname, username, and
 port (`ssh.rs:361` "SSH connected for {host_key}" where `host_key` is
 `hostname:port`). This is host metadata, not credentials, but it's the same
@@ -576,7 +576,7 @@ class of "leakable to other users on a shared host" as `hosts.json`.
 
 Per the P2.1 "Log init ordering" note, use `paths::log_dir()` (or
 `app_data_dir` if logger init is moved into `setup`). The log file lives at
-`<log_dir>/netsh.log`.
+`<log_dir>/netssh.log`.
 
 ### Permissions
 
@@ -585,7 +585,7 @@ its parent dir:
 
 ```rust
 // lib.rs — replace the current OpenOptions block (lines 676–685)
-let log_path = paths::log_dir()?.join("netsh.log");
+let log_path = paths::log_dir()?.join("netssh.log");
 paths::ensure_data_dir(log_path.parent().unwrap())?;
 let file = std::fs::OpenOptions::new()
     .create(true)
@@ -627,7 +627,7 @@ paths (open question 3 in the custom-log-location plan).
 ### Rotation
 
 Out of scope. The existing `ponytail:` comment at `lib.rs:670` names the
-ceiling: `netsh.log` grows unbounded; upgrade path is
+ceiling: `netssh.log` grows unbounded; upgrade path is
 `simplelog::RollingFileAppender` or truncate at >10MB. This plan doesn't add
 rotation, just perms. Rotation is a separate future task.
 
@@ -692,11 +692,11 @@ After each step:
   per-host ACLs.
 - **OpenSSH `known_hosts` interop**: write a second copy to
   `~/.ssh/known_hosts` so `ssh` / `ansible` share trust state. Separate task,
-  needs a settings toggle (some users don't want net.sh touching their SSH
+  needs a settings toggle (some users don't want netssh touching their SSH
   config).
 - **Frontend `localStorage` → Tauri `store` plugin**: only matters if we open
   multiple webviews sharing prefs. YAGNI while single-window.
-- **Log rotation**: `netsh.log` grows unbounded. The existing `ponytail:`
+- **Log rotation**: `netssh.log` grows unbounded. The existing `ponytail:`
   comment at `lib.rs:670` names the ceiling. P3.3 only adds perms, not
   rotation. Upgrade path: `simplelog::RollingFileAppender` or truncate at
   >10MB. Separate task.

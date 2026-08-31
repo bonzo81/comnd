@@ -1,16 +1,16 @@
-﻿# Customizing the Knowledge Base
+# Customizing the Knowledge Base
 
 ## Where the Knowledge Base Lives
 
-net.sh ships with a built-in knowledge base inside the app install directory under `knowledge-base/`. The app also creates an editable copy in your app data directory:
+netssh ships with a built-in knowledge base inside the app install directory under `knowledge-base/`. The app also creates an editable copy in your app data directory:
 
 | OS | Path |
 |---|---|
-| Windows | `%APPDATA%\net.sh\knowledge-base\` |
-| macOS | `~/Library/Application Support/net.sh/knowledge-base/` |
-| Linux | `~/.config/net.sh/knowledge-base/` |
+| Windows | `%APPDATA%\netssh\knowledge-base\` |
+| macOS | `~/Library/Application Support/netssh/knowledge-base/` |
+| Linux | `~/.config/netssh/knowledge-base/` |
 
-On startup, net.sh checks for the user copy. If it exists, that copy is used. If not, the app falls back to the built-in copy. This means you can modify your knowledge base without touching the app install, and your changes will not be lost when the app updates.
+On startup, netssh checks for the user copy. If it exists, that copy is used. If not, the app falls back to the built-in copy. This means you can modify your knowledge base without touching the app install, and your changes will not be lost when the app updates.
 
 The file structure mirrors the built-in layout:
 

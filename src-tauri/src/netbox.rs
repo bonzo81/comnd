@@ -144,7 +144,7 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
 
 // ─── Platform mapping (plan §7.2) ───────────────────────────────────
 
-/// NetBox platform slug → net.sh platform. Materialized hosts must carry
+/// NetBox platform slug → netssh platform. Materialized hosts must carry
 /// one of the four VALID_PLATFORMS values.
 const PLATFORM_TABLE: &[(&str, &str)] = &[
     ("cisco-ios", "cisco-iosxe"),
@@ -184,7 +184,7 @@ pub struct PlatformPolicy {
 }
 
 impl PlatformPolicy {
-    /// Resolve a NetBox platform slug to a net.sh platform, or `None` to
+    /// Resolve a NetBox platform slug to a netssh platform, or `None` to
     /// skip the device.
     pub fn resolve(&self, slug: Option<&str>) -> Option<String> {
         let slug = match slug {
@@ -478,8 +478,8 @@ fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
 // ─── Source config + materialization (plan §8) ──────────────────────
 
 /// Keyring keys (plan §8.1/§11 — secrets never live in config.json).
-pub const TOKEN_KEY: &str = "netsh_source_netbox_token";
-pub const DEFAULT_PW_KEY: &str = "netsh_source_netbox_default_pw";
+pub const TOKEN_KEY: &str = "netssh_source_netbox_token";
+pub const DEFAULT_PW_KEY: &str = "netssh_source_netbox_default_pw";
 
 /// Synthetic group ids (plan §8.3): root, site, location.
 pub const ROOT_GROUP_ID: &str = "__netbox__";
@@ -1427,7 +1427,7 @@ mod tests {
     // ─── Cache store (plan §7.3) ───────────────────────────────────
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("netsh_netbox_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_netbox_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

@@ -1,5 +1,5 @@
 {
-  "name": "netsh",
+  "name": "netssh",
   "private": true,
   "version": "0.1.0",
   "description": "Cross-platform SSH client with context-aware command suggestions",

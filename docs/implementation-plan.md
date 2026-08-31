@@ -1,6 +1,6 @@
-# Implementation Plan: net.sh → Linear-Inspired Redesign
+# Implementation Plan: netssh → Linear-Inspired Redesign
 
-**Goal**: Redesign net.sh's visual design to Linear.app aesthetic — clean, dark, precision — without breaking functionality.
+**Goal**: Redesign netssh's visual design to Linear.app aesthetic — clean, dark, precision — without breaking functionality.
 
 **Stack**: Tauri v2, Vanilla TypeScript, xterm.js v5, monolithic 2072-line CSS.
 **Key constraint**: Shadow buffer model, keyboard-first, sidebar pushes terminal (no overlay).

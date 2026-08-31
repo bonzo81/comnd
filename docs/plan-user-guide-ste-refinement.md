@@ -12,8 +12,8 @@ structure, and technical accuracy stay unchanged. No new content is added.
   double-check spots. Host-key technical terms ("host key verification",
   "verified automatically") stay as-is. Table cells become short noun phrases
   where possible, else "Make sure that…".
-- App data directory: **`net.sh`** is correct (with the dot). Files 09 and 10
-  currently say `netsh` — fix them. File 11 already says `net.sh` and stays.
+- App data directory: **`netssh`** is correct (with the dot). Files 09 and 10
+  currently say `netssh` — fix them. File 11 already says `netssh` and stays.
 - Scope: `docs/user-guide/` only (11 files). Internal `docs/*.md` plans, specs,
   and `DEVELOPMENT.md` are untouched.
 
@@ -68,8 +68,8 @@ structure, and technical accuracy stay unchanged. No new content is added.
 | 06-kb-overview | Split 40-word version-caveat sentence; "Here's what it checks" |
 | 07-shortcuts | "Work regardless…" missing subject; "No dead ends." colloquial → plain |
 | 08-settings | "config file" → settings file; double "by default"; "When this feature ships" → "is released"; remove unexplained "shadow buffer" term |
-| 09-security | Possessives (`system's`); "could be exploited" → "can"; checksum passive → active; **paths `netsh` → `net.sh`** |
-| 10-troubleshooting | Heaviest: ~8 sentences over 30 words split; condition order; "sluggishness" → "lag", "Network blips" → "interruptions"; recognised/colour spelling; **paths `netsh` → `net.sh`** (incl. logs paths) |
+| 09-security | Possessives (`system's`); "could be exploited" → "can"; checksum passive → active; **paths `netssh` → `netssh`** |
+| 10-troubleshooting | Heaviest: ~8 sentences over 30 words split; condition order; "sluggishness" → "lag", "Network blips" → "interruptions"; recognised/colour spelling; **paths `netssh` → `netssh`** (incl. logs paths) |
 | 11-customizing | Split 40-word mode-list sentence into a list; explain "YAML block scalar"; "help surface the command" → "find"; best-practice imperatives → statements of fact where descriptive |
 
 ## Execution steps
@@ -81,12 +81,12 @@ structure, and technical accuracy stay unchanged. No new content is added.
    - grep semicolons `;`, banned modals `\b(may|might|could|would|should)\b`,
      British spellings `(organisation|recognis|behaviour|colour)`, `e\.g\.`
    - Manual pass: sentence length, synonym rotation, jargon.
-3. Fix path strings in 09-security.md and 10-troubleshooting.md to `net.sh`.
+3. Fix path strings in 09-security.md and 10-troubleshooting.md to `netssh`.
 4. Final sweep: same greps across all 11 files. Every hit must be a deliberate
    exception or fixed.
 
 ## Untouchables (stay exact)
 
 - Code blocks, CLI flags, UI labels, error strings, numbers, file paths
-  (except the confirmed `netsh` → `net.sh` fix).
+  (except the confirmed `netssh` → `netssh` fix).
 - All technical facts and section structure. No new sections, no new content.

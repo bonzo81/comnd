@@ -19,7 +19,7 @@ etc. — nothing in this plan touches those areas, but the general rules apply).
 
 Add an **opt-in integration** that pulls network devices from a user's NetBox instance
 (https://netbox.readthedocs.io — open-source network Source of Truth, DCIM/IPAM) and shows
-them in the net.sh host list, alongside (never mixed into) manually-created hosts.
+them in the netssh host list, alongside (never mixed into) manually-created hosts.
 
 User-visible requirements:
 
@@ -88,7 +88,7 @@ Line numbers verified at time of writing — re-locate by symbol name if the cod
 - `config.rs` — `AppConfig` with `providers: HashMap<String, serde_json::Value>` (35-36)
   used by the **secret-manager** provider system. Secrets live in the OS keychain, not
   config.json: `save_provider_secret(id, secret)` / `get_provider_secret(id)` (124/140) use
-  keyring entry `netsh_provider_<id>`. `ConfigStore` methods `provider_config`,
+  keyring entry `netssh_provider_<id>`. `ConfigStore` methods `provider_config`,
   `provider_enabled`, `save_provider_config`, `clear_provider` (247-272) are the
   convention to copy for host sources.
 - `secrets/mod.rs` — `SecretProvider` trait (`id/status/resolve/test_reference/list`),
@@ -105,8 +105,8 @@ Line numbers verified at time of writing — re-locate by symbol name if the cod
   every real NetBox. Do NOT reuse it for NetBox. Scheme check only (http/https allowed).
 - `test_server.rs` — mock **SSH** server only (`start_mock_server` binds `127.0.0.1:0`,
   returns port + JoinHandle; debug-gated). No HTTP mock exists yet; §10 defines one.
-- `paths.rs` — data dir = `dirs::data_local_dir()/com.netsh.app` (Windows:
-  `%LOCALAPPDATA%\com.netsh.app`). Helpers: `app_data_dir`, `ensure_data_dir` (0o700),
+- `paths.rs` — data dir = `dirs::data_local_dir()/com.netssh.app` (Windows:
+  `%LOCALAPPDATA%\com.netssh.app`). Helpers: `app_data_dir`, `ensure_data_dir` (0o700),
   `secure_write` (tmp + 0o600 + rename), `atomic_write` (non-secret),
   `preserve_corrupt` (rename to `.corrupt-<ts>`). Existing files: `hosts.json`,
   `groups.json`, `config.json`, `known_hosts.json`, `logs/`, user KB dir.
@@ -122,7 +122,7 @@ Line numbers verified at time of writing — re-locate by symbol name if the cod
 - Nav host tree: `src/components/nav-panel.ts` — `renderGroupNode` (360-410) recurses
   `parent_id`; hosts render under their group; ungrouped hosts under pseudo-root
   `ALL_GROUP_ID = "__all__"` (`host-filters.ts:7`, render 329-343). Expand/collapse state
-  persisted to localStorage (`netsh.nav.expandedGroups`, nav-panel.ts:74-108). Any root
+  persisted to localStorage (`netssh.nav.expandedGroups`, nav-panel.ts:74-108). Any root
   group auto-renders as a sibling under All Hosts — synthetic NetBox groups need **zero
   tree-render changes**.
 - Search filter: `host-filters.ts:26-37` (`hostMatches` — substring across
@@ -340,9 +340,9 @@ impl NetBoxClient {
 
 ### 7.2 Platform mapping
 
-NetBox `platform.slug` → net.sh platform. Built-in table:
+NetBox `platform.slug` → netssh platform. Built-in table:
 
-| NetBox platform slug | net.sh platform |
+| NetBox platform slug | netssh platform |
 |---|---|
 | `cisco-ios`, `ios`, `ios-xe`, `cisco-iosxe` | `cisco-iosxe` |
 | `cisco-nx-os`, `nx-os`, `nxos` | `cisco-nxos` |
@@ -424,7 +424,7 @@ NetBox config JSON (key `"netbox"`):
 ```
 
 Secrets in OS keyring via the Phase 0 generalized helpers, under dedicated keys:
-`netsh_source_netbox_token` (NetBox API token), `netsh_source_netbox_default_pw`
+`netssh_source_netbox_token` (NetBox API token), `netssh_source_netbox_default_pw`
 (source-default SSH password, only if `default_credential` is Password). Never in
 config.json.
 
@@ -575,7 +575,7 @@ output and need no changes. Do not add special cases there.
 - Never write NetBox data into `hosts.json` — merge at read time only.
 - Never reuse `import.rs::validate_fetch_url` for NetBox URLs (it blocks LAN IPs).
 - Never store the NetBox API token or any password in `config.json` — keyring only
-  (`netsh_source_netbox_token`, `netsh_source_netbox_default_pw`).
+  (`netssh_source_netbox_token`, `netssh_source_netbox_default_pw`).
 - Never add a background interval/polling task — refresh is manual-only (decision §2).
 - Never allow save/delete/duplicate/rename/group-move of NetBox hosts (§8.4 guards).
 - No new Cargo or npm dependencies.
@@ -593,7 +593,7 @@ password host + agent host (regression on the moved resolution path).
 
 The `host_sources` config map is keyed by source id; LibreNMS becomes
 `host_sources["librenms"]` with its own module (`librenms.rs`) implementing the same
-shape: config + keyring secret (`netsh_source_librenms_token`) + cache
+shape: config + keyring secret (`netssh_source_librenms_token`) + cache
 (`librenms-cache.json`) + materialization + guards. LibreNMS API differences for whoever
 implements it: base endpoint `/api/v0/devices`, auth header `X-Auth-Token: <token>`,
 pagination via `?limit=&offset=` JSON array responses (no `next` link — iterate offset

@@ -1383,7 +1383,7 @@ mod tests {
         // A legacy entry (empty tokens) already on disk; re-importing the
         // same command with tokens should upgrade the entry, not silently
         // discard the new tokens.
-        let dir = std::env::temp_dir().join("netsh-test-merge");
+        let dir = std::env::temp_dir().join("netssh-test-merge");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.yaml");

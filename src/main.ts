@@ -213,7 +213,7 @@ class App {
 
     const title = document.createElement("span");
     title.className = "title-bar-title";
-    title.textContent = "net.sh";
+    title.textContent = "netssh";
 
     const controls = document.createElement("div");
     controls.className = "title-bar-controls";
@@ -300,7 +300,7 @@ class App {
     const syncIcon = () => {
       appBtn.innerHTML = getAppTheme() === "dark" ? icons.sun : icons.moon;
     };
-    window.addEventListener("netsh:theme", syncIcon);
+    window.addEventListener("netssh:theme", syncIcon);
     syncIcon();
 
     bar.appendChild(sessions);

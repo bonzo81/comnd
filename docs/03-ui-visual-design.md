@@ -2,7 +2,7 @@
 
 ## Design Language
 
-net.sh is a professional tool for network engineers. The visual design should be clean, information-dense, and distraction-free. No decorative elements. Every pixel earns its place.
+netssh is a professional tool for network engineers. The visual design should be clean, information-dense, and distraction-free. No decorative elements. Every pixel earns its place.
 
 Style reference: Linear-inspired neutral slate surfaces, single green accent, subtle borders. All colors are CSS custom properties in `src/styles/tokens.css`.
 

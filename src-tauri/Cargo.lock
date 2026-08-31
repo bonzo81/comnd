@@ -2668,7 +2668,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "netsh"
+name = "netssh"
 version = "0.1.0"
 dependencies = [
  "async-trait",

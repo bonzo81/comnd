@@ -1,4 +1,4 @@
-﻿# Installation
+# Installation
 
 ## System Requirements
 
@@ -10,21 +10,21 @@
 
 ## Windows
 
-Download the `netsh-setup-x64.exe` installer from GitHub Releases. Double-click to run it. You do not need administrator rights unless your organization requires them for MSI installs. The installer places the app in `%LOCALAPPDATA%\Programs\net.sh\` and creates a Start menu shortcut.
+Download the `netssh-setup-x64.exe` installer from GitHub Releases. Double-click to run it. You do not need administrator rights unless your organization requires them for MSI installs. The installer places the app in `%LOCALAPPDATA%\Programs\netssh\` and creates a Start menu shortcut.
 
-Alternative: download the `netsh-x64-portable.zip`. Extract it anywhere and run `net-sh.exe` directly. The file makes no registry entries and needs no install step.
+Alternative: download the `netssh-x64-portable.zip`. Extract it anywhere and run `net-sh.exe` directly. The file makes no registry entries and needs no install step.
 
 ## macOS
 
-Download the `netsh-macos.dmg`. Drag net.sh into your Applications folder. On first launch, macOS Gatekeeper can block the app. Right-click (or Control-click) the icon in Launchpad and choose **Open** to allow it once. The app is a single `.app` bundle with everything it needs inside. The app has no extra dependencies.
+Download the `netssh-macos.dmg`. Drag netssh into your Applications folder. On first launch, macOS Gatekeeper can block the app. Right-click (or Control-click) the icon in Launchpad and choose **Open** to allow it once. The app is a single `.app` bundle with everything it needs inside. The app has no extra dependencies.
 
 ## Linux
 
 Three options:
 
-- **AppImage** (`netsh-x86_64.AppImage`) — recommended. Make the file executable with `chmod +x`, then run it. The AppImage is fully portable. You can run it from a USB stick without installing anything.
-- **`.deb` package** — for Debian/Ubuntu. Run `sudo dpkg -i netsh_*.deb` or install it via your GUI package manager.
-- **`.rpm` package** — for Fedora/RHEL. Run `sudo rpm -i netsh_*.rpm`.
+- **AppImage** (`netssh-x86_64.AppImage`) — recommended. Make the file executable with `chmod +x`, then run it. The AppImage is fully portable. You can run it from a USB stick without installing anything.
+- **`.deb` package** — for Debian/Ubuntu. Run `sudo dpkg -i netssh_*.deb` or install it via your GUI package manager.
+- **`.rpm` package** — for Fedora/RHEL. Run `sudo rpm -i netssh_*.rpm`.
 
 The app bundles everything it needs. No additional dependencies are required.
 
@@ -34,4 +34,4 @@ The app opens directly to the Connection Manager with an empty host list. You ca
 
 ## Updates
 
-net.sh is distributed through GitHub Releases. For now, download the latest package from GitHub Releases and install it over the existing version. Your saved hosts and settings remain after the upgrade.
+netssh is distributed through GitHub Releases. For now, download the latest package from GitHub Releases and install it over the existing version. Your saved hosts and settings remain after the upgrade.

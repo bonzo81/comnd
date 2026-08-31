@@ -59,4 +59,4 @@
 | 2026-08-28 | Host sources use a generic `host_sources` config map (keyed by source id) | LibreNMS becomes a second instance (`librenms.rs`, own cache + keyring prefix), not a refactor |
 | 2026-08-28 | NetBox sync caches to a separate `netbox-cache.json`; merge at read time | `hosts.json` stays a pure user-owned store; NetBox deletions propagate on next sync |
 | 2026-08-28 | NetBox refresh is manual-only (button, no interval task) | Host list must never block on or poll a remote API; cache loads instantly from disk |
-| 2026-08-28 | LibreNMS host source deferred (design hook only) | Same shape as NetBox (config map entry, `librenms-cache.json`, `netsh_source_librenms_*` keyring keys, own platform table); build after NetBox proves the pattern |
+| 2026-08-28 | LibreNMS host source deferred (design hook only) | Same shape as NetBox (config map entry, `librenms-cache.json`, `netssh_source_librenms_*` keyring keys, own platform table); build after NetBox proves the pattern |

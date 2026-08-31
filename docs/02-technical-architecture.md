@@ -132,7 +132,7 @@ If no pattern matches after an idle gap, mode remains unchanged (assumed same co
 
 | Data | Location | Format |
 |------|----------|--------|
-| Saved hosts (non-secret fields) | App data directory (`~/.config/netsh/` on Linux, `%APPDATA%\netsh\` on Windows, `~/Library/Application Support/netsh/` on macOS) | JSON   |
+| Saved hosts (non-secret fields) | App data directory (`~/.local/share/com.netssh.app/` on Linux, `%LOCALAPPDATA%\com.netssh.app\` on Windows, `~/Library/Application Support/com.netssh.app/` on macOS) | JSON   |
 | Credentials (passwords, key passphrases) | OS keychain (libsecret on Linux, Keychain on macOS, Credential Manager on Windows) | Managed by OS |
 | SSH private keys | User's filesystem — referenced by path only | Not copied |
 | Known hosts | App data directory | JSON   |

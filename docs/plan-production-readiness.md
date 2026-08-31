@@ -1,10 +1,10 @@
 # Plan: Production Readiness — Phase 1 (Complete)
 
 Tracking document for gaps identified in the productization review of
-net.sh. Derived from a full codebase audit (Rust backend + TS frontend +
+netssh. Derived from a full codebase audit (Rust backend + TS frontend +
 Tauri config + build/release infra).
 
-**Goal:** Move net.sh from a solid MVP to a professional, shippable desktop
+**Goal:** Move netssh from a solid MVP to a professional, shippable desktop
 application. Focus is on robustness, security, storage, permissions, and
 release infrastructure — not new user-facing features.
 
@@ -160,7 +160,7 @@ dropdown.*
 
 ### P2.8 — Crash reporting / panic hook
 
-- [x] Install a `std::panic::set_hook` that writes panics to `netsh.log`
+- [x] Install a `std::panic::set_hook` that writes panics to `netssh.log`
       (currently only `log::error!` calls are captured, not actual panics)
 
 **Why:** No crash handler. A user's crash is invisible to you — the log file

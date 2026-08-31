@@ -40,7 +40,7 @@ pub struct CredentialItem {
 #[async_trait]
 pub trait SecretProvider: Send + Sync {
     /// Stable id — the config.json `providers` key and the keyring entry
-    /// (`netsh_provider_<id>`).
+    /// (`netssh_provider_<id>`).
     fn id(&self) -> &'static str;
 
     /// Probe whether the provider is usable right now.
@@ -263,7 +263,7 @@ mod tests {
     // Single function: env vars are process-global, parallel tests would race.
     #[tokio::test]
     async fn test_mock_provider_status_resolve_list() {
-        const VAR: &str = "NETSH_TEST_MOCK_SECRET";
+        const VAR: &str = "NETSSH_TEST_MOCK_SECRET";
         std::env::remove_var(VAR);
 
         let p = MockProvider { id: "mock", secret_env: VAR };
@@ -308,7 +308,7 @@ mod tests {
     fn test_registry_lookup() {
         let reg = ProviderRegistry::new(vec![Arc::new(MockProvider {
             id: "mock",
-            secret_env: "NETSH_TEST_MOCK_SECRET",
+            secret_env: "NETSSH_TEST_MOCK_SECRET",
         })]);
         assert!(reg.get("mock").is_some());
         assert!(reg.get("nope").is_none());
@@ -320,7 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_error_message_mapping() {
-        const VAR: &str = "NETSH_TEST_RESOLVE_ERR";
+        const VAR: &str = "NETSSH_TEST_RESOLVE_ERR";
         std::env::remove_var(VAR);
 
         let p: Arc<dyn SecretProvider> = Arc::new(MockProvider { id: "mock", secret_env: VAR });
@@ -347,7 +347,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_cli_not_installed() {
         let err = run_cli(
-            "netsh-definitely-not-a-real-binary-xyz",
+            "netssh-definitely-not-a-real-binary-xyz",
             &[],
             &[],
             Duration::from_secs(5),
@@ -363,8 +363,8 @@ mod tests {
         // cmd /C prints the env var value — proves args + env wiring.
         let out = run_cli(
             "cmd",
-            &["/C".into(), "echo".into(), "%NETSH_TEST_CLI_VAL%".into()],
-            &[("NETSH_TEST_CLI_VAL", "hello-cli")],
+            &["/C".into(), "echo".into(), "%NETSSH_TEST_CLI_VAL%".into()],
+            &[("NETSSH_TEST_CLI_VAL", "hello-cli")],
             Duration::from_secs(10),
         )
         .await

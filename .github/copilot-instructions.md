@@ -1,8 +1,8 @@
-# Copilot Instructions — net.sh
+# Copilot Instructions — netssh
 
 ## Project Overview
 
-net.sh is a cross-platform desktop SSH client with context-aware command suggestions, built for network engineers. It targets Linux, macOS, and Windows.
+netssh is a cross-platform desktop SSH client with context-aware command suggestions, built for network engineers. It targets Linux, macOS, and Windows.
 
 **Tech stack:** Tauri v2 (Rust backend) + TypeScript/Vite frontend + xterm.js terminal
 

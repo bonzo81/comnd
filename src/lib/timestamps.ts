@@ -10,8 +10,8 @@
 
 import type { IDecoration, Terminal } from "@xterm/xterm";
 
-const STORAGE_KEY = "netsh-timestamps";
-const FORMAT_KEY = "netsh-timestamps-format";
+const STORAGE_KEY = "netssh-timestamps";
+const FORMAT_KEY = "netssh-timestamps-format";
 
 export type TimestampFormat = "24h" | "12h" | "24h-ms";
 
@@ -21,7 +21,7 @@ export function getTimestampsEnabled(): boolean {
 
 export function setTimestampsEnabled(enabled: boolean): void {
   localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netsh:timestamps", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("netssh:timestamps", { detail: enabled }));
 }
 
 export function getTimestampFormat(): TimestampFormat {
@@ -31,7 +31,7 @@ export function getTimestampFormat(): TimestampFormat {
 
 export function setTimestampFormat(format: TimestampFormat): void {
   localStorage.setItem(FORMAT_KEY, format);
-  window.dispatchEvent(new CustomEvent("netsh:timestamps-format", { detail: format }));
+  window.dispatchEvent(new CustomEvent("netssh:timestamps-format", { detail: format }));
 }
 
 export function formatTimestamp(time: Date, format: TimestampFormat): string {

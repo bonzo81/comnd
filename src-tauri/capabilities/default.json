@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for net.sh",
+  "description": "Default capabilities for netssh",
   "windows": ["main"],
   "permissions": [
     "core:default",

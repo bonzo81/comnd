@@ -39,7 +39,7 @@ conformance in release notes.
 
 ### NVDA (Windows)
 
-1. Start NVDA, launch net.sh.
+1. Start NVDA, launch netssh.
 2. Host list: Tab reaches the list; items announce as "option, selected" with
    host name/user/host; Arrow keys move selection; Enter connects.
 3. Nav panel: Tab reaches first section header; announce "expanded/collapsed";

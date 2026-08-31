@@ -1,4 +1,4 @@
-# Contributing to net.sh
+# Contributing to netssh
 
 ## Knowledge Base Contributions
 

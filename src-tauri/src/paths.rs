@@ -8,14 +8,14 @@
 use std::path::{Path, PathBuf};
 
 /// Bundle identifier — must match `identifier` in `tauri.conf.json`.
-const BUNDLE_ID: &str = "com.netsh.app";
+const BUNDLE_ID: &str = "com.netssh.app";
 
 /// Resolve the app data dir without an `AppHandle` (replicates Tauri's
 /// `app_local_data_dir` = `dirs::data_local_dir()` + bundle id). Used at
 /// startup, before the `AppHandle` exists.
-/// - Windows: `%LOCALAPPDATA%\com.netsh.app` (Local, not Roaming)
-/// - macOS: `~/Library/Application Support/com.netsh.app`
-/// - Linux: `$XDG_DATA_HOME/com.netsh.app` or `~/.local/share/com.netsh.app`
+/// - Windows: `%LOCALAPPDATA%\com.netssh.app` (Local, not Roaming)
+/// - macOS: `~/Library/Application Support/com.netssh.app`
+/// - Linux: `$XDG_DATA_HOME/com.netssh.app` or `~/.local/share/com.netssh.app`
 pub fn app_data_dir() -> Result<PathBuf, String> {
     dirs::data_local_dir()
         .map(|d| d.join(BUNDLE_ID))
@@ -249,7 +249,7 @@ pub fn scan_merge(src: &Path) -> Result<MergeScan, String> {
     let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err("Import file does not contain any recognizable net.sh data files".to_string());
+        return Err("Import file does not contain any recognizable netssh data files".to_string());
     }
 
     let mut conflicts = Vec::new();
@@ -405,7 +405,7 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to read zip: {}", e))?;
 
     let temp_dir = std::env::temp_dir().join(format!(
-        "netsh-import-{}",
+        "netssh-import-{}",
         chrono::Utc::now().format("%Y%m%dT%H%M%S%3f")
     ));
     ensure_data_dir(&temp_dir)?;
@@ -701,7 +701,7 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
         .map_err(|e| format!("Failed to read zip: {}", e))?;
 
     // Extract to a temp dir first — validate before replacing live data.
-    let temp_dir = std::env::temp_dir().join(format!("netsh-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    let temp_dir = std::env::temp_dir().join(format!("netssh-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
     ensure_data_dir(&temp_dir)?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)
@@ -729,7 +729,7 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err("Import file does not contain any recognizable net.sh data files".to_string());
+        return Err("Import file does not contain any recognizable netssh data files".to_string());
     }
 
     // Back up the current data files. We can't rename the whole data dir
@@ -846,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("netsh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("data.txt");
         atomic_write(&path, b"hello").unwrap();
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn test_secure_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("netsh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("secret.json");
         secure_write(&path, b"{}").unwrap();
@@ -878,13 +878,13 @@ mod tests {
     #[cfg(unix)]
     fn test_log_dir_created_with_secure_perms() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("netsh_logperm_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_logperm_{}", uuid::Uuid::new_v4()));
         ensure_data_dir(&dir).unwrap();
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "log/data dir must be owner-only");
 
-        // Mirror the file-perm step lib.rs applies to netsh.log
-        let file = dir.join("netsh.log");
+        // Mirror the file-perm step lib.rs applies to netssh.log
+        let file = dir.join("netssh.log");
         std::fs::write(&file, "").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         let fmode = std::fs::metadata(&file).unwrap().permissions().mode();
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_overwrites_existing() {
-        let dir = std::env::temp_dir().join(format!("netsh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("data.txt");
         atomic_write(&path, b"v1").unwrap();

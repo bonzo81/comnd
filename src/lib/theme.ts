@@ -2,8 +2,8 @@ import type { ITheme } from "@xterm/xterm";
 
 export type Theme = "dark" | "light";
 
-const APP_KEY = "netsh-theme";
-const TERMINAL_KEY = "netsh-terminal-theme";
+const APP_KEY = "netssh-theme";
+const TERMINAL_KEY = "netssh-terminal-theme";
 
 export function getAppTheme(): Theme {
   return localStorage.getItem(APP_KEY) === "light" ? "light" : "dark";
@@ -12,7 +12,7 @@ export function getAppTheme(): Theme {
 export function setAppTheme(t: Theme): void {
   localStorage.setItem(APP_KEY, t);
   document.documentElement.dataset.theme = t;
-  window.dispatchEvent(new CustomEvent("netsh:theme", { detail: t }));
+  window.dispatchEvent(new CustomEvent("netssh:theme", { detail: t }));
 }
 
 export function getTerminalTheme(): Theme {
@@ -21,7 +21,7 @@ export function getTerminalTheme(): Theme {
 
 export function setTerminalTheme(t: Theme): void {
   localStorage.setItem(TERMINAL_KEY, t);
-  window.dispatchEvent(new CustomEvent("netsh:terminal-theme", { detail: t }));
+  window.dispatchEvent(new CustomEvent("netssh:terminal-theme", { detail: t }));
 }
 
 export const TERMINAL_THEMES: Record<Theme, ITheme> = {

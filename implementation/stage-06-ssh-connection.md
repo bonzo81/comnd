@@ -19,7 +19,7 @@ This is the most complex single component in the app. SSH is core functionality 
 In `src-tauri/src/ssh.rs`, implement the `russh::client::Handler` trait:
 
 - `check_server_key()` — TOFU (Trust On First Use) model:
-  - Load known hosts from `{data_dir}/netsh/known_hosts.json`
+  - Load known hosts from `{data_dir}/netssh/known_hosts.json`
   - If host not seen: accept key, save to known hosts file, return `true`
   - If host seen and key matches: return `true`
   - If host seen and key CHANGED: reject connection, return error with clear warning message (spec: "Host key has changed" UX scenario)
@@ -102,7 +102,7 @@ The SSH module needs to manage active sessions:
 
 ### 9. Implement known hosts file
 
-- Store in `{data_dir}/netsh/known_hosts.json`
+- Store in `{data_dir}/netssh/known_hosts.json`
 - Schema: `{ "hostname:port": { "key_type": "ssh-ed25519", "key_base64": "...", "first_seen": "ISO8601" } }`
 - Load on connect, save after accepting new key
 - Handle file corruption gracefully

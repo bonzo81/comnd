@@ -31,12 +31,12 @@ pub struct AppConfig {
     pub max_sessions: u32,
     /// Per-provider settings (chunk 6+). Key = provider id, value =
     /// provider-specific JSON parsed by that provider. Secrets never live
-    /// here — they go in the OS keychain (`netsh_provider_<id>`).
+    /// here — they go in the OS keychain (`netssh_provider_<id>`).
     #[serde(default)]
     pub providers: std::collections::HashMap<String, serde_json::Value>,
     /// Host source integrations (NetBox, future LibreNMS). Key = source id,
     /// value = source-specific JSON. Mirrors `providers`; secrets never live
-    /// here — they go in the OS keyring (`netsh_source_<id>_*`).
+    /// here — they go in the OS keyring (`netssh_source_<id>_*`).
     #[serde(default)]
     pub host_sources: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -96,15 +96,15 @@ pub fn parse_log_level_filter(level: &str) -> log::LevelFilter {
 
 // ─── Ollama API Key (OS keychain) ──────────────────────────────────
 
-const OLLAMA_KEY_ENTRY: &str = "netsh_ollama_api_key";
+const OLLAMA_KEY_ENTRY: &str = "netssh_ollama_api_key";
 
 /// Save the Ollama API key to the OS keychain, or delete it when `None`/empty.
 pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
     match key {
-        Some(k) if !k.is_empty() => keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY)
+        Some(k) if !k.is_empty() => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
             .and_then(|e| e.set_password(&k))
             .map_err(|e| e.to_string()),
-        _ => keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY)
+        _ => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
             .and_then(|e| e.delete_credential())
             .or_else(|e| {
                 // Deleting a non-existent entry is not an error.
@@ -116,7 +116,7 @@ pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
 
 /// Get the Ollama API key from the OS keychain. `None` when unset.
 pub fn get_ollama_api_key() -> Result<Option<String>, String> {
-    match keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
+    match keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
         Ok(k) => Ok(Some(k)),
         Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -126,9 +126,9 @@ pub fn get_ollama_api_key() -> Result<Option<String>, String> {
 // ─── Provider secrets (OS keychain) ────────────────────────────────
 
 /// Save a provider secret (PAT, session key) to the OS keychain under
-/// `netsh_provider_<id>`, or delete it when `None`/empty.
+/// `netssh_provider_<id>`, or delete it when `None`/empty.
 pub fn save_provider_secret(id: &str, secret: Option<String>) -> Result<(), String> {
-    let entry = keyring::Entry::new("netsh", &format!("netsh_provider_{}", id))
+    let entry = keyring::Entry::new("netssh", &format!("netssh_provider_{}", id))
         .map_err(|e| e.to_string())?;
     match secret {
         Some(k) if !k.is_empty() => entry.set_password(&k).map_err(|e| e.to_string()),
@@ -144,7 +144,7 @@ pub fn save_provider_secret(id: &str, secret: Option<String>) -> Result<(), Stri
 
 /// Get a provider secret from the OS keychain. `None` when unset.
 pub fn get_provider_secret(id: &str) -> Result<Option<String>, String> {
-    match keyring::Entry::new("netsh", &format!("netsh_provider_{}", id))
+    match keyring::Entry::new("netssh", &format!("netssh_provider_{}", id))
         .and_then(|e| e.get_password())
     {
         Ok(k) => Ok(Some(k)),
@@ -194,7 +194,7 @@ impl ConfigStore {
     /// `persist()` will be a no-op (writes to a path that nothing reads back),
     /// but all get/set operations work for the session.
     pub fn in_memory() -> Self {
-        let path = std::env::temp_dir().join("netsh-config-in-memory.json");
+        let path = std::env::temp_dir().join("netssh-config-in-memory.json");
         ConfigStore {
             config_path: path,
             config: AppConfig::default(),
@@ -396,23 +396,23 @@ mod tests {
         assert!(parsed.log_file_path.is_none());
 
         let mut custom = AppConfig::default();
-        custom.log_file_path = Some("/var/log/netsh/netsh.log".to_string());
+        custom.log_file_path = Some("/var/log/netssh/netssh.log".to_string());
         let json = serde_json::to_string(&custom).unwrap();
         let parsed: AppConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.log_file_path.as_deref(), Some("/var/log/netsh/netsh.log"));
+        assert_eq!(parsed.log_file_path.as_deref(), Some("/var/log/netssh/netssh.log"));
     }
 
     #[test]
     fn test_log_file_path_persist_and_read() {
-        let dir = std::env::temp_dir().join(format!("netsh_test_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_test_{}", uuid::Uuid::new_v4()));
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
-        store.save_log_file_path(Some("/var/log/netsh/netsh.log".to_string())).unwrap();
+        store.save_log_file_path(Some("/var/log/netssh/netssh.log".to_string())).unwrap();
 
         let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
         assert_eq!(
             fresh.get().log_file_path.as_deref(),
-            Some("/var/log/netsh/netsh.log")
+            Some("/var/log/netssh/netssh.log")
         );
 
         // Reset to default
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn test_save_and_get_ollama_api_key() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        let probe = keyring::Entry::new("netsh", "netsh_test_probe");
+        let probe = keyring::Entry::new("netssh", "netssh_test_probe");
         if probe.is_err() {
             return;
         }
@@ -444,18 +444,18 @@ mod tests {
         // a credential written by one Entry instance may not be visible from
         // a subsequent Entry instance in the same process. We verify the
         // roundtrip within a single Entry, then clean up.
-        let entry = keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY).unwrap();
+        let entry = keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).unwrap();
         entry.set_password(test_key).unwrap();
         assert_eq!(entry.get_password().unwrap(), test_key);
         entry.delete_credential().unwrap();
         // After delete, get should return NoEntry
-        let e2 = keyring::Entry::new("netsh", OLLAMA_KEY_ENTRY).unwrap();
+        let e2 = keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).unwrap();
         assert!(matches!(e2.get_password(), Err(keyring::Error::NoEntry)));
     }
 
     #[test]
     fn test_migrate_plaintext_key() {
-        let dir = std::env::temp_dir().join(format!("netsh_test_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let config_path = dir.join("config.json");
         std::fs::write(
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_provider_config_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("netsh_test_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("netssh_test_{}", uuid::Uuid::new_v4()));
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
 
@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn test_save_and_get_provider_secret() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if keyring::Entry::new("netsh", "netsh_test_probe").is_err() {
+        if keyring::Entry::new("netssh", "netssh_test_probe").is_err() {
             return;
         }
         let id = format!("test_{}", uuid::Uuid::new_v4());
@@ -541,7 +541,7 @@ mod tests {
         // subsequent Entry instance in the same process. Verify the roundtrip
         // within a single Entry, then clean up (same approach as the ollama
         // key test above).
-        let entry = keyring::Entry::new("netsh", &format!("netsh_provider_{}", id)).unwrap();
+        let entry = keyring::Entry::new("netssh", &format!("netssh_provider_{}", id)).unwrap();
         entry.set_password("pat-123").unwrap();
         assert_eq!(entry.get_password().unwrap(), "pat-123");
         entry.delete_credential().unwrap();

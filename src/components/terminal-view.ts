@@ -72,7 +72,7 @@ const MODE_TINTS: Record<string, string> = {
 };
 
 // Auto-suggestion toggle — persisted, synced across tabs via window event
-const SUGGESTIONS_KEY = "netsh-suggestions";
+const SUGGESTIONS_KEY = "netssh-suggestions";
 
 function getSuggestionsEnabled(): boolean {
   return localStorage.getItem(SUGGESTIONS_KEY) === "1";
@@ -80,7 +80,7 @@ function getSuggestionsEnabled(): boolean {
 
 function setSuggestionsEnabled(enabled: boolean): void {
   localStorage.setItem(SUGGESTIONS_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netsh:suggestions", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("netssh:suggestions", { detail: enabled }));
 }
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
@@ -512,7 +512,7 @@ export class TerminalView {
       this.applyTerminalTheme(getTerminalTheme());
       syncThemeIcon();
     };
-    window.addEventListener("netsh:terminal-theme", this.themeChangeHandler);
+    window.addEventListener("netssh:terminal-theme", this.themeChangeHandler);
     syncThemeIcon();
 
     // Line timestamps toggle
@@ -522,22 +522,22 @@ export class TerminalView {
     // Events apply to THIS terminal — keeps every session tab in sync
     this.timestampsChangeHandler = () => this.syncTimestamps();
     this.timestampsFormatHandler = () => this.syncTimestamps();
-    window.addEventListener("netsh:timestamps", this.timestampsChangeHandler);
-    window.addEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
+    window.addEventListener("netssh:timestamps", this.timestampsChangeHandler);
+    window.addEventListener("netssh:timestamps-format", this.timestampsFormatHandler);
 
     // Command suggestions toggle (auto-show dropdown while typing)
     this.$(".tv-suggestions-btn")!.addEventListener("click", () => {
       setSuggestionsEnabled(!getSuggestionsEnabled());
     });
     this.suggestionsChangeHandler = () => this.syncSuggestions();
-    window.addEventListener("netsh:suggestions", this.suggestionsChangeHandler);
+    window.addEventListener("netssh:suggestions", this.suggestionsChangeHandler);
 
     // Auto-copy on selection toggle
     this.$(".tv-autocopy-btn")!.addEventListener("click", () => {
       setAutoCopyEnabled(!getAutoCopyEnabled());
     });
     this.autoCopyChangeHandler = () => this.syncAutoCopy();
-    window.addEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
+    window.addEventListener("netssh:auto-copy", this.autoCopyChangeHandler);
     this.syncAutoCopy();
 
     // Output highlighting toggle
@@ -545,7 +545,7 @@ export class TerminalView {
       setOutputHighlightEnabled(!getOutputHighlightEnabled());
     });
     this.highlightChangeHandler = () => this.syncHighlight();
-    window.addEventListener("netsh:output-highlight", this.highlightChangeHandler);
+    window.addEventListener("netssh:output-highlight", this.highlightChangeHandler);
     this.syncHighlight();
 
     // Panel toggle
@@ -1394,27 +1394,27 @@ export class TerminalView {
       this.ctrlWHandler = null;
     }
     if (this.themeChangeHandler) {
-      window.removeEventListener("netsh:terminal-theme", this.themeChangeHandler);
+      window.removeEventListener("netssh:terminal-theme", this.themeChangeHandler);
       this.themeChangeHandler = null;
     }
     if (this.timestampsChangeHandler) {
-      window.removeEventListener("netsh:timestamps", this.timestampsChangeHandler);
+      window.removeEventListener("netssh:timestamps", this.timestampsChangeHandler);
       this.timestampsChangeHandler = null;
     }
     if (this.timestampsFormatHandler) {
-      window.removeEventListener("netsh:timestamps-format", this.timestampsFormatHandler);
+      window.removeEventListener("netssh:timestamps-format", this.timestampsFormatHandler);
       this.timestampsFormatHandler = null;
     }
     if (this.suggestionsChangeHandler) {
-      window.removeEventListener("netsh:suggestions", this.suggestionsChangeHandler);
+      window.removeEventListener("netssh:suggestions", this.suggestionsChangeHandler);
       this.suggestionsChangeHandler = null;
     }
     if (this.autoCopyChangeHandler) {
-      window.removeEventListener("netsh:auto-copy", this.autoCopyChangeHandler);
+      window.removeEventListener("netssh:auto-copy", this.autoCopyChangeHandler);
       this.autoCopyChangeHandler = null;
     }
     if (this.highlightChangeHandler) {
-      window.removeEventListener("netsh:output-highlight", this.highlightChangeHandler);
+      window.removeEventListener("netssh:output-highlight", this.highlightChangeHandler);
       this.highlightChangeHandler = null;
     }
 

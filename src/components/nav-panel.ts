@@ -77,7 +77,7 @@ export class NavPanel {
   private dragPayload: DragPayload | null = null;
   private dropIndicator: HTMLElement | null = null;
 
-  private static STORAGE_KEY = "netsh.nav.expandedGroups";
+  private static STORAGE_KEY = "netssh.nav.expandedGroups";
 
   private static loadExpanded(): string[] {
     try {

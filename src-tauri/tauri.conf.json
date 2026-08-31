@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
-  "productName": "net.sh",
+  "productName": "netssh",
   "version": "0.1.0",
-  "identifier": "com.netsh.app",
+  "identifier": "com.netssh.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1450",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "net.sh",
+        "title": "netssh",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
