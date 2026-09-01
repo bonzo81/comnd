@@ -278,7 +278,6 @@ export class SettingsScreen {
         </label>
         <h3 class="settings-section-title">Data Management</h3>
         <div class="import-field">
-          <label>Backup & Restore</label>
           <div class="log-file-row">
             <button type="button" id="data-export" class="btn-secondary">Export backup...</button>
             <button type="button" id="data-import" class="btn-secondary">Restore from backup...</button>
@@ -431,14 +430,16 @@ export class SettingsScreen {
               <option value="skip" ${cfg?.platform_policy !== "fallback" ? "selected" : ""}>Skip device (report in sync summary)</option>
               <option value="fallback" ${cfg?.platform_policy === "fallback" ? "selected" : ""}>Treat as fallback platform</option>
             </select>
+            <span class="import-hint">Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.</span>
+          </div>
+          <div class="import-field" id="netbox-fallback-field"${cfg?.platform_policy === "fallback" ? "" : " hidden"}>
+            <label for="netbox-platform-fallback">Fallback platform</label>
             <select class="form-input" id="netbox-platform-fallback">
-              <option value="">— Fallback platform —</option>
               ${platformOpt("cisco-iosxe", "Cisco IOS-XE")}
               ${platformOpt("cisco-nxos", "Cisco NX-OS")}
               ${platformOpt("f5-tmos", "F5 TMOS")}
               ${platformOpt("linux-bash", "Linux Bash")}
             </select>
-            <span class="import-hint">Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.</span>
           </div>
           <div class="import-field">
             <label for="netbox-platform-overrides">Platform overrides</label>
@@ -505,7 +506,7 @@ export class SettingsScreen {
                      value="${this.escAttr(cred?.type === "agent" ? (cred.identity ?? "") : "")}" />
             </label>
           </div>
-          <div id="netbox-auth-secretref-field" class="auth-conditional ${authType === "secret_ref" ? "" : "auth-conditional-hidden"}">
+          <div id="netbox-auth-secretref-field" class="auth-conditional auth-conditional-tall ${authType === "secret_ref" ? "" : "auth-conditional-hidden"}">
             <label>
               <span>Provider</span>
               <select class="form-input" id="netbox-default-ref-provider">
@@ -520,7 +521,7 @@ export class SettingsScreen {
                      spellcheck="false" autocomplete="off"
                      value="${this.escAttr(cred?.type === "secret_ref" ? cred.reference : "")}" />
             </label>
-            ${readyProviders.length === 0 ? `<div class="form-hint">Enable a secret manager in Settings → Auth Integrations first.</div>` : ""}
+            ${readyProviders.length === 0 ? `<div class="import-hint">Enable a secret manager in Settings → Auth Integrations first.</div>` : ""}
           </div>
 
           <div class="settings-actions">
@@ -797,6 +798,13 @@ export class SettingsScreen {
       const ev = el.tagName === "TEXTAREA" || el.tagName === "INPUT" ? "change" : "change";
       el.addEventListener(ev, () => void this.autosaveNetboxConfig());
     });
+    // Fallback platform select is only meaningful when policy = fallback.
+    this.container?.querySelector<HTMLSelectElement>("#netbox-platform-policy")?.addEventListener("change", (e) => {
+      const on = (e.target as HTMLSelectElement).value === "fallback";
+      const field = this.container?.querySelector<HTMLElement>("#netbox-fallback-field");
+      if (field) field.hidden = !on;
+    });
+
     // Enable toggle also flips the live disabled styling — autosave never
     // re-renders, so without this the form stays greyed out until reload.
     // It saves ONLY the toggle merged onto the saved config: never collect

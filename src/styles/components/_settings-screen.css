@@ -29,6 +29,8 @@
 
 .settings-form .import-config-row {
   margin-bottom: var(--space-4);
+  padding: 0;
+  background: none;
 }
 
 .settings-actions {
@@ -51,6 +53,13 @@
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0 0 var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-section-title:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
 .settings-toggle {
@@ -153,12 +162,11 @@
   margin-top: var(--space-3);
 }
 
-/* --- NetBox host source (plan §9.2) ------------------------------- */
+/* --- NetBox host source (plan ï¿½9.2) ------------------------------- */
 
 .netbox-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
 }
 
 .netbox-body-disabled {
@@ -187,7 +195,7 @@
 }
 
 .netbox-device-row:hover {
-  background: var(--color-bg-hover, rgba(255, 255, 255, 0.04));
+  background: var(--color-surface-hover);
 }
 
 .netbox-device-row input[type="checkbox"] {
@@ -225,7 +233,7 @@
   opacity: 0.5;
 }
 
-/* --- NetBox Configure dialog (plan §9.4) -------------------------- */
+/* --- NetBox Configure dialog (plan ï¿½9.4) -------------------------- */
 
 .netbox-cfg-summary {
   display: flex;
@@ -248,10 +256,10 @@
   font-family: var(--font-mono, monospace);
 }
 
-/* Save Token button — highlighted after a successful Test (plan §9.2) */
+/* Save Token button ï¿½ highlighted after a successful Test (plan ï¿½9.2) */
 #netbox-token-save.netbox-save-token-ready {
   background: var(--color-accent);
-  color: var(--color-bg, #fff);
+  color: #fff;
   border-color: var(--color-accent);
 }
 #netbox-token-save.netbox-save-token-ready:hover {
