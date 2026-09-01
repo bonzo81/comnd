@@ -5,6 +5,7 @@
 
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, PlatformIndex, loadPlatformIndex } from "../lib/tauri-api";
 import { SidebarContent } from "../lib/sidebar-content";
+import { refreshValidation } from "../lib/validation-cache";
 import { escHtml, formatMode } from "../lib/format";
 import { icons } from "../lib/icons";
 import { getSearchIncludeTags } from "../lib/search-prefs";
@@ -71,6 +72,7 @@ export class KbViewerDialog {
     try {
       this.platformIndex = await loadPlatformIndex(this.selectedPlatform);
       this.commands = await getAllKbCommands(this.selectedPlatform);
+      void refreshValidation(this.selectedPlatform);
       this.categorizeCommands();
       this.filteredCommands = this.commands;
       this.searchQuery = "";

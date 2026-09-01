@@ -5,13 +5,14 @@
  * Phase 5.7: when `command.tokens` is present, render a tokenized syntax
  * breakdown (lit plain, choice in [brackets], var in <angle>, pipe with
  * filters listed). Falls back to the flat `syntax` string when tokens are
- * absent. Surfaces validator issues inline (reuses kb-validator).
+ * absent. Validation issues come from the Rust validator via the
+ * per-platform validation cache (see validation-cache.ts).
  */
 
 import { Command } from "./suggestion-engine";
 import { escHtml, formatMode } from "./format";
-import type { CommandToken, VarType, VarSource } from "./tauri-api";
-import { validateCommand } from "./kb-validator";
+import { issuesFor } from "./validation-cache";
+import { renderToken } from "./tokens";
 
 export class SidebarContent {
   /** Render full command detail HTML */
@@ -77,10 +78,10 @@ export class SidebarContent {
       ? `<span class="token-order-badge">${escHtml(order)}</span>`
       : "";
 
-    const parts = toks.map((t) => this.renderToken(t)).join(" ");
+    const parts = toks.map((t) => renderToken(t, { badges: true })).join(" ");
 
-    // Inline validator — surfaces e.g. "tokens[1]: numeric var has min > max".
-    const issues = validateCommand(command);
+    // Inline validator issues — fetched from the Rust validator at load.
+    const issues = issuesFor(command.name);
     const issueLine = issues.length > 0
       ? `<div class="token-issues">${issues.map((iss) => `<div class="token-issue">${escHtml(iss.message)}</div>`).join("")}</div>`
       : "";
@@ -93,43 +94,4 @@ export class SidebarContent {
       </div>
     `;
   }
-
-  private renderToken(t: CommandToken): string {
-    if (isLitTok(t)) {
-      return `<span class="token-lit">${escHtml(t.lit)}</span>`;
-    }
-    if (isChoiceTok(t)) {
-      const opt = t.optional ? " opt" : "";
-      const rep = t.repeatable ? " rep" : "";
-      return `<span class="token-choice${opt}${rep}">[${t.choice.map(escHtml).join(" | ")}]</span>`;
-    }
-    if (isVarTok(t)) {
-      const typeBadge = t.type && t.type !== "free"
-        ? `<span class="token-type-badge">${escHtml(t.type)}</span>`
-        : "";
-      const srcBadge = t.source && t.source !== "none"
-        ? `<span class="token-source-badge">${escHtml(t.source)}</span>`
-        : "";
-      const opt = t.optional ? " opt" : "";
-      return `<span class="token-var${opt}">&lt;${escHtml(t.var)}&gt;${typeBadge}${srcBadge}</span>`;
-    }
-    if (isPipeTok(t)) {
-      const fs = (t.filters ?? []).map((f) => escHtml(f.lit)).join(" | ");
-      return `<span class="token-pipe">| ${fs}</span>`;
-    }
-    return "";
-  }
-}
-
-function isLitTok(t: CommandToken): t is { lit: string; optional?: boolean } {
-  return typeof (t as { lit?: unknown }).lit === "string";
-}
-function isChoiceTok(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
-  return Array.isArray((t as { choice?: unknown }).choice);
-}
-function isVarTok(t: CommandToken): t is { var: string; type?: VarType; source?: VarSource; optional?: boolean } {
-  return typeof (t as { var?: unknown }).var === "string";
-}
-function isPipeTok(t: CommandToken): t is { pipe: boolean; filters?: { lit: string }[]; optional?: boolean } {
-  return typeof (t as { pipe?: unknown }).pipe === "boolean";
 }

@@ -8,7 +8,8 @@
  * See docs/plan-kb-token-engine.md § 2.
  */
 
-import type { Command, CommandToken, CommandOrder, VarType, VarSource, PipeFilter } from "./tauri-api";
+import type { Command, CommandToken, CommandOrder } from "./tauri-api";
+import { isLit, isChoice, isVar, isPipe } from "./tokens";
 
 export type { Command };
 
@@ -94,33 +95,7 @@ export function ghostPayloadFor(tm: TokenMatch, cmd: Command): GhostPayload | nu
   return null;
 }
 
-// ─── Token type guards ───────────────────────────────────────────────
-
-function isLit(t: CommandToken): t is { lit: string; optional?: boolean } {
-  return typeof (t as { lit?: unknown }).lit === "string";
-}
-function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
-  return Array.isArray((t as { choice?: unknown }).choice);
-}
-function isVar(t: CommandToken): t is {
-  var: string;
-  type?: VarType;
-  source?: VarSource;
-  optional?: boolean;
-  values?: string[];
-  min?: number;
-  max?: number;
-} {
-  return typeof (t as { var?: unknown }).var === "string";
-}
-function isPipe(t: CommandToken): t is {
-  pipe: boolean;
-  filters?: PipeFilter[];
-  optional?: boolean;
-  repeatable?: boolean;
-} {
-  return typeof (t as { pipe?: unknown }).pipe === "boolean";
-}
+// ─── Token helpers ────────────────────────────────────────────────────
 
 function splitLit(lit: string): string[] {
   return lit.trim().split(/\s+/).filter((w) => w.length > 0);

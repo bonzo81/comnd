@@ -30,6 +30,7 @@ import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/sugg
 import { GhostText, GhostPayload, ghostPayloadAcceptText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
 import { SidebarContent } from "../lib/sidebar-content";
+import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { mintSessionId } from "../lib/session-id";
@@ -1101,6 +1102,7 @@ export class TerminalView {
     } catch (e) {
       log.warn(LogTag.Terminal, `Failed to load KB commands: ${e}`);
     }
+    void refreshValidation(platform);
   }
 
   // ─── Suggestion pipeline ─────────────────────────────────────────

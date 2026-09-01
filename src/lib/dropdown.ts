@@ -11,7 +11,7 @@
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
 import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { escHtml } from "./format";
-import type { CommandToken } from "./tauri-api";
+import { renderToken, isChoice as isChoiceTok } from "./tokens";
 
 export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
 
@@ -221,33 +221,9 @@ export class Dropdown {
     for (let i = currentIdx; i < toks.length; i++) {
       const t = toks[i];
       const isCurrent = i === currentIdx;
-      parts.push(this.renderToken(t, isCurrent, tm.litWordIndex));
+      parts.push(renderToken(t, { current: isCurrent, litWordIdx: tm.litWordIndex }));
     }
     return parts.join(" ");
-  }
-
-  private renderToken(t: CommandToken, isCurrent: boolean, litWordIdx: number): string {
-    const cls = isCurrent ? "current" : "";
-    if (isLitTok(t)) {
-      const words = t.lit.trim().split(/\s+/);
-      // Highlight the current word of the lit.
-      const rendered = words.map((w, idx) => {
-        const wCls = isCurrent && idx >= litWordIdx ? "current" : "";
-        return wCls ? `<span class="token-lit ${wCls}">${escHtml(w)}</span>` : `<span class="token-lit">${escHtml(w)}</span>`;
-      }).join(" ");
-      return `<span class="${cls}">${rendered}</span>`;
-    }
-    if (isChoiceTok(t)) {
-      return `<span class="token-choice ${cls}">[${t.choice.map(escHtml).join(" | ")}]</span>`;
-    }
-    if (isVarTok(t)) {
-      return `<span class="token-var ${cls}">&lt;${escHtml(t.var)}&gt;</span>`;
-    }
-    if (isPipeTok(t)) {
-      const fs = (t.filters ?? []).map((f) => escHtml(f.lit)).join(" | ");
-      return `<span class="token-pipe ${cls}">| ${fs}</span>`;
-    }
-    return "";
   }
 
   private highlightPrefix(name: string, prefix: string): string {
@@ -261,19 +237,4 @@ export class Dropdown {
     }
     return escHtml(name);
   }
-}
-
-// ─── Token type guards (lightweight, duplicated from suggestion-engine) ──
-
-function isLitTok(t: CommandToken): t is { lit: string; optional?: boolean } {
-  return typeof (t as { lit?: unknown }).lit === "string";
-}
-function isChoiceTok(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
-  return Array.isArray((t as { choice?: unknown }).choice);
-}
-function isVarTok(t: CommandToken): t is { var: string; optional?: boolean } {
-  return typeof (t as { var?: unknown }).var === "string";
-}
-function isPipeTok(t: CommandToken): t is { pipe: boolean; filters?: { lit: string }[]; optional?: boolean } {
-  return typeof (t as { pipe?: unknown }).pipe === "boolean";
 }
