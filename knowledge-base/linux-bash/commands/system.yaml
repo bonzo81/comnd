@@ -6,6 +6,11 @@ commands:
       - choice: ["-a", "-r", "-n", "-m"]
         optional: true
         repeatable: true
+        descriptions:
+          "-a": All system info
+          "-r": Kernel release
+          "-n": Network node hostname
+          "-m": Machine hardware name
     order: flags-anywhere
     description: |
       Prints system information (kernel version, hostname, machine).
@@ -48,9 +53,13 @@ commands:
       - choice: ["-h", "-T"]
         optional: true
         repeatable: true
+        descriptions:
+          "-h": Human-readable sizes
+          "-T": Print filesystem type
       - var: path
         type: free
         optional: true
+        description: Restrict report to this filesystem or path
     order: flags-anywhere
     description: |
       Reports filesystem disk usage. '-h' human-readable, '-T' show type.
@@ -75,6 +84,10 @@ commands:
       - choice: ["-h", "-m", "-g"]
         optional: true
         repeatable: true
+        descriptions:
+          "-h": Human-readable sizes
+          "-m": Show in MiB
+          "-g": Show in GiB
     order: flags-anywhere
     description: |
       Displays memory usage. '-h' human-readable.
@@ -119,8 +132,10 @@ commands:
       - var: user
         type: free
         optional: true
+        description: Run the command as this user
       - var: command
         type: free
+        description: Command to run
     description: |
       Runs a command as another user (default root). Often prompts for
       password.

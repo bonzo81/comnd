@@ -5,11 +5,16 @@ commands:
       - lit: ip
       - choice: ["addr", "route", "link"]
         optional: true
+        descriptions:
+          addr: Address management
+          route: Routing table
+          link: Network devices
       - choice: ["show"]
         optional: true
       - var: target
         type: free
         optional: true
+        description: Interface, prefix, or route to show
     description: |
       Shows or manipulates network interfaces, routes, and links. 'ip addr'
       shows interface addresses; 'ip route' shows the routing table.
@@ -40,25 +45,35 @@ commands:
       - choice: ["-c", "-i", "-s", "-W"]
         optional: true
         repeatable: true
+        descriptions:
+          "-c": Stop after this many packets
+          "-i": Seconds between packets
+          "-s": Payload size in bytes
+          "-W": Seconds to wait for a reply
       - var: count
         type: numeric
         min: 1
         optional: true
+        description: Packet count (-c)
       - var: interval
         type: numeric
         min: 0
         optional: true
+        description: Interval in seconds (-i)
       - var: size
         type: numeric
         min: 0
         max: 65500
         optional: true
+        description: Payload size (-s)
       - var: timeout
         type: numeric
         min: 0
         optional: true
+        description: Reply timeout in seconds (-W)
       - var: destination
         type: free
+        description: Host or IP to ping
     order: flags-anywhere
     description: |
       Sends ICMP echo requests. Flags and the destination can appear in any
@@ -85,14 +100,18 @@ commands:
       - lit: traceroute
       - choice: ["-n"]
         optional: true
+        descriptions:
+          "-n": Skip DNS lookups, show numeric IPs
       - lit: -w
         optional: true
       - var: seconds
         type: numeric
         min: 0
         optional: true
+        description: Wait timeout per hop (-w)
       - var: destination
         type: free
+        description: Host or IP to trace
     order: flags-anywhere
     description: |
       Traces the path packets take to a destination. '-n' skips DNS lookups.
@@ -117,6 +136,12 @@ commands:
       - choice: ["-t", "-u", "-l", "-n", "-p"]
         optional: true
         repeatable: true
+        descriptions:
+          "-t": TCP sockets
+          "-u": UDP sockets
+          "-l": Listening sockets only
+          "-n": Numeric ports, no DNS
+          "-p": Show process using the socket
     order: flags-anywhere
     description: |
       Shows socket statistics. Modern replacement for netstat. '-tlnp' for

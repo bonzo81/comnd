@@ -6,11 +6,16 @@ commands:
       - choice: ["-e", "-f", "-a"]
         optional: true
         repeatable: true
+        descriptions:
+          "-e": Show all processes
+          "-f": Full-format listing
+          "-a": Show processes with a terminal
       - lit: -u
         optional: true
       - var: user
         type: free
         optional: true
+        description: Show only this user's processes
     order: flags-anywhere
     description: |
       Lists running processes. 'ps -ef' shows every process with full format.
@@ -56,9 +61,11 @@ commands:
       - var: signal
         type: free
         optional: true
+        description: Signal number or name (default 15 = SIGTERM; 9 = SIGKILL)
       - var: pid
         type: numeric
         min: 1
+        description: Process ID to signal
     description: |
       Sends a signal to a process. Default SIGTERM. Use 'kill -9 <pid>' for
       SIGKILL (cannot be caught).

@@ -6,9 +6,15 @@ commands:
       - choice: ["-l", "-a", "-h", "-t"]
         optional: true
         repeatable: true
+        descriptions:
+          "-l": Long listing with permissions, owner, size, date
+          "-a": Include hidden files
+          "-h": Human-readable sizes
+          "-t": Sort by modification time, newest first
       - var: path
         type: free
         optional: true
+        description: Directory or file to list
     order: flags-anywhere
     description: |
       Lists directory contents. Flags can appear in any order before the path.
@@ -35,6 +41,7 @@ commands:
       - var: path
         type: free
         optional: true
+        description: Directory to change to
     description: |
       Changes the working directory. No argument goes home.
     category: filesystem
@@ -76,10 +83,15 @@ commands:
       - choice: ["-r", "-i"]
         optional: true
         repeatable: true
+        descriptions:
+          "-r": Copy directories recursively
+          "-i": Prompt before overwriting
       - var: source
         type: free
+        description: File or directory to copy
       - var: destination
         type: free
+        description: Target path
     order: flags-anywhere
     description: |
       Copies files. '-r' for directories.
@@ -102,10 +114,14 @@ commands:
       - lit: mv
       - choice: ["-i"]
         optional: true
+        descriptions:
+          "-i": Prompt before overwriting
       - var: source
         type: free
+        description: File or directory to move
       - var: destination
         type: free
+        description: Target path
     order: flags-anywhere
     description: |
       Moves or renames a file.
@@ -129,8 +145,13 @@ commands:
       - choice: ["-r", "-f", "-i"]
         optional: true
         repeatable: true
+        descriptions:
+          "-r": Remove directories recursively
+          "-f": Never prompt, ignore nonexistent files
+          "-i": Prompt before every removal
       - var: path
         type: free
+        description: File or directory to remove
     order: flags-anywhere
     description: |
       Removes files or directories. Destructive — verify path before pressing Enter.
@@ -154,6 +175,7 @@ commands:
       - lit: cat
       - var: file
         type: free
+        description: File to print
     description: |
       Concatenates files to stdout. Often used to view a single file.
     category: filesystem
@@ -175,17 +197,20 @@ commands:
       - lit: find
       - var: path
         type: free
+        description: Starting directory
       - lit: -name
         optional: true
       - var: pattern
         type: free
         optional: true
+        description: Name pattern (quoted glob), e.g. "*.log"
       - lit: -type
         optional: true
       - var: type
         type: choice
         values: ["f", "d", "l"]
         optional: true
+        description: "f = file, d = directory, l = symlink"
     order: flags-anywhere
     description: |
       Finds files by name and/or type.
