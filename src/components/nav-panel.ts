@@ -338,6 +338,14 @@ export class NavPanel {
           <span class="nav-sub-icon">${icons.folder}</span>
           <span class="nav-item-label">All Hosts</span>
         </button>
+        <span class="nav-row-actions">
+          <button class="nav-row-btn" data-action="add-host" data-parent="${ALL_GROUP_ID}" title="Add host here" aria-label="Add host">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </button>
+          <button class="nav-row-btn" data-action="add-subgroup" data-parent="${ALL_GROUP_ID}" title="New group here" aria-label="New group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h3.2a1 1 0 0 1 .7.3l1 1a1 1 0 0 0 .7.3H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/><path d="M12 11v4M10 13h4"/></svg>
+          </button>
+        </span>
       </div>
     `;
     const keep = this.visibleGroupIds();
