@@ -139,6 +139,15 @@
   color: var(--color-accent);
 }
 
+.suggestion-item.choice-row .choice-desc {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  margin-left: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .scroll-indicator {
   text-align: center;
   padding: var(--space-1);

@@ -852,7 +852,7 @@ mod tests {
             tags: vec![],
             tokens: vec![
                 CommandToken::Lit { lit: "show ip interface".to_string(), optional: false },
-                CommandToken::Choice { choice: vec!["brief".to_string()], optional: true, repeatable: false },
+                CommandToken::Choice { choice: vec!["brief".to_string()], optional: true, repeatable: false, descriptions: Default::default() },
             ],
             order: CommandOrder::Fixed,
             negatable: false,

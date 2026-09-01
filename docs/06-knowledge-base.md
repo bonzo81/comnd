@@ -131,15 +131,22 @@ commands:
 - lit: show ip interface
 ```
 
-**`choice` — enumerated choice.** One of a fixed set of keywords. Modelled as a YAML list of strings. Used for flags that take a known keyword set (`permit | deny`, `in | out`, `brief | detail`). A `choice` of one element is valid (a single optional keyword).
+**`choice` — enumerated choice.** One of a fixed set of keywords. Modelled as a YAML list of strings. Used for flags that take a known keyword set (`permit | deny`, `in | out`, `brief | detail`). A `choice` of one element is valid (a single optional keyword). May carry `descriptions` — a map of option → meaning, shown in the dropdown choice rows and the sidebar token breakdown. Display-only; the matcher ignores it.
 
 ```yaml
 - choice: [permit, deny]
 - choice: [in, out]
   optional: true
+- choice: ["-l", "-a", "-h"]
+  optional: true
+  repeatable: true
+  descriptions:
+    "-l": Long listing
+    "-a": Include hidden files
+    "-h": Human-readable sizes
 ```
 
-**`var` — variable slot.** A free-form or device-enumerable placeholder. Carries `type` and `source`:
+**`var` — variable slot.** A free-form or device-enumerable placeholder. Carries `type` and `source`, and an optional `description` (display-only help text for the slot, e.g. "Interface, prefix, or route to show"):
 
 ```yaml
 - var: interface-name

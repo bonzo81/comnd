@@ -591,7 +591,7 @@ mod tests {
         assert_eq!(cmd.tokens.len(), 3);
         // Tag round-trips through the kb::CommandToken variants.
         match &cmd.tokens[1] {
-            CommandToken::Choice { choice, optional, repeatable } => {
+            CommandToken::Choice { choice, optional, repeatable, .. } => {
                 assert_eq!(choice, &vec!["brief".to_string()]);
                 assert!(optional);
                 assert!(!repeatable);

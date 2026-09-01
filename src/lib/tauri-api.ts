@@ -84,8 +84,8 @@ export type CommandOrder = "fixed" | "flags-anywhere" | "free";
 
 export type CommandToken =
   | { lit: string; optional?: boolean }
-  | { choice: string[]; optional?: boolean; repeatable?: boolean }
-  | { var: string; type?: VarType; source?: VarSource; optional?: boolean; values?: string[]; min?: number; max?: number }
+  | { choice: string[]; optional?: boolean; repeatable?: boolean; descriptions?: Record<string, string> }
+  | { var: string; description?: string; type?: VarType; source?: VarSource; optional?: boolean; values?: string[]; min?: number; max?: number }
   | { pipe: boolean; filters?: PipeFilter[]; optional?: boolean; repeatable?: boolean };
 
 export type VarType = "free" | "enumerable" | "numeric" | "choice";

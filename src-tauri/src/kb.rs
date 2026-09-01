@@ -76,6 +76,9 @@ pub enum CommandToken {
         optional: bool,
         #[serde(default)]
         repeatable: bool,
+        /// Per-option help text (flag → meaning). Display-only.
+        #[serde(default)]
+        descriptions: std::collections::HashMap<String, String>,
     },
     /// A variable slot.
     Var(VarToken),
@@ -83,9 +86,12 @@ pub enum CommandToken {
     Pipe(PipeToken),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VarToken {
     pub var: String,
+    /// Help text for the variable slot. Display-only.
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default)]
     pub r#type: VarType,
     #[serde(default)]
@@ -181,8 +187,7 @@ pub fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
                     });
                 }
             }
-            CommandToken::Choice { choice, optional, repeatable } => {
-                let _ = repeatable;
+            CommandToken::Choice { choice, .. } => {
                 if choice.is_empty() {
                     issues.push(KbValidationIssue {
                         command: name.clone(),
@@ -199,7 +204,6 @@ pub fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
                         });
                     }
                 }
-                let _ = optional;
             }
             CommandToken::Var(v) => {
                 if v.var.trim().is_empty() {
@@ -1001,7 +1005,7 @@ mod tests {
     fn test_validator_pass_choice() {
         let cmd = mk_cmd("show interfaces", vec![
             Lit { lit: "show interfaces".into(), optional: false },
-            Choice { choice: vec!["status".into(), "trunk".into()], optional: true, repeatable: false },
+            Choice { choice: vec!["status".into(), "trunk".into()], optional: true, repeatable: false, descriptions: Default::default() },
         ]);
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
@@ -1013,6 +1017,7 @@ mod tests {
             Lit { lit: "vlan".into(), optional: false },
             Var(VarToken {
                 var: "vlan-id".into(),
+                description: None,
                 r#type: VarType::Numeric,
                 source: VarSource::None,
                 optional: false,
@@ -1031,6 +1036,7 @@ mod tests {
             Lit { lit: "interface".into(), optional: false },
             Var(VarToken {
                 var: "iface".into(),
+                description: None,
                 r#type: VarType::Enumerable,
                 source: VarSource::Kb,
                 optional: false,
@@ -1071,14 +1077,14 @@ mod tests {
 
     #[test]
     fn test_validator_fail_empty_choice() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec![], optional: false, repeatable: false }]);
+        let cmd = mk_cmd("bad", vec![Choice { choice: vec![], optional: false, repeatable: false, descriptions: Default::default() }]);
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice list is empty"));
     }
 
     #[test]
     fn test_validator_fail_empty_choice_element() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec!["".into()], optional: false, repeatable: false }]);
+        let cmd = mk_cmd("bad", vec![Choice { choice: vec!["".into()], optional: false, repeatable: false, descriptions: Default::default() }]);
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice element is empty"));
     }
@@ -1087,6 +1093,7 @@ mod tests {
     fn test_validator_fail_empty_var_name() {
         let cmd = mk_cmd("bad", vec![Var(VarToken {
             var: "  ".into(),
+            description: None,
             r#type: VarType::Free,
             source: VarSource::None,
             optional: false,
@@ -1102,6 +1109,7 @@ mod tests {
     fn test_validator_fail_min_gt_max() {
         let cmd = mk_cmd("bad", vec![Var(VarToken {
             var: "n".into(),
+            description: None,
             r#type: VarType::Numeric,
             source: VarSource::None,
             optional: false,
@@ -1117,6 +1125,7 @@ mod tests {
     fn test_validator_fail_kb_source_no_values() {
         let cmd = mk_cmd("bad", vec![Var(VarToken {
             var: "iface".into(),
+            description: None,
             r#type: VarType::Enumerable,
             source: VarSource::Kb,
             optional: false,
@@ -1132,6 +1141,7 @@ mod tests {
     fn test_validator_warn_device_source_with_values() {
         let cmd = mk_cmd("bad", vec![Var(VarToken {
             var: "iface".into(),
+            description: None,
             r#type: VarType::Enumerable,
             source: VarSource::Device,
             optional: false,
@@ -1161,6 +1171,7 @@ mod tests {
             Lit { lit: "ping".into(), optional: false },
             Var(VarToken {
                 var: "host".into(),
+                description: None,
                 r#type: VarType::Free,
                 source: VarSource::None,
                 optional: false,
@@ -1304,6 +1315,7 @@ mod tests {
                 CommandToken::Lit { lit: "round-trip".to_string(), optional: false },
                 CommandToken::Var(VarToken {
                     var: "n".to_string(),
+                    description: Some("a number".to_string()),
                     r#type: VarType::Numeric,
                     source: VarSource::None,
                     optional: false,
@@ -1315,6 +1327,7 @@ mod tests {
                     choice: vec!["opt".to_string()],
                     optional: true,
                     repeatable: false,
+                    descriptions: [("opt".to_string(), "optional flag".to_string())].into_iter().collect(),
                 },
                 CommandToken::Pipe(PipeToken {
                     pipe: true,

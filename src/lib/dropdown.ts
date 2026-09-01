@@ -25,7 +25,7 @@ export class Dropdown {
   private currentPrefix = "";
 
   /** When non-null, the dropdown shows choice options instead of commands. */
-  private choiceMode: { options: string[]; sourceIndex: number } | null = null;
+  private choiceMode: { options: string[]; descriptions?: Record<string, string>; sourceIndex: number } | null = null;
 
   constructor(container: HTMLElement, onAccept: AcceptFn) {
     this.container = container;
@@ -67,8 +67,8 @@ export class Dropdown {
       const top = results[0];
       const tm = top?.tokenMatch;
       if (top && tm && top.command.tokens?.[tm.currentTokenIndex] && isChoiceTok(top.command.tokens[tm.currentTokenIndex])) {
-        const tok = top.command.tokens[tm.currentTokenIndex] as { choice: string[] };
-        this.choiceMode = { options: tok.choice, sourceIndex: this.selectedIndex };
+        const tok = top.command.tokens[tm.currentTokenIndex] as { choice: string[]; descriptions?: Record<string, string> };
+        this.choiceMode = { options: tok.choice, descriptions: tok.descriptions, sourceIndex: this.selectedIndex };
         this.selectedIndex = 0;
         this.renderChoice();
         return;
@@ -171,10 +171,12 @@ export class Dropdown {
   private renderChoice() {
     if (!this.choiceMode) return;
     const opts = this.choiceMode.options;
+    const descs = this.choiceMode.descriptions;
     this.el.innerHTML = opts.map((opt, i) => {
       const isSelected = i === this.selectedIndex;
       return `<div class="suggestion-item choice-row${isSelected ? " selected" : ""}" data-index="${i}">
         <span class="suggestion-name">${escHtml(opt)}</span>
+        ${descs?.[opt] ? `<span class="choice-desc">${escHtml(descs[opt])}</span>` : ""}
       </div>`;
     }).join("");
     this.el.querySelectorAll(".choice-row").forEach((el) => {

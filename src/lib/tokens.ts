@@ -12,11 +12,12 @@ import { escHtml } from "./format";
 export function isLit(t: CommandToken): t is { lit: string; optional?: boolean } {
   return typeof (t as { lit?: unknown }).lit === "string";
 }
-export function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean } {
+export function isChoice(t: CommandToken): t is { choice: string[]; optional?: boolean; repeatable?: boolean; descriptions?: Record<string, string> } {
   return Array.isArray((t as { choice?: unknown }).choice);
 }
 export function isVar(t: CommandToken): t is {
   var: string;
+  description?: string;
   type?: VarType;
   source?: VarSource;
   optional?: boolean;
@@ -92,4 +93,24 @@ export function renderToken(t: CommandToken, opts: RenderTokenOpts = {}): string
     return `<span class="token-pipe ${cls}">| ${fs}</span>`;
   }
   return "";
+}
+
+/**
+ * Render per-token help (choice flag meanings, var descriptions) as a
+ * definition list. Empty string when no token carries help text.
+ */
+export function renderTokenHelp(tokens: CommandToken[]): string {
+  const rows: string[] = [];
+  for (const t of tokens) {
+    if (isChoice(t) && t.descriptions) {
+      for (const opt of t.choice) {
+        const d = t.descriptions[opt];
+        if (d) rows.push(`<div class="token-help-row"><code>${escHtml(opt)}</code><span>${escHtml(d)}</span></div>`);
+      }
+    }
+    if (isVar(t) && t.description) {
+      rows.push(`<div class="token-help-row"><code>&lt;${escHtml(t.var)}&gt;</code><span>${escHtml(t.description)}</span></div>`);
+    }
+  }
+  return rows.length ? `<div class="token-help">${rows.join("")}</div>` : "";
 }

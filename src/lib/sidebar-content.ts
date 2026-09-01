@@ -12,7 +12,7 @@
 import { Command } from "./suggestion-engine";
 import { escHtml, formatMode } from "./format";
 import { issuesFor } from "./validation-cache";
-import { renderToken } from "./tokens";
+import { renderToken, renderTokenHelp } from "./tokens";
 
 export class SidebarContent {
   /** Render full command detail HTML */
@@ -90,6 +90,7 @@ export class SidebarContent {
       <div class="cmd-tokens">
         <h4>Tokens ${orderBadge}</h4>
         <code class="token-breakdown">${parts}</code>
+        ${renderTokenHelp(toks)}
         ${issueLine}
       </div>
     `;
