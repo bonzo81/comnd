@@ -1,8 +1,0 @@
-id: linux-bash
-name: Linux Bash
-description: GNU Bash shell on Linux — core utilities, networking, system administration
-reference_url: "https://www.gnu.org/software/bash/manual/"
-versions: []
-prompt_patterns:
-  shell: '^\$|^.*[\$#]\s*$'
-default_mode: shell

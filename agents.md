@@ -106,7 +106,6 @@ src-tauri/              # Rust backend
     ollama.rs           # Ollama client (KB import only)
     config.rs           # App settings
     test_server.rs      # Mock SSH server for testing
-  kb-templates/         # Per-platform index YAMLs for KB import
   Cargo.toml            # Rust dependencies
   tauri.conf.json       # Tauri configuration
 

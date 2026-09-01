@@ -790,6 +790,16 @@ pub fn write_commands_to_yaml(commands: &[Command], path: &Path, _category: &str
     Ok(())
 }
 
+/// Parse an optional JSON array of CommandToken. Absent/blank → empty list;
+/// present-but-malformed → Err so the caller can surface the exact failure.
+pub fn parse_tokens(tokens_json: Option<&str>) -> Result<Vec<CommandToken>, String> {
+    match tokens_json {
+        Some(s) if !s.trim().is_empty() => serde_json::from_str(s)
+            .map_err(|e| format!("Invalid tokens JSON: {}", e)),
+        _ => Ok(Vec::new()),
+    }
+}
+
 /// Save (create or update) a single command in the user KB path.
 ///
 /// If the category YAML exists, the command is merged (updated by name or added).
@@ -992,6 +1002,11 @@ mod tests {
 
     fn has_warning(issues: &[KbValidationIssue], needle: &str) -> bool {
         issues.iter().any(|i| i.severity == "warning" && i.message.contains(needle))
+    }
+
+    #[test]
+    fn test_parse_tokens_malformed_is_err() {
+        assert!(parse_tokens(Some("not json at all")).is_err());
     }
 
     #[test]

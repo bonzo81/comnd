@@ -475,8 +475,11 @@ export async function saveKbCommand(
   tokensJson?: string,
   order?: CommandOrder,
   negatable?: boolean,
-): Promise<void> {
-  return invoke<void>("save_kb_command", {
+): Promise<KbValidationIssue[] | null> {
+  // Resolves to null when saved, or the blocking error-severity issues when the
+  // validator refused the save. Rejects (throws) on I/O errors or malformed
+  // token JSON — those are hard failures, not a validation verdict.
+  return invoke<KbValidationIssue[] | null>("save_kb_command", {
     platform, category, name, syntax, description, mode, aliases, tags,
     tokensJson: tokensJson ?? null,
     order: order ?? null,

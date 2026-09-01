@@ -3,7 +3,7 @@
  * Shows commands grouped by category for a selected platform.
  */
 
-import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, PlatformIndex, loadPlatformIndex } from "../lib/tauri-api";
+import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
 import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { escHtml, formatMode } from "../lib/format";
@@ -542,8 +542,10 @@ export class KbViewerDialog {
     const category = this.selectedCommand?.category ?? "general";
     const order = (orderSelect?.value ?? "fixed") as "fixed" | "flags-anywhere" | "free";
 
+    let issues: KbValidationIssue[] | null = null;
+    let failure: string | null = null;
     try {
-      await saveKbCommand(
+      issues = await saveKbCommand(
         this.selectedPlatform,
         category,
         name,
@@ -556,14 +558,25 @@ export class KbViewerDialog {
         order,
         !!negatableInput?.checked,
       );
-      this.editing = false;
-      // Reload the platform with updated data
-      await this.loadPlatform();
+      if (issues && issues.length > 0) {
+        // Validator refused the save — keep the form open and show each issue.
+        this.saving = false;
+        this.render();
+      } else {
+        this.editing = false;
+        // Reload the platform with updated data
+        await this.loadPlatform();
+      }
     } catch (e) {
-      if (errEl) errEl.textContent = `Save failed: ${e}`;
+      failure = `Save failed: ${e}`;
       this.saving = false;
       this.render();
     }
+    const el = document.getElementById("kb-edit-errors");
+    if (!el) return;
+    if (issues && issues.length > 0) el.innerHTML = issues.map(i => `<div>${escHtml(i.message)}</div>`).join("");
+    else if (failure !== null) el.textContent = failure;
+    else el.textContent = "";
   }
 
   private async confirmDelete() {

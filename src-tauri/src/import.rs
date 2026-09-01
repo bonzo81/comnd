@@ -81,8 +81,24 @@ pub struct ExtractPreview {
 
 // ─── Pipeline ───────────────────────────────────────────────────────
 
+/// Bundled (read-only, repo-shipped) KB path — single source for index
+/// scaffolds. Resolves like lib.rs setup: resource dir in release,
+/// `knowledge-base/` next to the manifest in dev.
+pub fn default_bundled_kb_path() -> PathBuf {
+    let resource = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("knowledge-base");
+    if resource.exists() {
+        return resource;
+    }
+    std::path::PathBuf::from(".")
+}
+
 /// Run the full import pipeline (extract + commit). Kept for callers that
 /// don't want the preview step (e.g. power users / scripted imports).
+/// Reads the bundled KB path from the KB manager's location convention:
+/// sibling `knowledge-base/` next to the app manifest (dev) or resource dir.
 pub async fn import_from_url(
     request: ImportRequest,
     config: &AppConfig,
@@ -97,8 +113,10 @@ pub async fn import_from_url(
         platform_index,
     ).await?;
 
+    let bundled_kb_path = default_bundled_kb_path();
     commit_import(
         preview.previews.iter().map(|p| p.command.clone()).collect::<Vec<_>>(),
+        &bundled_kb_path,
         user_kb_path,
         &request.platform,
         &request.category,
@@ -218,6 +236,7 @@ pub async fn extract_from_url(
 /// commands to YAML and trigger a reload. Does not re-extract.
 pub async fn commit_import(
     commands: Vec<Command>,
+    bundled_kb_path: &PathBuf,
     user_kb_path: &PathBuf,
     platform: &str,
     category: &str,
@@ -229,7 +248,7 @@ pub async fn commit_import(
         target_file: target_file.display().to_string(),
     });
 
-    ensure_kb_structure(user_kb_path, platform, category)?;
+    ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category)?;
 
     // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
     write_commands_to_yaml(&commands, &target_file, category)?;
@@ -545,7 +564,7 @@ fn estimate_command_count(text: &str) -> usize {
 // ─── File Operations ────────────────────────────────────────────────
 
 /// Ensure the KB directory structure exists for a platform/category.
-fn ensure_kb_structure(user_kb_path: &PathBuf, platform: &str, _category: &str) -> Result<(), String> {
+fn ensure_kb_structure(bundled_kb_path: &PathBuf, user_kb_path: &PathBuf, platform: &str, _category: &str) -> Result<(), String> {
     let platform_dir = user_kb_path.join(platform);
     let commands_dir = platform_dir.join("commands");
 
@@ -555,22 +574,24 @@ fn ensure_kb_structure(user_kb_path: &PathBuf, platform: &str, _category: &str) 
     // Ensure index.yaml exists for the platform
     let index_path = platform_dir.join("index.yaml");
     if !index_path.exists() {
-        create_platform_index(platform, &index_path)?;
+        create_platform_index(bundled_kb_path, platform, &index_path)?;
     }
 
     Ok(())
 }
 
-/// Create a minimal platform index.yaml for a new platform.
-fn create_platform_index(platform: &str, path: &PathBuf) -> Result<(), String> {
-    // Known platform templates — embedded directly for reliability
-    let index_content = match platform {
-        "cisco-iosxe" => CISCO_IOSXE_INDEX.to_string(),
-        "cisco-nxos" => CISCO_NXOS_INDEX.to_string(),
-        "f5-tmos" => F5_TMOS_INDEX.to_string(),
-        "linux-bash" => LINUX_BASH_INDEX.to_string(),
-        _ => format!(
-r#"id: {platform}
+/// Create a platform index.yaml for a new platform.
+/// Single source of truth: copy the bundled index verbatim when present, so
+/// the scaffold always matches what ships in `knowledge-base/`. Unknown
+/// platforms fall back to a minimal scaffold.
+fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathBuf) -> Result<(), String> {
+    let bundled_index = bundled_kb_path.join(platform).join("index.yaml");
+    let content: Vec<u8> = if bundled_index.exists() {
+        std::fs::read(&bundled_index)
+            .map_err(|e| format!("Failed to read bundled index {}: {}", bundled_index.display(), e))?
+    } else {
+        format!(
+ r#"id: {platform}
 name: {platform}
 description: "Imported platform — {platform}"
 reference_url: ""
@@ -579,77 +600,16 @@ prompt_patterns: {{}}
 default_mode: privileged-exec
 "#,
             platform = platform,
-        ),
+        )
+        .into_bytes()
     };
 
-    crate::paths::atomic_write(path, index_content.as_bytes())
+    crate::paths::atomic_write(path, &content)
         .map_err(|e| format!("Failed to write index.yaml: {}", e))?;
 
     log::info!("Created platform index: {}", path.display());
     Ok(())
 }
-
-// Platform index templates
-const CISCO_IOSXE_INDEX: &str = r#"id: cisco-iosxe
-name: Cisco IOS-XE
-description: Cisco IOS-XE for routers and enterprise switches
-reference_url: "https://www.cisco.com/c/en/us/support/ios-nx-os-software/ios-xe-17/series.html"
-versions:
-  - "15.x"
-  - "16.x"
-  - "17.x"
-prompt_patterns:
-  user-exec: '^[\w\-]+>'
-  privileged-exec: '^[\w\-]+#'
-  global-config: '^[\w\-]+\(config\)#'
-  interface-config: '^[\w\-]+\(config-if\)#'
-  routing-config: '^[\w\-]+\(config-router\)#'
-  line-config: '^[\w\-]+\(config-line\)#'
-default_mode: privileged-exec
-"#;
-
-const CISCO_NXOS_INDEX: &str = r#"id: cisco-nxos
-name: Cisco NX-OS
-description: Cisco NX-OS for Nexus data-center switches
-reference_url: "https://www.cisco.com/c/en/us/support/switches/nexus-9000-series-switches/series.html"
-versions:
-  - "9.x"
-  - "10.x"
-prompt_patterns:
-  user-exec: '^[\w\-]+>'
-  privileged-exec: '^[\w\-]+#'
-  global-config: '^[\w\-]+\(config\)#'
-  interface-config: '^[\w\-]+\(config-if\)#'
-  routing-config: '^[\w\-]+\(config-router\)#'
-default_mode: privileged-exec
-"#;
-
-const F5_TMOS_INDEX: &str = r#"id: f5-tmos
-name: F5 TMOS
-description: F5 BIG-IP TMOS for load balancers
-reference_url: "https://clouddocs.f5.com/"
-versions:
-  - "15.x"
-  - "16.x"
-  - "17.x"
-prompt_patterns:
-  tmsh-root: '^\S+@\S+\(.*\)\(tmos\)#'
-  ltm: '^\S+@\S+\(.*\)\(tmos.ltm\)#'
-  net: '^\S+@\S+\(.*\)\(tmos.net\)#'
-  sys: '^\S+@\S+\(.*\)\(tmos.sys\)#'
-  bash: '^\S+:\S+:\S+@'
-default_mode: tmsh-root
-"#;
-
-const LINUX_BASH_INDEX: &str = r#"id: linux-bash
-name: Linux Bash
-description: GNU Bash shell on Linux — core utilities, networking, system administration
-reference_url: "https://www.gnu.org/software/bash/manual/"
-versions: []
-prompt_patterns:
-  shell: '^\$|^.*[\$#]\s*$'
-default_mode: shell
-"#;
 
 fn emit_progress(app_handle: &tauri::AppHandle, progress: ImportProgress) {
     use tauri::Emitter;
@@ -663,6 +623,33 @@ fn emit_progress(app_handle: &tauri::AppHandle, progress: ImportProgress) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_create_platform_index_matches_bundled() {
+        let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("knowledge-base");
+
+        for platform in ["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"] {
+            let tmp = std::env::temp_dir().join(format!(
+                "netssh-idx-test-{}-{}",
+                std::process::id(),
+                platform
+            ));
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(&tmp).unwrap();
+
+            let user_index = tmp.join("index.yaml");
+            create_platform_index(&bundled, platform, &user_index).unwrap();
+
+            let expected = std::fs::read(bundled.join(platform).join("index.yaml")).unwrap();
+            let actual = std::fs::read(&user_index).unwrap();
+            assert_eq!(actual, expected, "scaffold for {platform} diverged from bundled index");
+
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
+    }
 
     #[test]
     fn test_extract_text_from_html_basic() {

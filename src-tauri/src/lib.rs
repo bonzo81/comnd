@@ -1177,6 +1177,7 @@ async fn commit_kb_import(
 
     import::commit_import(
         commands,
+        &import::default_bundled_kb_path(),
         &user_kb_path,
         &platform,
         &category,
@@ -1241,29 +1242,20 @@ async fn save_kb_command(
     aliases: Vec<String>,
     tags: Vec<String>,
     // Phase 5.8: optional token fields. `tokens_json` is a JSON array of
-    // CommandToken; empty/invalid falls back to no tokens (legacy entry).
+    // CommandToken; absent/blank → no tokens (legacy entry). Malformed JSON is
+    // an outer error — we never silently drop bad input on save.
     tokens_json: Option<String>,
     order: Option<String>,
     negatable: Option<bool>,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<Result<(), Vec<kb::KbValidationIssue>>, String> {
     let user_kb_path = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         config.user_kb_path()
     };
 
-    // Parse tokens JSON. ponytail: serde_json::from_str; empty/invalid → vec![].
-    // The KB viewer surfaces validator issues inline, so a malformed token is
-    // visible to the user even though save succeeds.
-    let tokens: Vec<kb::CommandToken> = match tokens_json.as_deref() {
-        Some(s) if !s.trim().is_empty() => {
-            serde_json::from_str(s).unwrap_or_else(|e| {
-                log::warn!("save_kb_command: tokens JSON parse failed ({}), saving without tokens", e);
-                vec![]
-            })
-        }
-        _ => vec![],
-    };
+    // Malformed token JSON is a hard error (outer Err), not a silent downgrade.
+    let tokens: Vec<kb::CommandToken> = kb::parse_tokens(tokens_json.as_deref())?;
 
     let order_val = match order.as_deref() {
         Some("flags-anywhere") => kb::CommandOrder::FlagsAnywhere,
@@ -1290,6 +1282,16 @@ async fn save_kb_command(
         negatable: negatable.unwrap_or(false),
     };
 
+    // Error-severity issues block the save and are returned to the UI. Warnings
+    // don't block — they're surfaced separately via validate_kb.
+    let errors: Vec<kb::KbValidationIssue> = kb::validate_command(&command)
+        .into_iter()
+        .filter(|i| i.severity == "error")
+        .collect();
+    if !errors.is_empty() {
+        return Ok(Err(errors));
+    }
+
     kb::save_kb_command(&user_kb_path, &platform, &category, &command)?;
 
     // Reload KB so changes are reflected immediately
@@ -1298,7 +1300,7 @@ async fn save_kb_command(
         kb.reload_all();
     }
 
-    Ok(())
+    Ok(Ok(()))
 }
 
 #[tauri::command]

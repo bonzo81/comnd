@@ -14,6 +14,7 @@ prompt_patterns:
   routing-config: '^[\w\-]+\(config-router\)#'
   line-config: '^[\w\-]+\(config-line\)#'
 default_mode: privileged-exec
+negation_prefix: "no "
 command_files:
   - commands/networking.yaml
   - commands/routing.yaml
