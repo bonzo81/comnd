@@ -348,19 +348,21 @@ export class NavPanel {
     // no separate "Ungrouped" pseudo-folder.
     if (allHostsExpanded) {
       if (this.creatingIn === ALL_GROUP_ID) {
-        html += this.renderCreateRow(0);
+        html += this.renderCreateRow(1);
       }
       const ungrouped = sortByRecent(this.hosts.filter((h) => !h.group_id && this.hostVisible(h)));
       for (const h of ungrouped) {
         html += this.renderHostRow(h, 1);
       }
     }
-    // Named root groups render after the ungrouped hosts, as siblings under
-    // All Hosts. Each carries its own expand/collapse subtree.
+    // Named root groups render after the ungrouped hosts, nested one level
+    // under All Hosts (the catch-all). The NetBox synthetic root stays at
+    // top level (depth 0), left-aligned with All Hosts. Each group carries
+    // its own expand/collapse subtree.
     const roots = this.groups.filter((g) => !g.parent_id);
     for (const g of roots) {
       if (keep && !keep.has(g.id)) continue;
-      html += this.renderGroupNode(g, 0);
+      html += this.renderGroupNode(g, isNetboxGroup(g.id) ? 0 : 1);
     }
     return html;
   }
