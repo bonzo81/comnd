@@ -596,6 +596,23 @@ export async function netboxGetDevices(): Promise<NetBoxDeviceEntry[]> {
   return invoke<NetBoxDeviceEntry[]>("netbox_get_devices");
 }
 
+export interface NetBoxChoice {
+  slug: string;
+  name: string;
+}
+
+export async function netboxGetSites(): Promise<NetBoxChoice[]> {
+  return invoke<NetBoxChoice[]>("netbox_get_sites");
+}
+
+export async function netboxGetRoles(): Promise<NetBoxChoice[]> {
+  return invoke<NetBoxChoice[]>("netbox_get_roles");
+}
+
+export async function netboxGetTags(): Promise<NetBoxChoice[]> {
+  return invoke<NetBoxChoice[]>("netbox_get_tags");
+}
+
 export async function netboxSetDeviceEnabled(
   netboxId: number,
   enabled: boolean,

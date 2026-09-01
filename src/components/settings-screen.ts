@@ -13,7 +13,8 @@ import {
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
   netboxGetConfig, netboxSaveConfig, netboxSaveToken, netboxTestConnection,
   netboxSync, netboxGetDevices, netboxSetDeviceEnabled, netboxGetStatus,
-  NetBoxConfig, NetBoxDeviceEntry,
+  netboxGetSites, netboxGetRoles, netboxGetTags,
+  NetBoxConfig, NetBoxDeviceEntry, NetBoxChoice,
 } from "../lib/tauri-api";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { showToast, showToastWithAction } from "../lib/toast";
@@ -73,6 +74,9 @@ export class SettingsScreen {
   private netboxDevices: NetBoxDeviceEntry[] = [];
   private netboxDeviceSearch = "";
   private netboxTestLine: { text: string; ok: boolean } | null = null;
+  private netboxSites: NetBoxChoice[] = [];
+  private netboxRoles: NetBoxChoice[] = [];
+  private netboxTags: NetBoxChoice[] = [];
   /** True only after a successful Test using the *current* URL+token field
    *  values — drives the Save Token button highlight. Reset on any input. */
   private netboxTestOk = false;
@@ -339,6 +343,70 @@ export class SettingsScreen {
     } catch {
       this.providerStatuses = new Map();
     }
+    // Fetch filter choices when connection is valid (token + URL present)
+    if (this.netboxHasToken && this.netboxConfig?.base_url) {
+      const [sites, roles, tags] = await Promise.allSettled([
+        netboxGetSites(),
+        netboxGetRoles(),
+        netboxGetTags(),
+      ]);
+      this.netboxSites = sites.status === "fulfilled" ? sites.value : [];
+      this.netboxRoles = roles.status === "fulfilled" ? roles.value : [];
+      this.netboxTags = tags.status === "fulfilled" ? tags.value : [];
+    }
+  }
+
+  private renderFilterMultiSelect(id: string, label: string, placeholder: string, options: NetBoxChoice[], selected: string[]): string {
+    const hasConnection = this.netboxHasToken && !!this.netboxConfig?.base_url;
+    if (!hasConnection) {
+      return `
+        <div class="import-field">
+          <label for="${id}">${label}</label>
+          <input type="text" class="form-input" id="${id}" value="${this.escAttr(selected.join(", "))}" placeholder="Connect NetBox to enable selection" disabled />
+          <input type="hidden" data-ms-hidden="${id}" value="${this.escAttr(selected.join(","))}" />
+        </div>`;
+    }
+    const chips = selected.map((slug) => {
+      const opt = options.find((o) => o.slug === slug);
+      const display = opt ? opt.name : slug;
+      return `<span class="ms-chip" data-ms-slug="${this.escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+    }).join("");
+    const listItems = options.map((o) => {
+      const sel = selected.includes(o.slug) ? " ms-item-selected" : "";
+      return `<li class="ms-item${sel}" data-ms-slug="${this.escAttr(o.slug)}">${escHtml(o.name)}</li>`;
+    }).join("");
+    return `
+      <div class="import-field">
+        <label for="${id}-search">${label}</label>
+        <div class="ms-wrap" data-ms-field="${id}">
+          <div class="ms-chips">${chips || '<span class="ms-placeholder">' + escHtml(placeholder) + '</span>'}</div>
+          <input type="text" class="form-input ms-search" id="${id}-search" placeholder="Search..." autocomplete="off" />
+          <ul class="ms-dropdown" data-ms-list="${id}">${listItems}</ul>
+        </div>
+        <input type="hidden" id="${id}" value="${this.escAttr(selected.join(","))}" />
+      </div>`;
+  }
+
+  private updateMsChips(chipsEl: HTMLElement, listEl: HTMLUListElement, selected: string[]) {
+    const options = Array.from(listEl.querySelectorAll<HTMLLIElement>(".ms-item"));
+    const placeholder = chipsEl.querySelector(".ms-placeholder")?.textContent ?? "Search…";
+    if (selected.length === 0) {
+      chipsEl.innerHTML = `<span class="ms-placeholder">${escHtml(placeholder)}</span>`;
+      return;
+    }
+    chipsEl.innerHTML = selected.map((slug) => {
+      const opt = options.find((o) => o.dataset.msSlug === slug);
+      const display = opt ? opt.textContent ?? slug : slug;
+      return `<span class="ms-chip" data-ms-slug="${this.escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+    }).join("");
+  }
+
+  private filterMsList(listEl: HTMLUListElement, query: string) {
+    const q = query.toLowerCase().trim();
+    listEl.querySelectorAll<HTMLLIElement>(".ms-item").forEach((li) => {
+      const text = (li.textContent ?? "").toLowerCase();
+      li.hidden = q !== "" && !text.includes(q);
+    });
   }
 
   private renderNetBox(): string {
@@ -404,24 +472,9 @@ export class SettingsScreen {
                    value="${this.escAttr(filters.status ?? "active")}" />
             <span class="import-hint">NetBox status slug. Leave blank to sync devices in any status.</span>
           </div>
-          <div class="import-field">
-            <label for="netbox-filter-sites">Sites</label>
-            <input type="text" class="form-input" id="netbox-filter-sites" placeholder="dc1, dc2"
-                   value="${this.escAttr(filters.sites.join(", "))}" />
-            <span class="import-hint">Comma-separated NetBox site slugs. Blank = all sites.</span>
-          </div>
-          <div class="import-field">
-            <label for="netbox-filter-roles">Roles</label>
-            <input type="text" class="form-input" id="netbox-filter-roles" placeholder="router, switch"
-                   value="${this.escAttr(filters.roles.join(", "))}" />
-            <span class="import-hint">Comma-separated NetBox device-role slugs. Blank = all roles.</span>
-          </div>
-          <div class="import-field">
-            <label for="netbox-filter-tags">Tags</label>
-            <input type="text" class="form-input" id="netbox-filter-tags" placeholder="prod"
-                   value="${this.escAttr(filters.tags.join(", "))}" />
-            <span class="import-hint">Comma-separated NetBox tag slugs. Blank = all tags.</span>
-          </div>
+          ${this.renderFilterMultiSelect("netbox-filter-sites", "Sites", "Search sites…", this.netboxSites, filters.sites)}
+          ${this.renderFilterMultiSelect("netbox-filter-roles", "Roles", "Search roles…", this.netboxRoles, filters.roles)}
+          ${this.renderFilterMultiSelect("netbox-filter-tags", "Tags", "Search tags…", this.netboxTags, filters.tags)}
 
           <h3 class="settings-section-title">Platform Mapping</h3>
           <div class="import-field">
@@ -797,6 +850,79 @@ export class SettingsScreen {
       if (!el) return;
       const ev = el.tagName === "TEXTAREA" || el.tagName === "INPUT" ? "change" : "change";
       el.addEventListener(ev, () => void this.autosaveNetboxConfig());
+    });
+
+    // Multi-select filter wiring (sites / roles / tags)
+    this.container?.querySelectorAll<HTMLElement>(".ms-wrap").forEach((wrap) => {
+      const fieldId = wrap.dataset.msField!;
+      const searchInput = wrap.querySelector<HTMLInputElement>(".ms-search");
+      const chipsEl = wrap.querySelector<HTMLElement>(".ms-chips");
+      const listEl = wrap.querySelector<HTMLUListElement>(".ms-dropdown");
+      if (!searchInput || !chipsEl || !listEl) return;
+
+      const getHidden = () => this.container?.querySelector<HTMLInputElement>(`#${fieldId}`);
+      const getSelected = (): string[] => {
+        const v = getHidden()?.value ?? "";
+        return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      };
+      const setSelected = (slugs: string[]) => {
+        const hidden = getHidden();
+        if (hidden) hidden.value = slugs.join(",");
+        this.updateMsChips(chipsEl, listEl, slugs);
+        hidden?.dispatchEvent(new Event("change"));
+      };
+
+      searchInput.addEventListener("focus", () => {
+        listEl.classList.add("ms-dropdown-open");
+        this.filterMsList(listEl, "");
+      });
+      searchInput.addEventListener("input", () => {
+        listEl.classList.add("ms-dropdown-open");
+        this.filterMsList(listEl, searchInput.value);
+      });
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          listEl.classList.remove("ms-dropdown-open");
+          searchInput.blur();
+        }
+      });
+
+      listEl.addEventListener("click", (e) => {
+        const li = (e.target as HTMLElement).closest<HTMLLIElement>(".ms-item");
+        if (!li) return;
+        const slug = li.dataset.msSlug!;
+        const sel = getSelected();
+        const idx = sel.indexOf(slug);
+        if (idx >= 0) {
+          sel.splice(idx, 1);
+          li.classList.remove("ms-item-selected");
+        } else {
+          sel.push(slug);
+          li.classList.add("ms-item-selected");
+        }
+        setSelected(sel);
+      });
+
+      chipsEl.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".ms-chip-x");
+        if (!btn) return;
+        const chip = btn.closest<HTMLElement>(".ms-chip");
+        const slug = chip?.dataset.msSlug;
+        if (!slug) return;
+        const sel = getSelected().filter((s) => s !== slug);
+        const li = listEl.querySelector<HTMLLIElement>(`[data-ms-slug="${CSS.escape(slug)}"]`);
+        li?.classList.remove("ms-item-selected");
+        setSelected(sel);
+      });
+
+      // Close dropdown on outside click
+      document.addEventListener("click", (e) => {
+        if (!wrap.contains(e.target as Node)) {
+          listEl.classList.remove("ms-dropdown-open");
+          searchInput.value = "";
+          this.filterMsList(listEl, "");
+        }
+      });
     });
     // Fallback platform select is only meaningful when policy = fallback.
     this.container?.querySelector<HTMLSelectElement>("#netbox-platform-policy")?.addEventListener("change", (e) => {

@@ -32,6 +32,13 @@ pub struct NetBoxFilters {
     pub tags: Vec<String>,
 }
 
+/// A single choice option returned by the filter-list endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetBoxChoice {
+    pub slug: String,
+    pub name: String,
+}
+
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
 
 /// One device parsed out of the NetBox API response. Field extraction goes
@@ -897,6 +904,47 @@ impl NetBoxClient {
             result.no_primary_ip
         );
         Ok(result)
+    }
+
+    /// Fetch all site choices (slug + name) for the filter dropdown.
+    pub async fn fetch_sites(&self) -> Result<Vec<NetBoxChoice>, String> {
+        self.fetch_choices("/api/dcim/sites/").await
+    }
+
+    /// Fetch all device-role choices for the filter dropdown.
+    pub async fn fetch_device_roles(&self) -> Result<Vec<NetBoxChoice>, String> {
+        self.fetch_choices("/api/dcim/device-roles/").await
+    }
+
+    /// Fetch all tag choices for the filter dropdown.
+    pub async fn fetch_tags(&self) -> Result<Vec<NetBoxChoice>, String> {
+        self.fetch_choices("/api/extras/tags/").await
+    }
+
+    async fn fetch_choices(&self, path: &str) -> Result<Vec<NetBoxChoice>, String> {
+        let url = reqwest::Url::parse(&format!(
+            "{}{}?limit=1000&fields=slug,name",
+            self.base_url, path
+        ))
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+        log::info!("NetBox fetch_choices -> {}", url);
+        let body = self.get_json(&url).await?;
+        let items = body
+            .get("results")
+            .and_then(|r| r.as_array())
+            .ok_or_else(|| "Unexpected NetBox response shape (missing results)".to_string())?;
+        Ok(items
+            .iter()
+            .filter_map(|item| {
+                let slug = item.get("slug")?.as_str()?.to_string();
+                let name = item
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or(&slug)
+                    .to_string();
+                Some(NetBoxChoice { slug, name })
+            })
+            .collect())
     }
 
     /// GET a URL with auth, map errors, parse the JSON body.

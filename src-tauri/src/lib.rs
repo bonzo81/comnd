@@ -985,6 +985,43 @@ async fn netbox_get_devices(
     Ok(netbox.get().devices.clone())
 }
 
+fn build_netbox_client(state: &AppState) -> Result<netbox::NetBoxClient, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        netbox::NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    if config.base_url.trim().is_empty() {
+        return Err("No NetBox URL configured — set one in Settings → NetBox".to_string());
+    }
+    let token = credentials::get_secret(netbox::TOKEN_KEY)?
+        .ok_or_else(|| "No NetBox API token saved — enter one in Settings → NetBox".to_string())?;
+    netbox::NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)
+}
+
+#[tauri::command]
+async fn netbox_get_sites(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<netbox::NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_sites().await
+}
+
+#[tauri::command]
+async fn netbox_get_roles(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<netbox::NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_device_roles().await
+}
+
+#[tauri::command]
+async fn netbox_get_tags(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<netbox::NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_tags().await
+}
+
 #[tauri::command]
 async fn netbox_set_device_enabled(
     netbox_id: u64,
@@ -1566,6 +1603,9 @@ pub fn run() {
                 netbox_test_connection,
                 netbox_sync,
                 netbox_get_devices,
+                netbox_get_sites,
+                netbox_get_roles,
+                netbox_get_tags,
                 netbox_set_device_enabled,
                 netbox_set_device_overlay,
                 netbox_get_status,
