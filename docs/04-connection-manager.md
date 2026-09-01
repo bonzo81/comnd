@@ -97,9 +97,13 @@ NetBox-sourced devices appear alongside user hosts, never mixed into them.
 - **Storage**: devices cache to `netbox-cache.json` in the app data dir. The
   sync NEVER writes to `hosts.json`; `get_hosts` merges user hosts + enabled
   NetBox devices at read time. Devices deleted in NetBox disappear on next sync.
-- **Tree grouping**: NetBox root folder -> site group -> location group
-  (location nullable; devices without one sit directly under their site).
-  Groups are synthetic (`__netbox__...` ids), not user-editable.
+- **Tree grouping**: mirrors the FULL NetBox geography hierarchy — NetBox
+  root -> region group (recursive; sites carry their region) -> site group
+  -> location group (recursive; locations carry their parent). Every
+  cached region/site/location appears, including branches with no devices;
+  devices without a location sit directly under their site. Groups are
+  synthetic (`__netbox__...` ids), not user-editable, and show NetBox
+  names (not slugs) once geography is cached (cache v2).
 - **Refresh**: manual only (Refresh Now in settings or the folder context
   menu). No background sync, no polling, no refresh-on-launch.
 - **Sync filters**: status (default `active`), sites, roles, tags -

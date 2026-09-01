@@ -39,6 +39,41 @@ pub struct NetBoxChoice {
     pub name: String,
 }
 
+// ─── Geography (nav-tree hierarchy, plan §8.3) ─────────────────────
+
+/// One geography node (region, site, or location) from the NetBox API,
+/// flattened to the links needed to rebuild the hierarchy: regions nest
+/// recursively via `parent`, sites point at a `region`, and locations
+/// nest recursively via `parent` within a `site`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct NetBoxGeoNode {
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub parent_slug: Option<String>,
+    /// Locations only: the site this location belongs to.
+    #[serde(default)]
+    pub site_slug: Option<String>,
+    /// Sites only: the region this site belongs to.
+    #[serde(default)]
+    pub region_slug: Option<String>,
+}
+
+/// The geography tables cached for nav-tree building (cache v2). Empty
+/// tables (pre-v2 cache, or an endpoint unavailable on old NetBox
+/// versions) degrade to a slug-named site → flat-location tree.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct NetBoxGeo {
+    #[serde(default)]
+    pub regions: Vec<NetBoxGeoNode>,
+    #[serde(default)]
+    pub sites: Vec<NetBoxGeoNode>,
+    #[serde(default)]
+    pub locations: Vec<NetBoxGeoNode>,
+}
+
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
 
 /// One device parsed out of the NetBox API response. Field extraction goes
@@ -333,7 +368,7 @@ pub fn build_entries(
 
 // ─── Cache store (plan §7.3) ────────────────────────────────────────
 
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NetBoxCache {
@@ -345,6 +380,11 @@ pub struct NetBoxCache {
     pub sync_report: Option<SyncReport>,
     #[serde(default)]
     pub devices: Vec<NetBoxDeviceEntry>,
+    /// Geography tables for the nav-tree hierarchy (v2): regions, sites,
+    /// locations with parent links. Empty on pre-v2 caches — the tree
+    /// degrades to slug-named site → flat locations.
+    #[serde(default)]
+    pub geo: NetBoxGeo,
 }
 
 pub struct NetBoxCacheStore {
@@ -378,11 +418,14 @@ impl NetBoxCacheStore {
 
     /// Full-replace the device array from a sync. `enabled` and `overlay`
     /// survive across syncs by `netbox_id` match; devices gone from NetBox
-    /// are gone locally (overlay dropped with them).
+    /// are gone locally (overlay dropped with them). `geo` replaces the
+    /// cached geography tables (v2) — empty on fetch failure, which only
+    /// degrades tree naming/nesting, never the device list.
     pub fn apply_sync(
         &mut self,
         report: SyncReport,
         devices: Vec<NetBoxDeviceEntry>,
+        geo: NetBoxGeo,
     ) -> Result<SyncReport, String> {
         let old: HashMap<u64, (bool, DeviceOverlay)> = self
             .cache
@@ -401,6 +444,7 @@ impl NetBoxCacheStore {
             })
             .collect();
         self.cache.version = CACHE_VERSION;
+        self.cache.geo = geo;
         self.cache.last_synced = Some(chrono::Utc::now().to_rfc3339());
         self.cache.sync_report = Some(report.clone());
         self.save()?;
@@ -488,8 +532,22 @@ fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
 pub const TOKEN_KEY: &str = "netssh_source_netbox_token";
 pub const DEFAULT_PW_KEY: &str = "netssh_source_netbox_default_pw";
 
-/// Synthetic group ids (plan §8.3): root, site, location.
+/// Synthetic group ids (plan §8.3): root, region, site, location. Model
+/// slugs are unique within NetBox, so each node is addressable by its own
+/// slug — ancestry lives in the cached geo tables, not the id.
 pub const ROOT_GROUP_ID: &str = "__netbox__";
+
+fn region_group_id(slug: &str) -> String {
+    format!("{}:region:{}", ROOT_GROUP_ID, slug)
+}
+
+fn site_group_id(slug: &str) -> String {
+    format!("{}:site:{}", ROOT_GROUP_ID, slug)
+}
+
+fn loc_group_id(slug: &str) -> String {
+    format!("{}:loc:{}", ROOT_GROUP_ID, slug)
+}
 
 /// Non-secret NetBox source config, stored as JSON under
 /// `host_sources["netbox"]`. The API token and source-default password live
@@ -624,13 +682,17 @@ pub fn is_synthetic_group_id(id: &str) -> bool {
     id.starts_with(ROOT_GROUP_ID)
 }
 
-/// Effective group id for a device: location group → site group → root.
+/// Effective group id for a device: its location group when set, else its
+/// site group, else the NetBox root (plan §8.3). Region/location ancestry
+/// is resolved from the geo tables at tree-build time, not encoded here.
 fn group_id_for(device: &NetBoxDeviceEntry) -> String {
-    match (&device.site, &device.location) {
-        (Some(site), Some(loc)) => format!("{}:site:{}:loc:{}", ROOT_GROUP_ID, site, loc),
-        (Some(site), None) => format!("{}:site:{}", ROOT_GROUP_ID, site),
-        (None, _) => ROOT_GROUP_ID.to_string(),
+    if let Some(loc) = device.location.as_deref().filter(|l| !l.is_empty()) {
+        return loc_group_id(loc);
     }
+    if let Some(site) = device.site.as_deref().filter(|s| !s.is_empty()) {
+        return site_group_id(site);
+    }
+    ROOT_GROUP_ID.to_string()
 }
 
 /// Materialize a cached device into a `Host` for the merged host list
@@ -668,14 +730,125 @@ pub fn materialize_host(device: &NetBoxDeviceEntry, cfg: &NetBoxConfig) -> crate
     }
 }
 
+// ─── Synthetic nav-tree groups (plan §8.3) ──────────────────────────
+//
+// Mirrors the NetBox geography hierarchy:
+//
+//     NetBox root → Region (recursive) → Site → Location (recursive)
+//
+// Sites carry their region, locations carry their parent location and
+// site; both chains are walked from the cached geo tables (v2). Empty
+// tables (pre-v2 cache, geography fetch failure) degrade to slug-named
+// site → flat-location folders, never a broken tree.
+
+fn index_nodes(nodes: &[NetBoxGeoNode]) -> HashMap<String, NetBoxGeoNode> {
+    nodes.iter().map(|n| (n.slug.clone(), n.clone())).collect()
+}
+
+fn display_name(n: &NetBoxGeoNode) -> String {
+    if n.name.is_empty() {
+        n.slug.clone()
+    } else {
+        n.name.clone()
+    }
+}
+
+/// Ancestor chain of `slug` in `table`, top-most first, ending at `slug`.
+/// Unknown slugs, missing parents, and parent cycles all fall back to
+/// `[slug]` (node attaches to its site / the root — never an orphan or an
+/// infinite loop). NetBox slugs are unique per model, so slug chains are
+/// collision-free.
+fn parent_chain(table: &HashMap<String, NetBoxGeoNode>, slug: &str) -> Vec<String> {
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut chain: Vec<String> = Vec::new();
+    let mut cur = slug.to_string();
+    loop {
+        if !visited.insert(cur.clone()) {
+            return vec![slug.to_string()]; // cycle guard — flatten
+        }
+        match table.get(&cur) {
+            Some(node) => {
+                chain.push(cur.clone());
+                match node.parent_slug.as_deref().filter(|p| !p.is_empty()) {
+                    Some(p) => cur = p.to_string(),
+                    None => break,
+                }
+            }
+            None => break,
+        }
+    }
+    if chain.is_empty() {
+        return vec![slug.to_string()]; // slug not in table → stand alone
+    }
+    chain.reverse();
+    chain
+}
+
+/// Insert a synthetic group unless already emitted (id-deduped). Sibling
+/// order follows first-seen (geo table) order.
+fn ensure_group(
+    seen: &mut std::collections::HashSet<String>,
+    groups: &mut Vec<crate::hosts::HostGroup>,
+    id: String,
+    name: String,
+    parent_id: Option<String>,
+) {
+    if seen.insert(id.clone()) {
+        groups.push(crate::hosts::HostGroup {
+            sort_order: groups.len() as u32,
+            id,
+            name,
+            parent_id,
+            color: None,
+            icon: None,
+            created_at: String::new(),
+        });
+    }
+}
+
+/// Emit a slug chain (top-most first) as nested groups under
+/// `start_parent`, naming each from `table` (slug fallback). Returns the
+/// group id of the chain's deepest node.
+fn ensure_chain(
+    table: &HashMap<String, NetBoxGeoNode>,
+    seen: &mut std::collections::HashSet<String>,
+    groups: &mut Vec<crate::hosts::HostGroup>,
+    id_for: fn(&str) -> String,
+    chain: &[String],
+    start_parent: &str,
+) -> String {
+    let mut parent = start_parent.to_string();
+    for slug in chain {
+        let name = table
+            .get(slug)
+            .map(display_name)
+            .unwrap_or_else(|| slug.clone());
+        let id = id_for(slug);
+        ensure_group(seen, groups, id.clone(), name, Some(parent));
+        parent = id;
+    }
+    parent
+}
+
 /// Synthetic host groups for the nav tree (plan §8.3): NetBox root →
-/// site → location. Only groups holding at least one enabled device are
-/// emitted; the root sorts after every user group.
-pub fn synthetic_groups(devices: &[NetBoxDeviceEntry]) -> Vec<crate::hosts::HostGroup> {
+/// region(s) → site → location(s), mirroring the FULL cached NetBox
+/// geography — every region/site/location is emitted, including branches
+/// with no devices. Devices whose site/location slug is missing from the
+/// tables (stale cache) still get slug-named fallback groups so no
+/// enabled device is orphaned. The whole tree disappears when no enabled
+/// device is cached; the root sorts after every user group.
+pub fn synthetic_groups(
+    devices: &[NetBoxDeviceEntry],
+    geo: &NetBoxGeo,
+) -> Vec<crate::hosts::HostGroup> {
     let enabled: Vec<&NetBoxDeviceEntry> = devices.iter().filter(|d| d.enabled).collect();
     if enabled.is_empty() {
         return Vec::new();
     }
+
+    let regions = index_nodes(&geo.regions);
+    let sites = index_nodes(&geo.sites);
+    let locations = index_nodes(&geo.locations);
 
     let mut groups = vec![crate::hosts::HostGroup {
         id: ROOT_GROUP_ID.to_string(),
@@ -686,45 +859,75 @@ pub fn synthetic_groups(devices: &[NetBoxDeviceEntry]) -> Vec<crate::hosts::Host
         icon: Some("netbox".to_string()),
         created_at: String::new(),
     }];
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    seen.insert(ROOT_GROUP_ID.to_string());
 
-    let mut sites: Vec<&str> = Vec::new();
-    let mut locations: Vec<(&str, &str)> = Vec::new();
-    for d in &enabled {
-        if let Some(site) = d.site.as_deref() {
-            if !sites.contains(&site) {
-                sites.push(site);
+    // Regions with their ancestry, in table order.
+    for r in &geo.regions {
+        let chain = parent_chain(&regions, &r.slug);
+        ensure_chain(&regions, &mut seen, &mut groups, region_group_id, &chain, ROOT_GROUP_ID);
+    }
+    // Sites: region ancestry first (usually already emitted), then the site.
+    for s in &geo.sites {
+        let mut parent = ROOT_GROUP_ID.to_string();
+        if let Some(region_slug) = s.region_slug.as_deref().filter(|x| !x.is_empty()) {
+            let chain = parent_chain(&regions, region_slug);
+            parent = ensure_chain(&regions, &mut seen, &mut groups, region_group_id, &chain, &parent);
+        }
+        let id = site_group_id(&s.slug);
+        ensure_group(&mut seen, &mut groups, id, display_name(s), Some(parent));
+    }
+    // Locations: parent chain under the location's site. The site group is
+    // ensured first (slug-named if the sites table lacks it) so a partial
+    // sites fetch never orphans the chain.
+    for l in &geo.locations {
+        let site_id = match l.site_slug.as_deref().filter(|x| !x.is_empty()) {
+            Some(s) => {
+                let name = sites.get(s).map(display_name).unwrap_or_else(|| s.to_string());
+                let id = site_group_id(s);
+                ensure_group(
+                    &mut seen,
+                    &mut groups,
+                    id.clone(),
+                    name,
+                    Some(ROOT_GROUP_ID.to_string()),
+                );
+                id
             }
-            if let Some(loc) = d.location.as_deref() {
-                let pair = (site, loc);
-                if !locations.contains(&pair) {
-                    locations.push(pair);
-                }
+            None => ROOT_GROUP_ID.to_string(), // defensive: NetBox requires a site
+        };
+        let chain = parent_chain(&locations, &l.slug);
+        ensure_chain(&locations, &mut seen, &mut groups, loc_group_id, &chain, &site_id);
+    }
+    // Stale-cache fallback: device slugs missing from the geo tables still
+    // get slug-named groups so no enabled device is orphaned.
+    for d in &enabled {
+        let site_slug = match d.site.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => s,
+            None => continue, // no site → device sits in the NetBox root
+        };
+        if !sites.contains_key(site_slug) {
+            ensure_group(
+                &mut seen,
+                &mut groups,
+                site_group_id(site_slug),
+                site_slug.to_string(),
+                Some(ROOT_GROUP_ID.to_string()),
+            );
+        }
+        if let Some(loc_slug) = d.location.as_deref().filter(|l| !l.is_empty()) {
+            if !locations.contains_key(loc_slug) {
+                ensure_group(
+                    &mut seen,
+                    &mut groups,
+                    loc_group_id(loc_slug),
+                    loc_slug.to_string(),
+                    Some(site_group_id(site_slug)),
+                );
             }
         }
     }
 
-    for (i, site) in sites.iter().enumerate() {
-        groups.push(crate::hosts::HostGroup {
-            id: format!("{}:site:{}", ROOT_GROUP_ID, site),
-            name: site.to_string(),
-            parent_id: Some(ROOT_GROUP_ID.to_string()),
-            sort_order: i as u32,
-            color: None,
-            icon: None,
-            created_at: String::new(),
-        });
-    }
-    for (i, (site, loc)) in locations.iter().enumerate() {
-        groups.push(crate::hosts::HostGroup {
-            id: format!("{}:site:{}:loc:{}", ROOT_GROUP_ID, site, loc),
-            name: loc.to_string(),
-            parent_id: Some(format!("{}:site:{}", ROOT_GROUP_ID, site)),
-            sort_order: i as u32,
-            color: None,
-            icon: None,
-            created_at: String::new(),
-        });
-    }
     groups
 }
 
@@ -919,6 +1122,64 @@ impl NetBoxClient {
     /// Fetch all tag choices for the filter dropdown.
     pub async fn fetch_tags(&self) -> Result<Vec<NetBoxChoice>, String> {
         self.fetch_choices("/api/extras/tags/").await
+    }
+
+    /// Fetch the geography tables (regions, sites, locations with parent
+    /// links) for the nav-tree hierarchy (plan §8.3). One call each,
+    /// `limit=0` = every object. Each fetch degrades independently: an
+    /// endpoint error logs a warning and yields an empty table — the tree
+    /// falls back to slug-named site → flat locations for that model.
+    pub async fn fetch_geo(&self) -> NetBoxGeo {
+        NetBoxGeo {
+            regions: self.fetch_geo_table("/api/dcim/regions/").await,
+            sites: self.fetch_geo_table("/api/dcim/sites/").await,
+            locations: self.fetch_geo_table("/api/dcim/locations/").await,
+        }
+    }
+
+    /// Fetch one geography table; empty on any error (the tree degrades to
+    /// slug-named groups for that model, never a broken tree).
+    async fn fetch_geo_table(&self, path: &str) -> Vec<NetBoxGeoNode> {
+        let url = reqwest::Url::parse(&format!("{}{}?limit=0", self.base_url, path))
+            .map_err(|e| format!("Invalid URL: {}", e));
+        let url = match url {
+            Ok(u) => u,
+            Err(e) => {
+                log::warn!("NetBox geo {} unavailable: {}", path, e);
+                return Vec::new();
+            }
+        };
+        log::info!("NetBox fetch_geo -> {}", url);
+        match self.get_json(&url).await {
+            Ok(body) => body
+                .get("results")
+                .and_then(|r| r.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            let slug = item.get("slug")?.as_str()?.to_string();
+                            let name = item
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or(&slug)
+                                .to_string();
+                            Some(NetBoxGeoNode {
+                                slug,
+                                name,
+                                parent_slug: nested_slug(item, "parent"),
+                                site_slug: nested_slug(item, "site"),
+                                region_slug: nested_slug(item, "region"),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Err(e) => {
+                log::warn!("NetBox geo {} unavailable: {} — tree degrades for this model", path, e);
+                Vec::new()
+            }
+        }
     }
 
     async fn fetch_choices(&self, path: &str) -> Result<Vec<NetBoxChoice>, String> {
@@ -1463,6 +1724,45 @@ mod tests {
         server.abort();
     }
 
+    #[tokio::test]
+    async fn test_fetch_geo_parses_hierarchy_links() {
+        let (base, server) = start_mock(|_| {
+            Arc::new(|_, path, _| {
+                let body = if path.starts_with("/api/dcim/regions/") {
+                    r#"{"count": 2, "next": null, "results": [
+                        {"id": 1, "name": "EMEA", "slug": "emea", "parent": null, "site": null, "region": null},
+                        {"id": 2, "name": "United Kingdom", "slug": "uk", "parent": {"id": 1, "name": "EMEA", "slug": "emea"}, "site": null, "region": null}
+                    ]}"#
+                } else if path.starts_with("/api/dcim/sites/") {
+                    r#"{"count": 1, "next": null, "results": [
+                        {"id": 7, "name": "DC1 London", "slug": "dc1", "parent": null, "site": null, "region": {"id": 2, "name": "United Kingdom", "slug": "uk"}}
+                    ]}"#
+                } else if path.starts_with("/api/dcim/locations/") {
+                    r#"{"count": 2, "next": null, "results": [
+                        {"id": 11, "name": "Floor 1", "slug": "floor-1", "parent": null, "site": {"id": 7, "name": "DC1 London", "slug": "dc1"}, "region": null},
+                        {"id": 12, "name": "Room A", "slug": "room-a", "parent": {"id": 11, "name": "Floor 1", "slug": "floor-1"}, "site": {"id": 7, "name": "DC1 London", "slug": "dc1"}, "region": null}
+                    ]}"#
+                } else {
+                    r#"{"count": 0, "next": null, "results": []}"#
+                };
+                (200, body.into(), vec![])
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let geo = client.fetch_geo().await;
+        assert_eq!(geo.regions.len(), 2);
+        assert_eq!(geo.sites.len(), 1);
+        assert_eq!(geo.locations.len(), 2);
+        assert_eq!(geo.regions[0].parent_slug, None);
+        assert_eq!(geo.regions[1].parent_slug.as_deref(), Some("emea"));
+        assert_eq!(geo.sites[0].region_slug.as_deref(), Some("uk"));
+        assert_eq!(geo.locations[1].parent_slug.as_deref(), Some("floor-1"));
+        assert_eq!(geo.locations[1].site_slug.as_deref(), Some("dc1"));
+        server.abort();
+    }
+
     #[test]
     fn test_client_rejects_bad_scheme() {
         assert!(NetBoxClient::new("ftp://netbox", "t", false).is_err());
@@ -1506,6 +1806,7 @@ mod tests {
                     ..Default::default()
                 },
                 vec![sample_entry(1, true)],
+                NetBoxGeo::default(),
             )
             .unwrap();
         assert!(store.get().last_synced.is_some());
@@ -1514,7 +1815,7 @@ mod tests {
         assert_eq!(fresh.get().devices.len(), 1);
         assert_eq!(fresh.get().devices[0].name, "dev-1");
         assert_eq!(fresh.get().sync_report.as_ref().unwrap().fetched, 1);
-        assert_eq!(fresh.get().version, 1);
+        assert_eq!(fresh.get().version, 2);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1545,7 +1846,11 @@ mod tests {
         let dir = temp_dir();
         let mut store = NetBoxCacheStore::new(&dir).unwrap();
         store
-            .apply_sync(SyncReport::default(), vec![sample_entry(1, true), sample_entry(2, true)])
+            .apply_sync(
+                SyncReport::default(),
+                vec![sample_entry(1, true), sample_entry(2, true)],
+                NetBoxGeo::default(),
+            )
             .unwrap();
 
         // User state changes after first sync
@@ -1564,6 +1869,7 @@ mod tests {
             .apply_sync(
                 SyncReport::default(),
                 vec![sample_entry(2, true), sample_entry(3, true)],
+                NetBoxGeo::default(),
             )
             .unwrap();
 
@@ -1588,7 +1894,7 @@ mod tests {
         let dir = temp_dir();
         let mut store = NetBoxCacheStore::new(&dir).unwrap();
         store
-            .apply_sync(SyncReport::default(), vec![sample_entry(7, true)])
+            .apply_sync(SyncReport::default(), vec![sample_entry(7, true)], NetBoxGeo::default())
             .unwrap();
 
         assert!(store.find_by_host_id("netbox:7").is_some());
@@ -1724,8 +2030,9 @@ mod tests {
         assert!(!is_netbox_host_id("netbox:abc"));
         assert!(!is_netbox_host_id("some-uuid"));
         assert!(is_synthetic_group_id("__netbox__"));
+        assert!(is_synthetic_group_id("__netbox__:region:emea"));
         assert!(is_synthetic_group_id("__netbox__:site:dc1"));
-        assert!(is_synthetic_group_id("__netbox__:site:dc1:loc:rack-1"));
+        assert!(is_synthetic_group_id("__netbox__:loc:rack-1"));
         assert!(!is_synthetic_group_id("user-group"));
         // The guard prefix must not collide with user uuids
         assert!(!is_synthetic_group_id("550e8400-e29b-41d4"));
@@ -1752,7 +2059,7 @@ mod tests {
             h.credential,
             Some(CredentialSource::SshKey { key_path: "/keys/default".into() })
         );
-        assert_eq!(h.group_id.as_deref(), Some("__netbox__:site:dc1:loc:rack-1"));
+        assert_eq!(h.group_id.as_deref(), Some("__netbox__:loc:rack-1"));
         assert_eq!(h.source.as_deref(), Some("netbox"));
         assert_eq!(h.platform, "cisco-iosxe");
         assert_eq!(h.display_name, "dev-5");
@@ -1808,16 +2115,14 @@ mod tests {
         d4.site = None;
         d4.location = None;
 
-        let groups = synthetic_groups(&[d1, d2, d3.clone(), d4]);
+        let groups = synthetic_groups(&[d1, d2, d3.clone(), d4], &NetBoxGeo::default());
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec![
-                "__netbox__",
-                "__netbox__:site:dc1",
-                "__netbox__:site:dc1:loc:rack-1",
-            ]
-        );
+        assert_eq!(ids, vec!["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:rack-1"]);
+        // Location falls back to its site parent when no geo tables (pre-v2
+        // cache): flat site → location, slug-named.
+        assert_eq!(groups[1].name, "dc1");
+        assert_eq!(groups[2].parent_id.as_deref(), Some("__netbox__:site:dc1"));
+
         let root = &groups[0];
         assert_eq!(root.name, "NetBox");
         assert_eq!(root.parent_id, None);
@@ -1825,7 +2130,191 @@ mod tests {
         assert_eq!(root.sort_order, u32::MAX);
 
         // Empty / all-disabled cache → no groups at all
-        assert!(synthetic_groups(&[d3.clone()]).is_empty());
-        assert!(synthetic_groups(&[]).is_empty());
+        assert!(synthetic_groups(&[d3.clone()], &NetBoxGeo::default()).is_empty());
+        assert!(synthetic_groups(&[], &NetBoxGeo::default()).is_empty());
+    }
+
+    #[test]
+    fn test_synthetic_groups_full_hierarchy() {
+        // Geography: region EMEA > region UK > site DC1 > loc floor-1 > loc room-a
+        let geo = NetBoxGeo {
+            regions: vec![
+                NetBoxGeoNode { slug: "emea".into(), name: "EMEA".into(), parent_slug: None, site_slug: None, region_slug: None },
+                NetBoxGeoNode { slug: "uk".into(), name: "United Kingdom".into(), parent_slug: Some("emea".into()), site_slug: None, region_slug: None },
+            ],
+            sites: vec![
+                NetBoxGeoNode { slug: "dc1".into(), name: "DC1 London".into(), parent_slug: None, site_slug: None, region_slug: Some("uk".into()) },
+                NetBoxGeoNode { slug: "dc2".into(), name: "DC2 Paris".into(), parent_slug: None, site_slug: None, region_slug: Some("emea".into()) },
+            ],
+            locations: vec![
+                NetBoxGeoNode { slug: "floor-1".into(), name: "Floor 1".into(), parent_slug: None, site_slug: Some("dc1".into()), region_slug: None },
+                NetBoxGeoNode { slug: "room-a".into(), name: "Room A".into(), parent_slug: Some("floor-1".into()), site_slug: Some("dc1".into()), region_slug: None },
+            ],
+        };
+        let mut d1 = sample_entry(1, true); // deepest chain: region>region>site>loc>loc
+        d1.site = Some("dc1".into());
+        d1.location = Some("room-a".into());
+        let mut d2 = sample_entry(2, true); // sibling device in same room → no new groups
+        d2.site = Some("dc1".into());
+        d2.location = Some("room-a".into());
+        let mut d3 = sample_entry(3, true); // site without region, no location
+        d3.site = Some("dc2".into());
+        d3.location = None;
+
+        let groups = synthetic_groups(&[d1, d2, d3], &geo);
+        let by_id: HashMap<&str, &crate::hosts::HostGroup> =
+            groups.iter().map(|g| (g.id.as_str(), g)).collect();
+
+        // Full chain emitted with real names and correct parents
+        assert_eq!(by_id["__netbox__:region:emea"].name, "EMEA");
+        assert_eq!(by_id["__netbox__:region:emea"].parent_id.as_deref(), Some("__netbox__"));
+        assert_eq!(by_id["__netbox__:region:uk"].name, "United Kingdom");
+        assert_eq!(by_id["__netbox__:region:uk"].parent_id.as_deref(), Some("__netbox__:region:emea"));
+        assert_eq!(by_id["__netbox__:site:dc1"].name, "DC1 London");
+        assert_eq!(by_id["__netbox__:site:dc1"].parent_id.as_deref(), Some("__netbox__:region:uk"));
+        assert_eq!(by_id["__netbox__:loc:floor-1"].name, "Floor 1");
+        assert_eq!(by_id["__netbox__:loc:floor-1"].parent_id.as_deref(), Some("__netbox__:site:dc1"));
+        assert_eq!(by_id["__netbox__:loc:room-a"].name, "Room A");
+        assert_eq!(by_id["__netbox__:loc:room-a"].parent_id.as_deref(), Some("__netbox__:loc:floor-1"));
+
+        // Site with region directly under a top region; full-geography mode
+        // emits every cached node, so dc2's location-less branch still shows.
+        assert_eq!(by_id["__netbox__:site:dc2"].parent_id.as_deref(), Some("__netbox__:region:emea"));
+        assert_eq!(groups.len(), 7); // root + 2 regions + 2 sites + 2 locations
+    }
+
+    #[test]
+    fn test_synthetic_groups_site_without_region_and_nested_locations() {
+        // NetBox semantics: a site needs no region; a location needs a site
+        // and may nest under a parent location. Site attaches directly to
+        // the NetBox root; the location chain nests under its site.
+        let geo = NetBoxGeo {
+            sites: vec![NetBoxGeoNode {
+                slug: "living-room".into(),
+                name: "Living Room".into(),
+                parent_slug: None,
+                site_slug: None,
+                region_slug: None,
+            }],
+            locations: vec![
+                NetBoxGeoNode {
+                    slug: "floor-1".into(),
+                    name: "Floor 1".into(),
+                    parent_slug: None,
+                    site_slug: Some("living-room".into()),
+                    region_slug: None,
+                },
+                NetBoxGeoNode {
+                    slug: "room-a".into(),
+                    name: "Room A".into(),
+                    parent_slug: Some("floor-1".into()),
+                    site_slug: Some("living-room".into()),
+                    region_slug: None,
+                },
+            ],
+            ..Default::default()
+        };
+        let mut d = sample_entry(1, true);
+        d.site = Some("living-room".into());
+        d.location = Some("room-a".into());
+
+        let groups = synthetic_groups(&[d], &geo);
+        let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "__netbox__",
+                "__netbox__:site:living-room",
+                "__netbox__:loc:floor-1",
+                "__netbox__:loc:room-a",
+            ]
+        );
+        // Site without region → direct child of the NetBox root
+        assert_eq!(groups[1].parent_id.as_deref(), Some("__netbox__"));
+        // Location chain: top-level loc under its site, child loc under parent
+        assert_eq!(groups[2].parent_id.as_deref(), Some("__netbox__:site:living-room"));
+        assert_eq!(groups[3].parent_id.as_deref(), Some("__netbox__:loc:floor-1"));
+        assert_eq!(groups[1].name, "Living Room");
+        assert_eq!(groups[3].name, "Room A");
+    }
+
+    #[test]
+    fn test_synthetic_groups_unknown_slugs_flatten() {
+        // Stale cache: device points at a location slug missing from the geo
+        // tables → location attaches directly to its site, slug-named.
+        let geo = NetBoxGeo {
+            sites: vec![NetBoxGeoNode {
+                slug: "dc1".into(), name: "DC1".into(), parent_slug: None,
+                site_slug: None, region_slug: None,
+            }],
+            ..Default::default()
+        };
+        let mut d = sample_entry(1, true);
+        d.site = Some("dc1".into());
+        d.location = Some("ghost-loc".into());
+        let groups = synthetic_groups(&[d], &geo);
+        let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:ghost-loc"]);
+        assert_eq!(groups[2].name, "ghost-loc");
+        assert_eq!(groups[2].parent_id.as_deref(), Some("__netbox__:site:dc1"));
+    }
+
+    #[test]
+    fn test_synthetic_groups_full_geography_includes_empty_branches() {
+        // Full-geography mode: a region > site > location chain with zero
+        // devices still appears in the tree.
+        let geo = NetBoxGeo {
+            regions: vec![NetBoxGeoNode {
+                slug: "region-1".into(), name: "Region 1".into(),
+                parent_slug: None, site_slug: None, region_slug: None,
+            }],
+            sites: vec![NetBoxGeoNode {
+                slug: "demo-site".into(), name: "Demo Site".into(),
+                parent_slug: None, site_slug: None, region_slug: Some("region-1".into()),
+            }],
+            locations: vec![NetBoxGeoNode {
+                slug: "demo-loc".into(), name: "Demo Location".into(),
+                parent_slug: None, site_slug: Some("demo-site".into()), region_slug: None,
+            }],
+        };
+        let mut d = sample_entry(1, true); // device lives elsewhere
+        d.site = Some("study".into());
+        d.location = None;
+
+        let groups = synthetic_groups(&[d], &geo);
+        let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        assert!(ids.contains(&"__netbox__:region:region-1"));
+        assert!(ids.contains(&"__netbox__:site:demo-site"));
+        assert!(ids.contains(&"__netbox__:loc:demo-loc"));
+        // The device's own site also appears (fallback: not in sites table)
+        assert!(ids.contains(&"__netbox__:site:study"));
+        let by_id: HashMap<&str, &crate::hosts::HostGroup> =
+            groups.iter().map(|g| (g.id.as_str(), g)).collect();
+        assert_eq!(by_id["__netbox__:site:demo-site"].parent_id.as_deref(), Some("__netbox__:region:region-1"));
+        assert_eq!(by_id["__netbox__:loc:demo-loc"].parent_id.as_deref(), Some("__netbox__:site:demo-site"));
+    }
+
+    #[test]
+    fn test_synthetic_groups_parent_cycle_flattens() {
+        // Corrupt geo data: a→b→a cycle. The chain guard flattens each node
+        // to stand alone rather than loop forever.
+        let geo = NetBoxGeo {
+            locations: vec![
+                NetBoxGeoNode { slug: "a".into(), name: "A".into(), parent_slug: Some("b".into()), site_slug: Some("dc1".into()), region_slug: None },
+                NetBoxGeoNode { slug: "b".into(), name: "B".into(), parent_slug: Some("a".into()), site_slug: Some("dc1".into()), region_slug: None },
+            ],
+            sites: vec![NetBoxGeoNode { slug: "dc1".into(), name: "DC1".into(), parent_slug: None, site_slug: None, region_slug: None }],
+            ..Default::default()
+        };
+        let mut d = sample_entry(1, true);
+        d.site = Some("dc1".into());
+        d.location = Some("a".into());
+        let groups = synthetic_groups(&[d], &geo);
+        // Cycle guard: "a" and "b" each flatten to attach under the site
+        // instead of nesting into each other.
+        let by_id: HashMap<&str, &crate::hosts::HostGroup> =
+            groups.iter().map(|g| (g.id.as_str(), g)).collect();
+        assert_eq!(by_id["__netbox__:loc:a"].parent_id.as_deref(), Some("__netbox__:site:dc1"));
+        assert_eq!(by_id["__netbox__:loc:b"].parent_id.as_deref(), Some("__netbox__:site:dc1"));
     }
 }

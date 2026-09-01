@@ -307,7 +307,7 @@ async fn get_host_groups(
     };
     if enabled {
         let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
-        groups.extend(netbox::synthetic_groups(&netbox.get().devices));
+        groups.extend(netbox::synthetic_groups(&netbox.get().devices, &netbox.get().geo));
     }
     Ok(groups)
 }
@@ -957,6 +957,7 @@ async fn netbox_sync(
 
     let client = netbox::NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)?;
     let fetch = client.fetch_devices(&config.filters).await?;
+    let geo = client.fetch_geo().await; // degrades internally — never fails the sync
     let (entries, mut report) = netbox::build_entries(&fetch.devices, &config.platform_policy());
     report.no_primary_ip = fetch.no_primary_ip;
 
@@ -974,7 +975,7 @@ async fn netbox_sync(
     );
 
     let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
-    netbox.apply_sync(report, entries)
+    netbox.apply_sync(report, entries, geo)
 }
 
 #[tauri::command]
