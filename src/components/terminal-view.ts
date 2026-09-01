@@ -5,7 +5,7 @@
  */
 
 import { Terminal } from "@xterm/xterm";
-import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, Theme } from "../lib/theme";
+import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -1342,7 +1342,7 @@ export class TerminalView {
 
   // ─── Zoom ────────────────────────────────────────────────────────
 
-  applyTerminalTheme(t: Theme) {
+  applyTerminalTheme(t: TerminalTheme) {
     if (this.terminal) this.terminal.options.theme = TERMINAL_THEMES[t];
     this.syncTerminalChrome();
   }

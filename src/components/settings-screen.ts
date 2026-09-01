@@ -30,7 +30,7 @@ import {
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
-import { getAppTheme, setAppTheme, Theme } from "../lib/theme";
+import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
 
 const LABELS: Record<string, string> = {
   general: "General",
@@ -291,16 +291,16 @@ export class SettingsScreen {
 
   private renderTheme(): string {
     const t = getAppTheme();
-    const opt = (value: Theme, label: string) =>
-      `<option value="${value}" ${t === value ? "selected" : ""}>${label}</option>`;
+    const opts = APP_THEMES.map(
+      (th) => `<option value="${th.id}" ${t === th.id ? "selected" : ""}>${th.label}</option>`
+    ).join("");
     return `
       <div class="settings-form">
         <h3 class="settings-section-title">Appearance</h3>
         <div class="import-field">
           <label for="theme-app">App theme</label>
           <select class="form-input" id="theme-app">
-            ${opt("dark", "Dark")}
-            ${opt("light", "Light")}
+            ${opts}
           </select>
           <span class="import-hint">Applies to the netssh window chrome, nav panel, and settings</span>
         </div>

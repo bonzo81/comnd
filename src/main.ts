@@ -11,7 +11,6 @@ import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
 import { listen } from "@tauri-apps/api/event";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme } from "./lib/theme";
-import { icons } from "./lib/icons";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -283,30 +282,9 @@ class App {
     const spacer = document.createElement("span");
     spacer.className = "statusbar-spacer";
 
-    const makeBtn = (id: string, label: string, action: () => void): HTMLButtonElement => {
-      const b = document.createElement("button");
-      b.className = "statusbar-btn";
-      b.id = id;
-      b.title = label;
-      b.setAttribute("aria-label", label);
-      b.addEventListener("click", action);
-      return b;
-    };
-
-    const appBtn = makeBtn("sb-app-theme", "Toggle app theme", () => {
-      setAppTheme(getAppTheme() === "dark" ? "light" : "dark");
-    });
-
-    const syncIcon = () => {
-      appBtn.innerHTML = getAppTheme() === "dark" ? icons.sun : icons.moon;
-    };
-    window.addEventListener("netssh:theme", syncIcon);
-    syncIcon();
-
     bar.appendChild(sessions);
     bar.appendChild(view);
     bar.appendChild(spacer);
-    bar.appendChild(appBtn);
     this.container.appendChild(bar);
 
     this.sbSessions = sessions;

@@ -1,7 +1,7 @@
 /* ─── Surface colors (Linear-inspired neutral grays) ─── */
 :root {
-  --color-surface-primary: #0F172A;    /* Main app background — slate-900 */
-  --color-surface-secondary: #111827;  /* Chrome: topbar, sidebar, statusbar */
+  --color-surface-primary: #0F172A;    /* App shell — nav panel, content panel, status bar */
+  --color-surface-secondary: #0A0F1C;  /* Frame — window background + title bar (recessed) */
   --color-surface-elevated: #1E293B;  /* Cards, modals, dropdown, inputs — slate-800 */
   --color-surface-hover: rgba(255,255,255,0.04);
   --color-surface-selected: rgba(34, 197, 94, 0.12);
@@ -19,7 +19,7 @@
   --color-error: #EF4444;
 
   /* Borders — Linear-style subtle */
-  --color-border: rgba(255,255,255,0.08);
+  --color-border: rgba(255,255,255,0.20);
   --color-border-hover: rgba(255,255,255,0.14);
 
   /* Spacing (4px grid) */
@@ -78,8 +78,8 @@
 /* ─── Light theme ─── */
 [data-theme="light"] {
   --color-surface-primary: #F8FAFC;
-  --color-surface-secondary: #F1F5F9;
-  --color-surface-elevated: #FFFFFF;
+  --color-surface-secondary: #E2E8F0;  /* Frame — window background + title bar (recessed) */
+  --color-surface-elevated: #FFFFFF;   /* Cards, modals, dropdown, inputs — lifted panels */
   --color-surface-hover: rgba(0, 0, 0, 0.05);
   --color-surface-selected: rgba(22, 163, 74, 0.12);
 
@@ -91,7 +91,7 @@
   --color-accent-hover: #166534;
   --color-success: #15803D;
 
-  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border: rgba(0, 0, 0, 0.18);
   --color-border-hover: rgba(0, 0, 0, 0.14);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -103,4 +103,117 @@
   --suggestion-fade: rgba(248, 250, 252, 0.8);
   --badge-nxos: #0284C7;
   --accent-tint-soft: rgba(22, 163, 74, 0.12);
+}
+
+/* ─── Dracula theme (dark) ─── */
+[data-theme="dracula"] {
+  --color-surface-primary: #282a36;    /* shell */
+  --color-surface-secondary: #21222c;  /* frame (recessed) */
+  --color-surface-elevated: #343646;   /* panels */
+  --color-surface-hover: rgba(255,255,255,0.06);
+  --color-surface-selected: rgba(189,147,249,0.16);
+
+  --color-text-primary: #f8f8f2;
+  --color-text-secondary: #a6accd;
+  --color-text-tertiary: #6272a4;
+
+  --color-accent: #bd93f9;
+  --color-accent-hover: #caa6ff;
+  --color-success: #50fa7b;
+  --color-warning: #ffb86c;
+  --color-error: #ff5555;
+
+  --color-border: rgba(255,255,255,0.14);
+  --color-border-hover: rgba(255,255,255,0.22);
+
+  --overlay-solid: rgba(33,34,44,0.92);
+  --suggestion-fade: rgba(40,42,54,0.85);
+  --badge-nxos: #8be9fd;
+  --accent-tint-soft: rgba(189,147,249,0.14);
+}
+
+/* ─── Monokai theme (dark) ─── */
+[data-theme="monokai"] {
+  --color-surface-primary: #272822;    /* shell */
+  --color-surface-secondary: #1f1f19;  /* frame (recessed) */
+  --color-surface-elevated: #33342c;   /* panels */
+  --color-surface-hover: rgba(255,255,255,0.06);
+  --color-surface-selected: rgba(253,151,31,0.16);
+
+  --color-text-primary: #f8f8f2;
+  --color-text-secondary: #9d9d93;
+  --color-text-tertiary: #75715e;
+
+  --color-accent: #fd971f;
+  --color-accent-hover: #ffb347;
+  --color-success: #a6e22e;
+  --color-warning: #e6db74;
+  --color-error: #ff6c63;
+
+  --color-border: rgba(255,255,255,0.14);
+  --color-border-hover: rgba(255,255,255,0.22);
+
+  --overlay-solid: rgba(31,31,25,0.92);
+  --suggestion-fade: rgba(39,40,34,0.85);
+  --badge-nxos: #66d9ef;
+  --accent-tint-soft: rgba(253,151,31,0.14);
+}
+
+/* ─── Solarized Light theme (light) ─── */
+[data-theme="solarized-light"] {
+  --color-surface-primary: #fdf6e3;    /* shell (base3) */
+  --color-surface-secondary: #eee8d5;  /* frame (base2, recessed) */
+  --color-surface-elevated: #fffef9;   /* panels (near-white) */
+  --color-surface-hover: rgba(88,110,117,0.08);
+  --color-surface-selected: rgba(38,139,210,0.14);
+
+  --color-text-primary: #586e75;
+  --color-text-secondary: #657b83;
+  --color-text-tertiary: #93a1a1;
+
+  --color-accent: #268bd2;
+  --color-accent-hover: #1f6ea8;
+  --color-success: #859900;
+  --color-warning: #b58900;
+  --color-error: #dc322f;
+
+  --color-border: rgba(88,110,117,0.24);
+  --color-border-hover: rgba(88,110,117,0.34);
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.14);
+
+  --overlay-backdrop: rgba(60,75,85,0.4);
+  --overlay-solid: rgba(253,246,227,0.92);
+  --suggestion-fade: rgba(253,246,227,0.85);
+  --badge-nxos: #268bd2;
+  --accent-tint-soft: rgba(38,139,210,0.14);
+}
+
+/* ─── Nord theme (dark) ─── */
+[data-theme="nord"] {
+  --color-surface-primary: #2e3440;    /* shell (nord0) */
+  --color-surface-secondary: #2a2f38;  /* frame (recessed) */
+  --color-surface-elevated: #3b4252;   /* panels (nord1) */
+  --color-surface-hover: rgba(216,222,233,0.06);
+  --color-surface-selected: rgba(136,192,208,0.16);
+
+  --color-text-primary: #eceff4;       /* nord6 */
+  --color-text-secondary: #d8dee9;     /* nord4 */
+  --color-text-tertiary: #7e8a9c;      /* derived mid gray */
+
+  --color-accent: #88c0d0;             /* nord8 frost blue */
+  --color-accent-hover: #9bd0dd;
+  --color-success: #a3be8c;            /* nord13 green */
+  --color-warning: #ebcb8b;            /* nord12 yellow */
+  --color-error: #bf616a;              /* nord10 red */
+
+  --color-border: rgba(216,222,233,0.14);
+  --color-border-hover: rgba(216,222,233,0.22);
+
+  --overlay-solid: rgba(42,47,56,0.92);
+  --suggestion-fade: rgba(46,52,64,0.85);
+  --badge-nxos: #81a1c1;               /* nord9 */
+  --accent-tint-soft: rgba(136,192,208,0.14);
 }
