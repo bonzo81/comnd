@@ -48,9 +48,7 @@ pub async fn connect_agent() -> Result<DynAgent, String> {
             Ok(client) => return Ok(client.dynamic()),
             Err(_) => {}
         }
-        // Pageant: connect always "succeeds" (window-message transport);
-        // the identities request is the real probe — callers surface its error.
-        return Ok(AgentClient::connect_pageant().await.dynamic());
+        Err("No SSH agent detected — start ssh-agent and add a key".to_string())
     }
 }
 
