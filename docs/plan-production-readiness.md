@@ -10,10 +10,12 @@ release infrastructure — not new user-facing features.
 
 **Status:** Phase 1 complete. All items below verified against code
 (2026-08-29: `cargo check` exit 0, `npm run build` exit 0). Outstanding
-work continues in `plan-production-readiness-phase2.md`.
+work continues in Phase 2, split into two tracks:
+`plan-production-readiness-phase2a-no-signing.md` (no signing — do now) and
+`plan-production-readiness-phase2b-code-signing.md` (code signing — deferred).
 
 **Status legend:** `[x]` done · sub-items not completed in this phase are
-tracked in the Phase 2 doc
+tracked in the Phase 2A / 2B docs
 
 ---
 
@@ -34,8 +36,9 @@ binaries.
 
 **Files:** `.gitignore`, `src-tauri/Cargo.lock`
 
-*P0.1 (code signing) and P0.2 (CI/CD) were not started in Phase 1 — see
-Phase 2 doc.*
+*P0.1 (code signing) and P0.2 (CI/CD) were not started in Phase 1 — the CI
+test gate + unsigned builds (P0.2a) are in the Phase 2A doc; code signing and
+the signed release build (P0.1, P0.2b) are in the Phase 2B doc.*
 
 ---
 
@@ -142,7 +145,7 @@ action.
 **Files:** `src-tauri/src/ssh.rs`, `src/components/terminal-view.ts`
 
 *One sub-item remains — configurable keepalive interval / max in Settings —
-tracked in the Phase 2 doc.*
+tracked in the Phase 2A doc.*
 
 ### P2.5 — Max connections limit
 
@@ -169,7 +172,7 @@ doesn't capture panics, only explicit `log::error!` calls.
 **Files:** `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`
 
 *Two optional sub-items remain (`tauri-plugin-log`, opt-in Sentry) — tracked
-in the Phase 2 doc.*
+in the Phase 2A doc.*
 
 ---
 
@@ -193,8 +196,8 @@ window without keyboard shortcuts.
 
 *Verified present: CSS `-webkit-app-region: drag` title bar with `no-drag`
 overrides on controls, and JS min/max/close via `getCurrentWindow()`. One
-sub-item remains — Linux (Wayland + X11) manual test — tracked in the Phase 2
-doc.*
+sub-item remains — Linux (Wayland + X11) manual test — tracked in the Phase
+2A doc.*
 
 ### P3.3 — Data export / backup
 
@@ -227,7 +230,7 @@ procurement.
 **Files:** All `src/components/*.ts`, `src/styles/`
 
 *One sub-item remains — manual screen-reader pass (NVDA / VoiceOver) —
-tracked in the Phase 2 doc.*
+tracked in the Phase 2A doc.*
 
 ---
 
