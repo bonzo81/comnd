@@ -8,6 +8,7 @@
 import {
   getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
   setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
+  setSessionLogging, setSessionLogTimestamps, setSessionLogDir, getSessionLogDir,
   scanMerge, applyMerge, restartApp, MergeConflict,
   AppConfig, listProviders, getProviderState,
   saveProviderConfig, saveProviderSecret, ProviderInfo, ProviderState,
@@ -35,6 +36,7 @@ import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
 
 const LABELS: Record<string, string> = {
   general: "General",
+  logging: "Logging",
   theme: "Theme",
   ollama: "Ollama / KB Import",
   auth: "Auth Integrations",
@@ -63,6 +65,7 @@ export class SettingsScreen {
   private container: HTMLElement | null = null;
   private itemId = "ollama";
   private config: AppConfig | null = null;
+  private sessionLogDefaultDir = "";
   private availableModels: string[] = [];
   private providerStatuses = new Map<string, ProviderInfo>();
   private providerStates = new Map<string, ProviderState>();
@@ -96,7 +99,10 @@ export class SettingsScreen {
   async mount(container: HTMLElement) {
     this.container = container;
     try {
-      this.config = await getAppConfig();
+      [this.config, this.sessionLogDefaultDir] = await Promise.all([
+        getAppConfig(),
+        getSessionLogDir().catch(() => ""),
+      ]);
     } catch {
       this.config = null;
     }
@@ -119,6 +125,7 @@ export class SettingsScreen {
     const body =
       this.itemId === "ollama" ? this.renderOllama()
       : this.itemId === "general" ? this.renderGeneral()
+      : this.itemId === "logging" ? this.renderLogging()
       : this.itemId === "theme" ? this.renderTheme()
       : this.itemId === "auth" ? this.renderAuth()
       : this.itemId === "netbox" ? this.renderNetBox()
@@ -202,40 +209,6 @@ export class SettingsScreen {
       `<option value="${value}" ${maxSessions === value ? "selected" : ""}>${label}</option>`;
     return `
       <div class="settings-form">
-        <h3 class="settings-section-title">Logging</h3>
-        <div class="import-field">
-          <label for="log-level">Log level</label>
-          <select class="form-input" id="log-level">
-            ${levelOpt("debug", "Debug")}
-            ${levelOpt("info", "Info")}
-            ${levelOpt("warn", "Warn")}
-            ${levelOpt("error", "Error")}
-          </select>
-          <span class="import-hint">Applies immediately. Debug shows suggestion queries and PTY resize events.</span>
-        </div>
-        <div class="import-field">
-          <label for="log-max-size">Log file size cap</label>
-          <select class="form-input" id="log-max-size">
-            ${sizeOpt(0, "Off")}
-            ${sizeOpt(5, "5 MB")}
-            ${sizeOpt(10, "10 MB")}
-            ${sizeOpt(50, "50 MB")}
-            ${sizeOpt(100, "100 MB")}
-          </select>
-          <span class="import-hint">File is truncated when the cap is reached. Applies on next app start.</span>
-        </div>
-        <div class="import-field">
-          <label for="log-file-path">Log file location</label>
-          <div class="log-file-row">
-            <input type="text" class="form-input" id="log-file-path"
-              value="${this.escAttr(this.config?.log_file_path ?? "")}"
-              placeholder="Default: app data dir"
-              spellcheck="false" autocomplete="off" />
-            <button type="button" id="log-file-browse" class="btn-secondary">Browse...</button>
-            <button type="button" id="log-file-reset" class="btn-link">Reset</button>
-          </div>
-          <span class="import-hint">Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.</span>
-        </div>
         <h3 class="settings-section-title">Terminal</h3>
         <div class="import-field">
           <label for="ts-format">Timestamp format</label>
@@ -287,6 +260,81 @@ export class SettingsScreen {
             <button type="button" id="data-import" class="btn-secondary">Restore from backup...</button>
           </div>
           <span class="import-hint">Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderLogging(): string {
+    const logLevel = this.config?.log_level ?? "info";
+    const maxSizeMb = this.config?.log_max_size_mb ?? 10;
+    const levelOpt = (value: string, label: string) =>
+      `<option value="${value}" ${logLevel === value ? "selected" : ""}>${label}</option>`;
+    const sizeOpt = (value: number, label: string) =>
+      `<option value="${value}" ${maxSizeMb === value ? "selected" : ""}>${label}</option>`;
+    const sessionDir = this.config?.session_log_dir ?? "";
+    return `
+      <div class="settings-form">
+        <h3 class="settings-section-title">App Log</h3>
+        <div class="import-field">
+          <label for="log-level">Log level</label>
+          <select class="form-input" id="log-level">
+            ${levelOpt("debug", "Debug")}
+            ${levelOpt("info", "Info")}
+            ${levelOpt("warn", "Warn")}
+            ${levelOpt("error", "Error")}
+          </select>
+          <span class="import-hint">Applies immediately. Debug shows suggestion queries and PTY resize events.</span>
+        </div>
+        <div class="import-field">
+          <label for="log-max-size">Log file size cap</label>
+          <select class="form-input" id="log-max-size">
+            ${sizeOpt(0, "Off")}
+            ${sizeOpt(5, "5 MB")}
+            ${sizeOpt(10, "10 MB")}
+            ${sizeOpt(50, "50 MB")}
+            ${sizeOpt(100, "100 MB")}
+          </select>
+          <span class="import-hint">File is truncated when the cap is reached. Applies on next app start.</span>
+        </div>
+        <div class="import-field">
+          <label for="log-file-path">Log file location</label>
+          <div class="log-file-row">
+            <input type="text" class="form-input" id="log-file-path"
+              value="${this.escAttr(this.config?.log_file_path ?? "")}"
+              placeholder="Default: app data dir"
+              spellcheck="false" autocomplete="off" />
+            <button type="button" id="log-file-browse" class="btn-secondary">Browse...</button>
+            <button type="button" id="log-file-reset" class="btn-link">Reset</button>
+          </div>
+          <span class="import-hint">Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.</span>
+        </div>
+        <h3 class="settings-section-title">Session Logging</h3>
+        <label class="settings-toggle">
+          <input type="checkbox" id="session-logging" ${this.config?.session_logging ?? true ? "checked" : ""} />
+          <span>
+            Log SSH session output to file
+            <span class="import-hint">Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.</span>
+          </span>
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="session-log-timestamps" ${this.config?.session_log_timestamps ?? true ? "checked" : ""} />
+          <span>
+            Prefix log lines with timestamps
+            <span class="import-hint">Adds an [HH:MM:SS] stamp before each chunk of output.</span>
+          </span>
+        </label>
+        <div class="import-field">
+          <label for="session-log-dir">Session log directory</label>
+          <div class="log-file-row">
+            <input type="text" class="form-input" id="session-log-dir"
+              value="${this.escAttr(sessionDir)}"
+              placeholder="Default: ${this.escAttr(this.sessionLogDefaultDir)}"
+              spellcheck="false" autocomplete="off" />
+            <button type="button" id="session-log-dir-browse" class="btn-secondary">Browse...</button>
+            <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>
+          </div>
+          <span class="import-hint">Leave blank for the default location. Applies to new connections.</span>
         </div>
       </div>
     `;
@@ -757,6 +805,35 @@ export class SettingsScreen {
     this.container?.querySelector<HTMLSelectElement>("#max-sessions")?.addEventListener("change", (e) => {
       void setMaxSessions(parseInt((e.target as HTMLSelectElement).value, 10));
     });
+
+    this.container?.querySelector<HTMLInputElement>("#session-logging")?.addEventListener("change", (e) => {
+      void setSessionLogging((e.target as HTMLInputElement).checked);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#session-log-timestamps")?.addEventListener("change", (e) => {
+      void setSessionLogTimestamps((e.target as HTMLInputElement).checked);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#session-log-dir")?.addEventListener("change", (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      void setSessionLogDir(v || null).then(() => this.refreshConfig()).catch(() => {
+        showToast("Failed to save session log directory", "error");
+      });
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#session-log-dir")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void this.browseSessionLogDir();
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#session-log-dir-reset")?.addEventListener("click", () => {
+      const input = this.container?.querySelector<HTMLInputElement>("#session-log-dir");
+      if (input) input.value = "";
+      void setSessionLogDir(null).then(() => this.refreshConfig()).catch(() => {
+        showToast("Failed to reset session log directory", "error");
+      });
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#session-log-dir-browse")?.addEventListener("click", () => void this.browseSessionLogDir());
 
     this.container?.querySelector<HTMLButtonElement>("#data-export")?.addEventListener("click", () => void this.exportData());
     this.container?.querySelector<HTMLButtonElement>("#data-import")?.addEventListener("click", () => void this.importData());
@@ -1253,6 +1330,20 @@ export class SettingsScreen {
         const input = this.container?.querySelector<HTMLInputElement>("#log-file-path");
         if (input) input.value = selected;
         await setLogFilePath(selected);
+        await this.refreshConfig();
+      }
+    } catch {
+      // User cancelled — no-op.
+    }
+  }
+
+  private async browseSessionLogDir(): Promise<void> {
+    try {
+      const selected = await open({ directory: true });
+      if (selected) {
+        const input = this.container?.querySelector<HTMLInputElement>("#session-log-dir");
+        if (input) input.value = selected;
+        await setSessionLogDir(selected);
         await this.refreshConfig();
       }
     } catch {

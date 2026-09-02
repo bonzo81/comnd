@@ -24,7 +24,7 @@ The highest-value unshipped features. Logging is the prerequisite for the stretc
 
 | Feature | Status | Notes |
 |---|---|---|
-| Per-session logging to file, timestamped | ⬜ | Highest priority — enables audit + future agent layer. In-view timestamps exist (`timestamps.ts`); extend to file capture. Backlog: docs/08 |
+| Per-session logging to file, timestamped | ✅ | Shipped — raw I/O captured in Rust at the SSH stream (`session_log.rs`), per-session files under `<data_dir>/session-logs/`, optional `[HH:MM:SS]` stamps. Settings toggles + "Open log folder" in General → Session Logging. Enables audit + future agent layer. Backlog: docs/08 |
 | Auto-reconnect on drop | 🟡 | Manual reconnect banner exists (`terminal-view.ts`). Add retry loop w/ backoff + cap |
 | Scrollback search | ⬜ | Add `@xterm/addon-search`; wire Ctrl+Shift+F, keyboard-first |
 | Multiple tabs/panes | 🟡 | Tabs done (`tab-state.ts`). Split panes not started — decide if tabs suffice (YAGNI candidate) |

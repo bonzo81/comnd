@@ -2687,6 +2687,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "time",
  "tokio",
  "uuid",
  "zip",

@@ -144,6 +144,7 @@ struct ClientHandler {
     host_key: String, // "hostname:port"
     session_id: u64,
     auth_url_opened: Arc<AtomicBool>,
+    session_log: Option<crate::session_log::SessionLog>,
 }
 
 #[async_trait]
@@ -209,6 +210,9 @@ impl client::Handler for ClientHandler {
         data: &[u8],
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
+        if let Some(ref mut log) = self.session_log {
+            log.write(data);
+        }
         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
         let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         Ok(())
@@ -222,6 +226,9 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         // stderr output — forward the same way
+        if let Some(ref mut log) = self.session_log {
+            log.write(data);
+        }
         let encoded = base64::engine::general_purpose::STANDARD.encode(data);
         let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         Ok(())
@@ -302,6 +309,9 @@ impl SshSession {
         cols: u32,
         rows: u32,
         session_id: u64,
+        session_logging: bool,
+        session_log_timestamps: bool,
+        session_log_dir: Option<String>,
     ) -> Result<Self, String> {
         log::info!("SSH connecting to {}:{} as '{}' ({}x{})", hostname, port, username, cols, rows);
 
@@ -315,11 +325,26 @@ impl SshSession {
         let host_key = format!("{}:{}", hostname, port);
         let auth_url_opened = Arc::new(AtomicBool::new(false));
 
+        let session_log = if session_logging {
+            match session_log_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(dir) => Some(crate::session_log::SessionLog::new_in(
+                    std::path::Path::new(dir),
+                    &host_key,
+                    session_id,
+                    session_log_timestamps,
+                )),
+                None => Some(crate::session_log::SessionLog::new(&host_key, session_id, session_log_timestamps)),
+            }
+        } else {
+            None
+        };
+
         let handler = ClientHandler {
             app_handle: app_handle.clone(),
             host_key,
             session_id,
             auth_url_opened: auth_url_opened.clone(),
+            session_log,
         };
 
         // Connect

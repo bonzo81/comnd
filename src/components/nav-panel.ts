@@ -46,6 +46,7 @@ export interface NavCallbacks {
 
 const SETTINGS_ITEMS = [
   { id: "general", label: "General", ready: true },
+  { id: "logging", label: "Logging", ready: true },
   { id: "theme", label: "Theme", ready: true },
   { id: "ollama", label: "Ollama / KB Import", ready: true },
   { id: "auth", label: "Auth Integrations", ready: true },

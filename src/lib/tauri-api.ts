@@ -304,6 +304,9 @@ export interface AppConfig {
   log_max_size_mb: number;
   log_file_path: string | null;
   max_sessions: number;
+  session_logging: boolean;
+  session_log_timestamps: boolean;
+  session_log_dir: string | null;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -324,6 +327,22 @@ export async function setLogMaxSize(maxMb: number): Promise<void> {
 
 export async function setMaxSessions(max: number): Promise<void> {
   return invoke<void>("set_max_sessions", { max });
+}
+
+export async function getSessionLogDir(): Promise<string> {
+  return invoke<string>("get_session_log_dir");
+}
+
+export async function setSessionLogging(enabled: boolean): Promise<void> {
+  return invoke<void>("set_session_logging", { enabled });
+}
+
+export async function setSessionLogTimestamps(enabled: boolean): Promise<void> {
+  return invoke<void>("set_session_log_timestamps", { enabled });
+}
+
+export async function setSessionLogDir(dir: string | null): Promise<void> {
+  return invoke<void>("set_session_log_dir", { dir });
 }
 
 // ─── Backup / Restore Commands ──────────────────────────────────────

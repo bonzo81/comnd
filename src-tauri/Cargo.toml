@@ -27,7 +27,9 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 base64 = "0.22"
 log = "0.4"
-simplelog = "0.12"
+simplelog = { version = "0.12", features = ["local-offset"] }
+# Direct dep: simplelog's format_description! macro emits `use ::time::...`, so it must resolve here.
+time = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 scraper = "0.19"

@@ -29,6 +29,15 @@ pub struct AppConfig {
     /// Maximum concurrent SSH sessions. Default 30. 0 = unlimited.
     #[serde(default = "default_max_sessions")]
     pub max_sessions: u32,
+    /// Per-session output logging to file. Default true.
+    #[serde(default = "default_true")]
+    pub session_logging: bool,
+    /// Include `[HH:MM:SS]` timestamp per chunk in session logs. Default true.
+    #[serde(default = "default_true")]
+    pub session_log_timestamps: bool,
+    /// Custom session log directory. `None` = default `<data_dir>/session-logs`.
+    #[serde(default)]
+    pub session_log_dir: Option<String>,
     /// Per-provider settings (chunk 6+). Key = provider id, value =
     /// provider-specific JSON parsed by that provider. Secrets never live
     /// here — they go in the OS keychain (`netssh_provider_<id>`).
@@ -52,6 +61,9 @@ impl Default for AppConfig {
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
             max_sessions: default_max_sessions(),
+            session_logging: true,
+            session_log_timestamps: true,
+            session_log_dir: None,
             providers: Default::default(),
             host_sources: Default::default(),
         }
@@ -80,6 +92,10 @@ fn default_log_max_size_mb() -> u32 {
 
 fn default_max_sessions() -> u32 {
     30
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Map a config log-level string to a `log` crate level filter.
@@ -244,6 +260,24 @@ impl ConfigStore {
     /// Update the max concurrent SSH sessions and persist.
     pub fn save_max_sessions(&mut self, max: u32) -> Result<(), String> {
         self.config.max_sessions = max;
+        self.persist()
+    }
+
+    /// Update session logging enabled/disabled and persist.
+    pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {
+        self.config.session_logging = enabled;
+        self.persist()
+    }
+
+    /// Update session log timestamps enabled/disabled and persist.
+    pub fn save_session_log_timestamps(&mut self, enabled: bool) -> Result<(), String> {
+        self.config.session_log_timestamps = enabled;
+        self.persist()
+    }
+
+    /// Update custom session log directory and persist. `None` = use default.
+    pub fn save_session_log_dir(&mut self, dir: Option<String>) -> Result<(), String> {
+        self.config.session_log_dir = dir;
         self.persist()
     }
 

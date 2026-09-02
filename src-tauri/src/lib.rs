@@ -14,6 +14,7 @@ mod config;
 mod ollama;
 mod import;
 mod paths;
+mod session_log;
 mod secrets;
 
 use std::process::Command as StdCommand;
@@ -512,6 +513,12 @@ async fn ssh_connect(
         None => ResolvedCredentials::default(),
     };
 
+    let (session_logging, session_log_timestamps, session_log_dir) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let c = config.get();
+        (c.session_logging, c.session_log_timestamps, c.session_log_dir.clone())
+    };
+
     let session = ssh::SshSession::connect(
         app_handle,
         &hostname,
@@ -523,6 +530,9 @@ async fn ssh_connect(
         cols,
         rows,
         session_id,
+        session_logging,
+        session_log_timestamps,
+        session_log_dir,
     )
     .await?;
 
@@ -656,6 +666,42 @@ async fn set_max_sessions(
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.save_max_sessions(max)?;
     log::info!("Max sessions set to {}", if max == 0 { "unlimited".into() } else { max.to_string() });
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_session_log_dir() -> Result<String, String> {
+    let dir = crate::paths::app_data_dir()?.join("session-logs");
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn set_session_logging(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_logging(enabled)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_session_log_timestamps(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_log_timestamps(enabled)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_session_log_dir(
+    dir: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_log_dir(dir)?;
     Ok(())
 }
 
@@ -1437,7 +1483,12 @@ pub fn run() {
         Err(_) => ("info".to_string(), 10, None),
     };
     let filter = parse_log_level_filter(&level);
-    let config = simplelog::Config::default();
+    let mut cfg = simplelog::ConfigBuilder::new();
+    // local time so app log matches session logs; falls back to UTC if unreadable
+    let _ = cfg.set_time_offset_to_local();
+    let config = cfg
+        .set_time_format_custom(simplelog::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"))
+        .build();
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
     // File logging — always on (dev + release). A user who sets a custom
@@ -1591,6 +1642,10 @@ pub fn run() {
                 set_log_level,
                 set_log_max_size,
                 set_max_sessions,
+                get_session_log_dir,
+                set_session_log_dir,
+                set_session_logging,
+                set_session_log_timestamps,
                 set_log_file_path,
                 get_log_status,
                 log_frontend,
