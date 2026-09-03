@@ -24,6 +24,7 @@ export class GhostText {
   private currentPayload: GhostPayload | null = null;
   private currentRemainder = "";
   private visible = false;
+  private cursorHidden = false;
 
   constructor(terminal: Terminal, container: HTMLElement) {
     this.terminal = terminal;
@@ -63,6 +64,16 @@ export class GhostText {
     // Position at cursor
     this.positionAtCursor();
 
+    // Hide the blinking block cursor — it would sit as a gap between typed
+    // text and the ghost (xterm renders it above any DOM overlay). DECTCEM.
+    // ponytail: writes an escape code to the terminal buffer; xterm may echo
+    // it into scrollback if the app ever dumps the screen. Replace with a
+    // cursor-layer DOM overlay if that ever matters.
+    if (!this.cursorHidden) {
+      this.terminal.write("\x1b[?25l");
+      this.cursorHidden = true;
+    }
+
     // Match count badge
     if (extraMatchCount > 0) {
       this.badgeEl.textContent = `(+${extraMatchCount})`;
@@ -80,6 +91,10 @@ export class GhostText {
     this.el.style.display = "none";
     this.el.classList.remove("ghost-text--variable", "ghost-text--choice", "ghost-text--literal");
     this.badgeEl.style.display = "none";
+    if (this.cursorHidden) {
+      this.terminal.write("\x1b[?25h");
+      this.cursorHidden = false;
+    }
   }
 
   /** Check if ghost text is currently visible */
@@ -113,6 +128,7 @@ export class GhostText {
 
   /** Clean up DOM elements */
   destroy() {
+    if (this.cursorHidden) this.terminal.write("\x1b[?25h");
     this.el.remove();
     this.badgeEl.remove();
   }

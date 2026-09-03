@@ -8,6 +8,10 @@ versions:
 prompt_patterns: {}
 default_mode: shell
 negation_prefix: null
+prefix_commands:
+  sudo:
+    unlocks: [shell]
+    skip_flag_value: ["-u"]
 command_files:
   - commands/filesystem.yaml
   - commands/network.yaml

@@ -11,6 +11,9 @@ prompt_patterns:
   bash: '^\[[\w\-\.@:]+\S*\][\s\$#]*\s*$'
 default_mode: tmsh
 negation_prefix: null
+prefix_commands:
+  tmsh:
+    unlocks: [tmsh]
 command_files:
   - commands/tmsh-ltm.yaml
   - commands/tmsh-net.yaml

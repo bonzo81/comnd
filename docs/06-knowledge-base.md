@@ -233,6 +233,25 @@ negation_prefix: "no "
 
 Negation is opt-in per command. Not every command can be negated (e.g. `show` commands cannot).
 
+### Prefix Commands
+
+Some platforms have commands that can precede other commands: linux `sudo <cmd>`, F5 bash `tmsh <cmd>`. These are declared in `index.yaml`:
+
+```yaml
+# linux-bash
+prefix_commands:
+  sudo:
+    unlocks: [shell]           # modes whose commands match after the prefix
+    skip_flag_value: ["-u"]   # flag+value pairs skipped before the inner command
+
+# f5-tmos
+prefix_commands:
+  tmsh:
+    unlocks: [tmsh]
+```
+
+The engine detects `<prefix><space>` at input start, strips the prefix (and `skip_flag_value` pairs like `sudo -u root`), then matches the remainder against commands in the `unlocks` modes — regardless of the current prompt mode (so `tmsh list ltm virtual` works from bash). If the inner text matches nothing, matching falls back to normal behaviour so the prefix command's own KB entry (e.g. `sudo` with its `-u` flag, `tmsh` doc entry) still suggests. The prefix command should also have its own command entry (for its flags/description); inner commands are plain entries in their native mode — `tmsh list ltm virtual` is stored as `list ltm virtual` with `mode: tmsh`.
+
 ### Sub-mode context
 
 The existing `mode` field already gates which commands appear in which prompt context. No new field is needed: a command like `ip address` carries `mode: interface-config`, and the prompt detector's mode state already filters it. The relationship to a parent command (e.g. `interface` enters `interface-config` where `ip address` applies) is implicit in the mode chain and does not need to be modelled in tokens. This is deliberate — the prompt is the source of truth for current mode, not the command history.

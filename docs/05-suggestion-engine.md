@@ -77,6 +77,7 @@ Both update in real time as the user types, filtered by platform + version + cur
 
 * Local knowledge base only
 * Filtered by: platform ID + OS version (or all versions if unspecified)
+* Prefix commands (`sudo` on linux, `tmsh` from F5 bash): input like `sudo systemctl ...` / `tmsh list ltm ...` strips the prefix and suggests the inner command from the prefix's unlocked modes. Bare prefix with no inner match falls back to the prefix command's own entry. See docs/06-knowledge-base.md § Prefix Commands.
 
 ## Suggestion Sources (Post-MVP)
 

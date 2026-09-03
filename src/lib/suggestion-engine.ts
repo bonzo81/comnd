@@ -35,6 +35,8 @@ export interface SuggestionResult {
   matchType: "token" | "name" | "alias";
   matchedText: string;
   tokenMatch?: TokenMatch | null;
+  /** Prefix command stripped from the input ("sudo", "tmsh"), if any. */
+  prefix?: string;
 }
 
 // ─── Ghost payload derivation (Phase 3) ─────────────────────────────
@@ -75,7 +77,13 @@ export function ghostPayloadFor(tm: TokenMatch, cmd: Command): GhostPayload | nu
     const c = tm.currentTokenInput.toLowerCase();
     const pick =
       tok.choice.find((opt) => opt.toLowerCase().startsWith(c)) ?? tok.choice[0] ?? "";
-    return { kind: "choice", options: tok.choice, pick };
+    // Ghost the remainder of the pick, merging with what's already typed —
+    // a fully-typed option ghosts nothing (no "addraddr").
+    const rem = pick.toLowerCase().startsWith(c) && c
+      ? pick.substring(tm.currentTokenInput.length)
+      : pick;
+    if (!rem) return null;
+    return { kind: "choice", options: tok.choice, pick: rem };
   }
   if (isVar(tok)) {
     return {
@@ -89,8 +97,12 @@ export function ghostPayloadFor(tm: TokenMatch, cmd: Command): GhostPayload | nu
   if (isPipe(tok)) {
     const filters = tok.filters ?? [];
     const c = tm.currentTokenInput.toLowerCase();
-    const pick = filters.find((f) => f.lit.toLowerCase().startsWith(c))?.lit ?? filters[0]?.lit ?? "";
-    return { kind: "choice", options: filters.map((f) => f.lit), pick };
+    const match = filters.find((f) => f.lit.toLowerCase().startsWith(c))?.lit ?? filters[0]?.lit ?? "";
+    const rem = c && match.toLowerCase().startsWith(c)
+      ? match.substring(tm.currentTokenInput.length)
+      : match;
+    if (!rem) return null;
+    return { kind: "choice", options: filters.map((f) => f.lit), pick: rem };
   }
   return null;
 }
@@ -664,18 +676,70 @@ export function matchTokens(
 
 // ─── Engine ──────────────────────────────────────────────────────────
 
+export interface PrefixCommandDef {
+  unlocks: string[];
+  skip_flag_value?: string[];
+}
+
+/** Stripped prefix state: remainder text + the modes it unlocks. */
+interface StrippedPrefix {
+  prefix: string;
+  remainder: string;
+  unlocks: string[];
+}
+
+/**
+ * Detect a prefix command (sudo, tmsh) at the start of the input.
+ * Strips the prefix word and any skip-flag+value pairs that follow
+ * (e.g. `sudo -u root <cmd>`). Only fires when the prefix is a
+ * complete word followed by a space — `sud` stays a normal match.
+ */
+function stripPrefix(input: string, prefixes: Map<string, PrefixCommandDef>): StrippedPrefix | null {
+  const lower = input.toLowerCase();
+  for (const [word, def] of prefixes) {
+    if (!lower.startsWith(word + " ")) continue;
+    let rest = input.substring(word.length + 1);
+    // Skip flag+value pairs (sudo -u root cmd → cmd)
+    if (def.skip_flag_value?.length) {
+      for (;;) {
+        const m = rest.match(/^(\S+)\s+(\S+)\s/);
+        const m2 = rest.match(/^(\S+)\s+(\S+)$/);
+        const flag = m?.[1] ?? m2?.[1] ?? null;
+        if (flag && def.skip_flag_value.includes(flag.toLowerCase())) {
+          rest = m ? rest.replace(/^(\S+)\s+(\S+)\s/, "") : rest.replace(/^(\S+)\s+(\S+)$/, "").trim();
+          // After a flag+value pair there must be more input; if rest is
+          // empty the user stopped after the value — treat remainder as "".
+          rest = rest.replace(/^\s+/, "");
+          if (!rest) return { prefix: word, remainder: "", unlocks: def.unlocks };
+          continue;
+        }
+        break;
+      }
+    }
+    return { prefix: word, remainder: rest, unlocks: def.unlocks };
+  }
+  return null;
+}
+
 export class SuggestionEngine {
   private commands: Command[] = [];
   private _platform: string = "";
   private _version: string = "";
   private mode: string = "";
   private negationPrefix: string | null = null;
+  private prefixCommands: Map<string, PrefixCommandDef> = new Map();
 
   /** Load commands for a platform (called on connect) */
-  loadCommands(commands: Command[], platform: string, negationPrefix?: string | null) {
+  loadCommands(
+    commands: Command[],
+    platform: string,
+    negationPrefix?: string | null,
+    prefixCommands?: Record<string, PrefixCommandDef>,
+  ) {
     this.commands = commands;
     this._platform = platform;
     this.negationPrefix = negationPrefix ?? null;
+    this.prefixCommands = new Map(Object.entries(prefixCommands ?? {}));
   }
 
   /** Set current version filter */
@@ -690,12 +754,34 @@ export class SuggestionEngine {
 
   /** Query for matching commands based on input buffer */
   query(input: string): SuggestionResult[] {
+    // Prefix-command path: `sudo <cmd>` / `tmsh <cmd>` — strip the prefix,
+    // match the remainder against the prefix's unlocked modes. Only fires
+    // once the user has typed an inner command word; bare `sudo ` still
+    // suggests the sudo entry itself.
+    const stripped = stripPrefix(input, this.prefixCommands);
+    if (stripped && stripped.remainder.trim() !== "") {
+      const inner = this.matchInput(stripped.remainder, stripped.unlocks);
+      if (inner.length > 0) {
+        for (const r of inner) r.prefix = stripped.prefix;
+        return inner;
+      }
+      // No inner match — fall through so `sudo -u ...` still shows the
+      // prefix command's own entry (flags, description) as today.
+    }
+    return this.matchInput(input, this.mode ? [this.mode] : null);
+  }
+
+  /**
+   * Match input against commands, filtered to the given modes.
+   * Null modeFilter = no filter (mode unknown).
+   */
+  private matchInput(input: string, modeFilter: string[] | null): SuggestionResult[] {
     const lowerInput = input.toLowerCase().trim();
     const results: SuggestionResult[] = [];
 
     for (const cmd of this.commands) {
       // Filter by mode if set
-      if (this.mode && cmd.mode !== this.mode) continue;
+      if (modeFilter && !modeFilter.includes(cmd.mode)) continue;
 
       // Empty input: return all commands for current mode
       if (!lowerInput) {

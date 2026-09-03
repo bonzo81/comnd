@@ -1,8 +1,8 @@
-commands:
-  - name: tmsh list net interface
-    syntax: "tmsh list net interface [<name>]"
+﻿commands:
+  - name: list net interface
+    syntax: "list net interface [<name>]"
     tokens:
-      - lit: tmsh list net interface
+      - lit: list net interface
       - var: interface-name
         type: enumerable
         source: device
@@ -14,9 +14,9 @@ commands:
     aliases:
       - list net interface
     examples:
-      - command: tmsh list net interface
+      - command: list net interface
         description: All interfaces
-      - command: tmsh list net interface 1.1
+      - command: list net interface 1.1
         description: Interface 1.1
     versions:
       introduced: "11.0"
@@ -26,10 +26,10 @@ commands:
       - net
       - interface
 
-  - name: tmsh list net self
-    syntax: "tmsh list net self [<name>]"
+  - name: list net self
+    syntax: "list net self [<name>]"
     tokens:
-      - lit: tmsh list net self
+      - lit: list net self
       - var: self-name
         type: free
         optional: true
@@ -40,7 +40,7 @@ commands:
     aliases:
       - list net self
     examples:
-      - command: tmsh list net self
+      - command: list net self
         description: All self IPs
     versions:
       introduced: "11.0"
@@ -50,10 +50,10 @@ commands:
       - net
       - self-ip
 
-  - name: tmsh list net route
-    syntax: "tmsh list net route [<name>]"
+  - name: list net route
+    syntax: "list net route [<name>]"
     tokens:
-      - lit: tmsh list net route
+      - lit: list net route
       - var: route-name
         type: free
         optional: true
@@ -64,7 +64,7 @@ commands:
     aliases:
       - list net route
     examples:
-      - command: tmsh list net route
+      - command: list net route
         description: All routes
     versions:
       introduced: "11.0"
@@ -74,10 +74,10 @@ commands:
       - net
       - routing
 
-  - name: tmsh list net vlan
-    syntax: "tmsh list net vlan [<name>]"
+  - name: list net vlan
+    syntax: "list net vlan [<name>]"
     tokens:
-      - lit: tmsh list net vlan
+      - lit: list net vlan
       - var: vlan-name
         type: free
         optional: true
@@ -88,7 +88,7 @@ commands:
     aliases:
       - list net vlan
     examples:
-      - command: tmsh list net vlan
+      - command: list net vlan
         description: All VLANs
     versions:
       introduced: "11.0"

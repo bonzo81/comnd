@@ -1,8 +1,8 @@
-commands:
-  - name: tmsh show sys version
-    syntax: "tmsh show sys version"
+﻿commands:
+  - name: show sys version
+    syntax: "show sys version"
     tokens:
-      - lit: tmsh show sys version
+      - lit: show sys version
     description: |
       Displays the BIG-IP software version and build.
     category: sys
@@ -10,7 +10,7 @@ commands:
     aliases:
       - show sys version
     examples:
-      - command: tmsh show sys version
+      - command: show sys version
         description: Show version
     versions:
       introduced: "11.0"
@@ -20,10 +20,10 @@ commands:
       - sys
       - version
 
-  - name: tmsh show sys hardware
-    syntax: "tmsh show sys hardware"
+  - name: show sys hardware
+    syntax: "show sys hardware"
     tokens:
-      - lit: tmsh show sys hardware
+      - lit: show sys hardware
     description: |
       Lists hardware platform, fans, temperatures, and power supplies.
     category: sys
@@ -31,7 +31,7 @@ commands:
     aliases:
       - show sys hardware
     examples:
-      - command: tmsh show sys hardware
+      - command: show sys hardware
         description: Hardware info
     versions:
       introduced: "11.0"
@@ -41,10 +41,10 @@ commands:
       - sys
       - hardware
 
-  - name: tmsh show sys uptime
-    syntax: "tmsh show sys uptime"
+  - name: show sys uptime
+    syntax: "show sys uptime"
     tokens:
-      - lit: tmsh show sys uptime
+      - lit: show sys uptime
     description: |
       Shows current uptime and last boot time.
     category: sys
@@ -52,7 +52,7 @@ commands:
     aliases:
       - show sys uptime
     examples:
-      - command: tmsh show sys uptime
+      - command: show sys uptime
         description: Uptime info
     versions:
       introduced: "11.0"
@@ -61,10 +61,10 @@ commands:
     tags:
       - sys
 
-  - name: tmsh save sys config
-    syntax: "tmsh save sys config"
+  - name: save sys config
+    syntax: "save sys config"
     tokens:
-      - lit: tmsh save sys config
+      - lit: save sys config
     description: |
       Saves the running configuration to disk (ucs file).
     category: sys
@@ -72,7 +72,7 @@ commands:
     aliases:
       - save sys config
     examples:
-      - command: tmsh save sys config
+      - command: save sys config
         description: Save config
     versions:
       introduced: "11.0"
@@ -82,10 +82,10 @@ commands:
       - sys
       - configuration
 
-  - name: tmsh restart sys service
-    syntax: "tmsh restart sys service <name>"
+  - name: restart sys service
+    syntax: "restart sys service <name>"
     tokens:
-      - lit: tmsh restart sys service
+      - lit: restart sys service
       - var: service-name
         type: free
     description: |
@@ -95,7 +95,7 @@ commands:
     aliases:
       - restart sys service
     examples:
-      - command: tmsh restart sys service tomcat
+      - command: restart sys service tomcat
         description: Restart the Tomcat service
     versions:
       introduced: "11.0"

@@ -52,6 +52,15 @@ export interface PlatformIndex {
   prompt_patterns: Record<string, string>;
   default_mode: string;
   negation_prefix?: string | null;
+  /** Commands that may precede other commands (sudo, tmsh). Keyed by prefix word. */
+  prefix_commands?: Record<string, PrefixCommand>;
+}
+
+export interface PrefixCommand {
+  /** Modes whose commands become matchable after the prefix is stripped. */
+  unlocks: string[];
+  /** Flags before the inner command that take a value to skip (e.g. sudo's `-u`). */
+  skip_flag_value?: string[];
 }
 
 export interface Command {

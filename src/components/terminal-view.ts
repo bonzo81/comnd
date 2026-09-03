@@ -8,6 +8,7 @@ import { Terminal } from "@xterm/xterm";
 import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon, ISearchDecorationOptions } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -58,6 +59,34 @@ const PLATFORM_LABELS: Record<string, string> = {
 // Secret provider display names (connect progress, chunk 10)
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
 
+// Scrollback search highlight colors — xterm requires opaque #RRGGBB.
+function accentWithAlpha(color: string, alpha: number): string {
+  const c = color.trim() || "#22C55E";
+  let r = 0, g = 0, b = 0;
+  if (c.startsWith("#")) {
+    let h = c.slice(1);
+    if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const m = c.match(/\d+/g);
+    if (m && m.length >= 3) { r = +m[0]; g = +m[1]; b = +m[2]; }
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Tinted from the active theme's --color-accent so highlights echo the theme.
+function getSearchDecorations(): ISearchDecorationOptions {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent");
+  return {
+    matchBackground: accentWithAlpha(accent, 0.3),
+    activeMatchBackground: accentWithAlpha(accent, 0.6),
+    matchOverviewRuler: accentWithAlpha(accent, 0.7),
+    activeMatchColorOverviewRuler: accentWithAlpha(accent, 1),
+  };
+}
+
 // Ambient chrome tint per platform mode
 const MODE_TINTS: Record<string, string> = {
   "cisco-iosxe": "var(--tint-iosxe)",
@@ -95,6 +124,9 @@ export class TerminalView {
   private root: HTMLElement | null = null;
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
+  private searchAddon: SearchAddon | null = null;
+  private searchBarOpen = false;
+  private lastSearchDir = 1;
   private onDetachCb: () => void;
   private onDisconnectCb: (hostId: string) => void;
   private onSessionDiedCb: (hostId: string) => void;
@@ -203,6 +235,14 @@ export class TerminalView {
       openUrl(uri).catch(() => {});
     }));
 
+    // Scrollback search — per-terminal instance, highlights matches + reports count
+    this.searchAddon = new SearchAddon();
+    this.terminal.loadAddon(this.searchAddon);
+    this.searchAddon.onDidChangeResults(({ resultCount }) => {
+      const el = this.$(".tv-search-count");
+      if (el) el.textContent = String(resultCount);
+    });
+
     const termContainer = this.$(".tv-terminal")!;
     this.terminal.open(termContainer);
     this.timestampGutter = new TimestampGutter(this.terminal);
@@ -244,6 +284,13 @@ export class TerminalView {
         e.preventDefault(); // block browser paste event to avoid double-paste
         this.pasteClipboard();
         return false; // block xterm from also processing this key
+      }
+
+      // Ctrl+Shift+F → open scrollback search (local UI shortcut, never remote)
+      if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === "F" && e.type === "keydown") {
+        e.preventDefault();
+        this.openSearch();
+        return false;
       }
 
       return true; // let all other keys through
@@ -431,6 +478,45 @@ export class TerminalView {
     this.terminal?.focus();
   }
 
+  private openSearch() {
+    const bar = this.$(".tv-search-bar");
+    if (!bar) return;
+    bar.classList.remove("hidden");
+    this.searchBarOpen = true;
+    const btn = this.$(".tv-search-btn")!;
+    btn.setAttribute("aria-expanded", "true");
+    setToggleState(btn, true, "Close scrollback search");
+    const input = this.$(".tv-search-input") as HTMLInputElement;
+    input.focus();
+    input.select();
+  }
+
+  private closeSearch() {
+    const bar = this.$(".tv-search-bar");
+    if (!bar) return;
+    bar.classList.add("hidden");
+    this.searchBarOpen = false;
+    const btn = this.$(".tv-search-btn")!;
+    btn.setAttribute("aria-expanded", "false");
+    setToggleState(btn, false, "Search scrollback");
+    this.searchAddon?.clearDecorations();
+    const input = this.$(".tv-search-input") as HTMLInputElement;
+    input.value = "";
+    const c = this.$(".tv-search-count"); if (c) c.textContent = "0";
+    this.terminal?.focus();
+  }
+
+  private doSearch(direction: number) {
+    const input = this.$(".tv-search-input") as HTMLInputElement | null;
+    if (!input || !this.searchAddon) return;
+    const term = input.value;
+    if (!term) return;
+    this.lastSearchDir = direction;
+    const opts = { ...getSearchDecorations(), incremental: true };
+    if (direction < 0) this.searchAddon.findPrevious(term, opts);
+    else this.searchAddon.findNext(term, opts);
+  }
+
   mount(container: HTMLElement) {
     container.innerHTML = `
       <div class="terminal-view">
@@ -441,6 +527,7 @@ export class TerminalView {
           <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection" aria-pressed="false"></button>
           <button class="btn-text tv-highlight-btn" aria-label="Toggle output highlighting" aria-pressed="false"></button>
           <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme" aria-pressed="false"></button>
+          <button class="btn-text tv-search-btn" aria-label="Search scrollback" aria-expanded="false" aria-controls="tv-search-bar"></button>
           <button class="btn-text tv-panel-btn" title="Toggle side panel" aria-expanded="false" aria-controls="tv-sidebar">≡ Panel</button>
         </div>
         <div class="tv-main">
@@ -466,6 +553,13 @@ export class TerminalView {
                 <button class="btn-primary btn-small tv-banner-reconnect">Reconnect</button>
                 <button class="btn-text tv-banner-back">Back to hosts</button>
               </div>
+            </div>
+            <div class="tv-search-bar hidden" id="tv-search-bar" role="search">
+              <input type="text" class="tv-search-input" placeholder="Search scrollback…" aria-label="Search scrollback" autocomplete="off" spellcheck="false" />
+              <span class="tv-search-count" aria-live="polite">0</span>
+              <button class="btn-text tv-search-prev" aria-label="Previous match"></button>
+              <button class="btn-text tv-search-next" aria-label="Next match"></button>
+              <button class="btn-text tv-search-close" aria-label="Close search"></button>
             </div>
           </div>
           <div class="tv-sidebar hidden" id="tv-sidebar">
@@ -494,6 +588,7 @@ export class TerminalView {
 
     // Right-click context menu on the terminal area
     this.$(".tv-terminal-wrap")!.addEventListener("contextmenu", (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest?.(".tv-search-bar")) return; // native menu in search input
       e.preventDefault();
       this.showContextMenu(e.clientX, e.clientY);
     });
@@ -553,6 +648,39 @@ export class TerminalView {
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
       this.toggleSidebar();
     });
+
+    // Scrollback search (toolbar button + Ctrl+Shift+F)
+    const searchBtn = this.$(".tv-search-btn")!;
+    searchBtn.innerHTML = icons.search;
+    searchBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    searchBtn.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't let topbar click → terminal.focus() steal input focus
+      this.searchBarOpen ? this.closeSearch() : this.openSearch();
+    });
+    const searchInput = this.$(".tv-search-input") as HTMLInputElement;
+    searchInput.addEventListener("input", () => {
+      if (!searchInput.value) {
+        this.searchAddon?.clearDecorations();
+        const c = this.$(".tv-search-count"); if (c) c.textContent = "0";
+        return;
+      }
+      this.doSearch(this.lastSearchDir);
+    });
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.doSearch(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeSearch();
+      }
+    });
+    this.$(".tv-search-next")!.innerHTML = "↓";
+    this.$(".tv-search-prev")!.innerHTML = "↑";
+    this.$(".tv-search-close")!.innerHTML = icons.x;
+    this.$(".tv-search-next")!.addEventListener("click", () => this.doSearch(1));
+    this.$(".tv-search-prev")!.addEventListener("click", () => this.doSearch(-1));
+    this.$(".tv-search-close")!.addEventListener("click", () => this.closeSearch());
 
     // Overlay cancel
     this.$(".tv-overlay-cancel")!.addEventListener("click", () => {
@@ -774,7 +902,12 @@ export class TerminalView {
 
       // Load KB commands into frontend suggestion engine
       if (this.host) {
-        this.loadKbCommands(this.host.platform, this.host.os_version ?? null, this.platformIndex?.negation_prefix ?? null);
+        this.loadKbCommands(
+          this.host.platform,
+          this.host.os_version ?? null,
+          this.platformIndex?.negation_prefix ?? null,
+          this.platformIndex?.prefix_commands,
+        );
       }
     });
 
@@ -1092,12 +1225,17 @@ export class TerminalView {
 
   // ─── KB loading ──────────────────────────────────────────────────
 
-  private async loadKbCommands(platform: string, version: string | null, negationPrefix?: string | null) {
+  private async loadKbCommands(
+    platform: string,
+    version: string | null,
+    negationPrefix?: string | null,
+    prefixCommands?: Record<string, { unlocks: string[]; skip_flag_value?: string[] }>,
+  ) {
     try {
       log.info(LogTag.Kb, `Loading commands for platform=${platform}, version=${version}`);
       const commands = await queryKb("", platform, null, version);
       log.info(LogTag.Kb, `queryKb returned ${commands.length} commands`);
-      this.suggestionEngine.loadCommands(commands, platform, negationPrefix);
+      this.suggestionEngine.loadCommands(commands, platform, negationPrefix, prefixCommands);
       log.info(LogTag.Terminal, `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
       log.warn(LogTag.Terminal, `Failed to load KB commands: ${e}`);
@@ -1182,8 +1320,30 @@ export class TerminalView {
       // Token match with no renderable payload (e.g. past all tokens) — fall
       // back to name remainder so something is still shown.
     }
-    const remainder = this.getCommandRemainder(top.command.name, input);
+    // Prefix results matched the stripped remainder, not the full input —
+    // derive the remainder against the input minus the prefix word.
+    const effInput = top.prefix && input.toLowerCase().startsWith(top.prefix + " ")
+      ? this.inputAfterPrefix(input, top.prefix)
+      : input;
+    const remainder = this.getCommandRemainder(top.command.name, effInput);
     return remainder ? { kind: "text", text: remainder } : null;
+  }
+
+  /** Input with a prefix command word (and its skip-flag pairs) removed. */
+  private inputAfterPrefix(input: string, prefix: string): string {
+    let rest = input.substring(prefix.length).trimStart();
+    const skips = this.platformIndex?.prefix_commands?.[prefix]?.skip_flag_value ?? [];
+    for (;;) {
+      const m = rest.match(/^(\S+)\s+(\S+)(\s|$)/);
+      const flag = m?.[1]?.toLowerCase();
+      if (flag && skips.includes(flag)) {
+        rest = rest.replace(/^\S+\s+\S+(\s|$)/, "");
+        rest = rest.trimStart();
+        continue;
+      }
+      break;
+    }
+    return rest;
   }
 
   private getCommandRemainder(commandName: string, input: string): string | null {

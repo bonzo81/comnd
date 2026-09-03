@@ -1,4 +1,7 @@
 /* ─── Ghost text (suggestion hint) ─────────────────────────────────── */
+/* Rendered at the cursor cell; the cursor itself is hidden (DECTCEM) while
+   a suggestion shows. No padding/background — glyphs must land exactly on
+   the cell grid so typed text + ghost read as one continuous line. */
 .ghost-text {
   position: absolute;
   color: var(--color-text-secondary);
@@ -9,9 +12,10 @@
   white-space: pre;
   z-index: 10;
   display: none;
-  background: var(--color-surface-secondary);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 /* Phase 3: variable placeholder — italic + dashed underline. Not completable. */
@@ -21,17 +25,14 @@
   border-bottom: 1px dashed var(--color-border-strong, var(--color-border));
 }
 
-/* Phase 3: choice token — faint left border. */
+/* Phase 3: choice token — faint tint only, no left border (would shift text). */
 .ghost-text.ghost-text--choice {
-  border-left: 2px solid var(--color-border);
-  padding-left: var(--space-1);
+  opacity: 0.55;
 }
 
-/* Phase 3: literal completion — same as text but no background tint. */
+/* Phase 3: literal completion — same as base. */
 .ghost-text.ghost-text--literal {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
+  opacity: 0.6;
 }
 
 .match-count-badge {

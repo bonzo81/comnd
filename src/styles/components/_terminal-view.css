@@ -423,7 +423,8 @@
 .tv-timestamps-btn.active,
 .tv-suggestions-btn.active,
 .tv-autocopy-btn.active,
-.tv-highlight-btn.active {
+.tv-highlight-btn.active,
+.tv-search-btn.active {
   color: var(--color-accent);
 }
 
@@ -433,7 +434,8 @@
 .tv-timestamps-btn.active:hover,
 .tv-suggestions-btn.active:hover,
 .tv-autocopy-btn.active:hover,
-.tv-highlight-btn.active:hover {
+.tv-highlight-btn.active:hover,
+.tv-search-btn.active:hover {
   color: var(--color-accent-hover);
   background: var(--accent-tint-soft);
 }
@@ -500,4 +502,50 @@
   border-radius: var(--radius-lg);
   margin-left: var(--space-2);
   font-weight: 600;
+}
+
+/* ─── Scrollback search bar ────────────────────────────────────────── */
+.tv-search-bar {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1-5);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.tv-search-bar.hidden { display: none; }
+
+.tv-search-input {
+  width: 200px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.tv-search-input::placeholder { color: var(--color-text-tertiary); }
+
+.tv-search-count {
+  min-width: 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* Compact icon buttons inside the search bar */
+.tv-search-bar .btn-text {
+  padding: 2px var(--space-1);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  border-radius: var(--radius-sm);
 }

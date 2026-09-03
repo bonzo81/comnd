@@ -372,7 +372,7 @@ describe("ghostPayloadFor — Phase 3", () => {
     expect(p).not.toBeNull();
     expect(p!.kind).toBe("choice");
     if (p!.kind === "choice") {
-      expect(p!.pick).toBe("brief");
+      expect(p!.pick).toBe("rief");
       expect(p!.options).toEqual(["brief"]);
     }
   });
@@ -390,7 +390,26 @@ describe("ghostPayloadFor — Phase 3", () => {
     const p = ghostPayloadFor(m, showRun);
     expect(p).not.toBeNull();
     expect(p!.kind).toBe("choice");
-    if (p!.kind === "choice") expect(p!.pick).toBe("section");
+    if (p!.kind === "choice") expect(p!.pick).toBe("ection");
+  });
+
+  it("fully-typed choice ghosts nothing (no doubled text)", () => {
+    const ip: Command = mkCmd({
+      name: "ip",
+      mode: "shell",
+      tokens: [
+        { lit: "ip" },
+        { choice: ["addr", "route", "link"], optional: true },
+      ],
+    });
+    const m = matchTokens("ip addr", ip)!;
+    // 'addr' partially typed against the same word — matches, ghost should merge
+    const p = ghostPayloadFor(m, ip);
+    if (p?.kind === "choice") expect(p.pick).not.toBe("addr");
+    const m2 = matchTokens("ip addr ", ip)!;
+    // Fully past the choice — no ghost for it
+    const p2 = ghostPayloadFor(m2, ip);
+    expect(p2).not.toBeNull(); // var/other slot, but never the raw "addr" again
   });
 });
 
@@ -406,5 +425,128 @@ describe("ghostPayloadAcceptText — Tab behaviour (Phase 3.5)", () => {
   });
   it("does NOT accept variable placeholders (Tab passes through)", () => {
     expect(ghostPayloadAcceptText({ kind: "variable", placeholder: "interface-name" })).toBeNull();
+  });
+});
+
+// ─── Prefix commands (sudo / tmsh) ────────────────────────────────────
+
+describe("SuggestionEngine.query — prefix commands", () => {
+  const systemctl: Command = mkCmd({
+    name: "systemctl restart",
+    syntax: "systemctl restart <unit>",
+    mode: "shell",
+    tokens: [
+      { lit: "systemctl restart" },
+      { var: "unit", type: "free" },
+    ],
+  });
+  const ls: Command = mkCmd({
+    name: "ls",
+    mode: "shell",
+    tokens: [{ lit: "ls" }],
+  });
+  const sudo: Command = mkCmd({
+    name: "sudo",
+    syntax: "sudo [-u <user>] <command>",
+    mode: "shell",
+    tokens: [
+      { lit: "sudo" },
+      { lit: "-u", optional: true },
+      { var: "user", type: "free", optional: true },
+      { var: "command", type: "free" },
+    ],
+  });
+  const listVirtual: Command = mkCmd({
+    name: "list ltm virtual",
+    mode: "tmsh",
+    tokens: [
+      { lit: "list ltm virtual" },
+      { var: "name", type: "free", optional: true },
+    ],
+  });
+  const tmsh: Command = mkCmd({
+    name: "tmsh",
+    mode: "bash",
+    tokens: [{ lit: "tmsh" }],
+  });
+
+  function linuxEngine(): SuggestionEngine {
+    const e = new SuggestionEngine();
+    e.loadCommands([systemctl, ls, sudo], "linux-bash", null, {
+      sudo: { unlocks: ["shell"], skip_flag_value: ["-u"] },
+    });
+    e.setMode("shell");
+    return e;
+  }
+
+  function f5Engine(mode: string): SuggestionEngine {
+    const e = new SuggestionEngine();
+    e.loadCommands([listVirtual, tmsh], "f5-tmos", null, {
+      tmsh: { unlocks: ["tmsh"] },
+    });
+    e.setMode(mode);
+    return e;
+  }
+
+  it("sudo <cmd> suggests the inner command with prefix set", () => {
+    const e = linuxEngine();
+    const results = e.query("sudo system");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].prefix).toBe("sudo");
+    expect(results[0].command.name).toBe("systemctl restart");
+  });
+
+  it("sudo -u <user> <cmd> skips the flag+value pair", () => {
+    const e = linuxEngine();
+    const results = e.query("sudo -u root systemct");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].prefix).toBe("sudo");
+    expect(results[0].command.name).toBe("systemctl restart");
+  });
+
+  it("sudo alone falls back to the sudo entry itself (no prefix)", () => {
+    const e = linuxEngine();
+    const results = e.query("sudo");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].command.name).toBe("sudo");
+    expect(results[0].prefix).toBeUndefined();
+  });
+
+  it("sudo with non-matching inner command falls back to the sudo entry", () => {
+    const e = linuxEngine();
+    const results = e.query("sudo zzz");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].command.name).toBe("sudo");
+  });
+
+  it("tmsh <cmd> in bash mode suggests tmsh commands", () => {
+    const e = f5Engine("bash");
+    const results = e.query("tmsh list ltm vir");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].prefix).toBe("tmsh");
+    expect(results[0].command.name).toBe("list ltm virtual");
+  });
+
+  it("bare inner command matches at a tmsh prompt (regression)", () => {
+    const e = f5Engine("tmsh");
+    const results = e.query("list ltm vir");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].command.name).toBe("list ltm virtual");
+    expect(results[0].prefix).toBeUndefined();
+  });
+
+  it("tmsh <cmd> at a tmsh prompt also strips the prefix", () => {
+    const e = f5Engine("tmsh");
+    const results = e.query("tmsh list ltm vir");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].command.name).toBe("list ltm virtual");
+  });
+
+  it("tmsh alone in bash mode suggests the tmsh entry (no prefix)", () => {
+    const e = f5Engine("bash");
+    const results = e.query("tmsh");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].command.name).toBe("tmsh");
+    expect(results[0].prefix).toBeUndefined();
   });
 });

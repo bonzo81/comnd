@@ -132,3 +132,31 @@ commands:
     tags:
       - bash
       - log
+
+  - name: tmsh
+    syntax: "tmsh [<tmos-command>]"
+    tokens:
+      - lit: tmsh
+      - var: tmos-command
+        type: free
+        optional: true
+        description: TMOS command to run (e.g. "list ltm virtual")
+    description: |
+      Enters the tmsh shell, or runs a single tmsh command from bash
+      (e.g. "tmsh list ltm virtual"). Typing "tmsh <command>" in bash
+      suggests TMOS commands.
+    category: bash
+    mode: bash
+    aliases: []
+    examples:
+      - command: tmsh
+        description: Enter the tmsh shell
+      - command: tmsh list ltm virtual
+        description: Run one tmsh command from bash
+    versions:
+      introduced: "11.0"
+      deprecated: null
+      notes: null
+    tags:
+      - bash
+      - tmsh

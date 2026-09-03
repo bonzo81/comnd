@@ -507,6 +507,7 @@ mod tests {
             prompt_patterns,
             default_mode: "privileged-exec".to_string(),
             negation_prefix: Some("no ".to_string()),
+            prefix_commands: std::collections::HashMap::new(),
         }
     }
 

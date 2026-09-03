@@ -20,6 +20,20 @@ pub struct PlatformIndex {
     pub default_mode: String,
     #[serde(default)]
     pub negation_prefix: Option<String>,
+    /// Commands that may precede other commands (e.g. linux `sudo`, F5 bash
+    /// `tmsh`). Keyed by prefix word. See docs/06-knowledge-base.md § Prefix Commands.
+    #[serde(default)]
+    pub prefix_commands: HashMap<String, PrefixCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrefixCommand {
+    /// Modes whose commands become matchable after the prefix is stripped.
+    pub unlocks: Vec<String>,
+    /// Flags (before the inner command) that take a value which should be
+    /// skipped when stripping, e.g. sudo's `-u <user>`.
+    #[serde(default)]
+    pub skip_flag_value: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

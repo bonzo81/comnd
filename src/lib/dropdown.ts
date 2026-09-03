@@ -110,10 +110,12 @@ export class Dropdown {
       const top = this.items[0];
       if (!top) return null;
       const pick = this.choiceMode.options[this.selectedIndex] ?? "";
-      // Attach the choice payload as a transient field via a wrapper result.
-      // We return the top result and let the caller read the payload via
-      // `getSelectedPayload()`.
-      this._pendingPayload = { kind: "choice", options: this.choiceMode.options, pick };
+      // Merge with the user's current word (ghost may already cover part of it).
+      const cur = this.currentPrefix.match(/\S*$/)?.[0] ?? "";
+      const merged = cur && pick.toLowerCase().startsWith(cur.toLowerCase())
+        ? pick.substring(cur.length)
+        : pick;
+      this._pendingPayload = { kind: "choice", options: this.choiceMode.options, pick: merged };
       return top;
     }
     this._pendingPayload = null;
@@ -141,7 +143,11 @@ export class Dropdown {
 
     this.el.innerHTML = visibleItems.map((item, i) => {
       const isSelected = i === this.selectedIndex;
-      const name = this.highlightPrefix(item.command.name, this.currentPrefix);
+      // Prefix results (sudo X / tmsh X) matched the stripped remainder — the
+      // raw input (with "sudo ") never prefix-matches the name, so skip
+      // highlight for those rows.
+      const hl = item.prefix ? "" : this.currentPrefix;
+      const name = this.highlightPrefix(item.command.name, hl);
       const category = item.command.category;
       const suffix = this.tokenSuffix(item);
       return `<div class="suggestion-item${isSelected ? " selected" : ""}" data-index="${i}">
