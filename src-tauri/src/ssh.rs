@@ -70,6 +70,32 @@ fn extract_https_url(text: &str) -> Option<String> {
         })
 }
 
+// ponytail: global Mutex map; fine at human connect rates, shard per host if throughput ever matters
+/// Browser-auth dedup across reconnect attempts. Tailscale check-mode
+/// gateways mint a fresh URL token per connection, so reconnects must not
+/// re-open the browser — the first open for a given host is enough; the user
+/// either already finished the login or the terminal shows the URL anyway.
+fn recently_opened_hosts() -> &'static std::sync::Mutex<HashMap<String, std::time::Instant>> {
+    use std::sync::Mutex;
+    static MAP: std::sync::OnceLock<Mutex<HashMap<String, std::time::Instant>>> = std::sync::OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// True (and records the host) if this host hasn't had an auth URL opened
+/// recently. Re-seen within 5 minutes (reconnect loop) → false.
+fn should_open_auth_url(host_key: &str) -> bool {
+    let mut map = recently_opened_hosts().lock().expect("auth-url map poisoned");
+    let now = std::time::Instant::now();
+    map.retain(|_, t| now.duration_since(*t) < std::time::Duration::from_secs(5 * 60));
+    match map.get(host_key) {
+        Some(_) => false,
+        None => {
+            map.insert(host_key.to_string(), now);
+            true
+        }
+    }
+}
+
 /// Choose keyboard-interactive responses for one round of prompts.
 /// Browser-auth rounds (a URL is present) get empty answers — the real auth
 /// happens in the browser and the server holds the reply until login completes.
@@ -96,6 +122,7 @@ fn select_agent_keys(agent: &crate::hosts::AgentAuth, keys: Vec<PublicKey>) -> V
 fn try_open_auth_url(
     app_handle: &tauri::AppHandle,
     auth_url_opened: &AtomicBool,
+    host_key: &str,
     text: &str,
     session_id: u64,
 ) {
@@ -114,7 +141,13 @@ fn try_open_auth_url(
             url: url.clone(),
             session_id,
         });
-        crate::open_url(&url);
+        // Reconnects mint fresh URLs (fresh AtomicBool per attempt) — the
+        // per-host recent map is what actually stops the browser-tab storm.
+        if should_open_auth_url(host_key) {
+            crate::open_url(&url);
+        } else {
+            log::info!("Auth URL already opened recently for {} — skipping browser open: {}", host_key, url);
+        }
     }
 }
 
@@ -240,7 +273,7 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         if !banner.is_empty() {
-            try_open_auth_url(&self.app_handle, &self.auth_url_opened, banner, self.session_id);
+            try_open_auth_url(&self.app_handle, &self.auth_url_opened, &self.host_key, banner, self.session_id);
             let encoded = base64::engine::general_purpose::STANDARD.encode(banner.as_bytes());
             let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         }
@@ -365,7 +398,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id, &auth_url_opened),
+            Self::authenticate(&app_handle, &mut session, &addr, username, password, key_path, agent, session_id, &auth_url_opened),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
@@ -432,6 +465,7 @@ impl SshSession {
     async fn authenticate(
         app_handle: &tauri::AppHandle,
         session: &mut client::Handle<ClientHandler>,
+        host_key_addr: &str,
         username: &str,
         password: Option<&str>,
         key_path: Option<&str>,
@@ -574,7 +608,7 @@ impl SshSession {
                 Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
                     // Open auth URL in browser (first one only) and detect whether
                     // this round is a browser-auth round.
-                    try_open_auth_url(app_handle, auth_url_opened, &instructions, session_id);
+                    try_open_auth_url(app_handle, auth_url_opened, host_key_addr, &instructions, session_id);
                     let mut url_round = extract_https_url(&instructions).is_some();
                     if !instructions.is_empty() {
                         log::info!("Keyboard-interactive instructions: {}", instructions);
@@ -582,7 +616,7 @@ impl SshSession {
                         let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
                     }
                     for prompt in &prompts {
-                        try_open_auth_url(app_handle, auth_url_opened, &prompt.prompt, session_id);
+                        try_open_auth_url(app_handle, auth_url_opened, host_key_addr, &prompt.prompt, session_id);
                         url_round |= extract_https_url(&prompt.prompt).is_some();
                         if !prompt.prompt.is_empty() {
                             let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
@@ -884,5 +918,16 @@ mod tests {
             Some("https://login.tailscale.com/a/abc123".to_string())
         );
         assert_eq!(extract_https_url("Password:"), None);
+    }
+
+    #[test]
+    fn test_should_open_auth_url_dedupes_per_host() {
+        // First open for a host → true; immediate reconnect (fresh URL token,
+        // same host) → false; different host → true.
+        let host = "dedupe-test-host:22";
+        let other = "dedupe-test-host:2222";
+        assert!(should_open_auth_url(host));
+        assert!(!should_open_auth_url(host));
+        assert!(should_open_auth_url(other));
     }
 }
