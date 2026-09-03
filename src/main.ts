@@ -126,6 +126,7 @@ class App {
     this.hostScreen = new HostScreen(
       this.onConnect.bind(this),
       () => this.activeSessions,
+      () => void this.navPanel.refresh(),
     );
     this.hostScreen.mount(this.hostScreenWrapper);
 

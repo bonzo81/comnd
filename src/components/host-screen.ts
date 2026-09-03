@@ -39,6 +39,7 @@ const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
 export class HostScreen {
   private _onConnect: (host: Host) => void;
   private _getActiveSessions: () => Set<string>;
+  private _onHostsChanged?: () => void;
   private container: HTMLElement | null = null;
 
   // Data
@@ -82,9 +83,11 @@ export class HostScreen {
   constructor(
     onConnect: (host: Host) => void,
     getActiveSessions: () => Set<string>,
+    onHostsChanged?: () => void,
   ) {
     this._onConnect = onConnect;
     this._getActiveSessions = getActiveSessions;
+    this._onHostsChanged = onHostsChanged;
   }
 
   async mount(container: HTMLElement) {
@@ -859,6 +862,7 @@ export class HostScreen {
       this.hosts = await getHosts();
       this.recent = recentHosts(this.hosts);
       this.closeForm();
+      this._onHostsChanged?.();
 
       if (andConnect) {
         this.connectToHost(saved.id);
@@ -894,6 +898,7 @@ export class HostScreen {
       this.hosts = await getHosts();
       this.recent = recentHosts(this.hosts);
       this.render();
+      this._onHostsChanged?.();
     } catch (err) {
       log.error(LogTag.HostScreen, `Duplicate failed: ${err}`);
     }
@@ -913,6 +918,7 @@ export class HostScreen {
       this.deleteConfirmId = null;
       this.recent = recentHosts(this.hosts);
       this.render();
+      this._onHostsChanged?.();
     } catch (err) {
       log.error(LogTag.HostScreen, `Delete failed: ${err}`);
     }
