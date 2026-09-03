@@ -3,12 +3,13 @@ commands:
     syntax: "ip [addr | route | link] [show] [<target>]"
     tokens:
       - lit: ip
-      - choice: ["addr", "route", "link"]
+      - choice: ["addr", "route", "link", "neigh"]
         optional: true
         descriptions:
           addr: Address management
           route: Routing table
           link: Network devices
+          neigh: ARP/neighbor table
       - choice: ["show"]
         optional: true
       - var: target
@@ -23,6 +24,7 @@ commands:
     aliases:
       - ip a
       - ip r
+      - ip n
     examples:
       - command: ip addr
         description: All interface addresses
@@ -30,6 +32,8 @@ commands:
         description: Routing table
       - command: ip link show
         description: All links
+      - command: ip neigh
+        description: ARP/neighbor table
     versions:
       introduced: null
       deprecated: null
@@ -42,7 +46,7 @@ commands:
     syntax: "ping [-c <count>] [-i <interval>] [-s <size>] [-W <timeout>] <destination>"
     tokens:
       - lit: ping
-      - choice: ["-c", "-i", "-s", "-W"]
+      - choice: ["-c", "-i", "-s", "-W", "-w", "-n"]
         optional: true
         repeatable: true
         descriptions:
@@ -50,6 +54,8 @@ commands:
           "-i": Seconds between packets
           "-s": Payload size in bytes
           "-W": Seconds to wait for a reply
+          "-w": Overall deadline in seconds (exit after this long)
+          "-n": Skip DNS lookups, show numeric IPs
       - var: count
         type: numeric
         min: 1
@@ -71,6 +77,11 @@ commands:
         min: 0
         optional: true
         description: Reply timeout in seconds (-W)
+      - var: deadline
+        type: numeric
+        min: 0
+        optional: true
+        description: Overall deadline in seconds (-w)
       - var: destination
         type: free
         description: Host or IP to ping
@@ -133,7 +144,7 @@ commands:
     syntax: "ss [-t] [-u] [-l] [-n] [-p]"
     tokens:
       - lit: ss
-      - choice: ["-t", "-u", "-l", "-n", "-p"]
+      - choice: ["-t", "-u", "-l", "-n", "-p", "-a", "-s", "-x"]
         optional: true
         repeatable: true
         descriptions:
@@ -142,6 +153,9 @@ commands:
           "-l": Listening sockets only
           "-n": Numeric ports, no DNS
           "-p": Show process using the socket
+          "-a": All sockets including established
+          "-s": Summary statistics
+          "-x": Unix domain sockets
     order: flags-anywhere
     description: |
       Shows socket statistics. Modern replacement for netstat. '-tlnp' for
@@ -159,3 +173,239 @@ commands:
     tags:
       - network
       - sockets
+
+  - name: curl
+    syntax: "curl [-o <file>] [-L] [-s] [-I] [-X <method>] <url>"
+    tokens:
+      - lit: curl
+      - choice: ["-O", "-L", "-f", "-s", "-S", "-I", "-k"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-O": Save using the filename from the URL
+          "-L": Follow redirects
+          "-f": Fail silently on HTTP errors (>=400)
+          "-s": Silent mode (no progress meter)
+          "-S": Show errors even with -s
+          "-I": HEAD request — headers only
+          "-k": Skip TLS certificate verification
+      - lit: -o
+        optional: true
+      - var: output-file
+        type: free
+        optional: true
+        description: Write output to this file instead of stdout
+      - lit: -X
+        optional: true
+      - var: method
+        type: choice
+        values: [GET, POST, PUT, PATCH, DELETE, HEAD]
+        optional: true
+        description: HTTP method
+      - lit: -d
+        optional: true
+      - var: data
+        type: free
+        optional: true
+        description: POST body (implies POST)
+      - lit: -H
+        optional: true
+      - var: header
+        type: free
+        optional: true
+        description: 'Extra header, e.g. Content-Type: application/json'
+      - var: url
+        type: free
+        description: URL to fetch
+    order: flags-anywhere
+    description: |
+      Transfers data to/from a URL. Output goes to stdout unless -o/-O.
+      API smoke test: 'curl -s -X POST -d @body.json -H "Content-Type:
+      application/json" http://host/api'.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: curl -I https://example.com
+        description: Fetch headers only
+      - command: curl -sL https://example.com -o page.html
+        description: Follow redirects, save to file
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+      - diagnostics
+
+  - name: wget
+    syntax: "wget [-q] [-c] [-O <file>] <url>"
+    tokens:
+      - lit: wget
+      - choice: ["-q", "-c", "-b", "-N", "-nv"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-q": Quiet — no output
+          "-c": Continue a partial download
+          "-b": Background after startup
+          "-N": Download only if remote is newer
+          "-nv": No verbose but keep errors
+      - lit: -O
+        optional: true
+      - var: output-file
+        type: free
+        optional: true
+        description: Save to this file ('-' = stdout)
+      - lit: -t
+        optional: true
+      - var: tries
+        type: numeric
+        min: 0
+        optional: true
+        description: Retry count (0 = infinite, default 20)
+      - var: url
+        type: free
+        description: URL to download
+    order: flags-anywhere
+    description: |
+      Non-interactive file downloader. Saves to the URL's filename unless
+      -O. '-O -' streams to stdout.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: wget -q https://example.com/file.tar.gz
+        description: Quiet download
+      - command: wget -c https://example.com/iso/file.iso
+        description: Resume a partial download
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+
+  - name: ssh
+    syntax: "ssh [-p <port>] [-i <key>] [<user>@]<host> [<command>]"
+    tokens:
+      - lit: ssh
+      - choice: ["-v", "-C", "-N", "-f", "-A", "-t"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-v": Verbose debugging (up to -vvv)
+          "-C": Compress connection
+          "-N": No remote command — forwarding only
+          "-f": Background after authentication
+          "-A": Enable agent forwarding
+          "-t": Force pseudo-terminal allocation
+      - lit: -p
+        optional: true
+      - var: port
+        type: numeric
+        min: 1
+        max: 65535
+        optional: true
+        description: Remote port (lowercase -p; scp uses -P)
+      - lit: -i
+        optional: true
+      - var: keyfile
+        type: free
+        optional: true
+        description: Private key file
+      - lit: -L
+        optional: true
+      - var: local-forward
+        type: free
+        optional: true
+        description: Local forward [bind:]port:host:port
+      - lit: -J
+        optional: true
+      - var: jumphost
+        type: free
+        optional: true
+        description: ProxyJump target, user@jumphost
+      - var: destination
+        type: free
+        description: "[user@]hostname to connect to"
+      - var: command
+        type: free
+        optional: true
+        description: Command to run on the remote host
+    order: flags-anywhere
+    description: |
+      Opens an SSH session or runs a remote command. Port forward with
+      -L, jump via bastion with -J.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: ssh admin@10.0.0.1
+        description: Connect as admin
+      - command: ssh -p 2222 admin@10.0.0.1
+        description: Connect on a nonstandard port
+      - command: ssh -J jump@bastion admin@10.0.0.5
+        description: Reach host through a jump host
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+      - remote
+
+  - name: scp
+    syntax: "scp [-r] [-P <port>] [-i <key>] <source> <destination>"
+    tokens:
+      - lit: scp
+      - choice: ["-r", "-p", "-C", "-q", "-O", "-3"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-r": Copy directories recursively
+          "-p": Preserve modification times and modes (lowercase)
+          "-C": Compress transfer
+          "-q": Quiet mode
+          "-O": Legacy SCP protocol instead of SFTP
+          "-3": Copy between two remotes via the local host
+      - lit: -P
+        optional: true
+      - var: port
+        type: numeric
+        min: 1
+        max: 65535
+        optional: true
+        description: Remote port (capital -P; ssh uses lowercase -p)
+      - lit: -i
+        optional: true
+      - var: keyfile
+        type: free
+        optional: true
+        description: Private key file
+      - var: source
+        type: free
+        description: Source path, may be [user@]host:[path]
+      - var: destination
+        type: free
+        description: Destination path, may be [user@]host:[path]
+    order: flags-anywhere
+    description: |
+      Copies files between hosts over SSH. Both source and destination
+      may be remote ([user@]host:[path]). Since OpenSSH 9.0 transfers use
+      SFTP by default; '-O' falls back to legacy servers.
+    category: network
+    mode: shell
+    aliases: []
+    examples:
+      - command: scp -r config/ admin@10.0.0.1:/etc/app
+        description: Copy a directory to a remote host
+      - command: scp admin@10.0.0.1:/var/log/syslog ./
+        description: Fetch a file from a remote host
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - network
+      - file-transfer

@@ -1,0 +1,458 @@
+commands:
+  - name: grep
+    syntax: "grep [-i] [-v] [-r] [-n] [-E] <pattern> [<path>]"
+    tokens:
+      - lit: grep
+      - choice: ["-i", "-v", "-r", "-n", "-E", "-c", "-l"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-i": Ignore case
+          "-v": Invert match — show non-matching lines
+          "-r": Search directories recursively
+          "-n": Prefix matches with line numbers
+          "-E": Extended regex (no backslash for ?+{}|())
+          "-c": Print count of matching lines only
+          "-l": Print only filenames with matches
+      - var: pattern
+        type: free
+        description: Search pattern (quote it)
+      - var: path
+        type: free
+        optional: true
+        description: File, or directory with -r (default stdin)
+    order: flags-anywhere
+    description: |
+      Searches text for a pattern. Common pipeline filter:
+      'ps -ef | grep nginx'. Recursive search matches every file including
+      binaries unless filtered with --include='*.conf'.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: grep -rn "error" /var/log
+        description: Recursive case-insensitive-free search with line numbers
+      - command: ps -ef | grep nginx
+        description: Find nginx processes
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - search
+
+  - name: sed
+    syntax: "sed [-i] [-n] [-E] \"<script>\" [<file>]"
+    tokens:
+      - lit: sed
+      - choice: ["-i", "-n", "-E"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-i": Edit the file in place (rewrites the file)
+          "-n": Suppress auto-print; use with the p command
+          "-E": Extended regex
+      - var: script
+        type: free
+        description: Edit script, e.g. 's/old/new/g'
+      - var: file
+        type: free
+        optional: true
+        description: File to process (default stdin)
+    order: flags-anywhere
+    description: |
+      Stream editor for find-and-replace and line edits. Quote the script.
+      In-place 's/old/new/g' rewrites the file — test without -i first.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: sed -i "s/8080/9090/g" /etc/app/config.conf
+        description: Replace 8080 with 9090 in place
+      - command: sed -n "10,20p" file.txt
+        description: Print lines 10-20 only
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - edit
+
+  - name: awk
+    syntax: "awk [-F <sep>] \"<program>\" [<file>]"
+    tokens:
+      - lit: awk
+      - lit: -F
+        optional: true
+      - var: separator
+        type: free
+        optional: true
+        description: 'Field separator, e.g. colon for /etc/passwd'
+      - var: program
+        type: free
+        description: Awk program, single-quoted, e.g. '{print $1}'
+      - var: file
+        type: free
+        optional: true
+        description: File to process (default stdin)
+    order: flags-anywhere
+    description: |
+      Column-oriented text processing. Fields are $1, $2...; the whole line
+      is $0; the last field is $NF. Quote the program with single quotes.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: 'awk -F: "{print $1}" /etc/passwd'
+        description: Print the first field of every passwd line
+      - command: df -h | awk "{print $5, $6}"
+        description: Use% and mount point per filesystem
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - columns
+
+  - name: sort
+    syntax: "sort [-n] [-r] [-u] [-t <sep>] [-k <key>] [<file>]"
+    tokens:
+      - lit: sort
+      - choice: ["-n", "-r", "-u", "-h", "-f"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-n": Numeric sort
+          "-r": Reverse order
+          "-u": Drop duplicate lines
+          "-h": Human-numeric sort (2K, 1G)
+          "-f": Ignore case
+      - lit: -t
+        optional: true
+      - var: separator
+        type: free
+        optional: true
+        description: Field separator for -k
+      - lit: -k
+        optional: true
+      - var: keydef
+        type: free
+        optional: true
+        description: Key spec, e.g. 2,2n (field 2, numeric)
+      - var: file
+        type: free
+        optional: true
+        description: File to sort (default stdin)
+    order: flags-anywhere
+    description: |
+      Sorts lines. Locale can change ordering — prefix 'LC_ALL=C' for
+      predictable byte-order. 'sort -u' replaces the 'sort | uniq' idiom.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: sort -u names.txt
+        description: Sorted unique lines
+      - command: du -sh * | sort -rh
+        description: Directory sizes, largest first
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - sort
+
+  - name: uniq
+    syntax: "uniq [-c] [-d] [-u] [<input>]"
+    tokens:
+      - lit: uniq
+      - choice: ["-c", "-d", "-u", "-i"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-c": Prefix each line with its occurrence count
+          "-d": Print only duplicated lines
+          "-u": Print only unique lines
+          "-i": Ignore case when comparing
+      - var: input
+        type: free
+        optional: true
+        description: Input file (default stdin)
+    description: |
+      Collapses repeated ADJACENT lines. Input must be sorted first —
+      pipe through sort, or just use 'sort -u'.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: sort access.log | uniq -c | sort -rn
+        description: Count occurrences per line, most frequent first
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+
+  - name: cut
+    syntax: "cut -d <delim> -f <fields> [<file>]"
+    tokens:
+      - lit: cut
+      - lit: -d
+        optional: true
+      - var: delimiter
+        type: free
+        optional: true
+        description: Field delimiter (default TAB)
+      - lit: -f
+        optional: true
+      - var: fields
+        type: free
+        optional: true
+        description: Field list, e.g. 1 or 1,3-5 (1-based)
+      - lit: -c
+        optional: true
+      - var: chars
+        type: free
+        optional: true
+        description: Character positions instead of fields
+      - choice: ["-s"]
+        optional: true
+        descriptions:
+          "-s": Skip lines with no delimiter
+    order: flags-anywhere
+    description: |
+      Cuts selected columns from each line. Default delimiter is TAB, not
+      space. Use one of -f (fields) or -c (chars).
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: 'cut -d: -f1 /etc/passwd'
+        description: Usernames from passwd
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - columns
+
+  - name: xargs
+    syntax: "xargs [-0] [-n <args>] [-I <str>] <command>"
+    tokens:
+      - lit: xargs
+      - choice: ["-0", "-r", "-t"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-0": Input items are NUL-terminated (pair with find -print0)
+          "-r": Do not run the command on empty input
+          "-t": Print the command before running it
+      - lit: -n
+        optional: true
+      - var: max-args
+        type: numeric
+        min: 1
+        optional: true
+        description: Max arguments per invocation
+      - lit: -I
+        optional: true
+      - var: replace-str
+        type: free
+        optional: true
+        description: Replace this string (e.g. {}) with each input item
+      - var: command
+        type: free
+        description: Command to run (default echo)
+    order: flags-anywhere
+    description: |
+      Builds and runs commands from stdin input. Spaces in filenames break
+      default splitting — use 'find ... -print0 | xargs -0'.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: find /tmp -name "*.tmp" -print0 | xargs -0 rm
+        description: Delete matching files, safe for spaces in names
+      - command: cat urls.txt | xargs -n 1 curl -O
+        description: Download each URL one per curl call
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - pipeline
+
+  - name: head
+    syntax: "head [-n <lines>] [<file>]"
+    tokens:
+      - lit: head
+      - choice: ["-q", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-q": Never print filename headers
+          "-v": Always print filename headers
+      - lit: -n
+        optional: true
+      - var: lines
+        type: numeric
+        min: 1
+        optional: true
+        description: Line count (default 10)
+      - lit: -c
+        optional: true
+      - var: bytes
+        type: numeric
+        min: 1
+        optional: true
+        description: Byte count instead of lines
+      - var: file
+        type: free
+        optional: true
+        description: File to read (default stdin)
+    order: flags-anywhere
+    description: |
+      Prints the first lines of input. Default 10 lines.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: head -n 20 /var/log/syslog
+        description: First 20 lines of syslog
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+
+  - name: tail
+    syntax: "tail [-f] [-n <lines>] [<file>]"
+    tokens:
+      - lit: tail
+      - choice: ["-f", "-F", "-q", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-f": Follow the file as it grows (stops on log rotation)
+          "-F": Follow and keep tracking through rotation
+          "-q": Never print filename headers
+          "-v": Always print filename headers
+      - lit: -n
+        optional: true
+      - var: lines
+        type: free
+        optional: true
+        description: Line count (default 10); '+N' starts at line N
+      - lit: -c
+        optional: true
+      - var: bytes
+        type: numeric
+        min: 1
+        optional: true
+        description: Byte count instead of lines
+      - var: file
+        type: free
+        optional: true
+        description: File to read (default stdin)
+    order: flags-anywhere
+    description: |
+      Prints the last lines of input, or follows the file live with '-f'.
+      Use '-F' when logs rotate — '-f' keeps following the old descriptor.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: tail -f /var/log/syslog
+        description: Follow syslog live
+      - command: tail -n 50 app.log
+        description: Last 50 lines
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - logs
+
+  - name: less
+    syntax: "less [-N] [-S] [-R] [<file>]"
+    tokens:
+      - lit: less
+      - choice: ["-N", "-S", "-R", "-i", "-F"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-N": Show line numbers
+          "-S": Chop long lines instead of wrapping
+          "-R": Render ANSI color codes
+          "-i": Case-insensitive search
+          "-F": Exit immediately if the file fits one screen
+      - var: file
+        type: free
+        optional: true
+        description: File to page through (default stdin)
+    order: flags-anywhere
+    description: |
+      Pager for viewing text. Inside less: 'q' quit, '/' search, 'F'
+      follow live like tail -f, 'G' jump to end, 'v' open in $EDITOR.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: less -S +F /var/log/syslog
+        description: Follow syslog, no line wrapping
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - viewing
+
+  - name: diff
+    syntax: "diff [-u] [-r] [-q] <file1> <file2>"
+    tokens:
+      - lit: diff
+      - choice: ["-u", "-r", "-q", "-y", "-i", "-w", "-N"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-u": Unified diff (what patch consumes)
+          "-r": Compare directories recursively
+          "-q": Report only whether files differ
+          "-y": Side-by-side output
+          "-i": Ignore case
+          "-w": Ignore all whitespace
+          "-N": Treat absent files as empty (catch new/deleted files)
+      - var: file1
+        type: free
+        description: First file or directory
+      - var: file2
+        type: free
+        description: Second file or directory
+    description: |
+      Compares two files or directories. Exit status 1 means "different",
+      not an error. 'diff -ruN old new' produces patchable output.
+    category: text
+    mode: shell
+    aliases: []
+    examples:
+      - command: diff -u config.conf.bak config.conf
+        description: Unified diff against a backup
+      - command: diff -qr /etc /etc.bak
+        description: Quiet recursive directory compare
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - text
+      - compare

@@ -3,13 +3,14 @@ commands:
     syntax: "ps [-e] [-f] [-a] [-u <user>]"
     tokens:
       - lit: ps
-      - choice: ["-e", "-f", "-a"]
+      - choice: ["-e", "-f", "-a", "-x"]
         optional: true
         repeatable: true
         descriptions:
           "-e": Show all processes
           "-f": Full-format listing
           "-a": Show processes with a terminal
+          "-x": Include processes without a terminal (with a = ps aux)
       - lit: -u
         optional: true
       - var: user
@@ -21,7 +22,8 @@ commands:
       Lists running processes. 'ps -ef' shows every process with full format.
     category: process
     mode: shell
-    aliases: []
+    aliases:
+      - ps aux
     examples:
       - command: ps -ef
         description: All processes

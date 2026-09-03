@@ -3,7 +3,7 @@ commands:
     syntax: "ls [-l] [-a] [-h] [-t] [<path>]"
     tokens:
       - lit: ls
-      - choice: ["-l", "-a", "-h", "-t"]
+      - choice: ["-l", "-a", "-h", "-t", "-S", "-r", "-R"]
         optional: true
         repeatable: true
         descriptions:
@@ -11,6 +11,9 @@ commands:
           "-a": Include hidden files
           "-h": Human-readable sizes
           "-t": Sort by modification time, newest first
+          "-S": Sort by size, largest first
+          "-r": Reverse sort order
+          "-R": List subdirectories recursively
       - var: path
         type: free
         optional: true
@@ -80,12 +83,15 @@ commands:
     syntax: "cp [-r] [-i] <source> <destination>"
     tokens:
       - lit: cp
-      - choice: ["-r", "-i"]
+      - choice: ["-r", "-i", "-a", "-u", "-v"]
         optional: true
         repeatable: true
         descriptions:
           "-r": Copy directories recursively
           "-i": Prompt before overwriting
+          "-a": Archive mode — preserve mode, ownership, timestamps (implies -r)
+          "-u": Copy only when source is newer
+          "-v": Print each file copied
       - var: source
         type: free
         description: File or directory to copy
@@ -112,10 +118,13 @@ commands:
     syntax: "mv [-i] <source> <destination>"
     tokens:
       - lit: mv
-      - choice: ["-i"]
+      - choice: ["-i", "-n", "-v"]
         optional: true
+        repeatable: true
         descriptions:
           "-i": Prompt before overwriting
+          "-n": Never overwrite existing files
+          "-v": Print each move
       - var: source
         type: free
         description: File or directory to move
@@ -142,13 +151,15 @@ commands:
     syntax: "rm [-r] [-f] [-i] <path>"
     tokens:
       - lit: rm
-      - choice: ["-r", "-f", "-i"]
+      - choice: ["-r", "-f", "-i", "-I", "-v"]
         optional: true
         repeatable: true
         descriptions:
           "-r": Remove directories recursively
           "-f": Never prompt, ignore nonexistent files
           "-i": Prompt before every removal
+          "-I": Prompt once before removing many files or recursing
+          "-v": Print each removal
       - var: path
         type: free
         description: File or directory to remove
@@ -170,9 +181,16 @@ commands:
       - destructive
 
   - name: cat
-    syntax: "cat <file>"
+    syntax: "cat [-n] [-A] <file>"
     tokens:
       - lit: cat
+      - choice: ["-n", "-A", "-s"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-n": Number all output lines
+          "-A": Show all non-printing chars, tabs as ^I, line ends as $
+          "-s": Squeeze repeated blank lines
       - var: file
         type: free
         description: File to print
@@ -227,3 +245,304 @@ commands:
     tags:
       - filesystem
       - search
+
+  - name: mkdir
+    syntax: "mkdir [-p] [-m <mode>] <directory>"
+    tokens:
+      - lit: mkdir
+      - choice: ["-p", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-p": Create parent dirs as needed, no error if it already exists
+          "-v": Print a message for each created directory
+      - lit: -m
+        optional: true
+      - var: mode
+        type: free
+        optional: true
+        description: Permission mode, e.g. 755
+      - var: directory
+        type: free
+        description: Directory to create
+    order: flags-anywhere
+    description: |
+      Creates a directory. Without '-p' the parent must exist and the
+      directory must not.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: mkdir -p /opt/app/logs
+        description: Create nested directories
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: touch
+    syntax: "touch [-c] [-a] [-m] <file>"
+    tokens:
+      - lit: touch
+      - choice: ["-c", "-a", "-m"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-c": Do not create the file if missing
+          "-a": Change only access time
+          "-m": Change only modification time
+      - var: file
+        type: free
+        description: File to create or timestamp
+    order: flags-anywhere
+    description: |
+      Updates file timestamps. Creates an empty file if it does not exist
+      (unless '-c').
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: touch /tmp/testfile
+        description: Create an empty file
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: chmod
+    syntax: "chmod [-R] <mode> <path>"
+    tokens:
+      - lit: chmod
+      - choice: ["-R", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-R": Change files and directories recursively
+          "-v": Report every file processed
+      - var: mode
+        type: free
+        description: Octal (e.g. 755) or symbolic (e.g. u+x)
+      - var: path
+        type: free
+        description: File or directory to change
+    description: |
+      Changes file permissions. Octal digits are owner/group/other as rwx
+      sums (r=4, w=2, x=1). Recursive '-R' ignores symlinks.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: chmod 755 script.sh
+        description: Owner rwx, group/other r-x
+      - command: chmod -R go-rwx /etc/secret
+        description: Strip group/other access recursively
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - permissions
+
+  - name: chown
+    syntax: "chown [-R] <owner>[:<group>] <path>"
+    tokens:
+      - lit: chown
+      - choice: ["-R", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-R": Change ownership recursively
+          "-v": Report every file processed
+      - var: owner-group
+        type: free
+        description: OWNER, OWNER:GROUP, or :GROUP (group only)
+      - var: path
+        type: free
+        description: File or directory to change
+    description: |
+      Changes file ownership. Usually requires root. 'owner:' sets the
+      group to the owner's login group; ':group' changes group only.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: chown -R www-data:www-data /var/www
+        description: Give the web tree to www-data
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "Usually needs root"
+    tags:
+      - filesystem
+      - permissions
+
+  - name: ln
+    syntax: "ln [-s] [-f] <target> <link-name>"
+    tokens:
+      - lit: ln
+      - choice: ["-s", "-f", "-v"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-s": Make a symbolic link instead of a hard link
+          "-f": Remove an existing destination file first
+          "-v": Print each link created
+      - var: target
+        type: free
+        description: Existing file or directory to link to
+      - var: link-name
+        type: free
+        description: Name of the link to create
+    description: |
+      Creates a link to a target. Default is a hard link (same inode,
+      cannot span filesystems or link directories); '-s' makes a symlink.
+      Relative symlink targets resolve from the link's own directory.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: ln -s /opt/app/current /usr/local/bin/app
+        description: Symlink a binary onto PATH
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+
+  - name: du
+    syntax: "du [-h] [-s] [-d <depth>] [<path>]"
+    tokens:
+      - lit: du
+      - choice: ["-h", "-s", "-c", "-x", "-a"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-h": Human-readable sizes
+          "-s": Show only a total for each argument
+          "-c": Add a grand total
+          "-x": Stay on one filesystem
+          "-a": Include files, not just directories
+      - lit: -d
+        optional: true
+      - var: depth
+        type: numeric
+        min: 0
+        optional: true
+        description: Max report depth ('-d 1' is one level down)
+      - var: path
+        type: free
+        optional: true
+        description: Directory to measure
+    order: flags-anywhere
+    description: |
+      Estimates disk usage per directory. 'du -h' for readable sizes,
+      'du -sh *' for a one-line total per item in the current dir.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: du -sh /var/log
+        description: Total size of /var/log
+      - command: du -h -d 1 /var
+        description: One level of subdirectory sizes
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - disk
+
+  - name: tar
+    syntax: "tar [-c | -x | -t] [-z | -j | -J] -f <archive> [<files>]"
+    tokens:
+      - lit: tar
+      - choice: ["-c", "-x", "-t"]
+        descriptions:
+          "-c": Create a new archive
+          "-x": Extract from an archive
+          "-t": List archive contents
+      - choice: ["-z", "-j", "-J", "-a"]
+        optional: true
+        descriptions:
+          "-z": gzip filter (.tar.gz)
+          "-j": bzip2 filter (.tar.bz2)
+          "-J": xz filter (.tar.xz)
+          "-a": Auto-detect compression from the filename suffix
+      - choice: ["-v"]
+        optional: true
+        descriptions:
+          "-v": List files as processed
+      - lit: -f
+      - var: archive
+        type: free
+        description: Archive file (must directly follow -f)
+      - var: files
+        type: free
+        optional: true
+        description: Files/dirs to add (create) or to extract
+    description: |
+      Archives files. Exactly one operation mode (-c/-x/-t). '-f' consumes
+      the next argument as the archive name, so keep it adjacent:
+      'tar -czvf files.tar.gz dir'. Extract with
+      'tar -xzvf archive.tar.gz'.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: tar -czvf backup.tar.gz /etc
+        description: Create gzipped archive of /etc
+      - command: tar -xzvf backup.tar.gz
+        description: Extract a gzipped archive
+      - command: tar -tzf backup.tar.gz
+        description: List contents without extracting
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - archive
+
+  - name: gzip
+    syntax: "gzip [-d] [-k] [-9] <file>"
+    tokens:
+      - lit: gzip
+      - choice: ["-d", "-k", "-c", "-9", "-l", "-t"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-d": Decompress
+          "-k": Keep the original file (default replaces it with file.gz)
+          "-c": Write to stdout, keep originals
+          "-9": Best compression (default 6)
+          "-l": List compression stats
+          "-t": Test integrity
+      - var: file
+        type: free
+        description: File to compress or .gz file to decompress
+    order: flags-anywhere
+    description: |
+      Compresses a single file to file.gz. Not an archiver — replaces the
+      original unless '-k'. Use tar for multi-file archives.
+    category: filesystem
+    mode: shell
+    aliases: []
+    examples:
+      - command: gzip -k bigfile.log
+        description: Compress, keep the original
+      - command: gzip -d bigfile.log.gz
+        description: Decompress
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - filesystem
+      - archive

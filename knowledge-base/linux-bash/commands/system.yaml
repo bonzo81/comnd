@@ -50,12 +50,13 @@ commands:
     syntax: "df [-h] [-T] [<path>]"
     tokens:
       - lit: df
-      - choice: ["-h", "-T"]
+      - choice: ["-h", "-T", "-i"]
         optional: true
         repeatable: true
         descriptions:
           "-h": Human-readable sizes
           "-T": Print filesystem type
+          "-i": Inode usage instead of blocks
       - var: path
         type: free
         optional: true
@@ -81,13 +82,14 @@ commands:
     syntax: "free [-h] [-m] [-g]"
     tokens:
       - lit: free
-      - choice: ["-h", "-m", "-g"]
+      - choice: ["-h", "-m", "-g", "-t"]
         optional: true
         repeatable: true
         descriptions:
           "-h": Human-readable sizes
           "-m": Show in MiB
           "-g": Show in GiB
+          "-t": Add a totals line
     order: flags-anywhere
     description: |
       Displays memory usage. '-h' human-readable.
@@ -124,9 +126,16 @@ commands:
       - system
 
   - name: sudo
-    syntax: "sudo [-u <user>] <command>"
+    syntax: "sudo [-i] [-u <user>] <command>"
     tokens:
       - lit: sudo
+      - choice: ["-i", "-s", "-l"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-i": Login shell as target user (loads their environment)
+          "-s": Run a shell as target user
+          "-l": List permitted commands
       - lit: -u
         optional: true
       - var: user
@@ -152,3 +161,211 @@ commands:
     tags:
       - system
       - privilege
+
+  - name: systemctl
+    syntax: "systemctl <command> [<unit>]"
+    tokens:
+      - lit: systemctl
+      - choice: [status, start, stop, restart, reload, enable, disable, mask, unmask, is-active, is-enabled, list-units, list-unit-files, daemon-reload]
+        descriptions:
+          status: Show unit status and recent log lines
+          start: Start a unit
+          stop: Stop a unit
+          restart: Restart a unit
+          reload: Reload the service's own config
+          enable: Enable at boot (does not start now)
+          disable: Disable at boot
+          mask: Prevent the unit from ever starting
+          unmask: Undo mask
+          is-active: Check whether a unit is running
+          is-enabled: Check boot-time enablement
+          list-units: List loaded units
+          list-unit-files: List installed unit files
+          daemon-reload: Reload systemd's unit files
+      - lit: --now
+        optional: true
+        description: With enable/disable, also start/stop immediately
+      - var: unit
+        type: free
+        optional: true
+        description: Unit name (.service suffix optional)
+    description: |
+      Controls systemd units. 'enable' only sets boot-time start — add
+      '--now' to start immediately. 'daemon-reload' re-reads unit files
+      after editing them; 'reload' reloads a running service's config.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: systemctl status nginx
+        description: Show nginx status
+      - command: systemctl restart nginx
+        description: Restart nginx
+      - command: systemctl enable --now nginx
+        description: Enable and start nginx
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "systemd only"
+    tags:
+      - system
+      - services
+
+  - name: journalctl
+    syntax: "journalctl [-u <unit>] [-f] [-n <lines>] [-b]"
+    tokens:
+      - lit: journalctl
+      - choice: ["-f", "-r", "-e", "-k", "-q"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-f": Follow new entries live
+          "-r": Newest first
+          "-e": Jump to the end of the journal
+          "-k": Kernel messages only
+          "-q": Quiet — no informational output
+      - lit: -u
+        optional: true
+      - var: unit
+        type: free
+        optional: true
+        description: Show logs for this unit (repeatable)
+      - lit: -n
+        optional: true
+      - var: lines
+        type: numeric
+        min: 1
+        optional: true
+        description: Number of entries to show (default 10)
+      - lit: -b
+        optional: true
+        description: Current boot only ('-b -1' previous boot)
+      - lit: -p
+        optional: true
+      - var: priority
+        type: free
+        optional: true
+        description: Level 0-7 or name (err, warning, info...)
+      - lit: -S
+        optional: true
+      - var: since
+        type: free
+        optional: true
+        description: Start time — today, yesterday, -1h, or a date
+    order: flags-anywhere
+    description: |
+      Queries the systemd journal. Paged through less by default —
+      '--no-pager' to disable. Logs of a unit:
+      'journalctl -u nginx -f'.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: journalctl -u nginx -f
+        description: Follow nginx logs live
+      - command: journalctl -p err -b
+        description: Errors since boot
+      - command: journalctl -S today
+        description: Entries from today
+    versions:
+      introduced: null
+      deprecated: null
+      notes: "systemd only"
+    tags:
+      - system
+      - logs
+
+  - name: which
+    syntax: "which [-a] <program>"
+    tokens:
+      - lit: which
+      - choice: ["-a"]
+        optional: true
+        descriptions:
+          "-a": Print all PATH matches, not just the first
+      - var: program
+        type: free
+        description: Program name to locate
+    description: |
+      Shows the full path of a program on PATH. Searches PATH only —
+      shell builtins and aliases are invisible to it.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: which python3
+        description: Find python3's path
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - lookup
+
+  - name: man
+    syntax: "man [<section>] <page>"
+    tokens:
+      - lit: man
+      - var: section
+        type: numeric
+        min: 1
+        max: 9
+        optional: true
+        description: Manual section, e.g. '5 crontab'
+      - var: page
+        type: free
+        description: Manual page name
+    description: |
+      Shows manual pages. Bare 'man foo' shows only the first matching
+      section — qualify with a section number when names collide
+      (e.g. 'man 5 crontab' vs 'man 1 crontab').
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: man 5 crontab
+        description: crontab file format
+      - command: man -k network
+        description: Search page names and descriptions
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
+      - help
+
+  - name: history
+    syntax: "history [<count>] [-c]"
+    tokens:
+      - lit: history
+      - choice: ["-c", "-w", "-a"]
+        optional: true
+        repeatable: true
+        descriptions:
+          "-c": Clear the in-memory history list
+          "-w": Write current history to the history file
+          "-a": Append new history lines to the file
+      - var: count
+        type: numeric
+        min: 1
+        optional: true
+        description: Show only the last N entries
+    description: |
+      Shows or manages command history. Re-run an entry with '!N';
+      reverse-search with Ctrl+R.
+    category: system
+    mode: shell
+    aliases: []
+    examples:
+      - command: history 20
+        description: Last 20 commands
+      - command: history -c
+        description: Clear history
+    versions:
+      introduced: null
+      deprecated: null
+      notes: null
+    tags:
+      - system
