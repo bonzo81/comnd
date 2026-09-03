@@ -64,11 +64,18 @@
   color: var(--color-text-primary);
 }
 
-.nav-chevron {
-  width: 12px;
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-tertiary);
+.nav-section-icon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+}
+
+.nav-section-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .nav-section-items {

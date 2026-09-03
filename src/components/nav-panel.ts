@@ -166,8 +166,6 @@ export class NavPanel {
     sec.querySelector<HTMLElement>(".nav-section-items")?.classList.toggle("open", open);
     const header = sec.querySelector<HTMLElement>(".nav-section-header");
     if (header) header.setAttribute("aria-expanded", String(open));
-    const chevron = header?.querySelector<HTMLElement>(".nav-chevron");
-    if (chevron) chevron.textContent = open ? "▾" : "▸";
     this.applyRovingTabindex();
   }
 
@@ -274,9 +272,9 @@ export class NavPanel {
     const prevSearchSel = search && search === ae ? search.selectionStart : null;
     this.container.innerHTML = `
       <div class="nav-panel" role="navigation" aria-label="App navigation">
-        ${this.renderSection("connections", "Connections", this.renderConnectionsItems())}
-        ${this.renderSection("kb", "Knowledge Base", this.renderKbItems())}
-        ${this.renderSection("settings", "Settings", this.renderSettingsItems())}
+      ${this.renderSection("connections", icons.monitor, "Connections", this.renderConnectionsItems())}
+      ${this.renderSection("kb", icons.book, "Knowledge Base", this.renderKbItems())}
+      ${this.renderSection("settings", icons.settings, "Settings", this.renderSettingsItems())}
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
       ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
@@ -305,12 +303,12 @@ export class NavPanel {
     }
   }
 
-  private renderSection(section: NavSection, label: string, itemsHtml: string): string {
+  private renderSection(section: NavSection, icon: string, label: string, itemsHtml: string): string {
     const open = this.openSections.has(section);
     return `
       <div class="nav-section" data-section="${section}">
         <button class="nav-section-header" data-section="${section}" aria-expanded="${open}">
-          <span class="nav-chevron">${open ? "▾" : "▸"}</span>
+          <span class="nav-section-icon">${icon}</span>
           <span class="nav-section-label">${label}</span>
         </button>
         <div class="nav-section-items${open ? " open" : ""}">
