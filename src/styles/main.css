@@ -14,6 +14,7 @@
 @import './components/_nav-panel.css';
 @import './components/_settings-screen.css';
 @import './components/_global-search.css';
+@import './components/_replay.css';
 
 /* ─── Custom title bar (frameless window) ─── */
 .title-bar {

@@ -33,6 +33,16 @@ Unlike generic SSH clients, netssh understands *what you're connected to* and su
 * Built-in file transfer (out of scope for now)
 
 
+### Two Command Stores
+
+netssh distinguishes two sources of commands surfaced into the terminal:
+
+- **Knowledge Base** — curated, app-authored reference of valid syntax per platform. Shipped with install, read-only, used for ghost text suggestions. *Teaches.*
+- **Command Replay** — the user's own saved commands, captured from the terminal or entered manually, with named variables and platform assignment. Played back into the terminal via the side panel. Empty until the user fills it. *Remembers.*
+
+See `docs/09-command-replay.md`.
+
+
 ---
 
 ## Target Platforms (App)

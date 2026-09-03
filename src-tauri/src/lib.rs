@@ -15,6 +15,7 @@ mod llm;
 mod import;
 mod paths;
 mod session_log;
+mod replay;
 mod secrets;
 
 use std::process::Command as StdCommand;
@@ -1687,6 +1688,9 @@ pub fn run() {
                 scan_merge,
                 apply_merge,
                 restart_app,
+                replay::replay_list,
+                replay::replay_save,
+                replay::replay_delete,
                 #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]

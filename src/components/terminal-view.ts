@@ -23,7 +23,12 @@ import {
   openUrl,
   PlatformIndex,
   Command,
+  ReplayCommand,
+  replayList,
 } from "../lib/tauri-api";
+import { ReplaySaveDialog } from "./replay-save-dialog";
+import { substitute, renderReplayTemplate } from "../lib/replay";
+import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
 import { ShadowBuffer } from "../lib/shadow-buffer";
@@ -132,6 +137,8 @@ export class TerminalView {
   private onSessionDiedCb: (hostId: string) => void;
   private onRequestCloseCb: (hostId: string) => void;
   private sidePanelOpen = false;
+  private sidePanelMode: "kb" | "replay" = "kb";
+  private replayItems: ReplayCommand[] = [];
   private sidebarResizing = false;
   private sidebarResizeRaf = 0;
   private host: Host | null = null;
@@ -405,6 +412,16 @@ export class TerminalView {
     this.terminal?.clearSelection();
   }
 
+  /** Open the save dialog with the current terminal selection. */
+  private addSelectionToReplay() {
+    const selection = this.terminal?.getSelection();
+    if (!selection) return;
+    this.terminal?.clearSelection();
+    new ReplaySaveDialog(selection, this.host?.platform ?? "linux-bash", () => {
+      if (this.sidePanelMode === "replay" && this.sidePanelOpen) void this.showReplayPanel();
+    }).open();
+  }
+
   /** Read clipboard and send it to the remote session + shadow buffer. */
   private pasteClipboard() {
     navigator.clipboard.readText().then((text) => {
@@ -426,6 +443,11 @@ export class TerminalView {
     const items = [
       { label: "Copy", enabled: !!this.terminal?.getSelection(), action: () => this.copySelection() },
       { label: "Paste", enabled: this.state === "connected", action: () => this.pasteClipboard() },
+      {
+        label: "Add to Command Replay",
+        enabled: !!this.terminal?.getSelection(),
+        action: () => this.addSelectionToReplay(),
+      },
     ];
 
     const menu = document.createElement("div");
@@ -576,6 +598,10 @@ export class TerminalView {
             title="Drag to resize side panel"
           ></div>
           <div class="tv-sidebar hidden" id="tv-sidebar">
+            <div class="sb-toggle" role="tablist" aria-label="Panel content">
+              <button class="sb-toggle-btn sb-toggle-kb active" role="tab" aria-selected="true">Knowledge Base</button>
+              <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false">Command Replay</button>
+            </div>
             <div class="sb-content">
               <p class="sb-placeholder">Select a suggestion to see command details</p>
             </div>
@@ -662,6 +688,7 @@ export class TerminalView {
       this.toggleSidebar();
     });
     this.initSidebarResize();
+    this.initSidebarToggle();
 
     // Scrollback search (toolbar button + Ctrl+Shift+F)
     const searchBtn = this.$(".tv-search-btn")!;
@@ -1214,6 +1241,7 @@ export class TerminalView {
     this.$(".tv-resizer")?.classList.toggle("hidden", !this.sidePanelOpen);
     this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(this.sidePanelOpen));
     // Refit terminal after sidebar transition
+    if (this.sidePanelOpen && this.sidePanelMode === "replay") void this.showReplayPanel();
     setTimeout(() => {
       this.fitAddon?.fit();
       this.ghostText?.reposition();
@@ -1507,6 +1535,7 @@ export class TerminalView {
   private updateSidebarDetail(command: Command) {
     const content = this.$(".sb-content");
     if (!content || !this.sidePanelOpen) return;
+    if (this.sidePanelMode === "replay") return; // replay panel owns the content
     if (!this.sidebarContent) this.sidebarContent = new SidebarContent();
     content.innerHTML = this.sidebarContent.render(command, this.platformIndex?.reference_url ?? null);
     // Wire clickable examples
@@ -1524,7 +1553,168 @@ export class TerminalView {
   private updateSidebarPlaceholder() {
     const content = this.$(".sb-content");
     if (!content || !this.sidePanelOpen) return;
+    if (this.sidePanelMode === "replay") return;
     content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
+  }
+
+  // ─── Command Replay panel (docs/09-command-replay.md) ────────────
+
+  private initSidebarToggle() {
+    const kbBtn = this.$(".sb-toggle-kb");
+    const replayBtn = this.$(".sb-toggle-replay");
+    kbBtn?.addEventListener("click", () => this.setSidePanelMode("kb"));
+    replayBtn?.addEventListener("click", () => this.setSidePanelMode("replay"));
+  }
+
+  private setSidePanelMode(mode: "kb" | "replay") {
+    this.sidePanelMode = mode;
+    this.$(".sb-toggle-kb")?.classList.toggle("active", mode === "kb");
+    this.$(".sb-toggle-replay")?.classList.toggle("active", mode === "replay");
+    this.$(".sb-toggle-kb")?.setAttribute("aria-selected", String(mode === "kb"));
+    this.$(".sb-toggle-replay")?.setAttribute("aria-selected", String(mode === "replay"));
+    const content = this.$(".sb-content");
+    if (!content) return;
+    if (mode === "kb") {
+      content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
+    } else {
+      void this.showReplayPanel();
+    }
+  }
+
+  private async showReplayPanel() {
+    const content = this.$(".sb-content");
+    if (!content || !this.sidePanelOpen) return;
+    try {
+      this.replayItems = await replayList();
+    } catch (e) {
+      content.innerHTML = `<p class="sb-placeholder">Failed to load Command Replay: ${e}</p>`;
+      return;
+    }
+    this.renderReplayPanel();
+  }
+
+  private renderReplayPanel() {
+    const content = this.$(".sb-content");
+    if (!content) return;
+    const platform = this.host?.platform ?? "";
+    const items = this.replayItems.filter((c) => c.platform === platform);
+    const shown = items.length > 0 ? items : this.replayItems;
+    const list = shown
+      .map(
+        (c) => `
+        <div class="replay-item" data-id="${c.id}">
+          <code class="replay-cmd">${this.renderReplayTemplate(c.command)}</code>
+          <div class="replay-actions">
+            <button class="btn-text replay-play" data-id="${c.id}" title="Play into terminal" aria-label="Play command into terminal">▶ Play</button>
+          </div>
+        </div>`,
+      )
+      .join("");
+    content.innerHTML = `
+      <div class="replay-panel">
+        <div class="replay-panel-head">
+          ${items.length === 0 && this.replayItems.length > 0 ? `<p class="sb-placeholder">No commands for this platform — showing all</p>` : ""}
+          <button class="btn-text replay-add" title="Add command manually">+ Add command</button>
+        </div>
+        ${this.replayItems.length === 0
+          ? `<p class="sb-placeholder">No saved commands yet. Select text in the terminal, right-click → <strong>Add to Command Replay</strong>.</p>`
+          : `<div class="replay-list">${list}</div>`}
+      </div>
+    `;
+    content.querySelector(".replay-add")?.addEventListener("click", () => {
+      new ReplaySaveDialog("", platform, () => void this.showReplayPanel()).open();
+    });
+    content.querySelectorAll<HTMLButtonElement>(".replay-play").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const cmd = this.replayItems.find((c) => c.id === btn.dataset.id);
+        if (cmd) this.playReplay(cmd);
+      });
+    });
+  }
+
+  /** Render a template, highlighting {{variables}} as chips. */
+  private renderReplayTemplate(command: string): string {
+    return renderReplayTemplate(command);
+  }
+
+  private esc(s: string): string {
+    return escHtml(s);
+  }
+
+  /** Play a replay command: prompt for variables if needed, then insert. */
+  private playReplay(cmd: ReplayCommand) {
+    if (this.state !== "connected") return;
+    if (cmd.variables.length === 0) {
+      this.insertReplayCommand(cmd.command);
+      return;
+    }
+    this.promptReplayVariables(cmd);
+  }
+
+  private promptReplayVariables(cmd: ReplayCommand) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.innerHTML = `
+      <div class="modal-panel replay-dialog" role="dialog" aria-modal="true" aria-labelledby="rpv-title">
+        <h2 id="rpv-title">Command Variables</h2>
+        <p class="replay-dialog-hint"><code>${this.esc(cmd.command)}</code></p>
+        ${cmd.variables
+          .map(
+            (v, i) => `
+          <label>
+            <span>${this.esc(v.name)}</span>
+            <input type="text" class="form-input rpv-input" data-name="${this.esc(v.name)}"
+                   ${i === 0 ? "autofocus" : ""} spellcheck="false" autocomplete="off" />
+          </label>`,
+          )
+          .join("")}
+        <div class="form-errors rpv-errors" role="alert"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-text rpv-cancel">Cancel</button>
+          <button type="button" class="btn-primary rpv-play">Play</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    const close = () => overlay.remove();
+    const firstInput = overlay.querySelector<HTMLInputElement>(".rpv-input");
+    if (firstInput) setTimeout(() => firstInput.focus(), 50);
+    overlay.querySelector(".rpv-cancel")?.addEventListener("click", close);
+    const play = () => {
+      const values: Record<string, string> = {};
+      overlay.querySelectorAll<HTMLInputElement>(".rpv-input").forEach((inp) => {
+        values[inp.dataset.name ?? ""] = inp.value;
+      });
+      let filled: string;
+      try {
+        filled = substitute(cmd.command, cmd.variables, values);
+      } catch (e) {
+        const errEl = overlay.querySelector<HTMLElement>(".rpv-errors");
+        if (errEl) errEl.textContent = `Missing value: ${(e as Error).message}`;
+        return;
+      }
+      close();
+      this.insertReplayCommand(filled);
+    };
+    overlay.querySelector(".rpv-play")?.addEventListener("click", play);
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        play();
+      } else if (e.key === "Escape") {
+        close();
+      }
+    });
+  }
+
+  /** Insert a command at the terminal prompt without executing it. */
+  private insertReplayCommand(text: string) {
+    if (this.state !== "connected" || !this.sessionId) return;
+    this.sendData(text);
+    this.terminal?.focus();
   }
 
   // ─── Line timestamps ─────────────────────────────────────────────

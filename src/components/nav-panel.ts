@@ -28,13 +28,14 @@ import { initContextMenu } from "../lib/a11y";
 import { showToast } from "../lib/toast";
 import { NetBoxConfigureDialog } from "./netbox-configure-dialog";
 
-export type NavSection = "connections" | "kb" | "settings";
+export type NavSection = "connections" | "kb" | "replay" | "settings";
 
 export interface NavCallbacks {
   onSelectHost: (hostId: string) => void;
   onConnectHost: (hostId: string) => void;
   onEditHost: (hostId: string) => void;
   onKbTab: (tab: "browse" | "import") => void;
+  onOpenReplay: () => void;
   onNewConnection: () => void;
   onAddHostToGroup: (groupId: string) => void;
   onSelectSettings: (id: string) => void;
@@ -274,6 +275,7 @@ export class NavPanel {
       <div class="nav-panel" role="navigation" aria-label="App navigation">
       ${this.renderSection("connections", icons.monitor, "Connections", this.renderConnectionsItems())}
       ${this.renderSection("kb", icons.book, "Knowledge Base", this.renderKbItems())}
+      ${this.renderSection("replay", icons.clock, "Command Replay", this.renderReplayItems())}
       ${this.renderSection("settings", icons.settings, "Settings", this.renderSettingsItems())}
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
@@ -628,6 +630,16 @@ export class NavPanel {
     `;
   }
 
+  private renderReplayItems(): string {
+    return `
+      <div class="nav-group-row">
+        <button class="nav-item nav-sub" data-replay-open="manage">
+          <span class="nav-item-label">Manage Commands</span>
+        </button>
+      </div>
+    `;
+  }
+
   private renderSettingsItems(): string {
     return SETTINGS_ITEMS.map(
       (s) => `
@@ -789,6 +801,13 @@ export class NavPanel {
         this.activeKbTab = tab;
         this.cb.onKbTab(tab);
         this.render();
+      });
+    });
+
+    // Command Replay item
+    this.container.querySelectorAll<HTMLElement>(".nav-item[data-replay-open]").forEach((el) => {
+      el.addEventListener("click", () => {
+        this.cb.onOpenReplay();
       });
     });
 

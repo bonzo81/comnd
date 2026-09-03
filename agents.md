@@ -86,7 +86,8 @@ Read these docs before implementing anything in their domain:
 ```
 src/                    # TypeScript frontend
   components/           # Screens & UI (host-screen, terminal-view, kb-screen,
-                        #   command-palette, kb-import-dialog, kb-viewer-dialog)
+                        #   command-palette, kb-import-dialog, kb-viewer-dialog,
+                        #   replay-screen, replay-save-dialog)
   lib/                  # Utilities (tauri-api, suggestion-engine, shadow-buffer,
                         #   prompt-detector, ghost-text, dropdown, ansi, format,
                         #   platforms, logger, sidebar-content)
@@ -106,6 +107,7 @@ src-tauri/              # Rust backend
     import.rs           # KB import pipeline
     llm.rs              # LLM client (OpenAI-compatible / Anthropic formats, KB import only)
     config.rs           # App settings
+    replay.rs           # Command Replay storage (user-saved commands, docs/09)
     test_server.rs      # Mock SSH server for testing
   Cargo.toml            # Rust dependencies
   tauri.conf.json       # Tauri configuration

@@ -5,6 +5,7 @@ import { KbScreen } from "./components/kb-screen";
 import { NavPanel } from "./components/nav-panel";
 import { GlobalSearch } from "./components/global-search";
 import { SettingsScreen } from "./components/settings-screen";
+import { ReplayScreen } from "./components/replay-screen";
 import { Host, getLogLevel, getLogStatus } from "./lib/tauri-api";
 import { showToast } from "./lib/toast";
 import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
@@ -22,7 +23,7 @@ import "./styles/tokens.css";
 import "./styles/main.css";
 
 // App state
-type AppView = "connections" | "terminal" | "knowledge-base" | "settings";
+type AppView = "connections" | "terminal" | "knowledge-base" | "replay" | "settings";
 
 interface SessionTab {
   host: Host;
@@ -43,6 +44,8 @@ class App {
   private settingsWrapper: HTMLElement;
   private settingsScreen: SettingsScreen;
   private settingsItemId = "llm";
+  private replayWrapper: HTMLElement | null = null;
+  private replayScreen: ReplayScreen | null = null;
   private contentCol: HTMLElement;
   private bodyRow: HTMLElement;
   private navPanel: NavPanel;
@@ -106,6 +109,15 @@ class App {
     this.settingsWrapper.style.display = "none";
     this.contentCol.appendChild(this.settingsWrapper);
 
+    // Command Replay management view wrapper
+    this.replayWrapper = document.createElement("div");
+    this.replayWrapper.className = "app-view";
+    this.replayWrapper.style.display = "none";
+    this.contentCol.appendChild(this.replayWrapper);
+    this.replayScreen = new ReplayScreen();
+    this.replayScreen.onTreeChanged = () => void this.navPanel.refresh();
+    void this.replayScreen.mount(this.replayWrapper);
+
     this.settingsScreen = new SettingsScreen();
     this.settingsScreen.onTreeChanged = () => void this.navPanel.refresh();
     void this.settingsScreen.mount(this.settingsWrapper);
@@ -150,6 +162,9 @@ class App {
       onKbTab: (tab) => {
         this.showView("knowledge-base");
         this.kbScreen.setTab(tab);
+      },
+      onOpenReplay: () => {
+        this.showView("replay");
       },
       onNewConnection: () => {
         this.showView("connections");
@@ -301,6 +316,7 @@ class App {
       connections: "Connections",
       terminal: "Terminal",
       "knowledge-base": "Knowledge Base",
+      replay: "Command Replay",
       settings: "Settings",
     };
     this.sbView.textContent = labels[this.currentView];
@@ -311,6 +327,7 @@ class App {
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
     this.kbScreenWrapper.style.display = view === "knowledge-base" ? "" : "none";
+    if (this.replayWrapper) this.replayWrapper.style.display = view === "replay" ? "" : "none";
     this.settingsWrapper.style.display = view === "settings" ? "" : "none";
     // Nav panel keeps its current section state in the terminal view
     if (view === "connections") {
@@ -318,6 +335,9 @@ class App {
     } else if (view === "knowledge-base") {
       this.navPanel.setSection("kb");
       this.navPanel.setActiveKbTab(this.kbScreen.getActiveTab());
+    } else if (view === "replay") {
+      this.navPanel.setSection("replay");
+      void this.replayScreen?.refresh();
     } else {
       this.navPanel.setSection("settings");
     }

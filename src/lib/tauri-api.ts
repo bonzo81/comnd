@@ -526,6 +526,32 @@ export async function deleteKbCommand(
   return invoke<void>("delete_kb_command", { platform, category, commandName });
 }
 
+// ─── Command Replay (docs/09-command-replay.md) ──────────────────────
+
+export interface ReplayVariable {
+  name: string;
+}
+
+export interface ReplayCommand {
+  id: string;
+  command: string; // template with {{name}} markers
+  variables: ReplayVariable[];
+  platform: string;
+  created_at: string;
+}
+
+export async function replayList(): Promise<ReplayCommand[]> {
+  return invoke<ReplayCommand[]>("replay_list");
+}
+
+export async function replaySave(cmd: ReplayCommand): Promise<ReplayCommand> {
+  return invoke<ReplayCommand>("replay_save", { cmd });
+}
+
+export async function replayDelete(id: string): Promise<void> {
+  return invoke<void>("replay_delete", { id });
+}
+
 // ─── NetBox Host Source Commands (plan §8.2) ─────────────────────────
 
 export interface NetBoxFilters {
