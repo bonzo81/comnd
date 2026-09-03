@@ -22,7 +22,6 @@ const ANSI_DETECT = /\x1b\[/;
 const BURST_LINE_THRESHOLD = 500;
 const BURST_WINDOW_MS = 1000;
 const BURST_COOLDOWN_MS = 500;
-const MAX_PARTIAL_BUFFER = 65536;
 
 interface Injection {
   start: number;
@@ -49,26 +48,21 @@ export class OutputHighlighter {
   }
 
   /**
-   * Transform a chunk of output text. Line-buffered: accumulates until a
-   * newline is seen, then applies rules to each complete line. Returns a
-   * string (possibly with injected ANSI) to write to xterm.
+   * Transform a chunk of output text. Splits on newlines and applies rules
+   * to each line (including the trailing partial line). Returns a string
+   * (possibly with injected ANSI) to write to xterm.
    */
   transform(text: string): string {
     if (this.rules.length === 0) return text;
 
     this.lineBuffer += text;
     const lines = this.lineBuffer.split("\n");
-    // Last element is the partial line (no trailing newline) — keep buffered
-    this.lineBuffer = lines.pop() ?? "";
+    this.lineBuffer = "";
 
     let out = "";
-    for (const line of lines) {
-      out += this.transformLine(line) + "\n";
-    }
-    // Flush partial line if it grows unbounded (rare; avoids pathological stall)
-    if (this.lineBuffer.length > MAX_PARTIAL_BUFFER) {
-      out += this.lineBuffer;
-      this.lineBuffer = "";
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) out += "\n";
+      if (lines[i]) out += this.transformLine(lines[i]);
     }
     return out;
   }
