@@ -3,6 +3,9 @@
  * Does NOT control terminal echo. Observes keystrokes only.
  */
 
+/** Suggestion queries are suppressed above this length (pastes, floods). */
+export const MAX_SHADOW_LEN = 128;
+
 export class ShadowBuffer {
   private buffer = "";
   private onUpdate: (content: string) => void;
@@ -28,6 +31,13 @@ export class ShadowBuffer {
   /** Reset on Enter or new prompt detected */
   reset() {
     this.buffer = "";
+    this.onUpdate(this.buffer);
+  }
+
+  /** Set buffer from external source (echo re-sync); fires only on change */
+  setContent(text: string) {
+    if (this.buffer === text) return;
+    this.buffer = text;
     this.onUpdate(this.buffer);
   }
 

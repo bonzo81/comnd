@@ -9,6 +9,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | Shortcut | Action | Context |
 |----------|--------|---------|
 | `Tab`    | Accept ghost text suggestion (if showing) / pass through to remote (if no suggestion) | Terminal |
+| `Alt+→`  | Accept next word of ghost text suggestion (if showing) / pass through to remote | Terminal |
 | `Ctrl+Space` | Toggle command suggestions (auto-show dropdown while typing) | Terminal |
 | `Escape` | Dismiss dropdown / dismiss side panel | Dropdown or panel open |
 | `↑` / `↓` | Navigate dropdown (if open) / pass through to remote (if closed) | Terminal |

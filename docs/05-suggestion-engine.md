@@ -61,7 +61,8 @@ Two complementary suggestion modes, matching modern IDE behaviour (e.g. VS Code)
 **Ghost text (primary)**
 
 * Top matching command appears as greyed-out text inline after the cursor
-* Accept with `Tab`
+* Accept with `Tab` (whole remainder) or `Alt+→` (next word only); variable
+  placeholders (`<...>`) are hints, not completable — both keys pass through
 * Always visible while typing — zero disruption
 
 **Dropdown (toggleable auto-show)**

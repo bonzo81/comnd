@@ -20,7 +20,7 @@ export function stripAnsi(text: string): string {
     text
       // OSC: ESC ] … terminated by BEL (0x07) or ST (ESC \)
       .replace(/\x1b\].*?(?:\x07|\x1b\\)/g, "")
-      // CSI: ESC [ params… final byte
-      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+      // CSI: ESC [ params… final byte (? is a valid param byte, e.g. ?2004h)
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
   );
 }

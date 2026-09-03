@@ -18,6 +18,8 @@ export class PromptDetector {
   private pendingText: string = "";
   private onModeChange: (mode: string) => void;
   private onPromptDetected: () => void;
+  /** Text of the last matched prompt (trimmed) — used for echo re-sync. */
+  private lastPromptText = "";
 
   // Interactive-app passthrough: set when no prompt has matched for >2s while
   // data keeps arriving (vi/more/top). Suppresses output highlighting.
@@ -96,6 +98,7 @@ export class PromptDetector {
         }
         // Successful prompt match — clear passthrough (interactive app exited)
         this.passthrough = false;
+        this.lastPromptText = text;
         if (this.noMatchTimer) {
           clearTimeout(this.noMatchTimer);
           this.noMatchTimer = null;
@@ -113,5 +116,10 @@ export class PromptDetector {
   /** True when no prompt matched for >2s while output kept arriving (vi/more/top). */
   get isPassthrough(): boolean {
     return this.passthrough;
+  }
+
+  /** Last matched prompt text (trimmed), "" before the first match. */
+  get lastPrompt(): string {
+    return this.lastPromptText;
   }
 }

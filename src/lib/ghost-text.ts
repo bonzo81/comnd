@@ -114,6 +114,25 @@ export class GhostText {
     return this.currentRemainder;
   }
 
+  /** Remote showed the cursor (\x1b[?25h) — sync bookkeeping so hide() stays correct */
+  notifyCursorShown() {
+    this.cursorHidden = false;
+  }
+
+  /**
+   * Accept the next whitespace-delimited word of the remainder (fish
+   * "accept next word", Alt+→). Includes one trailing space when more
+   * remainder follows. Returns null for variable payloads / empty remainder;
+   * remainder is advanced so the next call accepts the following word.
+   */
+  acceptNextWord(): string | null {
+    if (!this.visible || !this.currentPayload || this.currentPayload.kind === "variable") return null;
+    const m = this.currentRemainder.match(/^\S+\s*/);
+    if (!m) return null;
+    this.currentRemainder = this.currentRemainder.substring(m[0].length);
+    return m[0];
+  }
+
   /** Current payload kind (for Tab-behaviour branching in callers). */
   getPayloadKind(): GhostPayload["kind"] | null {
     return this.visible && this.currentPayload ? this.currentPayload.kind : null;

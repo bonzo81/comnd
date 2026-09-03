@@ -31,7 +31,8 @@ import { substitute, renderReplayTemplate } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
-import { ShadowBuffer } from "../lib/shadow-buffer";
+import { ShadowBuffer, MAX_SHADOW_LEN } from "../lib/shadow-buffer";
+import { EchoLineTracker } from "../lib/echo-line";
 import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/suggestion-engine";
 import { GhostText, GhostPayload, ghostPayloadAcceptText } from "../lib/ghost-text";
 import { Dropdown } from "../lib/dropdown";
@@ -162,6 +163,10 @@ export class TerminalView {
   private currentMode = "";
   private currentInput = "";
   private receivingOutput = false;
+  // True when line-editing keys (arrows/Ctrl+A/E/U/W/D) made the shadow
+  // buffer untrustworthy — suggestions suppressed until next Enter/Ctrl+C/prompt
+  private cursorMoved = false;
+  private echoLine = new EchoLineTracker();
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private outputBuffer: string[] = [];
@@ -216,6 +221,10 @@ export class TerminalView {
         // Prompt detected — reset shadow buffer, suppress output flag
         this.shadowBuffer.reset();
         this.receivingOutput = false;
+        this.cursorMoved = false;
+        this.echoLine.reset();
+        // A fresh prompt always wants a visible cursor (DECTCEM desync guard)
+        this.ghostText?.hide();
       },
     );
     this.shadowBuffer = new ShadowBuffer((text) => {
@@ -259,6 +268,15 @@ export class TerminalView {
     this.syncTimestamps();
     this.syncSuggestions();
     this.fitAddon.fit();
+
+    // Ghost text is anchored to the cursor — reposition on buffer scroll.
+    // Dropdown is transient: hide it on scroll (PSReadLine ListView model).
+    this.terminal.onScroll(() => this.ghostText?.reposition());
+    const viewport = termContainer.querySelector(".xterm-viewport");
+    viewport?.addEventListener("scroll", () => {
+      this.ghostText?.reposition();
+      this.dropdown?.hide();
+    });
 
     // xterm.js resize event → send PTY resize to remote
     this.terminal.onResize(({ cols, rows }) => {
@@ -359,6 +377,19 @@ export class TerminalView {
           if (data === "\x1b[B") { this.dropdown.moveDown(); this.syncDropdownToGhostText(); return; }
         }
 
+        // Alt+ArrowRight — accept next word of ghost suggestion (fish-style).
+        // xterm delivers it as \x1b[1;3C (or ESC-prefixed variants).
+        if (data === "\x1b[1;3C" || data === "\x1b\x1b[C" || data === "\x1b\x1b[1;3C") {
+          const word = this.ghostText?.isShowing() ? this.ghostText.acceptNextWord() : null;
+          if (word) {
+            this.sendData(word);
+            for (const ch of word) this.shadowBuffer.append(ch);
+          } else {
+            this.sendData(data);
+          }
+          return;
+        }
+
         // Send to SSH
         this.sendData(data);
 
@@ -366,6 +397,7 @@ export class TerminalView {
         if (data === "\r") {
           // Enter — reset
           this.shadowBuffer.reset();
+          this.cursorMoved = false;
           this.ghostText?.hide();
           this.dropdown?.hide();
         } else if (data === "\x7f" || data === "\b") {
@@ -374,12 +406,22 @@ export class TerminalView {
         } else if (data === "\x03") {
           // Ctrl+C — reset
           this.shadowBuffer.reset();
+          this.cursorMoved = false;
           this.ghostText?.hide();
           this.dropdown?.hide();
         } else if (data === "\x1b[A" || data === "\x1b[B") {
           // Arrow up/down — history navigation, reset
           this.shadowBuffer.reset();
+          this.cursorMoved = false;
           this.ghostText?.hide();
+        } else if (data === "\x1b[D" || data === "\x1b[C" || data === "\x1b[H" || data === "\x1b[F"
+          || data === "\x1b[1~" || data === "\x1b[4~"
+          || data === "\x15" || data === "\x17" || data === "\x04") {
+          // Line editing (arrows/Home/End/Ctrl+A/E/U/W/D) — buffer no longer
+          // EOL-trustworthy; echo re-sync (echo-line.ts) clears the flag.
+          this.cursorMoved = true;
+          this.ghostText?.hide();
+          this.dropdown?.hide();
         } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
           // Printable character
           this.shadowBuffer.append(data);
@@ -862,6 +904,37 @@ export class TerminalView {
         // Prompt detector ALWAYS receives original (untransformed) text —
         // injected ANSI would corrupt prompt regex matching.
         this.promptDetector.feed(text);
+
+        // Cursor-escape desync guard: remote showed the cursor while ghost
+        // had hidden it — sync bookkeeping so a later hide() doesn't strand
+        // the cursor invisible.
+        if (text.includes("\x1b[?25h") && this.ghostText?.isShowing()) {
+          this.ghostText.notifyCursorShown();
+        }
+
+        // Echo re-sync: rebuild the shadow buffer from what the remote
+        // actually echoed when the simulated buffer is untrustworthy
+        // (line-editing keys set cursorMoved). Skipped during output bursts.
+        this.echoLine.feed(text);
+        if (!this.receivingOutput && !this.promptDetector.isPassthrough) {
+          if (this.cursorMoved) {
+            const echoed = this.echoLine.contentAfter(this.promptDetector.lastPrompt, this.shadowBuffer.content);
+            if (echoed !== null) {
+              // Flag clears on any successful reconcile — even when the echoed
+              // content matches the buffer (arrow key edited nothing), otherwise
+              // the guard never lifts and suggestions stay dead.
+              const changed = echoed !== this.shadowBuffer.content;
+              this.shadowBuffer.setContent(echoed);
+              this.cursorMoved = false;
+              if (!changed && echoed) this.debounceSuggestionQuery(echoed);
+            }
+          } else {
+            // Trusted EOL state (buffer reliable) — learn the prompt prefix
+            // from line = prompt + buffer for platforms without prompt
+            // patterns (bash).
+            this.echoLine.learnPrompt(this.shadowBuffer.content);
+          }
+        }
       } else {
         // Connection phase — capture output for the output pane
         const cleanText = stripAnsi(text);
@@ -880,9 +953,10 @@ export class TerminalView {
         if (this.outputTimer) clearTimeout(this.outputTimer);
         this.outputTimer = setTimeout(() => {
           this.receivingOutput = false;
-          // Re-trigger suggestions if shadow buffer has content (e.g. after paste echo)
+          // Re-trigger suggestions if shadow buffer has content (e.g. after paste echo).
+          // The debounce timer re-checks staleness against the live buffer.
           if (this.currentInput) {
-            this.showSuggestions(this.currentInput);
+            this.debounceSuggestionQuery(this.currentInput);
           }
         }, 300);
       }
@@ -1377,7 +1451,8 @@ export class TerminalView {
 
   private debounceSuggestionQuery(text: string) {
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
-    if (!text || this.receivingOutput || this.state !== "connected") {
+    if (!text || this.receivingOutput || this.cursorMoved || this.state !== "connected"
+      || text.length > MAX_SHADOW_LEN) {
       this.ghostText?.hide();
       if (this.dropdown?.isVisible()) {
         this.dropdown.updateResults([]);
@@ -1386,6 +1461,14 @@ export class TerminalView {
       return;
     }
     this.suggestionDebounceTimer = setTimeout(() => {
+      // Staleness check: if the buffer changed since scheduling, re-debounce
+      // with the current content instead of rendering a stale result.
+      const current = this.shadowBuffer.content;
+      if (current !== text) {
+        log.debug(LogTag.Suggest, `stale query dropped ('${text}' != '${current}')`);
+        this.debounceSuggestionQuery(current);
+        return;
+      }
       this.showSuggestions(text);
     }, 40);
   }
