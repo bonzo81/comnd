@@ -1552,7 +1552,7 @@ export class SettingsScreen {
   }
 
   private escAttr(text: string): string {
-    return text.replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return (text ?? "").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   private async saveSettings() {

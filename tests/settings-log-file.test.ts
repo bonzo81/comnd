@@ -41,7 +41,7 @@ async function renderWithConfig(logFilePath: string | null): Promise<HTMLElement
   const container = document.createElement("div");
   document.body.appendChild(container);
   const screen = new SettingsScreen();
-  screen.setItem("general");
+  screen.setItem("logging");
   await screen.mount(container);
   return container;
 }
