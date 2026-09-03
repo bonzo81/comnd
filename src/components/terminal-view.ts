@@ -132,6 +132,8 @@ export class TerminalView {
   private onSessionDiedCb: (hostId: string) => void;
   private onRequestCloseCb: (hostId: string) => void;
   private sidePanelOpen = false;
+  private sidebarResizing = false;
+  private sidebarResizeRaf = 0;
   private host: Host | null = null;
   private state: ConnectionState = "idle";
   private progress: ConnectProgress = { stage: "" };
@@ -253,6 +255,7 @@ export class TerminalView {
 
     // xterm.js resize event → send PTY resize to remote
     this.terminal.onResize(({ cols, rows }) => {
+      if (this.sidebarResizing) return;
       if (this.state === "connected" && this.sessionId) {
         sshResize(this.sessionId, cols, rows).catch(() => {});
       }
@@ -562,6 +565,16 @@ export class TerminalView {
               <button class="btn-text tv-search-close" aria-label="Close search"></button>
             </div>
           </div>
+          <div
+            class="tv-resizer hidden"
+            id="tv-sidebar-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-controls="tv-sidebar"
+            aria-label="Resize side panel"
+            tabindex="0"
+            title="Drag to resize side panel"
+          ></div>
           <div class="tv-sidebar hidden" id="tv-sidebar">
             <div class="sb-content">
               <p class="sb-placeholder">Select a suggestion to see command details</p>
@@ -648,6 +661,7 @@ export class TerminalView {
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
       this.toggleSidebar();
     });
+    this.initSidebarResize();
 
     // Scrollback search (toolbar button + Ctrl+Shift+F)
     const searchBtn = this.$(".tv-search-btn")!;
@@ -1197,12 +1211,100 @@ export class TerminalView {
     this.sidePanelOpen = !this.sidePanelOpen;
     const sidebar = this.$(".tv-sidebar")!;
     sidebar.classList.toggle("hidden", !this.sidePanelOpen);
+    this.$(".tv-resizer")?.classList.toggle("hidden", !this.sidePanelOpen);
     this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(this.sidePanelOpen));
     // Refit terminal after sidebar transition
     setTimeout(() => {
       this.fitAddon?.fit();
       this.ghostText?.reposition();
     }, 250);
+  }
+
+  private initSidebarResize() {
+    const resizer = this.$(".tv-resizer");
+    const sidebar = this.$(".tv-sidebar");
+    if (!resizer || !sidebar) return;
+
+    const clampWidth = (width: number) => {
+      const main = this.$(".tv-main");
+      const max = Math.max(240, Math.floor((main?.clientWidth ?? width) * 0.6));
+      return Math.min(max, Math.max(240, width));
+    };
+
+    const applyWidth = (width: number) => {
+      sidebar.style.width = `${Math.round(clampWidth(width))}px`;
+    };
+
+    resizer.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (sidebar.classList.contains("hidden")) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = sidebar.getBoundingClientRect().width;
+      resizer.setPointerCapture(e.pointerId);
+      resizer.classList.add("active");
+      sidebar.classList.add("resizing");
+      document.body.classList.add("tv-resizing");
+      this.sidebarResizing = true;
+
+      const onMove = (ev: PointerEvent) => {
+        applyWidth(startWidth - (ev.clientX - startX));
+        if (!this.sidebarResizeRaf) {
+          this.sidebarResizeRaf = requestAnimationFrame(() => {
+            this.sidebarResizeRaf = 0;
+            this.fitAddon?.fit();
+            this.ghostText?.reposition();
+          });
+        }
+      };
+
+      const stop = (ev: PointerEvent) => {
+        if (resizer.hasPointerCapture(ev.pointerId)) resizer.releasePointerCapture(ev.pointerId);
+        resizer.classList.remove("active");
+        sidebar.classList.remove("resizing");
+        document.body.classList.remove("tv-resizing");
+        resizer.removeEventListener("pointermove", onMove);
+        resizer.removeEventListener("pointerup", stop);
+        resizer.removeEventListener("pointercancel", stop);
+        if (this.sidebarResizeRaf) {
+          cancelAnimationFrame(this.sidebarResizeRaf);
+          this.sidebarResizeRaf = 0;
+        }
+        this.sidebarResizing = false;
+        this.fitAddon?.fit();
+        this.ghostText?.reposition();
+      };
+
+      resizer.addEventListener("pointermove", onMove);
+      resizer.addEventListener("pointerup", stop);
+      resizer.addEventListener("pointercancel", stop);
+    });
+
+    resizer.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (sidebar.classList.contains("hidden")) return;
+      const step = e.shiftKey ? 48 : 16;
+      let delta = 0;
+      if (e.key === "ArrowLeft") delta = step;
+      else if (e.key === "ArrowRight") delta = -step;
+      else if (e.key === "Home") {
+        e.preventDefault();
+        applyWidth(240);
+        this.fitAddon?.fit();
+        this.ghostText?.reposition();
+        return;
+      } else if (e.key === "End") {
+        e.preventDefault();
+        applyWidth(Number.MAX_SAFE_INTEGER);
+        this.fitAddon?.fit();
+        this.ghostText?.reposition();
+        return;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      applyWidth(sidebar.getBoundingClientRect().width + delta);
+      this.fitAddon?.fit();
+      this.ghostText?.reposition();
+    });
   }
 
   // ─── Mode display ────────────────────────────────────────────────
@@ -1591,6 +1693,11 @@ export class TerminalView {
     this.platformIndex = null;
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
     if (this.outputTimer) clearTimeout(this.outputTimer);
+    if (this.sidebarResizeRaf) {
+      cancelAnimationFrame(this.sidebarResizeRaf);
+      this.sidebarResizeRaf = 0;
+    }
+    document.body.classList.remove("tv-resizing");
 
     this.terminal?.dispose();
     this.terminal = null;
