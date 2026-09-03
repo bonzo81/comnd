@@ -1,12 +1,12 @@
 /**
  * Settings Screen — dedicated settings view (right of nav panel).
  *
- * Sub-items: Ollama / KB Import (functional), General + Shortcuts (placeholders).
- * The Ollama sub-item owns the LLM connection settings used by KB import.
+ * Sub-items: LLM API / KB Import (functional), General + Shortcuts (placeholders).
+ * The LLM sub-item owns the LLM connection settings used by KB import.
  */
 
 import {
-  getAppConfig, saveOllamaSettings, testOllamaConnection, setLogLevel,
+  getAppConfig, saveLlmSettings, testLlmConnection, setLogLevel,
   setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
   setSessionLogging, setSessionLogTimestamps, setSessionLogDir, getSessionLogDir,
   scanMerge, applyMerge, restartApp, MergeConflict,
@@ -38,7 +38,7 @@ const LABELS: Record<string, string> = {
   general: "General",
   logging: "Logging",
   theme: "Theme",
-  ollama: "Ollama / KB Import",
+  llm: "LLM API / KB Import",
   auth: "Auth Integrations",
   netbox: "NetBox",
   shortcuts: "Shortcuts",
@@ -63,7 +63,7 @@ const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
 
 export class SettingsScreen {
   private container: HTMLElement | null = null;
-  private itemId = "ollama";
+  private itemId = "llm";
   private config: AppConfig | null = null;
   private sessionLogDefaultDir = "";
   private availableModels: string[] = [];
@@ -123,7 +123,7 @@ export class SettingsScreen {
     if (enabledNow !== undefined && this.netboxConfig) this.netboxConfig.enabled = enabledNow;
     const label = LABELS[this.itemId] ?? "Settings";
     const body =
-      this.itemId === "ollama" ? this.renderOllama()
+      this.itemId === "llm" ? this.renderLlm()
       : this.itemId === "general" ? this.renderGeneral()
       : this.itemId === "logging" ? this.renderLogging()
       : this.itemId === "theme" ? this.renderTheme()
@@ -141,37 +141,44 @@ export class SettingsScreen {
     this.bindEvents();
   }
 
-  private renderOllama(): string {
-    const baseUrl = this.config?.ollama_base_url ?? "http://localhost:11434";
-    const model = this.config?.ollama_model ?? "llama3.2";
-    const apiKey = this.config?.ollama_api_key ?? "";
-    const ctxLen = this.config?.ollama_context_length ?? 64000;
+  private renderLlm(): string {
+    const apiFormat = this.config?.llm_api_format ?? "openai";
+    const baseUrl = this.config?.llm_base_url ?? "http://localhost:11434";
+    const model = this.config?.llm_model ?? "";
+    const apiKey = this.config?.llm_api_key ?? "";
+    const ctxLen = this.config?.llm_context_length ?? 64000;
     return `
-      <form class="settings-form" id="ollama-settings-form">
+      <form class="settings-form" id="llm-settings-form">
         <div class="import-field">
-          <label for="ollama-url">Base URL</label>
-          <input type="url" class="form-input" id="ollama-url" value="${this.escAttr(baseUrl)}" required />
-          <span class="import-hint">http://localhost:11434 for local, https://ollama.com/api for cloud</span>
+          <label for="llm-format">API Format</label>
+          <select class="form-input" id="llm-format">
+            <option value="openai" ${apiFormat === "openai" ? "selected" : ""}>OpenAI-compatible</option>
+            <option value="anthropic" ${apiFormat === "anthropic" ? "selected" : ""}>Anthropic</option>
+          </select>
+          <span class="import-hint">Covers OpenAI, Gemini, Ollama, llama.cpp, vLLM, LM Studio, Unsloth, Groq, OpenRouter, … (OpenAI-compatible) and Claude (Anthropic)</span>
         </div>
         <div class="import-field">
-          <label for="ollama-model">Model</label>
-          <input type="text" class="form-input" id="ollama-model" value="${this.escAttr(model)}" required />
-          <span class="import-hint">e.g., gemma4:26b, llama3.2, mistral</span>
+          <label for="llm-url">Base URL</label>
+          <input type="url" class="form-input" id="llm-url" value="${this.escAttr(baseUrl)}" required />
+          <span class="import-hint">e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com</span>
         </div>
         <div class="import-field">
-          <label for="ollama-key">API Key (cloud only)</label>
-          <input type="password" class="form-input" id="ollama-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local Ollama" autocomplete="off" />
+          <label for="llm-model-select">Model</label>
+          ${this.renderModelSelect(model)}
         </div>
         <div class="import-field">
-          <label for="ollama-ctx">Context Length</label>
-          <input type="number" class="form-input" id="ollama-ctx" value="${ctxLen}" min="4096" step="1024" />
+          <label for="llm-key">API Key (cloud only)</label>
+          <input type="password" class="form-input" id="llm-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />
+        </div>
+        <div class="import-field">
+          <label for="llm-ctx">Context Length</label>
+          <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />
           <span class="import-hint">Higher = can process longer pages, but uses more memory</span>
         </div>
         <div class="import-config-row">
-          <button type="button" class="btn-secondary btn-small" id="ollama-test-btn">${icons.bot} Test Connection</button>
-          <span class="import-model-info" id="ollama-test-status"></span>
+          <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
+          <span class="import-model-info" id="llm-test-status"></span>
         </div>
-        ${this.availableModels.length > 0 ? this.renderModelSelect(model) : ""}
         <div class="settings-actions">
           <button type="submit" class="btn-primary">Save Settings</button>
         </div>
@@ -180,14 +187,21 @@ export class SettingsScreen {
   }
 
   private renderModelSelect(currentModel: string): string {
-    return `
-      <div class="import-field import-models">
-        <label for="ollama-model-select">Available Models</label>
-        <select class="form-input form-input-mono" id="ollama-model-select">
-          ${this.availableModels.map((m) => `<option value="${this.escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
+    if (this.availableModels.length === 0) {
+      return `
+        <select class="form-input form-input-mono" id="llm-model-select">
+          <option value="${this.escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "— Run Test Connection to load models —"}</option>
         </select>
-        <span class="import-hint">Selecting a model updates the Model field above</span>
-      </div>
+      `;
+    }
+    // Keep the saved model selectable even if the server no longer lists it.
+    const options = this.availableModels.includes(currentModel)
+      ? this.availableModels
+      : [currentModel, ...this.availableModels].filter(Boolean);
+    return `
+      <select class="form-input form-input-mono" id="llm-model-select">
+        ${options.map((m) => `<option value="${this.escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
+      </select>
     `;
   }
 
@@ -859,7 +873,7 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLButtonElement>("#log-file-browse")?.addEventListener("click", () => void this.browseLogFile());
 
-    const form = this.container?.querySelector<HTMLElement>("#ollama-settings-form");
+    const form = this.container?.querySelector<HTMLElement>("#llm-settings-form");
     if (form) {
       form.addEventListener("submit", (e) => {
         e.preventDefault();
@@ -867,13 +881,7 @@ export class SettingsScreen {
       });
     }
 
-    this.container?.querySelector<HTMLElement>("#ollama-test-btn")?.addEventListener("click", () => void this.testConnection());
-
-    this.container?.querySelector<HTMLSelectElement>("#ollama-model-select")?.addEventListener("change", (e) => {
-      const model = (e.target as HTMLSelectElement).value;
-      const modelInput = this.container?.querySelector<HTMLInputElement>("#ollama-model");
-      if (modelInput) modelInput.value = model;
-    });
+    this.container?.querySelector<HTMLElement>("#llm-test-btn")?.addEventListener("click", () => void this.testConnection());
 
     this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
       setAppTheme((e.target as HTMLSelectElement).value as Theme);
@@ -1556,14 +1564,16 @@ export class SettingsScreen {
   }
 
   private async saveSettings() {
-    const urlInput = this.container?.querySelector<HTMLInputElement>("#ollama-url");
-    const modelInput = this.container?.querySelector<HTMLInputElement>("#ollama-model");
-    const keyInput = this.container?.querySelector<HTMLInputElement>("#ollama-key");
-    const ctxInput = this.container?.querySelector<HTMLInputElement>("#ollama-ctx");
+    const formatInput = this.container?.querySelector<HTMLSelectElement>("#llm-format");
+    const urlInput = this.container?.querySelector<HTMLInputElement>("#llm-url");
+    const modelInput = this.container?.querySelector<HTMLSelectElement>("#llm-model-select");
+    const keyInput = this.container?.querySelector<HTMLInputElement>("#llm-key");
+    const ctxInput = this.container?.querySelector<HTMLInputElement>("#llm-ctx");
     if (!urlInput || !modelInput) return;
 
     try {
-      await saveOllamaSettings(
+      await saveLlmSettings(
+        formatInput?.value ?? "openai",
         urlInput.value.trim(),
         modelInput.value.trim(),
         keyInput?.value.trim() || null,
@@ -1578,8 +1588,8 @@ export class SettingsScreen {
   }
 
   private async testConnection() {
-    const btn = this.container?.querySelector<HTMLButtonElement>("#ollama-test-btn");
-    const status = this.container?.querySelector<HTMLElement>("#ollama-test-status");
+    const btn = this.container?.querySelector<HTMLButtonElement>("#llm-test-btn");
+    const status = this.container?.querySelector<HTMLElement>("#llm-test-status");
     if (btn) {
       btn.disabled = true;
     }
@@ -1588,7 +1598,7 @@ export class SettingsScreen {
       status.className = "import-model-info import-test-progress";
     }
     try {
-      const models = await testOllamaConnection();
+      const models = await testLlmConnection();
       this.availableModels = models;
       if (status) {
         status.textContent = `Connected — ${models.length} model${models.length !== 1 ? "s" : ""} available`;

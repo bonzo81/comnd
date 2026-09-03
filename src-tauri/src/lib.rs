@@ -11,7 +11,7 @@ mod hosts;
 mod credentials;
 mod netbox;
 mod config;
-mod ollama;
+mod llm;
 mod import;
 mod paths;
 mod session_log;
@@ -24,7 +24,7 @@ use kb::{KbManager, Command, PlatformIndex, KbValidationIssue};
 use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use credentials::ResolvedCredentials;
 use ssh::SshManager;
-use config::{ConfigStore, parse_log_level_filter, get_ollama_api_key};
+use config::{ConfigStore, parse_log_level_filter, get_llm_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
 use paths::{MergeScan, ConflictResolution};
 
@@ -592,15 +592,16 @@ async fn get_app_config(
     // API key lives in the OS keychain, not in config.json.
     if let Some(obj) = v.as_object_mut() {
         obj.insert(
-            "ollama_api_key".to_string(),
-            serde_json::Value::from(get_ollama_api_key()?),
+            "llm_api_key".to_string(),
+            serde_json::Value::from(get_llm_api_key()?),
         );
     }
     Ok(v)
 }
 
 #[tauri::command]
-async fn save_ollama_settings(
+async fn save_llm_settings(
+    api_format: String,
     base_url: String,
     model: String,
     api_key: Option<String>,
@@ -608,7 +609,7 @@ async fn save_ollama_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
-    config.save_ollama_settings(base_url, model, api_key, context_length)
+    config.save_llm_settings(api_format, base_url, model, api_key, context_length)
 }
 
 #[tauri::command]
@@ -1240,24 +1241,25 @@ async fn commit_kb_import(
 }
 
 #[tauri::command]
-async fn test_ollama_connection(
+async fn test_llm_connection(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let (base_url, model, context_length) = {
+    let (api_format, base_url, model, context_length) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let cfg = config.get();
-        (cfg.ollama_base_url.clone(), cfg.ollama_model.clone(), cfg.ollama_context_length)
+        (cfg.llm_api_format.clone(), cfg.llm_base_url.clone(), cfg.llm_model.clone(), cfg.llm_context_length)
     };
-    let api_key = get_ollama_api_key()?;
+    let api_key = get_llm_api_key()?;
 
-    let ollama = ollama::OllamaClient::new(
+    let llm = llm::LlmClient::new(
         base_url,
         model,
         api_key,
         context_length,
+        api_format,
     );
 
-    ollama.list_models().await
+    llm.list_models().await
 }
 
 #[tauri::command]
@@ -1637,7 +1639,7 @@ pub fn run() {
                 ssh_disconnect,
                 ssh_resize,
                 get_app_config,
-                save_ollama_settings,
+                save_llm_settings,
                 get_log_level,
                 set_log_level,
                 set_log_max_size,
@@ -1670,7 +1672,7 @@ pub fn run() {
                 import_kb_url,
                 extract_kb_preview,
                 commit_kb_import,
-                test_ollama_connection,
+                test_llm_connection,
                 list_kb_platforms,
                 get_all_kb_commands,
                 save_kb_command,

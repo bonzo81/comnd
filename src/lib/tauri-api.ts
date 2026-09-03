@@ -305,10 +305,11 @@ export async function openUrl(url: string): Promise<void> {
 // ─── Config Commands ────────────────────────────────────────────────
 
 export interface AppConfig {
-  ollama_base_url: string;
-  ollama_model: string;
-  ollama_api_key: string | null;
-  ollama_context_length: number;
+  llm_api_format: string;
+  llm_base_url: string;
+  llm_model: string;
+  llm_api_key: string | null;
+  llm_context_length: number;
   log_level: string;
   log_max_size_mb: number;
   log_file_path: string | null;
@@ -404,13 +405,15 @@ export async function getLogStatus(): Promise<string | null> {
   return invoke<string | null>("get_log_status");
 }
 
-export async function saveOllamaSettings(
+export async function saveLlmSettings(
+  apiFormat: string,
   baseUrl: string,
   model: string,
   apiKey: string | null,
   contextLength: number,
 ): Promise<void> {
-  return invoke<void>("save_ollama_settings", {
+  return invoke<void>("save_llm_settings", {
+    apiFormat,
     baseUrl,
     model,
     apiKey,
@@ -478,8 +481,8 @@ export async function commitKbImport(
   return invoke<number>("commit_kb_import", { previews, platform, category });
 }
 
-export async function testOllamaConnection(): Promise<string[]> {
-  return invoke<string[]>("test_ollama_connection");
+export async function testLlmConnection(): Promise<string[]> {
+  return invoke<string[]>("test_llm_connection");
 }
 
 export async function listKbPlatforms(): Promise<string[]> {

@@ -24,6 +24,7 @@ Read these docs before implementing anything in their domain:
 | YAML schema, version filtering, matching | `docs/06-knowledge-base.md` |
 | Shortcuts, keyboard-first design | `docs/07-keyboard-shortcuts.md` |
 | Post-MVP backlog, decision log | `docs/08-future-open-questions.md` |
+| Command Replay (user-saved commands, variables, playback) | `docs/09-command-replay.md` |
 
 ## Non-Negotiable Architecture Rules
 
@@ -73,7 +74,7 @@ Read these docs before implementing anything in their domain:
 
 ## What NOT To Do
 
-- No LLM in the suggestion/keystroke path — Ollama is used ONLY for KB import (`import.rs`); latency-critical paths stay deterministic
+- No LLM in the suggestion/keystroke path — LLM is used ONLY for KB import (`import.rs`); latency-critical paths stay deterministic
 - No `serde_yaml` — use `serde_yml`
 - No sidebar overlay on terminal
 - No `Ctrl+W` interception — must pass through to remote
@@ -103,7 +104,7 @@ src-tauri/              # Rust backend
     hosts.rs            # Host storage + keyring credentials
     kb.rs               # Knowledge base queries
     import.rs           # KB import pipeline
-    ollama.rs           # Ollama client (KB import only)
+    llm.rs              # LLM client (OpenAI-compatible / Anthropic formats, KB import only)
     config.rs           # App settings
     test_server.rs      # Mock SSH server for testing
   Cargo.toml            # Rust dependencies

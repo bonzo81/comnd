@@ -1,7 +1,13 @@
-//! Ollama REST client — chat API with JSON mode for structured extraction.
+//! Generic LLM REST client — chat API with JSON mode for structured extraction.
 //!
-//! Supports both local Ollama (http://localhost:11434) and Ollama Cloud
-//! (https://ollama.com/api with API key).
+//! Two API formats cover essentially every provider:
+//! - `openai`    — `/v1/chat/completions` + `/v1/models` (OpenAI, Gemini OpenAI
+//!   compat, Ollama `/v1`, llama.cpp, vLLM, LM Studio, Unsloth, Groq, Mistral,
+//!   OpenRouter, DeepSeek, …)
+//! - `anthropic` — `/v1/messages` + `/v1/models` (Claude and gateways speaking
+//!   the Anthropic wire format)
+//!
+//! Any provider is reachable by pointing `base_url` at it.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -13,51 +19,20 @@ use crate::kb::{CommandToken, CommandOrder};
 // ─── Types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct OllamaClient {
+pub struct LlmClient {
     base_url: String,
     model: String,
     api_key: Option<String>,
     context_length: u32,
+    api_format: String,
     http_client: reqwest::Client,
 }
 
-/// Request body for /api/chat endpoint.
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    format: Option<serde_json::Value>,
-    stream: bool,
-    options: ChatOptions,
-}
-
-#[derive(Debug, Serialize)]
+/// Message shape shared by both wire formats.
+#[derive(Debug, Clone, Serialize)]
 struct ChatMessage {
     role: String,
     content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ChatOptions {
-    num_ctx: u32,
-}
-
-/// Response body from /api/chat endpoint (non-streaming).
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    message: ChatMessageResponse,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatMessageResponse {
-    content: String,
-}
-
-/// Error response from Ollama API.
-#[derive(Debug, Deserialize)]
-struct OllamaError {
-    error: String,
 }
 
 // ─── Extracted Command Schema ──────────────────────────────────────
@@ -110,29 +85,35 @@ pub struct ExtractionResult {
 
 // ─── Client Implementation ─────────────────────────────────────────
 
-impl OllamaClient {
-    /// Create a new Ollama client.
+impl LlmClient {
+    /// Create a new LLM client. `api_format` is `"openai"` or `"anthropic"`.
     pub fn new(
         base_url: String,
         model: String,
         api_key: Option<String>,
         context_length: u32,
+        api_format: String,
     ) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(300)) // 5-minute timeout for large extractions
             .build()
             .unwrap_or_default();
 
-        OllamaClient {
+        LlmClient {
             base_url,
             model,
             api_key,
             context_length,
+            api_format,
             http_client,
         }
     }
 
-    /// Extract commands from text content using Ollama chat API.
+    fn is_anthropic(&self) -> bool {
+        self.api_format.eq_ignore_ascii_case("anthropic")
+    }
+
+    /// Extract commands from text content using the configured LLM API.
     /// Returns a list of extracted commands in structured form.
     ///
     /// Phase 5.1: takes the platform's `PlatformIndex` (real mode vocabulary,
@@ -149,75 +130,52 @@ impl OllamaClient {
         let system_prompt = build_system_prompt(platform, category, platform_index, existing_categories);
         let user_prompt = build_user_prompt(content, platform, category);
 
-        let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: system_prompt,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: user_prompt,
-            },
-        ];
+        // The full JSON schema goes into the system prompt — this works on
+        // every provider. OpenAI-compatible servers additionally get a
+        // `response_format: json_object` nudge.
+        let schema = extraction_json_schema();
+        let system_prompt = format!(
+            "{system}\n\nYou MUST respond with ONLY a JSON object conforming to this schema (no prose, no markdown fences):\n{schema}",
+            system = system_prompt,
+            schema = serde_json::to_string(&schema).unwrap_or_default(),
+        );
 
-        // JSON schema for structured output. Ollama's structured-output mode
-        // enforces the shape, so the LLM can't produce malformed tokens — but
-        // it can produce semantically wrong ones (e.g. type:numeric with no
-        // min/max). The validator in import.rs (Phase 5.3) catches those.
-        let schema = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "commands": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": { "type": "string" },
-                            "syntax": { "type": "string" },
-                            "description": { "type": "string" },
-                            "mode": { "type": "string" },
-                            "aliases": { "type": "array", "items": { "type": "string" } },
-                            "examples": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "command": { "type": "string" },
-                                        "description": { "type": "string" }
-                                    },
-                                    "required": ["command"]
-                                }
-                            },
-                            "tags": { "type": "array", "items": { "type": "string" } },
-                            "tokens": token_json_schema(),
-                            "order": { "type": "string", "enum": ["fixed", "flags-anywhere", "free"] },
-                            "negatable": { "type": "boolean" }
-                        },
-                        "required": ["name"]
-                    }
-                }
-            },
-            "required": ["commands"]
-        });
-
-        let request = ChatRequest {
-            model: self.model.clone(),
-            messages,
-            format: Some(schema),
-            stream: false,
-            options: ChatOptions {
-                num_ctx: self.context_length,
-            },
+        let content_text = if self.is_anthropic() {
+            self.anthropic_chat(&system_prompt, &user_prompt).await?
+        } else {
+            self.openai_chat(&system_prompt, &user_prompt).await?
         };
 
-        let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
+        // Parse the LLM's JSON output (strip markdown fences some models add)
+        let cleaned = strip_code_fences(&content_text);
+        let extraction: ExtractionResult = serde_json::from_str(&cleaned)
+            .map_err(|e| {
+                log::error!("LLM output was not valid JSON: {}", content_text.chars().take(500).collect::<String>());
+                format!("Failed to parse LLM output as structured commands: {}. Output preview: {}", e, content_text.chars().take(200).collect::<String>())
+            })?;
 
-        log::info!("Ollama request: model={} url={} content_len={}", self.model, url, content.len());
+        log::info!("LLM extracted {} commands", extraction.commands.len());
+        Ok(extraction.commands)
+    }
 
-        let mut http_req = self.http_client
-            .post(&url)
-            .json(&request);
+    /// Chat via an OpenAI-compatible server: `POST {base}/v1/chat/completions`.
+    async fn openai_chat(&self, system: &str, user: &str) -> Result<String, String> {
+        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
 
+        let messages = vec![
+            ChatMessage { role: "system".to_string(), content: system.to_string() },
+            ChatMessage { role: "user".to_string(), content: user.to_string() },
+        ];
+        let request = serde_json::json!({
+            "model": self.model,
+            "messages": messages,
+            "stream": false,
+            "response_format": { "type": "json_object" },
+        });
+
+        log::info!("LLM request: format=openai model={} url={} ", self.model, url);
+
+        let mut http_req = self.http_client.post(&url).json(&request);
         if let Some(ref key) = self.api_key {
             http_req = http_req.header("Authorization", format!("Bearer {}", key));
         }
@@ -229,77 +187,164 @@ impl OllamaClient {
                 let msg = e.to_string();
                 // Detect connection refused / timeout — common proxy/network issues
                 if msg.contains("connection refused") {
-                    format!("Ollama connection refused at {} — is Ollama running?", self.base_url)
+                    format!("Connection refused at {} — is the LLM server running?", self.base_url)
                 } else if msg.contains("timed out") {
-                    format!("Ollama request timed out after 5 minutes — the model may be slow to respond or the server is overloaded")
+                    format!("LLM request timed out after 5 minutes — the model may be slow to respond or the server is overloaded")
                 } else {
-                    format!("Ollama request failed: {}", msg)
+                    format!("LLM request failed: {}", msg)
                 }
             })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            // Try to extract Ollama's error JSON and surface it
-            if let Ok(err_resp) = serde_json::from_str::<OllamaError>(&body) {
-                return Err(format!("Ollama error: {}", err_resp.error));
-            }
-            return Err(format!("Ollama API error ({}): {}", status, body));
+            return Err(format!("LLM API error ({}): {}", status, body));
         }
 
-        let chat_resp: ChatResponse = response
+        #[derive(Deserialize)]
+        struct OpenAiResponse {
+            choices: Vec<OpenAiChoice>,
+        }
+        #[derive(Deserialize)]
+        struct OpenAiChoice {
+            message: OpenAiMessage,
+        }
+        #[derive(Deserialize)]
+        struct OpenAiMessage {
+            content: Option<String>,
+        }
+
+        let resp: OpenAiResponse = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
 
-        // Parse the LLM's JSON output
-        let extraction: ExtractionResult = serde_json::from_str(&chat_resp.message.content)
-            .map_err(|e| {
-                log::error!("LLM output was not valid JSON: {}", chat_resp.message.content.chars().take(500).collect::<String>());
-                format!("Failed to parse LLM output as structured commands: {}. Output preview: {}", e, chat_resp.message.content.chars().take(200).collect::<String>())
-            })?;
-
-        log::info!("Ollama extracted {} commands", extraction.commands.len());
-        Ok(extraction.commands)
+        resp.choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.content)
+            .ok_or_else(|| "LLM returned no choices".to_string())
     }
 
-    /// List available models from Ollama.
+    /// Chat via the Anthropic wire format: `POST {base}/v1/messages`.
+    async fn anthropic_chat(&self, system: &str, user: &str) -> Result<String, String> {
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+
+        let request = serde_json::json!({
+            "model": self.model,
+            "max_tokens": self.context_length.max(4096),
+            "system": system,
+            "messages": [
+                { "role": "user", "content": user }
+            ],
+            "stream": false,
+        });
+
+        log::info!("LLM request: format=anthropic model={} url={}", self.model, url);
+
+        let mut http_req = self.http_client
+            .post(&url)
+            .json(&request)
+            .header("anthropic-version", "2023-06-01");
+        if let Some(ref key) = self.api_key {
+            http_req = http_req.header("x-api-key", key);
+        }
+
+        let response = http_req
+            .send()
+            .await
+            .map_err(|e| format!("LLM request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("LLM API error ({}): {}", status, body));
+        }
+
+        #[derive(Deserialize)]
+        struct AnthropicResponse {
+            content: Vec<AnthropicBlock>,
+        }
+        #[derive(Deserialize)]
+        struct AnthropicBlock {
+            #[serde(rename = "type")]
+            block_type: String,
+            #[serde(default)]
+            text: Option<String>,
+        }
+
+        let resp: AnthropicResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+
+        Ok(resp
+            .content
+            .into_iter()
+            .filter(|b| b.block_type == "text")
+            .filter_map(|b| b.text)
+            .collect::<Vec<_>>()
+            .join(""))
+    }
+
+    /// List available models. Both wire formats expose `GET {base}/v1/models`.
     pub async fn list_models(&self) -> Result<Vec<String>, String> {
-        let url = format!("{}/api/tags", self.base_url.trim_end_matches('/'));
+        let url = format!("{}/v1/models", self.base_url.trim_end_matches('/'));
 
         let mut http_req = self.http_client
             .get(&url)
             .timeout(Duration::from_secs(5));
 
-        if let Some(ref key) = self.api_key {
+        if self.is_anthropic() {
+            if let Some(ref key) = self.api_key {
+                http_req = http_req.header("x-api-key", key);
+            }
+            http_req = http_req.header("anthropic-version", "2023-06-01");
+        } else if let Some(ref key) = self.api_key {
             http_req = http_req.header("Authorization", format!("Bearer {}", key));
         }
 
         let response = http_req
             .send()
             .await
-            .map_err(|e| format!("Ollama unreachable: {}", e))?;
+            .map_err(|e| format!("LLM server unreachable: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Ollama returned status {}", response.status()));
+            return Err(format!("LLM server returned status {}", response.status()));
         }
 
+        // OpenAI: { "data": [ { "id": ... } ] }; Anthropic: { "data": [ { "id": ... } ] }
         #[derive(Deserialize)]
-        struct TagsResponse {
-            models: Vec<ModelEntry>,
+        struct ModelsResponse {
+            data: Vec<ModelEntry>,
         }
         #[derive(Deserialize)]
         struct ModelEntry {
-            name: String,
+            id: String,
         }
 
-        let tags: TagsResponse = response
+        let models: ModelsResponse = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse models list: {}", e))?;
 
-        Ok(tags.models.into_iter().map(|m| m.name).collect())
+        Ok(models.data.into_iter().map(|m| m.id).collect())
     }
+}
+
+/// Strip ```json / ``` markdown fences some models wrap JSON in.
+fn strip_code_fences(text: &str) -> String {
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("```") {
+        let rest = rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric());
+        let rest = rest.trim_start_matches(['\r', '\n']);
+        match rest.rfind("```") {
+            Some(end) => return rest[..end].trim().to_string(),
+            // Unclosed fence (truncated output) — still strip the opening.
+            None => return rest.trim().to_string(),
+        }
+    }
+    t.to_string()
 }
 
 // ─── Prompt Engineering ─────────────────────────────────────────────
@@ -396,8 +441,49 @@ IMPORTANT RULES:
     )
 }
 
-/// JSON schema fragment for one token element (used in the Ollama structured
-/// output schema). Ollama's structured-output mode enforces this shape.
+/// JSON schema for the extraction result (embedded in the system prompt and
+/// sent as Ollama-style structured output where supported).
+fn extraction_json_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "commands": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "syntax": { "type": "string" },
+                        "description": { "type": "string" },
+                        "mode": { "type": "string" },
+                        "aliases": { "type": "array", "items": { "type": "string" } },
+                        "examples": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "command": { "type": "string" },
+                                    "description": { "type": "string" }
+                                },
+                                "required": ["command"]
+                            }
+                        },
+                        "tags": { "type": "array", "items": { "type": "string" } },
+                        "tokens": token_json_schema(),
+                        "order": { "type": "string", "enum": ["fixed", "flags-anywhere", "free"] },
+                        "negatable": { "type": "boolean" }
+                    },
+                    "required": ["name"]
+                }
+            }
+        },
+        "required": ["commands"]
+    })
+}
+
+/// JSON schema fragment for one token element (used in the structured
+/// output schema). Servers with structured-output mode enforce this shape;
+/// for others it is guidance embedded in the prompt.
 fn token_json_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "array",
@@ -603,26 +689,38 @@ mod tests {
     }
 
     #[test]
-    fn test_ollama_client_construction() {
-        let client = OllamaClient::new(
+    fn test_llm_client_construction() {
+        let client = LlmClient::new(
             "http://localhost:11434".to_string(),
             "llama3.2".to_string(),
             None,
             64000,
+            "openai".to_string(),
         );
         assert_eq!(client.base_url, "http://localhost:11434");
         assert_eq!(client.model, "llama3.2");
         assert!(client.api_key.is_none());
+        assert!(!client.is_anthropic());
     }
 
     #[test]
-    fn test_ollama_client_with_api_key() {
-        let client = OllamaClient::new(
-            "https://ollama.com/api".to_string(),
-            "llama3.2".to_string(),
+    fn test_llm_client_with_api_key() {
+        let client = LlmClient::new(
+            "https://api.anthropic.com".to_string(),
+            "claude-sonnet-4-5".to_string(),
             Some("sk-test-key".to_string()),
             64000,
+            "anthropic".to_string(),
         );
         assert_eq!(client.api_key, Some("sk-test-key".to_string()));
+        assert!(client.is_anthropic());
+    }
+
+    #[test]
+    fn test_strip_code_fences() {
+        assert_eq!(strip_code_fences("```json\n{\"a\":1}\n```"), "{\"a\":1}");
+        assert_eq!(strip_code_fences("```\n{\"a\":1}\n```"), "{\"a\":1}");
+        assert_eq!(strip_code_fences("  {\"a\":1}  "), "{\"a\":1}");
+        assert_eq!(strip_code_fences("```json\n{\"a\":1}"), "{\"a\":1}");
     }
 }

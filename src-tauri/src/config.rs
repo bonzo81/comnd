@@ -1,4 +1,4 @@
-//! Application configuration — persisted settings for Ollama, KB paths, etc.
+//! Application configuration — persisted settings for the LLM API, KB paths, etc.
 //!
 //! Config lives in the app data directory as `config.json`,
 //! alongside `hosts.json` and `credentials.json`.
@@ -10,16 +10,21 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    #[serde(default = "default_ollama_base_url")]
-    pub ollama_base_url: String,
-    #[serde(default = "default_ollama_model")]
-    pub ollama_model: String,
+    /// LLM API wire format: "openai" (OpenAI-compatible) or "anthropic".
+    /// Any provider is reachable via base_url; the format only selects the
+    /// endpoint/auth shape.
+    #[serde(default = "default_llm_api_format")]
+    pub llm_api_format: String,
+    #[serde(default = "default_llm_base_url", alias = "ollama_base_url")]
+    pub llm_base_url: String,
+    #[serde(default = "default_llm_model", alias = "ollama_model")]
+    pub llm_model: String,
     /// Transient — loaded from the OS keychain at runtime, never persisted
     /// to config.json.
     #[serde(skip)]
-    pub ollama_api_key: Option<String>,
-    #[serde(default = "default_ollama_context_length")]
-    pub ollama_context_length: u32,
+    pub llm_api_key: Option<String>,
+    #[serde(default = "default_llm_context_length", alias = "ollama_context_length")]
+    pub llm_context_length: u32,
     #[serde(default = "default_log_level")]
     pub log_level: String,
     #[serde(default = "default_log_max_size_mb")]
@@ -53,10 +58,11 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            ollama_base_url: default_ollama_base_url(),
-            ollama_model: default_ollama_model(),
-            ollama_api_key: None,
-            ollama_context_length: default_ollama_context_length(),
+            llm_api_format: default_llm_api_format(),
+            llm_base_url: default_llm_base_url(),
+            llm_model: default_llm_model(),
+            llm_api_key: None,
+            llm_context_length: default_llm_context_length(),
             log_level: default_log_level(),
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
@@ -70,15 +76,19 @@ impl Default for AppConfig {
     }
 }
 
-fn default_ollama_base_url() -> String {
+fn default_llm_api_format() -> String {
+    "openai".to_string()
+}
+
+fn default_llm_base_url() -> String {
     "http://localhost:11434".to_string()
 }
 
-fn default_ollama_model() -> String {
-    "gemma4:26b".to_string()
+fn default_llm_model() -> String {
+    String::new()
 }
 
-fn default_ollama_context_length() -> u32 {
+fn default_llm_context_length() -> u32 {
     64000
 }
 
@@ -110,17 +120,19 @@ pub fn parse_log_level_filter(level: &str) -> log::LevelFilter {
     }
 }
 
-// ─── Ollama API Key (OS keychain) ──────────────────────────────────
+// ─── LLM API Key (OS keychain) ─────────────────────────────────────
 
-const OLLAMA_KEY_ENTRY: &str = "netssh_ollama_api_key";
+// ponytail: entry name predates the provider-generic rename; keep so existing
+// users don't lose their stored key.
+const LLM_KEY_ENTRY: &str = "netssh_ollama_api_key";
 
-/// Save the Ollama API key to the OS keychain, or delete it when `None`/empty.
-pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
+/// Save the LLM API key to the OS keychain, or delete it when `None`/empty.
+pub fn save_llm_api_key(key: Option<String>) -> Result<(), String> {
     match key {
-        Some(k) if !k.is_empty() => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
+        Some(k) if !k.is_empty() => keyring::Entry::new("netssh", LLM_KEY_ENTRY)
             .and_then(|e| e.set_password(&k))
             .map_err(|e| e.to_string()),
-        _ => keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY)
+        _ => keyring::Entry::new("netssh", LLM_KEY_ENTRY)
             .and_then(|e| e.delete_credential())
             .or_else(|e| {
                 // Deleting a non-existent entry is not an error.
@@ -130,9 +142,9 @@ pub fn save_ollama_api_key(key: Option<String>) -> Result<(), String> {
     }
 }
 
-/// Get the Ollama API key from the OS keychain. `None` when unset.
-pub fn get_ollama_api_key() -> Result<Option<String>, String> {
-    match keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).and_then(|e| e.get_password()) {
+/// Get the LLM API key from the OS keychain. `None` when unset.
+pub fn get_llm_api_key() -> Result<Option<String>, String> {
+    match keyring::Entry::new("netssh", LLM_KEY_ENTRY).and_then(|e| e.get_password()) {
         Ok(k) => Ok(Some(k)),
         Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -184,7 +196,7 @@ impl ConfigStore {
         let config_path = data_dir.join("config.json");
         migrate_plaintext_api_key(&config_path);
         let mut config = load_config_from_file(&config_path);
-        config.ollama_api_key = get_ollama_api_key().ok().flatten();
+        config.llm_api_key = get_llm_api_key().ok().flatten();
 
         Ok(ConfigStore {
             config_path,
@@ -199,7 +211,7 @@ impl ConfigStore {
                 .map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
         let mut config = load_config_from_file(&config_path);
-        config.ollama_api_key = get_ollama_api_key().ok().flatten();
+        config.llm_api_key = get_llm_api_key().ok().flatten();
         Ok(ConfigStore {
             config_path,
             config,
@@ -222,20 +234,22 @@ impl ConfigStore {
         &self.config
     }
 
-    /// Update Ollama settings and persist. The API key is stored in the OS
+    /// Update LLM API settings and persist. The API key is stored in the OS
     /// keychain, not in config.json.
-    pub fn save_ollama_settings(
+    pub fn save_llm_settings(
         &mut self,
+        api_format: String,
         base_url: String,
         model: String,
         api_key: Option<String>,
         context_length: u32,
     ) -> Result<(), String> {
-        save_ollama_api_key(api_key.clone())?;
-        self.config.ollama_base_url = base_url;
-        self.config.ollama_model = model;
-        self.config.ollama_api_key = api_key;
-        self.config.ollama_context_length = context_length;
+        save_llm_api_key(api_key.clone())?;
+        self.config.llm_api_format = api_format;
+        self.config.llm_base_url = base_url;
+        self.config.llm_model = model;
+        self.config.llm_api_key = api_key;
+        self.config.llm_context_length = context_length;
         self.persist()
     }
 
@@ -382,8 +396,8 @@ fn migrate_plaintext_api_key(config_path: &std::path::Path) {
     }
     // Only migrate if the keychain has no key — don't clobber a newer key
     // set via the settings UI on another machine.
-    if get_ollama_api_key().ok().flatten().is_none() {
-        match save_ollama_api_key(Some(key.to_string())) {
+    if get_llm_api_key().ok().flatten().is_none() {
+        match save_llm_api_key(Some(key.to_string())) {
             Ok(()) => log::info!("Migrated ollama_api_key from config.json to keychain"),
             Err(e) => log::warn!("Failed to migrate ollama_api_key to keychain: {} (re-enter in Settings)", e),
         }
@@ -411,9 +425,10 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = AppConfig::default();
-        assert_eq!(config.ollama_base_url, "http://localhost:11434");
-        assert_eq!(config.ollama_model, "gemma4:26b");
-        assert_eq!(config.ollama_context_length, 64000);
+        assert_eq!(config.llm_api_format, "openai");
+        assert_eq!(config.llm_base_url, "http://localhost:11434");
+        assert_eq!(config.llm_model, "");
+        assert_eq!(config.llm_context_length, 64000);
         assert_eq!(config.log_level, "info");
         assert_eq!(config.log_max_size_mb, 10);
         assert!(config.log_file_path.is_none());
@@ -424,8 +439,8 @@ mod tests {
         let config = AppConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let parsed: AppConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.ollama_base_url, config.ollama_base_url);
-        assert_eq!(parsed.ollama_model, config.ollama_model);
+        assert_eq!(parsed.llm_base_url, config.llm_base_url);
+        assert_eq!(parsed.llm_model, config.llm_model);
         assert_eq!(parsed.log_level, config.log_level);
         assert!(parsed.log_file_path.is_none());
 
@@ -467,23 +482,23 @@ mod tests {
     }
 
     #[test]
-    fn test_save_and_get_ollama_api_key() {
+    fn test_save_and_get_llm_api_key() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
         let probe = keyring::Entry::new("netssh", "netssh_test_probe");
         if probe.is_err() {
             return;
         }
-        let test_key = "test-ollama-key-123";
+        let test_key = "test-llm-key-123";
         // Note: Windows Credential Manager has a session-scoping quirk where
         // a credential written by one Entry instance may not be visible from
         // a subsequent Entry instance in the same process. We verify the
         // roundtrip within a single Entry, then clean up.
-        let entry = keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).unwrap();
+        let entry = keyring::Entry::new("netssh", LLM_KEY_ENTRY).unwrap();
         entry.set_password(test_key).unwrap();
         assert_eq!(entry.get_password().unwrap(), test_key);
         entry.delete_credential().unwrap();
         // After delete, get should return NoEntry
-        let e2 = keyring::Entry::new("netssh", OLLAMA_KEY_ENTRY).unwrap();
+        let e2 = keyring::Entry::new("netssh", LLM_KEY_ENTRY).unwrap();
         assert!(matches!(e2.get_password(), Err(keyring::Error::NoEntry)));
     }
 
@@ -561,6 +576,10 @@ mod tests {
         )
         .unwrap();
         assert!(v.providers.is_empty());
+        // Pre-rename ollama_* fields alias onto the llm_* fields.
+        assert_eq!(v.llm_base_url, "http://localhost:11434");
+        assert_eq!(v.llm_model, "gemma4:26b");
+        assert_eq!(v.llm_api_format, "openai");
     }
 
     #[test]

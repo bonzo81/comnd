@@ -42,7 +42,7 @@ class App {
   private kbScreenWrapper: HTMLElement;
   private settingsWrapper: HTMLElement;
   private settingsScreen: SettingsScreen;
-  private settingsItemId = "ollama";
+  private settingsItemId = "llm";
   private contentCol: HTMLElement;
   private bodyRow: HTMLElement;
   private navPanel: NavPanel;

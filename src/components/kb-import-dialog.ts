@@ -1,11 +1,11 @@
 /**
- * KB Import Dialog — modal for importing commands from a URL via Ollama LLM.
+ * KB Import Dialog — modal for importing commands from a URL via the configured LLM.
  *
  * Steps:
  * 1. Enter URL and select platform/category
  * 2. Import → shows progress → shows results
  *
- * Ollama connection settings live in the Settings view (Ollama / KB Import).
+ * LLM connection settings live in the Settings view (LLM API / KB Import).
  */
 
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -154,8 +154,8 @@ export class KbImportDialog {
     if (!this.container) return;
 
     const isImporting = !["idle", "complete", "error", "preview"].includes(this.stage);
-    const base_url = this.config?.ollama_base_url ?? "http://localhost:11434";
-    const model = this.config?.ollama_model ?? "llama3.2";
+    const base_url = this.config?.llm_base_url ?? "http://localhost:11434";
+    const model = this.config?.llm_model ?? "";
 
     const content = `
       ${this.stage === "complete" && this.result ? this.renderResult() : ""}

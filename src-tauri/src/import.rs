@@ -1,6 +1,6 @@
 //! Knowledge Base Import Pipeline
 //!
-//! Fetches a URL → extracts text from HTML → sends to Ollama for
+//! Fetches a URL → extracts text from HTML → sends to the configured LLM for
 //! structured command extraction → validates → writes YAML to the
 //! user's knowledge base → triggers KB reload.
 //!
@@ -14,7 +14,7 @@ use crate::kb::{
     get_target_yaml_path, write_commands_to_yaml, validate_command,
     Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
 };
-use crate::ollama::{ExtractedCommand, OllamaClient};
+use crate::llm::{ExtractedCommand, LlmClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -164,21 +164,22 @@ pub async fn extract_from_url(
         return Err("No text content extracted from the URL. The page may be JavaScript-rendered or empty.".to_string());
     }
 
-    // Stage 3: Send to Ollama for extraction (Phase 5.1: token-aware)
+    // Stage 3: Send to the configured LLM for extraction (Phase 5.1: token-aware)
     let command_estimate = estimate_command_count(&text_content);
     emit_progress(app_handle, ImportProgress::SendingToLlm { command_count_estimate: command_estimate });
 
-    let ollama = OllamaClient::new(
-        config.ollama_base_url.clone(),
-        config.ollama_model.clone(),
-        crate::config::get_ollama_api_key()?,
-        config.ollama_context_length,
+    let llm = LlmClient::new(
+        config.llm_base_url.clone(),
+        config.llm_model.clone(),
+        crate::config::get_llm_api_key()?,
+        config.llm_context_length,
+        config.llm_api_format.clone(),
     );
 
     // Existing categories on this platform guide the LLM toward reuse.
     let existing_categories = existing_categories_for(platform_index, &request.platform);
 
-    let extracted = ollama.extract_commands(
+    let extracted = llm.extract_commands(
         &text_content,
         &request.platform,
         &request.category,
