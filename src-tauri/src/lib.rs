@@ -1175,11 +1175,17 @@ async fn import_kb_url(
 
 /// Phase 5.6: Stage 1 of the two-stage import — extract + validate without
 /// writing. Returns a preview the user reviews before committing.
+///
+/// `platformName` is supplied only when the user chose "New platform…" in the
+/// import dialog (docs/10 § Part 5): it unlocks a placeholder single-mode
+/// index for platforms with no bundled/user KB yet. Without it, unknown
+/// platforms still fail extraction (guards against platform-id typos).
 #[tauri::command]
 async fn extract_kb_preview(
     url: String,
     platform: String,
     category: String,
+    platform_name: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExtractPreview, String> {
@@ -1192,7 +1198,16 @@ async fn extract_kb_preview(
 
     let platform_index = {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.get_platform_index(&request.platform)?
+        match kb.get_platform_index(&request.platform) {
+            Ok(idx) => idx,
+            Err(e) => match platform_name {
+                Some(name) => {
+                    log::info!("Import: using placeholder single-mode index for new platform '{}'", request.platform);
+                    import::new_platform_index(&request.platform, &name)
+                }
+                None => return Err(e),
+            },
+        }
     };
 
     let preview = import::extract_from_url(
@@ -1207,11 +1222,16 @@ async fn extract_kb_preview(
 
 /// Phase 5.6: Stage 2 of the two-stage import — write the user-approved
 /// commands to YAML and reload. Does not re-extract.
+///
+/// The frontend sends ONLY the accepted previews; committing zero commands
+/// is an error. `platformName` names a truly-new platform scaffold (docs/10
+/// § Part 5).
 #[tauri::command]
 async fn commit_kb_import(
     previews: Vec<CommandPreview>,
     platform: String,
     category: String,
+    platform_name: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<usize, String> {
@@ -1230,6 +1250,7 @@ async fn commit_kb_import(
         &platform,
         &category,
         &app_handle,
+        platform_name.as_deref(),
     ).await?;
 
     // Reload KB stores so new commands are immediately available
@@ -1329,6 +1350,8 @@ async fn save_kb_command(
         tokens,
         order: order_val,
         negatable: negatable.unwrap_or(false),
+        source: None,
+        overrides: false,
     };
 
     // Error-severity issues block the save and are returned to the UI. Warnings

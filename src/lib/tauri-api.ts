@@ -76,6 +76,10 @@ export interface Command {
   tokens?: CommandToken[];
   order?: CommandOrder;
   negatable?: boolean;
+  /** Provenance (docs/10): "custom" when from the user KB layer; absent for bundled. */
+  source?: string;
+  /** True when this command replaced a bundled command with the same name. */
+  overrides?: boolean;
 }
 
 export interface CommandExample {
@@ -453,6 +457,10 @@ export interface CommandPreview {
   status: string;
   /** Human-readable issues (empty when status is "ok"). */
   issues: string[];
+  /** True when the name exists in the bundled KB ("Overrides built-in entry"). */
+  in_bundled?: boolean;
+  /** The bundled command with the same name, for the compare view. */
+  bundled?: Command | null;
 }
 
 export interface ExtractPreview {
@@ -468,8 +476,9 @@ export async function extractKbPreview(
   url: string,
   platform: string,
   category: string,
+  platformName?: string,
 ): Promise<ExtractPreview> {
-  return invoke<ExtractPreview>("extract_kb_preview", { url, platform, category });
+  return invoke<ExtractPreview>("extract_kb_preview", { url, platform, category, platformName: platformName ?? null });
 }
 
 /** Stage 2: write the user-approved previews to YAML + reload. */
@@ -477,8 +486,9 @@ export async function commitKbImport(
   previews: CommandPreview[],
   platform: string,
   category: string,
+  platformName?: string,
 ): Promise<number> {
-  return invoke<number>("commit_kb_import", { previews, platform, category });
+  return invoke<number>("commit_kb_import", { previews, platform, category, platformName: platformName ?? null });
 }
 
 export async function testLlmConnection(): Promise<string[]> {

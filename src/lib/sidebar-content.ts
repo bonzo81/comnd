@@ -19,7 +19,9 @@ export class SidebarContent {
   render(command: Command, referenceUrl: string | null): string {
     return `
       <div class="cmd-detail">
-        <h3 class="cmd-name">${escHtml(command.name)}</h3>
+        <h3 class="cmd-name">${escHtml(command.name)}${command.overrides
+          ? `<span class="badge-custom" title="Overrides built-in KB entry — your version is shown">custom</span>`
+          : ""}</h3>
         <div class="syntax-block"><code>${this.formatSyntax(command.syntax)}</code></div>
         ${this.renderTokens(command)}
         <p class="cmd-description">${escHtml(command.description)}</p>

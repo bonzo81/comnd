@@ -18,12 +18,13 @@ import {
   agentListIdentities,
   listProviders,
   listCredentials,
+  listKbPlatforms,
   type AgentIdentity,
   type CredentialItem,
   type ProviderInfo,
 } from "../lib/tauri-api";
 import { log, LogTag } from "../lib/logger";
-import { PLATFORM_META, platformBadge, platformColorClass } from "../lib/platforms";
+import { PLATFORM_META, platformBadge, platformColorClass, getPlatformMeta } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
 import { ALL_GROUP_ID, recentHosts, isNetboxHostId } from "../lib/host-filters";
 import { icons } from "../lib/icons";
@@ -46,6 +47,8 @@ export class HostScreen {
   private hosts: Host[] = [];
   private groups: HostGroup[] = [];
   private recent: Host[] = [];
+  /** Custom (user-KB) platform ids, for the host form platform select (docs/10 § Part 5). */
+  private customPlatformIds: string[] = [];
 
   // Selection
   private selectedHostIndex = 0;
@@ -159,6 +162,12 @@ export class HostScreen {
     this.recent = recentHosts(this.hosts);
     if (this.selectedHostIndex >= this.recent.length) {
       this.selectedHostIndex = Math.max(0, this.recent.length - 1);
+    }
+    try {
+      const ids = await listKbPlatforms();
+      this.customPlatformIds = ids.filter((id) => !PLATFORM_META[id]);
+    } catch {
+      this.customPlatformIds = [];
     }
   }
 
@@ -365,6 +374,12 @@ export class HostScreen {
                     ([id, meta]) =>
                       `<option value="${id}" ${h?.platform === id ? "selected" : ""}>${meta.badge} — ${meta.label}</option>`,
                   )
+                  .join("")}
+                ${this.customPlatformIds
+                  .map((id) => {
+                    const meta = getPlatformMeta(id);
+                    return `<option value="${id}" ${h?.platform === id ? "selected" : ""}>${meta.badge} — ${meta.label} (custom)</option>`;
+                  })
                   .join("")}
               </select>
             </label>

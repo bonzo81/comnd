@@ -479,6 +479,33 @@
   font-family: var(--font-mono);
 }
 
+/* Running-job banner above the disabled form (import in flight) */
+.import-progress-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-secondary);
+}
+.import-progress-banner .import-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.import-banner-text { min-width: 0; }
+.import-progress-banner .import-stage {
+  color: var(--color-text-primary);
+  text-align: left;
+}
+.import-progress-banner .import-elapsed {
+  margin-top: 0;
+  text-align: left;
+  font-size: var(--font-size-xs);
+}
+
 /* ─── Import: Preview Stage (Phase 5.6) ────────────────────────────── */
 .import-preview {
   padding: var(--space-3) 0;
@@ -495,9 +522,92 @@
   margin: 0;
   font-size: var(--font-size-base);
 }
-.preview-warn-count {
-  color: var(--color-warning, #d97706);
+/* docs/10 § Part 4: per-command accept/reject preview */
+.preview-counts {
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+  font-family: var(--font-sans, var(--font-ui));
+}
+
+.preview-check {
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+}
+
+.preview-provenance {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-sans, var(--font-ui));
+  background: var(--color-surface-secondary);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.preview-provenance-new {
+  color: var(--color-success, #16a34a);
+}
+
+.preview-why {
+  margin-top: var(--space-0-5);
+  margin-left: 46px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-sans, var(--font-ui));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-row-invalid .preview-name {
+  color: var(--color-text-secondary);
+}
+.preview-row-invalid .preview-check {
+  opacity: 0.7;
+}
+
+/* Built-in vs import comparison (docs/10 § Part 4) */
+.preview-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  margin-left: 46px;
+}
+.preview-compare-col {
+  flex: 1 1 200px;
+  min-width: 180px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-secondary);
+}
+.preview-compare-label {
+  font-family: var(--font-sans, var(--font-ui));
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-1);
+}
+.preview-compare-builtin { color: var(--color-text-secondary); }
+.preview-compare-imported { color: var(--color-success, #16a34a); }
+.preview-compare-syntax {
+  display: block;
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: var(--space-1);
+}
+.preview-compare-desc {
+  font-family: var(--font-sans, var(--font-ui));
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+.preview-compare-mode {
+  font-family: var(--font-sans, var(--font-ui));
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-tertiary);
 }
 
 .preview-list {

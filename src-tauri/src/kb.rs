@@ -57,6 +57,15 @@ pub struct Command {
     pub order: CommandOrder,
     #[serde(default)]
     pub negatable: bool,
+    /// Provenance (docs/10-custom-knowledge-base.md): Some("custom") when the
+    /// command came from the user KB layer; None (bundled). Merge-generated,
+    /// never authored — stripped from YAML writes in `serialize_commands`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// True when this command replaced a bundled command with the same name.
+    /// Merge-generated; stripped from YAML writes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overrides: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -419,31 +428,18 @@ impl KbStore {
     }
 
     /// Merge commands from another store into this one.
-    /// User commands override bundled commands with the same name.
+    /// User commands win: a user command fully replaces the bundled command
+    /// with the same name (docs/10-custom-knowledge-base.md § Part 1) and is
+    /// stamped `source: "custom"` + `overrides: true`. User-only names are
+    /// added with `source: "custom"`, `overrides: false`.
     pub fn merge_from(&mut self, other: KbStore) {
-        for cmd in other.commands {
+        for mut cmd in other.commands {
+            cmd.source = Some("custom".to_string());
             if let Some(existing) = self.commands.iter_mut().find(|c| c.name == cmd.name) {
-                // Update existing command with non-empty fields from the other
-                if !cmd.syntax.is_empty() && existing.syntax.is_empty() {
-                    existing.syntax = cmd.syntax;
-                }
-                if !cmd.description.is_empty() && existing.description.is_empty() {
-                    existing.description = cmd.description;
-                }
-                if !cmd.category.is_empty() && existing.category.is_empty() {
-                    existing.category = cmd.category;
-                }
-                if !cmd.aliases.is_empty() && existing.aliases.is_empty() {
-                    existing.aliases = cmd.aliases;
-                }
-                if !cmd.examples.is_empty() && existing.examples.is_empty() {
-                    existing.examples = cmd.examples;
-                }
-                if !cmd.tags.is_empty() && existing.tags.is_empty() {
-                    existing.tags = cmd.tags;
-                }
+                cmd.overrides = true;
+                *existing = cmd;
             } else {
-                // New command — add it
+                cmd.overrides = false;
                 self.commands.push(cmd);
             }
         }
@@ -540,16 +536,39 @@ impl KbManager {
     }
 
     /// Get or load a platform's KB store.
-    /// Loads from user KB path first (if set), then merges with bundled KB.
+    /// Loads from bundled KB, then merges the user KB on top (user wins).
+    /// Platforms that exist only in the user KB (custom platforms,
+    /// docs/10-custom-knowledge-base.md § Part 5) load directly from the
+    /// user path with no merge.
     pub fn get_or_load(&mut self, platform_id: &str) -> Result<&KbStore, String> {
         if !self.stores.contains_key(platform_id) {
-            // Load bundled KB first
-            let mut store = KbStore::load(platform_id, &self.kb_path)?;
+            let user_dir_exists = self
+                .user_kb_path
+                .as_ref()
+                .map(|p| p.join(platform_id).exists())
+                .unwrap_or(false);
 
-            // Merge user KB on top if it exists
+            // Load bundled KB first; if there is no bundled platform but the
+            // user KB has one (custom platform), load from the user path.
+            let (mut store, loaded_from_user) = match KbStore::load(platform_id, &self.kb_path) {
+                Ok(s) => (s, false),
+                Err(bundled_err) if user_dir_exists => {
+                    let user_path = self.user_kb_path.as_ref().unwrap();
+                    match KbStore::load(platform_id, user_path) {
+                        Ok(s) => (s, true),
+                        Err(user_err) => {
+                            return Err(format!("{}; {}", bundled_err, user_err));
+                        }
+                    }
+                }
+                Err(e) => return Err(e),
+            };
+
+            // Merge user KB on top of bundled (skip when the base IS the user
+            // KB — merging it into itself would stamp overrides on everything).
             if let Some(ref user_path) = self.user_kb_path {
                 let user_platform_dir = user_path.join(platform_id);
-                if user_platform_dir.exists() {
+                if user_platform_dir.exists() && !loaded_from_user {
                     match KbStore::load(platform_id, user_path) {
                         Ok(user_store) => {
                             log::info!(
@@ -702,13 +721,23 @@ fn write_deleted_list(deleted_path: &Path, names: &HashSet<String>) -> Result<()
 }
 
 /// Serialize commands under a top-level `commands:` key.
+/// Strips merge-generated provenance (`source`/`overrides`) — they are
+/// computed at load, never authored (docs/10-custom-knowledge-base.md § 1.3).
 fn serialize_commands(commands: &[Command]) -> Result<String, String> {
     use serde_yml::Value;
+    let cleaned: Vec<Command> = commands
+        .iter()
+        .map(|c| Command {
+            source: None,
+            overrides: false,
+            ..c.clone()
+        })
+        .collect();
     serde_yml::to_string(&Value::Mapping({
         let mut map = serde_yml::Mapping::new();
         map.insert(
             Value::String("commands".to_string()),
-            serde_yml::to_value(commands).unwrap_or_default(),
+            serde_yml::to_value(&cleaned).unwrap_or_default(),
         );
         map
     }))
@@ -716,6 +745,10 @@ fn serialize_commands(commands: &[Command]) -> Result<String, String> {
 }
 
 /// Get the target YAML file path for commands.
+///
+/// Invariant: this always resolves inside the user (custom) KB path. LLM
+/// import writes ONLY to the custom (user) KB — never the bundled KB; see
+/// docs/10-custom-knowledge-base.md.
 pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> PathBuf {
     user_kb_path.join(platform).join("commands").join(format!("{}.yaml", category))
 }
@@ -1007,6 +1040,8 @@ mod tests {
             tokens,
             order: CommandOrder::Fixed,
             negatable: false,
+            source: None,
+            overrides: false,
         }
     }
 
@@ -1378,6 +1413,8 @@ mod tests {
             ],
             order: CommandOrder::FlagsAnywhere,
             negatable: true,
+            source: None,
+            overrides: false,
         };
 
         let yaml = serialize_commands(&[cmd.clone()]).unwrap();
@@ -1443,6 +1480,8 @@ mod tests {
             tokens: vec![], // legacy
             order: CommandOrder::Fixed,
             negatable: false,
+            source: None,
+            overrides: false,
         };
         write_commands_to_yaml(&[legacy], &path, "networking").unwrap();
 
@@ -1462,6 +1501,8 @@ mod tests {
             ],
             order: CommandOrder::Free,
             negatable: true,
+            source: None,
+            overrides: false,
         };
         write_commands_to_yaml(&[upgraded], &path, "networking").unwrap();
 
@@ -1477,5 +1518,126 @@ mod tests {
         assert_eq!(merged.description, "old");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Custom KB: user-wins merge + provenance (docs/10 § Part 1) ────
+
+    fn mk_full_cmd(name: &str, description: &str) -> Command {
+        Command {
+            name: name.to_string(),
+            syntax: name.to_string(),
+            description: description.to_string(),
+            category: "test".to_string(),
+            mode: "privileged-exec".to_string(),
+            aliases: vec![],
+            examples: vec![],
+            versions: CommandVersions::default(),
+            tags: vec![],
+            tokens: vec![],
+            order: CommandOrder::Fixed,
+            negatable: false,
+            source: None,
+            overrides: false,
+        }
+    }
+
+    fn mk_test_store(cmds: Vec<Command>) -> KbStore {
+        KbStore {
+            platform: PlatformIndex {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: String::new(),
+                reference_url: String::new(),
+                versions: vec![],
+                prompt_patterns: std::collections::HashMap::new(),
+                default_mode: "privileged-exec".to_string(),
+                negation_prefix: None,
+                prefix_commands: std::collections::HashMap::new(),
+            },
+            commands: cmds,
+        }
+    }
+
+    #[test]
+    fn test_merge_user_wins_over_bundled() {
+        let mut bundled = mk_test_store(vec![mk_full_cmd("show version", "bundled description")]);
+        let user = mk_test_store(vec![mk_full_cmd("show version", "user description")]);
+        bundled.merge_from(user);
+        assert_eq!(bundled.commands.len(), 1);
+        let cmd = &bundled.commands[0];
+        assert_eq!(cmd.description, "user description");
+        assert_eq!(cmd.source.as_deref(), Some("custom"));
+        assert!(cmd.overrides);
+    }
+
+    #[test]
+    fn test_merge_user_only_command() {
+        let mut bundled = mk_test_store(vec![mk_full_cmd("show version", "bundled")]);
+        let user = mk_test_store(vec![mk_full_cmd("my-command", "user only")]);
+        bundled.merge_from(user);
+        assert_eq!(bundled.commands.len(), 2);
+        let mine = bundled.commands.iter().find(|c| c.name == "my-command").unwrap();
+        assert_eq!(mine.source.as_deref(), Some("custom"));
+        assert!(!mine.overrides);
+        // Bundled command untouched, no provenance.
+        let theirs = bundled.commands.iter().find(|c| c.name == "show version").unwrap();
+        assert_eq!(theirs.source, None);
+        assert!(!theirs.overrides);
+    }
+
+    #[test]
+    fn test_yaml_round_trip_strips_provenance() {
+        // A merged store (custom + override commands) serialized to YAML must
+        // not contain source/overrides keys — they are computed, not stored.
+        let mut bundled = mk_test_store(vec![mk_full_cmd("show version", "bundled")]);
+        let user = mk_test_store(vec![
+            mk_full_cmd("show version", "user"),
+            mk_full_cmd("my-command", "user only"),
+        ]);
+        bundled.merge_from(user);
+
+        let yaml = serialize_commands(&bundled.commands).unwrap();
+        assert!(!yaml.contains("source:"), "source leaked into YAML: {}", yaml);
+        assert!(!yaml.contains("overrides:"), "overrides leaked into YAML: {}", yaml);
+
+        // Reload from the YAML — commands load cleanly with no provenance.
+        let file: CommandFile = serde_yml::from_str(&yaml).unwrap();
+        assert_eq!(file.commands.len(), 2);
+        assert!(file.commands.iter().all(|c| c.source.is_none() && !c.overrides));
+    }
+
+    #[test]
+    fn test_tombstone_hides_bundled_after_merge() {
+        // User _deleted.yaml must keep hiding a bundled command after the
+        // user-wins merge change (existing behaviour, pinned).
+        let base = std::env::temp_dir().join(format!("netssh-tombstone-{}", std::process::id()));
+        let bundled = base.join("bundled");
+        let user = base.join("user");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
+        std::fs::create_dir_all(user.join("test-plat")).unwrap();
+
+        std::fs::write(
+            bundled.join("test-plat/index.yaml"),
+            "id: test-plat\nname: Test\ndescription: \"\"\nreference_url: \"\"\nversions: []\nprompt_patterns: {}\ndefault_mode: default\n",
+        ).unwrap();
+        std::fs::write(
+            bundled.join("test-plat/commands/test.yaml"),
+            "commands:\n  - name: show version\n    syntax: show version\n    description: bundled\n    category: test\n    mode: default\n",
+        ).unwrap();
+        std::fs::write(
+            user.join("test-plat/_deleted.yaml"),
+            "deleted:\n  - show version\n",
+        ).unwrap();
+
+        let mut mgr = KbManager::with_user_path(bundled, user);
+        let store = mgr.get_or_load("test-plat").unwrap();
+        assert!(
+            !store.commands.iter().any(|c| c.name == "show version"),
+            "tombstoned bundled command must stay hidden, got: {:?}",
+            store.commands.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+
+        std::fs::remove_dir_all(&base).ok();
     }
 }

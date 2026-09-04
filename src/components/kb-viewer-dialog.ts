@@ -224,13 +224,15 @@ export class KbViewerDialog {
     }
     const sidebar = new SidebarContent();
     const cmd = this.selectedCommand;
+    const isOverride = !!cmd.overrides;
     return `
       <div class="kb-detail-wrapper">
         <div class="kb-detail-actions">
           <button class="btn-secondary btn-small kb-btn-edit" id="kb-cmd-edit-btn">${icons.pencil} Edit</button>
-          <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} Delete</button>
+          <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} ${isOverride ? "Restore built-in version" : "Delete"}</button>
         </div>
         <div class="kb-detail-sidebar">
+          ${isOverride ? `<div class="kb-override-note">This is your custom version — it overrides the built-in KB entry with the same name. Deleting it restores the built-in version.</div>` : ""}
           ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null)}
         </div>
       </div>
@@ -295,14 +297,17 @@ export class KbViewerDialog {
   }
 
   private renderDeleteOverlay(): string {
+    const isOverride = !!this.selectedCommand?.overrides;
     return `
       <div class="modal-backdrop" id="kb-delete-backdrop">
         <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="kb-delete-title" style="width:400px">
-          <h3 id="kb-delete-title">Delete Command</h3>
-          <p>Delete <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>?<br/>This cannot be undone.</p>
+          <h3 id="kb-delete-title">${isOverride ? "Restore Built-in Version" : "Delete Command"}</h3>
+          <p>${isOverride
+            ? `Delete your custom version of <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>? The built-in KB entry will be shown again.`
+            : `Delete <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>?<br/>This cannot be undone.`}</p>
           <div class="form-actions">
             <button class="btn-text" id="kb-delete-cancel-btn">Cancel</button>
-            <button class="btn-danger" id="kb-delete-confirm-btn">Delete</button>
+            <button class="btn-danger" id="kb-delete-confirm-btn">${isOverride ? "Restore Built-in" : "Delete"}</button>
           </div>
         </div>
       </div>`;

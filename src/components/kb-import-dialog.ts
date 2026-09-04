@@ -14,13 +14,16 @@ import {
   extractKbPreview,
   commitKbImport,
   getAppConfig,
+  listKbPlatforms,
   ImportResult,
   AppConfig,
   ExtractPreview,
+  Command,
 } from "../lib/tauri-api";
 import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { showToast } from "../lib/toast";
+import { importJob, formatProgress } from "../lib/import-status";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -31,12 +34,31 @@ interface ImportProgressEvent {
   detail?: string | number;
 }
 
-const PLATFORM_OPTIONS = [
+const FALLBACK_PLATFORM_OPTIONS = [
   { value: "cisco-iosxe", label: "Cisco IOS-XE" },
   { value: "cisco-nxos", label: "Cisco NX-OS" },
   { value: "f5-tmos", label: "F5 TMOS" },
   { value: "linux-bash", label: "Linux Bash" },
 ];
+
+const NEW_PLATFORM = "__new__";
+const OTHER_CATEGORY = "__other__";
+
+/** First sentence of a description — the one-line "why" in the preview row. */
+function firstSentence(text: string): string {
+  const t = text.trim();
+  if (!t) return "";
+  const m = t.match(/^(.+?[.!?])(\s|$)/);
+  return (m ? m[1] : t.split("\n")[0]).trim();
+}
+
+/** Platform ID slug: lowercase, [a-z0-9-], collapsed dashes. */
+function slugify(text: string): string {
+  return text.toLowerCase().trim()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 const CATEGORY_OPTIONS = [
   { value: "networking", label: "Networking" },
@@ -71,8 +93,17 @@ export class KbImportDialog {
   private preview: ExtractPreview | null = null;
   private previewUrl: string = "";
   private previewPlatform: string = "";
+  /** Display name when importing into a brand-new platform (docs/10 § Part 5). */
+  private previewPlatformName: string | null = null;
   private previewCategory: string = "";
+  /** Per-row accept state: checked by default for "ok", unchecked for "warn". */
+  private selectedRows: boolean[] = [];
+  private rejectedByUser: number = 0;
   private committing: boolean = false;
+  /** Platform list from the backend (bundled + user KBs); falls back to the bundled four. */
+  private platformOptions: { value: string; label: string }[] = FALLBACK_PLATFORM_OPTIONS;
+  /** Last ID auto-generated from the platform name (so manual edits win). */
+  private lastAutoSlug: string = "";
 
   constructor(onImportComplete?: () => void, embedMode: boolean = false) {
     this.onImportComplete = onImportComplete ?? null;
@@ -85,6 +116,14 @@ export class KbImportDialog {
       this.config = await getAppConfig();
     } catch {
       this.config = null;
+    }
+    try {
+      const ids = await listKbPlatforms();
+      if (ids.length > 0) {
+        this.platformOptions = ids.map((id) => ({ value: id, label: id }));
+      }
+    } catch {
+      // keep fallback options
     }
     this.listenForProgress();
     this.render();
@@ -106,30 +145,18 @@ export class KbImportDialog {
 
   private async listenForProgress() {
     try {
-      this.unlistenProgress = await listen<ImportProgressEvent>("import-progress", (event) => {
-        const { stage, detail } = event.payload;
-        this.stage = this.mapStage(stage);
-        this.progressDetail = detail ? String(detail) : "";
+      this.unlistenProgress = await listen<{ stage: string; detail?: unknown }>("import-progress", (event) => {
+        // Rust ImportProgress tags are PascalCase variant names; formatProgress
+        // normalizes them to dialog stage keys + human labels.
+        const info = formatProgress(event.payload.stage, event.payload.detail);
+        this.stage = info.key as ImportStage;
+        this.progressDetail = info.label;
+        if (info.key === "error" && !this.errorMessage) this.errorMessage = info.label;
         this.render();
       });
     } catch (e) {
       log.warn(LogTag.KbImport, `Import progress listener unavailable (Tauri not running): ${e}`);
     }
-  }
-
-  private mapStage(stage: string): ImportStage {
-    const mapping: Record<string, ImportStage> = {
-      fetching: "fetching",
-      extracting_text: "extracting",
-      sending_to_llm: "sending",
-      extracting_commands: "extracting",
-      validating: "validating",
-      writing_yaml: "writing",
-      reloading_kb: "reloading",
-      complete: "complete",
-      error: "error",
-    };
-    return mapping[stage] ?? "idle";
   }
 
   private stageLabel(stage: ImportStage): string {
@@ -160,9 +187,9 @@ export class KbImportDialog {
     const content = `
       ${this.stage === "complete" && this.result ? this.renderResult() : ""}
       ${this.stage === "error" ? this.renderError() : ""}
-      ${isImporting ? this.renderProgress() : ""}
       ${this.stage === "preview" && this.preview ? this.renderPreview() : ""}
-      ${this.stage === "idle" || (this.stage !== "complete" && this.stage !== "error" && this.stage !== "preview" && !isImporting) ? this.renderForm(base_url, model, isImporting) : ""}
+      ${isImporting ? this.renderProgressBanner() : ""}
+      ${this.stage === "idle" || isImporting ? this.renderForm(base_url, model, isImporting) : ""}
     `;
 
     if (this.embedMode) {
@@ -202,7 +229,10 @@ export class KbImportDialog {
           <div class="import-field">
             <label for="import-platform">Platform</label>
             <select class="form-input" id="import-platform" ${isImporting ? 'disabled' : ''}>
-              ${PLATFORM_OPTIONS.map(p => `<option value="${p.value}">${p.label}</option>`).join("")}
+              ${this.platformOptions.map(p => `<option value="${p.value}">${escHtml(p.label)}</option>`).join("")}
+              <optgroup label="Custom">
+                <option value="${NEW_PLATFORM}">New platform…</option>
+              </optgroup>
             </select>
           </div>
 
@@ -210,8 +240,27 @@ export class KbImportDialog {
             <label for="import-category">Category</label>
             <select class="form-input" id="import-category" ${isImporting ? 'disabled' : ''}>
               ${CATEGORY_OPTIONS.map(c => `<option value="${c.value}">${c.label}</option>`).join("")}
+              <option value="${OTHER_CATEGORY}">Other…</option>
             </select>
           </div>
+        </div>
+        <div id="import-new-platform-fields" style="display:none">
+          <div class="import-row">
+            <div class="import-field">
+              <label for="import-platform-name">Platform name</label>
+              <input type="text" class="form-input" id="import-platform-name" placeholder="Acme RouterOS" ${isImporting ? 'disabled' : ''} />
+            </div>
+            <div class="import-field">
+              <label for="import-platform-id">Platform ID</label>
+              <input type="text" class="form-input" id="import-platform-id" placeholder="acme-routeros (a-z, 0-9, -)" ${isImporting ? 'disabled' : ''} />
+            </div>
+          </div>
+          <span class="import-hint">New platforms are single-mode. To define modes, hand-edit <code>index.yaml</code> for the platform in your app data knowledge-base folder (prompt_patterns + default_mode).</span>
+        </div>
+
+        <div class="import-field" id="import-category-custom-field" style="display:none">
+          <label for="import-category-custom">Custom category name</label>
+          <input type="text" class="form-input" id="import-category-custom" placeholder="e.g. voice" ${isImporting ? 'disabled' : ''} />
         </div>
 
         <div class="import-config-row">
@@ -225,14 +274,19 @@ export class KbImportDialog {
     `;
   }
 
-  private renderProgress(): string {
+  /**
+   * Compact running-job banner shown above the (disabled) form while an
+   * import is in flight — the form stays visible but every control is off.
+   */
+  private renderProgressBanner(): string {
     const elapsed = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
     return `
-      <div class="import-progress" role="status" aria-live="polite">
+      <div class="import-progress-banner" role="status" aria-live="polite">
         <div class="import-spinner" aria-hidden="true"></div>
-        <div class="import-stage">${escHtml(this.stageLabel(this.stage))}</div>
-        ${this.progressDetail ? `<div class="import-progress-detail">${escHtml(this.progressDetail)}</div>` : ""}
-        ${this.startTime ? `<div class="import-elapsed" id="import-elapsed">${elapsed}s elapsed</div>` : ""}
+        <div class="import-banner-text">
+          <div class="import-stage">${escHtml(this.progressDetail || this.stageLabel(this.stage))}</div>
+          <div class="import-elapsed">${elapsed}s elapsed — you can leave this tab; the title-bar indicator tracks the job</div>
+        </div>
       </div>
     `;
   }
@@ -260,6 +314,12 @@ export class KbImportDialog {
             <span class="import-result-label">Target file:</span>
             <span class="import-result-value import-result-path">${escHtml(this.result.target_file)}</span>
           </div>
+          ${this.rejectedByUser > 0 ? `
+            <div class="import-result-row">
+              <span class="import-result-label">Rejected at review:</span>
+              <span class="import-result-value">${this.rejectedByUser}</span>
+            </div>
+          ` : ""}
           ${this.result.errors.length > 0 ? `
             <div class="import-result-row">
               <span class="import-result-label">Warnings:</span>
@@ -289,20 +349,36 @@ export class KbImportDialog {
   }
 
   /**
-   * Phase 5.6: review screen between the form and the result. Shows the
-   * extracted commands with name, mode badge, tokenized syntax, and any
-   * per-command warnings (e.g. "tokens dropped"). Confirm commits to YAML;
-   * Reject discards and returns to the form.
+   * docs/10 § Part 4: per-command accept/reject screen. Each row carries a
+   * checkbox (checked for "ok", unchecked for "warn"), name, mode badge,
+   * tokenized syntax, a one-line "why", a New/Overrides label, and any
+   * validation issues verbatim. Import commits only the checked rows.
    */
   private renderPreview(): string {
     if (!this.preview) return "";
     const previews = this.preview.previews;
-    const warnCount = previews.filter((p) => p.status === "warn").length;
+    // Initialize per-row selection: ok → checked, warn → unchecked.
+    if (this.selectedRows.length !== previews.length) {
+      this.selectedRows = previews.map((p) => p.status === "ok");
+    }
     const rows = previews.map((p, i) => {
       const statusIcon = p.status === "warn"
         ? `<span class="preview-warn" title="${escHtml(p.issues.join("; "))}">${icons.alert}</span>`
         : `<span class="preview-ok">${icons.check}</span>`;
       const modeBadge = `<span class="preview-mode">${escHtml(p.command.mode)}</span>`;
+      const provenance = p.in_bundled
+        ? `<span class="preview-provenance">Overrides built-in entry</span>`
+        : `<span class="preview-provenance preview-provenance-new">New command</span>`;
+      const compareBtn = p.bundled
+        ? `<button type="button" class="btn-text btn-small preview-compare-btn" data-index="${i}">Compare</button>`
+        : "";
+      const compareSection = p.bundled
+        ? `<div class="preview-compare" data-compare="${i}" style="display:none">
+             ${this.compareColumns(p.bundled, p.command)}
+           </div>`
+        : "";
+      const why = firstSentence(p.command.description);
+      const whyLine = why ? `<div class="preview-why">${escHtml(why)}</div>` : "";
       const syntaxLine = p.command.syntax
         ? `<code class="preview-syntax">${escHtml(p.command.syntax)}</code>`
         : "";
@@ -310,14 +386,19 @@ export class KbImportDialog {
         ? `<div class="preview-issues">${p.issues.map((m) => escHtml(m)).join("<br/>")}</div>`
         : "";
       return `
-        <div class="preview-row" data-index="${i}">
+        <div class="preview-row${p.issues.length > 0 ? " preview-row-invalid" : ""}" data-index="${i}">
           <div class="preview-row-head">
+            <input type="checkbox" class="preview-check" data-index="${i}" ${this.selectedRows[i] ? "checked" : ""} aria-label="Import ${escHtml(p.command.name)}" />
             ${statusIcon}
             <span class="preview-name">${escHtml(p.command.name)}</span>
             ${modeBadge}
+            ${provenance}
+            ${compareBtn}
           </div>
+          ${whyLine}
           ${syntaxLine}
           ${issueLine}
+          ${compareSection}
         </div>
       `;
     }).join("");
@@ -330,18 +411,46 @@ export class KbImportDialog {
       <div class="import-preview">
         <div class="preview-summary">
           <h3>${previews.length} command${previews.length === 1 ? "" : "s"} extracted</h3>
-          ${warnCount > 0 ? `<span class="preview-warn-count">${warnCount} with token warnings (imported as legacy)</span>` : ""}
+          <span class="preview-counts" id="preview-counts">${this.summaryCounts()}</span>
         </div>
         <div class="preview-list">${rows}</div>
         ${errLine}
         <div class="import-actions">
           <button class="btn-text" id="preview-reject-btn" ${this.committing ? "disabled" : ""}>Reject</button>
-          <button class="btn-primary" id="preview-confirm-btn" ${this.committing ? "disabled" : ""}>
-            ${this.committing ? "Committing…" : "Confirm all"}
+          <button class="btn-primary" id="preview-confirm-btn" ${this.committing || this.selectedCount() === 0 ? "disabled" : ""}>
+            ${this.committing ? "Committing…" : `Import selected (${this.selectedCount()})`}
           </button>
         </div>
       </div>
     `;
+  }
+
+  /** Side-by-side built-in vs imported comparison (docs/10 § Part 4). */
+  private compareColumns(bundled: Command, imported: Command): string {
+    const col = (label: string, cls: string, c: Command) => `
+      <div class="preview-compare-col">
+        <div class="preview-compare-label ${cls}">${label}</div>
+        <code class="preview-compare-syntax">${escHtml(c.syntax || c.name)}</code>
+        <div class="preview-compare-desc">${escHtml(firstSentence(c.description) || "— no description —")}</div>
+        <div class="preview-compare-mode">mode: ${escHtml(c.mode)}${c.tokens?.length ? ` · ${c.tokens.length} tokens` : " · legacy (no tokens)"}</div>
+      </div>`;
+    return col("Built-in", "preview-compare-builtin", bundled) +
+           col("Your import", "preview-compare-imported", imported);
+  }
+
+  private selectedCount(): number {
+    return this.selectedRows.filter(Boolean).length;
+  }
+
+  /** "N of M selected · K new · J override built-in · W with warnings" */
+  private summaryCounts(): string {
+    if (!this.preview) return "";
+    const previews = this.preview.previews;
+    const selected = this.selectedCount();
+    const newCount = previews.filter((p) => !p.in_bundled).length;
+    const overrideCount = previews.length - newCount;
+    const warnCount = previews.filter((p) => p.status === "warn").length;
+    return `${selected} of ${previews.length} selected · ${newCount} new · ${overrideCount} override built-in · ${warnCount} with warnings`;
   }
 
   // ─── Event Binding ──────────────────────────────────────────────────
@@ -358,6 +467,35 @@ export class KbImportDialog {
 
     // Submit
     document.getElementById("import-submit-btn")?.addEventListener("click", () => this.startImport());
+
+    // New-platform / custom-category reveal
+    document.getElementById("import-platform")?.addEventListener("change", (e) => {
+      const isNew = (e.target as HTMLSelectElement).value === NEW_PLATFORM;
+      const fields = document.getElementById("import-new-platform-fields");
+      if (fields) fields.style.display = isNew ? "" : "none";
+    });
+
+    // New-platform helpers: auto-slug the ID from the name; sanitize typing.
+    const nameInput = document.getElementById("import-platform-name") as HTMLInputElement | null;
+    const idInput = document.getElementById("import-platform-id") as HTMLInputElement | null;
+    nameInput?.addEventListener("input", () => {
+      if (!idInput) return;
+      const slug = slugify(nameInput.value);
+      if (idInput.value === "" || idInput.value === this.lastAutoSlug) {
+        idInput.value = slug;
+        this.lastAutoSlug = slug;
+      }
+    });
+    idInput?.addEventListener("input", () => {
+      const cleaned = slugify(idInput.value);
+      if (cleaned !== idInput.value) idInput.value = cleaned;
+    });
+
+    document.getElementById("import-category")?.addEventListener("change", (e) => {
+      const isOther = (e.target as HTMLSelectElement).value === OTHER_CATEGORY;
+      const field = document.getElementById("import-category-custom-field");
+      if (field) field.style.display = isOther ? "" : "none";
+    });
 
     // Result buttons
     document.getElementById("import-done-btn")?.addEventListener("click", () => this.close());
@@ -378,6 +516,34 @@ export class KbImportDialog {
     // Phase 5.6: preview confirm / reject
     document.getElementById("preview-confirm-btn")?.addEventListener("click", () => this.confirmPreview());
     document.getElementById("preview-reject-btn")?.addEventListener("click", () => this.rejectPreview());
+
+    // docs/10 § Part 4: per-row checkboxes — update selection state and the
+    // summary/confirm button in place (no full re-render, preserves scroll).
+    this.container?.querySelectorAll<HTMLInputElement>(".preview-check").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const idx = parseInt(cb.dataset.index ?? "0", 10);
+        this.selectedRows[idx] = cb.checked;
+        const counts = document.getElementById("preview-counts");
+        if (counts) counts.textContent = this.summaryCounts();
+        const btn = document.getElementById("preview-confirm-btn") as HTMLButtonElement | null;
+        if (btn) {
+          btn.disabled = this.selectedCount() === 0;
+          btn.textContent = `Import selected (${this.selectedCount()})`;
+        }
+      });
+    });
+
+    // Compare toggle: show/hide the built-in vs import columns in place.
+    this.container?.querySelectorAll<HTMLButtonElement>(".preview-compare-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.index ?? "0", 10);
+        const section = this.container?.querySelector<HTMLElement>(`[data-compare="${idx}"]`);
+        if (!section) return;
+        const open = section.style.display !== "none";
+        section.style.display = open ? "none" : "";
+        btn.textContent = open ? "Compare" : "Hide compare";
+      });
+    });
   }
 
   // ─── Actions ────────────────────────────────────────────────────────
@@ -438,13 +604,43 @@ export class KbImportDialog {
     }
 
     const url = urlInput.value.trim();
-    const platform = platformSelect?.value ?? "cisco-iosxe";
-    const category = categorySelect?.value ?? "networking";
+    let platform = platformSelect?.value ?? this.platformOptions[0]?.value ?? "cisco-iosxe";
+    let platformName: string | null = null;
+    if (platform === NEW_PLATFORM) {
+      const nameInput = document.getElementById("import-platform-name") as HTMLInputElement;
+      const idInput = document.getElementById("import-platform-id") as HTMLInputElement;
+      platformName = nameInput?.value.trim() ?? "";
+      platform = slugify(idInput?.value ?? "") || slugify(platformName);
+      if (!platformName) {
+        showToast("Enter a platform name", "error");
+        return;
+      }
+      if (!platform) {
+        showToast("Platform ID must be lowercase letters, digits, and dashes", "error");
+        return;
+      }
+    }
+    let category = categorySelect?.value ?? "networking";
+    if (category === OTHER_CATEGORY) {
+      category = (document.getElementById("import-category-custom") as HTMLInputElement)?.value.trim() ?? "";
+      if (!category) {
+        showToast("Enter a category name", "error");
+        return;
+      }
+    }
+
+    if (importJob.active) {
+      showToast("An import job is already running — see the indicator in the title bar", "error");
+      return;
+    }
 
     this.stage = "fetching";
     this.errorMessage = "";
     this.result = null;
     this.preview = null;
+    this.selectedRows = [];
+    importJob.start(url, platform, category);
+    showToast("Import started — extracting commands…", "info", 4000);
     this.startTime = Date.now();
     this.elapsedInterval = setInterval(() => this.render(), 1000);
     this.render();
@@ -452,16 +648,31 @@ export class KbImportDialog {
     try {
       log.info(LogTag.KbImport, `Extracting preview from ${url} for ${platform}/${category}`);
       // Phase 5.6: Stage 1 — extract + validate without writing.
-      const preview = await extractKbPreview(url, platform, category);
+      const preview = await extractKbPreview(url, platform, category, platformName ?? undefined);
+      // Cancelled while extracting — discard the result.
+      if (importJob.consumeCancel()) {
+        this.stage = "idle";
+        showToast("Import cancelled — nothing was imported", "info");
+        this.render();
+        return;
+      }
       this.preview = preview;
       this.previewUrl = url;
       this.previewPlatform = platform;
+      this.previewPlatformName = platformName;
       this.previewCategory = category;
+      this.selectedRows = preview.previews.map((p) => p.status === "ok");
       this.stage = "preview";
+      importJob.review(preview.previews.length);
       log.info(LogTag.KbImport, `Preview ready: ${preview.previews.length} commands`);
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
+      if (!importJob.active) {
+        // Cancelled — the cancel line is already logged; just stop.
+      } else {
+        importJob.finish(false, `Import failed: ${e}`);
+      }
       log.error(LogTag.KbImport, `Extract failed: ${e}`);
       showToast(`Extract failed: ${e}`, "error", 8000);
     }
@@ -474,19 +685,26 @@ export class KbImportDialog {
     this.render();
   }
 
-  /** Phase 5.6: Stage 2 — commit the user-approved previews to YAML. */
+  /** docs/10 § Part 4: Stage 2 — commit only the accepted previews to YAML. */
   private async confirmPreview() {
     if (!this.preview || this.committing) return;
+    const accepted = this.preview.previews.filter((_, i) => this.selectedRows[i]);
+    if (accepted.length === 0) {
+      showToast("No commands selected", "error");
+      return;
+    }
     this.committing = true;
     this.stage = "writing";
     this.render();
 
     try {
       const count = await commitKbImport(
-        this.preview.previews,
+        accepted,
         this.previewPlatform,
         this.previewCategory,
+        this.previewPlatformName ?? undefined,
       );
+      this.rejectedByUser = this.preview.previews.length - accepted.length;
       this.result = {
         commands_imported: count,
         target_file: `${this.previewPlatform}/commands/${this.previewCategory}.yaml`,
@@ -502,6 +720,7 @@ export class KbImportDialog {
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
+      importJob.finish(false, `Commit failed: ${e}`);
       log.error(LogTag.KbImport, `Commit failed: ${e}`);
       showToast(`Commit failed: ${e}`, "error", 8000);
     } finally {
@@ -514,6 +733,10 @@ export class KbImportDialog {
   private rejectPreview() {
     this.preview = null;
     this.stage = "idle";
+    this.selectedRows = [];
+    if (importJob.active) {
+      importJob.finish(true, "Review discarded — nothing was imported");
+    }
     this.render();
   }
 

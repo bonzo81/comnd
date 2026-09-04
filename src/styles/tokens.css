@@ -73,6 +73,8 @@
   --suggestion-fade: rgba(15, 23, 42, 0.8);
   --badge-nxos: #38BDF8;
   --accent-tint-soft: rgba(34, 197, 94, 0.12);
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #38BDF8;
 }
 
 /* ─── Light theme ─── */

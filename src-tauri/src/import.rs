@@ -11,7 +11,7 @@
 
 use crate::config::AppConfig;
 use crate::kb::{
-    get_target_yaml_path, write_commands_to_yaml, validate_command,
+    get_target_yaml_path, write_commands_to_yaml, validate_command, KbStore,
     Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
 };
 use crate::llm::{ExtractedCommand, LlmClient};
@@ -35,6 +35,9 @@ pub enum ImportProgress {
     Fetching { url: String },
     ExtractingText { content_length: usize },
     SendingToLlm { command_count_estimate: usize },
+    /// Streaming: chars of LLM output received so far + rolling tail of the
+    /// raw output text (live view in the job modal).
+    LlmOutput { chars: usize, tail: String },
     ExtractingCommands { },
     Validating { command_count: usize },
     WritingYaml { command_count: usize, target_file: String },
@@ -65,6 +68,14 @@ pub struct CommandPreview {
     pub status: String,
     /// Human-readable issues (empty when status is "ok").
     pub issues: Vec<String>,
+    /// True when the command name exists in the bundled-only KB — drives the
+    /// "New command" vs "Overrides built-in entry" label in the review UI.
+    #[serde(default)]
+    pub in_bundled: bool,
+    /// The bundled command with the same name, when `in_bundled` — powers the
+    /// side-by-side compare in the review UI (docs/10 § Part 4).
+    #[serde(default)]
+    pub bundled: Option<Command>,
 }
 
 /// Result of the preview stage (Phase 5.6). Returned by `extract_from_url`
@@ -121,6 +132,7 @@ pub async fn import_from_url(
         &request.platform,
         &request.category,
         app_handle,
+        None,
     ).await?;
 
     let result = ImportResult {
@@ -133,11 +145,7 @@ pub async fn import_from_url(
         errors: preview.errors,
     };
 
-    emit_progress(app_handle, ImportProgress::Complete {
-        commands_imported: result.commands_imported,
-        target_file: result.target_file.clone(),
-    });
-
+    // Complete is emitted by commit_import.
     Ok(result)
 }
 
@@ -179,12 +187,19 @@ pub async fn extract_from_url(
     // Existing categories on this platform guide the LLM toward reuse.
     let existing_categories = existing_categories_for(platform_index, &request.platform);
 
+    // Streaming: report received LLM output so the UI shows liveness.
+    let progress_handle = app_handle.clone();
+    let on_output = move |chars: usize, tail: &str| {
+        emit_progress(&progress_handle, ImportProgress::LlmOutput { chars, tail: tail.to_string() });
+    };
+
     let extracted = llm.extract_commands(
         &text_content,
         &request.platform,
         &request.category,
         platform_index,
         &existing_categories,
+        &on_output,
     ).await.map_err(|e| {
         emit_progress(app_handle, ImportProgress::Error { message: e.clone() });
         e
@@ -211,6 +226,8 @@ pub async fn extract_from_url(
                     command,
                     status: status.to_string(),
                     issues,
+                    in_bundled: false,
+                    bundled: None,
                 });
             }
             Err(e) => {
@@ -224,6 +241,24 @@ pub async fn extract_from_url(
         return Err("All extracted commands failed validation. Check the LLM output quality.".to_string());
     }
 
+    // Flag which names already exist in the bundled-only KB (docs/10 § 4.1)
+    // and carry the bundled command for the compare UI. Load bypasses the
+    // merge so the check is against bundled, not the merged store. A missing
+    // bundled platform (custom platform) simply means everything is new.
+    let mut bundled_by_name: std::collections::HashMap<String, Command> =
+        KbStore::load(&request.platform, &default_bundled_kb_path())
+            .map(|s| {
+                s.commands
+                    .into_iter()
+                    .map(|c| (c.name.clone(), c))
+                    .collect()
+            })
+            .unwrap_or_default();
+    for preview in &mut previews {
+        preview.bundled = bundled_by_name.remove(&preview.command.name);
+        preview.in_bundled = preview.bundled.is_some();
+    }
+
     Ok(ExtractPreview {
         previews,
         platform: request.platform.clone(),
@@ -235,6 +270,9 @@ pub async fn extract_from_url(
 
 /// Stage 2 of the two-stage import (Phase 5.6): write the user-approved
 /// commands to YAML and trigger a reload. Does not re-extract.
+///
+/// Invariant: LLM import writes ONLY to the custom (user) KB — never the
+/// bundled KB; see docs/10-custom-knowledge-base.md.
 pub async fn commit_import(
     commands: Vec<Command>,
     bundled_kb_path: &PathBuf,
@@ -242,19 +280,30 @@ pub async fn commit_import(
     platform: &str,
     category: &str,
     app_handle: &tauri::AppHandle,
+    platform_name: Option<&str>,
 ) -> Result<(), String> {
+    if commands.is_empty() {
+        return Err("no commands selected".to_string());
+    }
+
     let target_file = get_target_yaml_path(user_kb_path, platform, category);
     emit_progress(app_handle, ImportProgress::WritingYaml {
         command_count: commands.len(),
         target_file: target_file.display().to_string(),
     });
 
-    ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category)?;
+    ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category, platform_name)?;
 
     // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
     write_commands_to_yaml(&commands, &target_file, category)?;
 
     emit_progress(app_handle, ImportProgress::ReloadingKb {});
+
+    // Final event — the title-bar indicator clears on this.
+    emit_progress(app_handle, ImportProgress::Complete {
+        commands_imported: commands.len(),
+        target_file: target_file.display().to_string(),
+    });
     Ok(())
 }
 
@@ -505,6 +554,8 @@ fn validate_extracted_command(
         tokens: extracted.tokens,
         order: extracted.order,
         negatable: extracted.negatable,
+        source: None,
+        overrides: false,
     };
 
     // Phase 5.3: run the validator. Any error-severity issue touching `tokens`
@@ -565,7 +616,7 @@ fn estimate_command_count(text: &str) -> usize {
 // ─── File Operations ────────────────────────────────────────────────
 
 /// Ensure the KB directory structure exists for a platform/category.
-fn ensure_kb_structure(bundled_kb_path: &PathBuf, user_kb_path: &PathBuf, platform: &str, _category: &str) -> Result<(), String> {
+fn ensure_kb_structure(bundled_kb_path: &PathBuf, user_kb_path: &PathBuf, platform: &str, _category: &str, platform_name: Option<&str>) -> Result<(), String> {
     let platform_dir = user_kb_path.join(platform);
     let commands_dir = platform_dir.join("commands");
 
@@ -575,34 +626,46 @@ fn ensure_kb_structure(bundled_kb_path: &PathBuf, user_kb_path: &PathBuf, platfo
     // Ensure index.yaml exists for the platform
     let index_path = platform_dir.join("index.yaml");
     if !index_path.exists() {
-        create_platform_index(bundled_kb_path, platform, &index_path)?;
+        create_platform_index(bundled_kb_path, platform, &index_path, platform_name)?;
     }
 
     Ok(())
 }
 
+/// Single source of truth for what a truly-new (user's other software)
+/// platform looks like: single-mode, no prompt patterns — the prompt detector
+/// falls back to `default_mode` and suggestions are unfiltered by mode.
+/// Used both for the extract-stage placeholder index and the on-disk scaffold.
+pub fn new_platform_index(id: &str, name: &str) -> PlatformIndex {
+    PlatformIndex {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: format!("Imported platform — {name}"),
+        reference_url: String::new(),
+        versions: vec![],
+        prompt_patterns: std::collections::HashMap::new(),
+        default_mode: "default".to_string(),
+        negation_prefix: None,
+        prefix_commands: std::collections::HashMap::new(),
+    }
+}
+
 /// Create a platform index.yaml for a new platform.
 /// Single source of truth: copy the bundled index verbatim when present, so
-/// the scaffold always matches what ships in `knowledge-base/`. Unknown
-/// platforms fall back to a minimal scaffold.
-fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathBuf) -> Result<(), String> {
+/// the scaffold always matches what ships in `knowledge-base/`. Truly-new
+/// platforms (user's other software, docs/10 § Part 5) get the
+/// `new_platform_index` scaffold; no prompt-pattern authoring UI this phase —
+/// users who want modes edit `index.yaml` by hand.
+fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathBuf, platform_name: Option<&str>) -> Result<(), String> {
     let bundled_index = bundled_kb_path.join(platform).join("index.yaml");
     let content: Vec<u8> = if bundled_index.exists() {
         std::fs::read(&bundled_index)
             .map_err(|e| format!("Failed to read bundled index {}: {}", bundled_index.display(), e))?
     } else {
-        format!(
- r#"id: {platform}
-name: {platform}
-description: "Imported platform — {platform}"
-reference_url: ""
-versions: []
-prompt_patterns: {{}}
-default_mode: privileged-exec
-"#,
-            platform = platform,
-        )
-        .into_bytes()
+        let index = new_platform_index(platform, platform_name.unwrap_or(platform));
+        serde_yml::to_string(&index)
+            .map_err(|e| format!("Failed to serialize new platform index: {}", e))?
+            .into_bytes()
     };
 
     crate::paths::atomic_write(path, &content)
@@ -613,6 +676,9 @@ default_mode: privileged-exec
 }
 
 fn emit_progress(app_handle: &tauri::AppHandle, progress: ImportProgress) {
+    // Every pipeline stage lands in the app log — this is the persistent
+    // record of import flows (the in-app stream modal is memory-only).
+    log::info!("import progress: {:?}", progress);
     use tauri::Emitter;
     if let Err(e) = app_handle.emit("import-progress", &progress) {
         log::warn!("Failed to emit import progress: {}", e);
@@ -642,7 +708,7 @@ mod tests {
             std::fs::create_dir_all(&tmp).unwrap();
 
             let user_index = tmp.join("index.yaml");
-            create_platform_index(&bundled, platform, &user_index).unwrap();
+            create_platform_index(&bundled, platform, &user_index, None).unwrap();
 
             let expected = std::fs::read(bundled.join(platform).join("index.yaml")).unwrap();
             let actual = std::fs::read(&user_index).unwrap();
@@ -650,6 +716,38 @@ mod tests {
 
             let _ = std::fs::remove_dir_all(&tmp);
         }
+    }
+
+    #[test]
+    fn test_create_platform_index_new_platform_scaffold() {
+        // Truly-new platform (docs/10 § Part 5): minimal single-mode scaffold
+        // with the user-supplied display name and default_mode "default".
+        let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("knowledge-base");
+        let tmp = std::env::temp_dir().join(format!(
+            "netssh-idx-new-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let user_index = tmp.join("index.yaml");
+        create_platform_index(&bundled, "my-nos", &user_index, Some("My NOS")).unwrap();
+
+        let content = std::fs::read_to_string(&user_index).unwrap();
+        assert!(content.contains("id: my-nos"));
+        assert!(content.contains("name: My NOS"));
+        assert!(content.contains("prompt_patterns: {}"));
+        assert!(content.contains("default_mode: default"));
+
+        // The scaffold parses as a PlatformIndex and has no modes.
+        let index: PlatformIndex = serde_yml::from_str(&content).unwrap();
+        assert!(index.prompt_patterns.is_empty());
+        assert_eq!(index.default_mode, "default");
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
@@ -874,6 +972,8 @@ mod tests {
             tokens: vec![],
             order: Default::default(),
             negatable: false,
+            source: None,
+            overrides: false,
         }];
 
         let new_cmd = Command {
@@ -889,6 +989,8 @@ mod tests {
             tokens: vec![],
             order: Default::default(),
             negatable: false,
+            source: None,
+            overrides: false,
         };
 
         // Simulate the merge logic

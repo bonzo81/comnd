@@ -150,8 +150,13 @@ export class Dropdown {
       const name = this.highlightPrefix(item.command.name, hl);
       const category = item.command.category;
       const suffix = this.tokenSuffix(item);
+      // docs/10 § Part 2: "custom" tag when this command overrides a bundled
+      // entry with the same name.
+      const customBadge = item.command.overrides
+        ? `<span class="badge-custom" title="Overrides built-in KB entry — your version is shown">custom</span>`
+        : "";
       return `<div class="suggestion-item${isSelected ? " selected" : ""}" data-index="${i}">
-        <span class="suggestion-name">${name}</span>
+        <span class="suggestion-name">${name}${customBadge}</span>
         <span class="token-suffix">${suffix}</span>
         <span class="suggestion-category">${escHtml(category)}</span>
       </div>`;

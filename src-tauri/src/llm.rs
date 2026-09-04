@@ -85,6 +85,15 @@ pub struct ExtractionResult {
 
 // ─── Client Implementation ─────────────────────────────────────────
 
+/// Max silence between stream chunks. This replaces a total request timeout:
+/// a slow-but-working model streams continuously and never trips it; a hung
+/// server or dropped connection fails after this idle window.
+const CHAT_IDLE_TIMEOUT_SECS: u64 = 120;
+/// Report received-output size to the UI every N chars.
+const OUTPUT_REPORT_INTERVAL: usize = 250;
+/// Rolling tail of streamed output sent to the UI (live view in the modal).
+const OUTPUT_TAIL_CHARS: usize = 400;
+
 impl LlmClient {
     /// Create a new LLM client. `api_format` is `"openai"` or `"anthropic"`.
     pub fn new(
@@ -95,7 +104,9 @@ impl LlmClient {
         api_format: String,
     ) -> Self {
         let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300)) // 5-minute timeout for large extractions
+            .connect_timeout(Duration::from_secs(30))
+            // No total timeout — chat uses streaming with per-chunk idle
+            // timeouts; list_models sets its own short per-request timeout.
             .build()
             .unwrap_or_default();
 
@@ -126,6 +137,7 @@ impl LlmClient {
         category: &str,
         platform_index: &crate::kb::PlatformIndex,
         existing_categories: &[String],
+        on_output: impl Fn(usize, &str) + Send + Sync,
     ) -> Result<Vec<ExtractedCommand>, String> {
         let system_prompt = build_system_prompt(platform, category, platform_index, existing_categories);
         let user_prompt = build_user_prompt(content, platform, category);
@@ -141,9 +153,9 @@ impl LlmClient {
         );
 
         let content_text = if self.is_anthropic() {
-            self.anthropic_chat(&system_prompt, &user_prompt).await?
+            self.anthropic_chat(&system_prompt, &user_prompt, &on_output).await?
         } else {
-            self.openai_chat(&system_prompt, &user_prompt).await?
+            self.openai_chat(&system_prompt, &user_prompt, &on_output).await?
         };
 
         // Parse the LLM's JSON output (strip markdown fences some models add)
@@ -158,8 +170,116 @@ impl LlmClient {
         Ok(extraction.commands)
     }
 
+    /// Read an SSE stream, invoking `handle` per `data:` payload line.
+    /// `handle` returns Ok(false) to stop cleanly (stream terminator) or
+    /// Err to abort. Chunks read with an idle timeout: a hung server or
+    /// dropped connection errors out instead of waiting forever.
+    async fn read_sse_stream(
+        response: &mut reqwest::Response,
+        mut handle: impl FnMut(&str) -> Result<bool, String>,
+    ) -> Result<(), String> {
+        let mut buf = String::new();
+        loop {
+            let chunk = tokio::time::timeout(
+                Duration::from_secs(CHAT_IDLE_TIMEOUT_SECS),
+                response.chunk(),
+            )
+            .await
+            .map_err(|_| format!(
+                "LLM stream stalled for {} seconds with no data — the server may have hung. Cancel and retry.",
+                CHAT_IDLE_TIMEOUT_SECS
+            ))?
+            .map_err(|e| format!("LLM stream read failed: {} — connection may have dropped", e))?;
+
+            match chunk {
+                None => return Ok(()), // stream ended
+                Some(bytes) => {
+                    buf.push_str(&String::from_utf8_lossy(&bytes));
+                    while let Some(pos) = buf.find('\n') {
+                        let line: String = buf.drain(..=pos).collect();
+                        let line = line.trim_end();
+                        if let Some(data) = line.strip_prefix("data:") {
+                            let data = data.trim();
+                            if data.is_empty() {
+                                continue; // keepalive comment
+                            }
+                            if !handle(data)? {
+                                return Ok(());
+                            }
+                        }
+                        // Non-data lines (event:, :, empty) are ignored.
+                    }
+                }
+            }
+        }
+    }
+
+    /// Shared chat-response handling: stream SSE deltas via `on_data` (which
+    /// appends text into `content`), fall back to a plain body read when the
+    /// server ignores the stream request, report progress/tail via
+    /// `on_output`, and flush at the end. Returns the full content.
+    async fn read_chat_response(
+        mut response: reqwest::Response,
+        on_output: &impl Fn(usize, &str),
+        mut on_data: impl FnMut(&str, &mut String) -> Result<bool, String>,
+    ) -> Result<String, String> {
+        // Some servers ignore "stream": true and answer with a normal JSON
+        // body. Detect via Content-Type and fall back to a plain read so the
+        // output still arrives (without live streaming).
+        let is_sse = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|ct| ct.contains("text/event-stream"))
+            .unwrap_or(false);
+
+        let mut content = String::new();
+        let mut reported = 0usize;
+        let mut tail = String::new();
+
+        if is_sse {
+            Self::read_sse_stream(&mut response, |data| {
+                let before = content.chars().count();
+                let keep = on_data(data, &mut content)?;
+                let after = content.chars().count();
+                if after > before {
+                    let appended: String = content.chars().skip(before).collect();
+                    push_tail(&mut tail, &appended);
+                    if after - reported >= OUTPUT_REPORT_INTERVAL {
+                        reported = after;
+                        on_output(after, &tail);
+                    }
+                }
+                Ok(keep)
+            })
+            .await?;
+        } else {
+            log::info!("LLM server ignored stream request — falling back to non-streaming read");
+            content = response
+                .text()
+                .await
+                .map_err(|e| format!("LLM stream read failed: {} — connection may have dropped", e))?;
+        }
+
+        // Final flush: guarantee the UI sees the output even for short
+        // responses that never cross the report interval.
+        let n = content.chars().count();
+        if n > reported {
+            if tail.is_empty() {
+                push_tail(&mut tail, &content);
+            }
+            on_output(n, &tail);
+        }
+
+        if content.is_empty() {
+            return Err("LLM stream completed with no content".to_string());
+        }
+        Ok(content)
+    }
+
     /// Chat via an OpenAI-compatible server: `POST {base}/v1/chat/completions`.
-    async fn openai_chat(&self, system: &str, user: &str) -> Result<String, String> {
+    /// Streams SSE deltas and reports received-output size via `on_output`.
+    async fn openai_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
         let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
 
         let messages = vec![
@@ -169,11 +289,11 @@ impl LlmClient {
         let request = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "stream": false,
+            "stream": true,
             "response_format": { "type": "json_object" },
         });
 
-        log::info!("LLM request: format=openai model={} url={} ", self.model, url);
+        log::info!("LLM request: format=openai model={} url={} (streaming)", self.model, url);
 
         let mut http_req = self.http_client.post(&url).json(&request);
         if let Some(ref key) = self.api_key {
@@ -184,14 +304,20 @@ impl LlmClient {
             .send()
             .await
             .map_err(|e| {
-                let msg = e.to_string();
-                // Detect connection refused / timeout — common proxy/network issues
-                if msg.contains("connection refused") {
+                if e.is_connect() {
                     format!("Connection refused at {} — is the LLM server running?", self.base_url)
-                } else if msg.contains("timed out") {
-                    format!("LLM request timed out after 5 minutes — the model may be slow to respond or the server is overloaded")
+                } else if e.is_timeout() {
+                    "LLM connection timed out after 30s — server not accepting connections".to_string()
                 } else {
-                    format!("LLM request failed: {}", msg)
+                    // Include the source chain: reqwest hides the real cause
+                    // (DNS, TLS, reset) below the generic "error sending request".
+                    let mut msg = format!("LLM request failed: {}", e);
+                    let mut src = std::error::Error::source(&e);
+                    while let Some(s) = src {
+                        msg.push_str(&format!(" — caused by: {}", s));
+                        src = s.source();
+                    }
+                    msg
                 }
             })?;
 
@@ -201,33 +327,39 @@ impl LlmClient {
             return Err(format!("LLM API error ({}): {}", status, body));
         }
 
-        #[derive(Deserialize)]
-        struct OpenAiResponse {
-            choices: Vec<OpenAiChoice>,
-        }
-        #[derive(Deserialize)]
-        struct OpenAiChoice {
-            message: OpenAiMessage,
-        }
-        #[derive(Deserialize)]
-        struct OpenAiMessage {
-            content: Option<String>,
-        }
-
-        let resp: OpenAiResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
-
-        resp.choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .ok_or_else(|| "LLM returned no choices".to_string())
+        Self::read_chat_response(response, on_output, |data, content| {
+            if data == "[DONE]" {
+                return Ok(false);
+            }
+            #[derive(Deserialize)]
+            struct OpenAiChunk {
+                #[serde(default)]
+                choices: Vec<OpenAiChunkChoice>,
+            }
+            #[derive(Deserialize)]
+            struct OpenAiChunkChoice {
+                #[serde(default)]
+                delta: OpenAiChunkDelta,
+            }
+            #[derive(Deserialize, Default)]
+            struct OpenAiChunkDelta {
+                #[serde(default)]
+                content: Option<String>,
+            }
+            if let Ok(chunk) = serde_json::from_str::<OpenAiChunk>(data) {
+                if let Some(text) = chunk.choices.into_iter().next().and_then(|c| c.delta.content) {
+                    content.push_str(&text);
+                }
+            }
+            // Unparseable lines (e.g. provider keepalives) are ignored.
+            Ok(true)
+        })
+        .await
     }
 
     /// Chat via the Anthropic wire format: `POST {base}/v1/messages`.
-    async fn anthropic_chat(&self, system: &str, user: &str) -> Result<String, String> {
+    /// Streams SSE deltas and reports received-output size via `on_output`.
+    async fn anthropic_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
 
         let request = serde_json::json!({
@@ -237,10 +369,10 @@ impl LlmClient {
             "messages": [
                 { "role": "user", "content": user }
             ],
-            "stream": false,
+            "stream": true,
         });
 
-        log::info!("LLM request: format=anthropic model={} url={}", self.model, url);
+        log::info!("LLM request: format=anthropic model={} url={} (streaming)", self.model, url);
 
         let mut http_req = self.http_client
             .post(&url)
@@ -253,7 +385,15 @@ impl LlmClient {
         let response = http_req
             .send()
             .await
-            .map_err(|e| format!("LLM request failed: {}", e))?;
+            .map_err(|e| {
+                if e.is_connect() {
+                    format!("Connection refused at {} — is the LLM server running?", self.base_url)
+                } else if e.is_timeout() {
+                    "LLM connection timed out after 30s — server not accepting connections".to_string()
+                } else {
+                    format!("LLM request failed: {}", e)
+                }
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -261,30 +401,28 @@ impl LlmClient {
             return Err(format!("LLM API error ({}): {}", status, body));
         }
 
-        #[derive(Deserialize)]
-        struct AnthropicResponse {
-            content: Vec<AnthropicBlock>,
-        }
-        #[derive(Deserialize)]
-        struct AnthropicBlock {
-            #[serde(rename = "type")]
-            block_type: String,
-            #[serde(default)]
-            text: Option<String>,
-        }
-
-        let resp: AnthropicResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
-
-        Ok(resp
-            .content
-            .into_iter()
-            .filter(|b| b.block_type == "text")
-            .filter_map(|b| b.text)
-            .collect::<Vec<_>>()
-            .join(""))
+        Self::read_chat_response(response, on_output, |data, content| {
+            let v: serde_json::Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => return Ok(true), // ignore keepalives/non-JSON lines
+            };
+            match v["type"].as_str() {
+                Some("content_block_delta") => {
+                    if let Some(text) = v["delta"]["text"].as_str() {
+                        content.push_str(text);
+                    }
+                }
+                Some("message_stop") => return Ok(false),
+                Some("error") => {
+                    return Err(format!("LLM stream error: {}", v["error"].as_object()
+                        .map(|o| o.iter().map(|(k, val)| format!("{}: {}", k, val)).collect::<Vec<_>>().join(", "))
+                        .unwrap_or_else(|| data.to_string())));
+                }
+                _ => {}
+            }
+            Ok(true)
+        })
+        .await
     }
 
     /// List available models. Both wire formats expose `GET {base}/v1/models`.
@@ -347,6 +485,17 @@ fn strip_code_fences(text: &str) -> String {
     t.to_string()
 }
 
+/// Keep `tail` trimmed to the last OUTPUT_TAIL_CHARS chars (rolling window
+/// sent to the UI's live output view). Called with an empty window and the
+/// full content, it doubles as the non-streaming tail extractor.
+fn push_tail(tail: &mut String, text: &str) {
+    tail.push_str(text);
+    let total = tail.chars().count();
+    if total > OUTPUT_TAIL_CHARS {
+        let skip = total - OUTPUT_TAIL_CHARS;
+        *tail = tail.chars().skip(skip).collect();
+    }
+}
 // ─── Prompt Engineering ─────────────────────────────────────────────
 
 /// Build the system prompt from the platform's real vocabulary rather than a
@@ -389,7 +538,9 @@ fn build_system_prompt(
     };
 
     format!(
-        r#"You are a network operating system command reference extraction tool. Your job is to read documentation or web pages about {platform} commands and extract structured command data.
+        r#"You are extracting commands for the user's PERSONAL CUSTOM knowledge base. This is not the app's built-in knowledge base and must never be treated as one: output is shown to this user for review, then saved to their private profile. Extract only commands documented in the provided text — do not invent, generalize from other platforms, or fill gaps from your own knowledge. Every command must conform exactly to the schema below; the app validates your output and the user rejects invalid commands at review.
+
+You are a network operating system command reference extraction tool. Your job is to read documentation or web pages about {platform} commands and extract structured command data.
 
 You MUST output valid JSON matching the provided schema. Each command must have:
 - "name": The exact command string (e.g., "show ip interface brief")
@@ -427,7 +578,7 @@ Worked example (show ip interface brief):
 IMPORTANT RULES:
 1. Only extract actual commands — not UI elements, navigation items, or descriptive text
 2. The "name" field must be the full command string as typed in the CLI
-3. The "mode" field must be one of the valid modes listed above
+3. The "mode" field must be one of the valid modes listed above; any other value is rejected and coerced to the platform default "{default_mode}", so omit the field if unsure rather than guessing a mode name
 4. If you cannot determine a field with confidence, omit it rather than guessing
 5. Category for these commands: {category}
 6. Extract ALL commands found in the documentation — be thorough
@@ -438,6 +589,7 @@ IMPORTANT RULES:
         negation = negation_line,
         categories = categories_line,
         category = category,
+        default_mode = platform_index.default_mode,
     )
 }
 
@@ -618,6 +770,19 @@ mod tests {
         let prompt = build_system_prompt("cisco-iosxe", "routing", &pi, &cats);
         assert!(prompt.contains("networking"));
         assert!(prompt.contains("system"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_custom_kb_boundary() {
+        // docs/10: the prompt must state the custom-KB purpose/boundary so
+        // the LLM never treats extraction as built-in KB content.
+        let pi = iosxe_platform_index();
+        let prompt = build_system_prompt("cisco-iosxe", "networking", &pi, &[]);
+        assert!(prompt.contains("PERSONAL CUSTOM knowledge base"));
+        assert!(prompt.contains("do not invent"));
+        // Rule 3 states the mode coercion that the validator enforces
+        // (import.rs coerces unknown modes to default_mode).
+        assert!(prompt.contains("coerced to the platform default \"privileged-exec\""));
     }
 
     #[test]
