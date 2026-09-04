@@ -38,6 +38,8 @@ pub enum ImportProgress {
     /// Streaming: chars of LLM output received so far + rolling tail of the
     /// raw output text (live view in the job modal).
     LlmOutput { chars: usize, tail: String },
+    /// Chunked extraction progress for large source pages.
+    ExtractingChunk { chunk: usize, total: usize },
     ExtractingCommands { },
     Validating { command_count: usize },
     WritingYaml { command_count: usize, target_file: String },
@@ -91,6 +93,54 @@ pub struct ExtractPreview {
 }
 
 // ─── Pipeline ───────────────────────────────────────────────────────
+
+/// Max source-text chars per LLM extraction call. Output JSON grows with the
+/// commands in the chunk; 12k input chars keeps each call's output a few
+/// thousand tokens — safely under typical model output limits. Pages larger
+/// than this are split into chunks (see `split_text_chunks`).
+const CHUNK_EXTRACTION_CHARS: usize = 12_000;
+
+/// Split source text into chunks of at most `max` chars at line boundaries
+/// (the HTML extractor emits one command-syntax block per line). An
+/// individual line longer than `max` is hard-split by chars. Small pages are
+/// returned as a single chunk (no behavior change).
+fn split_text_chunks(text: &str, max: usize) -> Vec<String> {
+    if text.chars().count() <= max {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in text.split('\n') {
+        let line_len = line.chars().count();
+        if line_len > max {
+            // Monster line — hard-split by chars so no chunk exceeds `max`.
+            if !current.trim().is_empty() {
+                chunks.push(std::mem::take(&mut current));
+            }
+            let mut buf = String::new();
+            for ch in line.chars() {
+                if buf.chars().count() + 1 > max {
+                    chunks.push(std::mem::take(&mut buf));
+                }
+                buf.push(ch);
+            }
+            current = buf;
+            continue;
+        }
+        if current.chars().count() + line_len + 1 > max && !current.trim().is_empty() {
+            chunks.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(line);
+    }
+    if !current.trim().is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
 
 /// Bundled (read-only, repo-shipped) KB path — single source for index
 /// scaffolds. Resolves like lib.rs setup: resource dir in release,
@@ -193,17 +243,74 @@ pub async fn extract_from_url(
         emit_progress(&progress_handle, ImportProgress::LlmOutput { chars, tail: tail.to_string() });
     };
 
-    let extracted = llm.extract_commands(
-        &text_content,
-        &request.platform,
-        &request.category,
-        platform_index,
-        &existing_categories,
-        &on_output,
-    ).await.map_err(|e| {
-        emit_progress(app_handle, ImportProgress::Error { message: e.clone() });
-        e
-    })?;
+    // Chunked extraction (docs/10): large pages produce oversized JSON that
+    // exceeds the model's output-token limit (truncated mid-string). Split
+    // the source text so each call's output stays well under the limit.
+    let chunks = split_text_chunks(&text_content, CHUNK_EXTRACTION_CHARS);
+    let mut extracted: Vec<ExtractedCommand> = Vec::new();
+
+    if chunks.len() == 1 {
+        extracted = llm.extract_commands(
+            &chunks[0],
+            &request.platform,
+            &request.category,
+            platform_index,
+            &existing_categories,
+            &on_output,
+        ).await.map_err(|e| {
+            emit_progress(app_handle, ImportProgress::Error { message: e.clone() });
+            e
+        })?;
+    } else {
+        // One failing chunk doesn't kill the import — collect its error and
+        // continue; the user still gets the commands the other chunks found.
+        let total = chunks.len();
+        let mut chunk_errors: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            emit_progress(app_handle, ImportProgress::ExtractingChunk { chunk: i + 1, total });
+            match llm.extract_commands(
+                chunk,
+                &request.platform,
+                &request.category,
+                platform_index,
+                &existing_categories,
+                &on_output,
+            ).await {
+                Ok(cmds) => {
+                    for cmd in cmds {
+                        if seen.insert(cmd.name.clone()) {
+                            extracted.push(cmd);
+                        } else {
+                            log::info!("Chunk {}: deduped duplicate command from earlier chunk", i + 1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Chunk {}/{} extraction failed: {}", i + 1, total, e);
+                    chunk_errors.push(format!("chunk {}/{}: {}", i + 1, total, e));
+                }
+            }
+        }
+        if extracted.is_empty() {
+            let msg = format!(
+                "All {} extraction chunks failed. Last error: {}",
+                total,
+                chunk_errors.last().map(|s| s.as_str()).unwrap_or("unknown")
+            );
+            emit_progress(app_handle, ImportProgress::Error { message: msg.clone() });
+            return Err(msg);
+        }
+        if !chunk_errors.is_empty() {
+            errors.push(format!(
+                "{} of {} extraction chunks failed ({}); the remaining chunks were imported",
+                chunk_errors.len(),
+                total,
+                chunk_errors.join("; ")
+            ));
+        }
+        log::info!("Chunked extraction: {} chunks, {} deduped commands", total, extracted.len());
+    }
 
     emit_progress(app_handle, ImportProgress::ExtractingCommands {});
     if extracted.is_empty() {
@@ -948,6 +1055,44 @@ mod tests {
 
         let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
         assert_eq!(cmd.tokens.len(), 2, "good tokens should survive, got {:?}", cmd.tokens);
+    }
+
+    #[test]
+    fn test_split_text_chunks_small_page_single_chunk() {
+        let text = "show ip route\nshow version\nping 10.0.0.1";
+        let chunks = split_text_chunks(text, 12_000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], text);
+    }
+
+    #[test]
+    fn test_split_text_chunks_respects_limit() {
+        let line = "show ip route — displays the routing table and forwarding state"; // ~64 chars
+        let text = std::iter::repeat(line).take(300).collect::<Vec<_>>().join("\n");
+        assert!(text.chars().count() > 12_000, "test text must exceed the chunk limit");
+
+        let chunks = split_text_chunks(&text, 12_000);
+        assert!(chunks.len() >= 2);
+        for c in &chunks {
+            assert!(c.chars().count() <= 12_000, "chunk is {} chars, exceeds limit", c.chars().count());
+            assert!(!c.trim().is_empty());
+        }
+        // No content lost: every line appears across the chunks.
+        let joined = chunks.join("\n");
+        assert_eq!(joined.split('\n').count(), 300);
+    }
+
+    #[test]
+    fn test_split_text_chunks_monster_line_hard_split() {
+        // A single 25k-char line with no newlines must hard-split by chars.
+        let text = "x".repeat(25_000);
+        let chunks = split_text_chunks(&text, 12_000);
+        assert!(chunks.len() >= 3);
+        for c in &chunks {
+            assert!(c.chars().count() <= 12_000);
+        }
+        let total: usize = chunks.iter().map(|c| c.chars().count()).sum();
+        assert_eq!(total, 25_000);
     }
 
     #[test]

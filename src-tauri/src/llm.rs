@@ -163,7 +163,17 @@ impl LlmClient {
         let extraction: ExtractionResult = serde_json::from_str(&cleaned)
             .map_err(|e| {
                 log::error!("LLM output was not valid JSON: {}", content_text.chars().take(500).collect::<String>());
-                format!("Failed to parse LLM output as structured commands: {}. Output preview: {}", e, content_text.chars().take(200).collect::<String>())
+                if e.is_io() {
+                    // EOF mid-string = truncated JSON. The stream ended cleanly
+                    // but early — the model hit its output-token limit (large
+                    // page + "extract ALL" prompt) or the server cut generation.
+                    format!(
+                        "LLM output was truncated at {} chars — the model likely hit its output-token limit while writing JSON for too many commands. Try a documentation page covering fewer commands, or a model/server with a higher output limit.",
+                        cleaned.chars().count()
+                    )
+                } else {
+                    format!("Failed to parse LLM output as structured commands: {}. Output preview: {}", e, content_text.chars().take(200).collect::<String>())
+                }
             })?;
 
         log::info!("LLM extracted {} commands", extraction.commands.len());

@@ -39,6 +39,8 @@ export function formatProgress(stage: string, detail: unknown): { key: string; l
       return { key: "sending", label: `Sending to LLM (~${s(d.command_count_estimate)} commands expected)…` };
     case "LlmOutput":
       return { key: "sending", label: `Receiving LLM output (${s(d.chars)} chars)…`, tail: s(d.tail) };
+    case "ExtractingChunk":
+      return { key: "extracting", label: `Extracting commands (chunk ${s(d.chunk)}/${s(d.total)})…` };
     case "ExtractingCommands":
       return { key: "extracting", label: "Extracting commands…" };
     case "Validating":
@@ -67,6 +69,8 @@ class ImportJobStatus {
   lines: ImportJobLine[] = [];
   /** Rolling tail of raw LLM stream output (live view in the job modal). */
   llmTail = "";
+  /** Total chars received from the LLM stream (for the summary line). */
+  llmChars = 0;
   /** Set by requestCancel(); consumed once by the dialog when its await resolves. */
   cancelRequested = false;
 
@@ -88,6 +92,19 @@ class ImportJobStatus {
     this.lines.push({ time: t, text, kind });
   }
 
+  private parseChars(label: string): number {
+    const m = label.match(/\(([\d,]+) chars\)/);
+    return m ? parseInt(m[1].replace(/,/g, ""), 10) : 0;
+  }
+
+  /** One summary line for the stream total, instead of one per tick. */
+  private flushLlmChars() {
+    if (this.llmChars > 0) {
+      this.addLine(`Received ${this.llmChars} chars of LLM output`, "info");
+      this.llmChars = 0;
+    }
+  }
+
   /** Begin listening to backend progress events (once, lazily). */
   private async ensureListening() {
     if (this.listening) return;
@@ -99,8 +116,18 @@ class ImportJobStatus {
         if (stage === "Complete") {
           this.finish(true, info.label);
         } else if (stage === "Error") {
+          this.flushLlmChars();
           this.finish(false, info.label);
+        } else if (stage === "LlmOutput") {
+          // Streaming tick — update header/tooltip/live box only; logging a
+          // line per tick spams the stream (one line per 250 chars).
+          this.committing = false;
+          this.stageLabel = info.label;
+          this.llmTail = info.tail ?? "";
+          this.llmChars = this.parseChars(info.label);
+          this.emit();
         } else {
+          this.flushLlmChars();
           this.committing = stage === "WritingYaml" || stage === "ReloadingKb";
           this.stageLabel = info.label;
           if (info.tail !== undefined) this.llmTail = info.tail;
@@ -124,6 +151,7 @@ class ImportJobStatus {
     this.startedAt = Date.now();
     this.lines = [];
     this.llmTail = "";
+    this.llmChars = 0;
     this.stageLabel = "Starting import…";
     this.addLine(`Import started — ${platform}/${category}`, "info");
     this.addLine(`Source: ${url}`, "info");
@@ -133,6 +161,7 @@ class ImportJobStatus {
   /** Extraction done — user is reviewing the preview. Job stays active. */
   review(count: number) {
     if (!this.active) return;
+    this.flushLlmChars();
     this.stageLabel = `Review ready — ${count} command(s) awaiting your decision`;
     this.addLine(`Extraction finished — ${count} command(s) extracted, awaiting review`, "info");
     this.emit();
@@ -143,6 +172,7 @@ class ImportJobStatus {
     this.active = false;
     this.committing = false;
     this.stageLabel = "";
+    this.flushLlmChars();
     this.addLine(note, ok ? "done" : "error");
     this.emit();
   }
