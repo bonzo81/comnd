@@ -1380,6 +1380,7 @@ async fn delete_kb_command(
     platform: String,
     category: String,
     command_name: String,
+    overrides: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let user_kb_path = {
@@ -1387,7 +1388,7 @@ async fn delete_kb_command(
         config.user_kb_path()
     };
 
-    kb::delete_kb_command(&user_kb_path, &platform, &category, &command_name)?;
+    kb::delete_kb_command(&user_kb_path, &platform, &category, &command_name, overrides)?;
 
     // Reload KB so changes are reflected immediately
     {
@@ -1396,6 +1397,63 @@ async fn delete_kb_command(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+async fn disable_kb_command(
+    platform: String,
+    command_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let user_kb_path = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.user_kb_path()
+    };
+
+    kb::disable_kb_command(&user_kb_path, &platform, &command_name)?;
+
+    // Reload KB so changes are reflected immediately
+    {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.reload_all();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn enable_kb_command(
+    platform: String,
+    command_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let user_kb_path = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.user_kb_path()
+    };
+
+    kb::enable_kb_command(&user_kb_path, &platform, &command_name)?;
+
+    // Reload KB so changes are reflected immediately
+    {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.reload_all();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_disabled_commands(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let user_kb_path = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.user_kb_path()
+    };
+
+    Ok(kb::get_disabled_commands(&user_kb_path, &platform))
 }
 
 // ─── Test Commands (debug only) ─────────────────────────────────────
@@ -1701,6 +1759,9 @@ pub fn run() {
                 get_all_kb_commands,
                 save_kb_command,
                 delete_kb_command,
+                disable_kb_command,
+                enable_kb_command,
+                get_disabled_commands,
                 get_host_groups,
                 save_host_group,
                 move_host_group,

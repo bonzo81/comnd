@@ -392,6 +392,12 @@
   white-space: nowrap;
 }
 
+.kb-command-ignored .kb-command-name {
+  color: var(--color-text-secondary);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
 /* ─── KB Edit / Delete ─────────────────────────────────────────────── */
 .kb-detail-wrapper {
   display: flex;

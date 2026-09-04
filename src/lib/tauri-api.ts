@@ -532,8 +532,27 @@ export async function deleteKbCommand(
   platform: string,
   category: string,
   commandName: string,
+  overrides: boolean,
 ): Promise<void> {
-  return invoke<void>("delete_kb_command", { platform, category, commandName });
+  return invoke<void>("delete_kb_command", { platform, category, commandName, overrides });
+}
+
+export async function disableKbCommand(
+  platform: string,
+  commandName: string,
+): Promise<void> {
+  return invoke<void>("disable_kb_command", { platform, commandName });
+}
+
+export async function enableKbCommand(
+  platform: string,
+  commandName: string,
+): Promise<void> {
+  return invoke<void>("enable_kb_command", { platform, commandName });
+}
+
+export async function getDisabledCommands(platform: string): Promise<string[]> {
+  return invoke<string[]>("get_disabled_commands", { platform });
 }
 
 // ─── Command Replay (docs/09-command-replay.md) ──────────────────────

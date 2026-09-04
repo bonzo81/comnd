@@ -99,5 +99,5 @@ Phase 1 is the only behavioural risk (existing user overrides become real); ship
 
 ## Open Questions
 
-* Should the KB viewer offer "restore built-in version" for an overridden command (delete custom command, since tombstone already handles re-hide)? — cheap, likely yes in phase 2.
+* ~~Should the KB viewer offer "restore built-in version" for an overridden command?~~ Resolved: delete is class-aware (docs/plan-kb-ignore-disable.md) — deleting an override removes the user copy and un-tombstones the name so the bundled command resurfaces; no separate restore affordance needed. A non-destructive Ignore/Disable path (`_disabled.yaml`) was added alongside for hiding without destroying data.
 * Badge style/placement — designer call, see docs/03.

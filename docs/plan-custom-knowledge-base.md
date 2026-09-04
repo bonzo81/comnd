@@ -122,8 +122,10 @@ badge (phase-1 scope; revisit on feedback).
 - **KB viewer dialog** (`kb-viewer-dialog.ts`): info note when viewing a
   command with `overrides: true`, plus a "Delete custom version" affordance
   already exists via `deleteKbCommand` — label it "Restore built-in version"
-  when `overrides` is true (delete = tombstone → bundled resurfaces; this is
-  the cheap "reset" path, no un-override code).
+  when `overrides` is true. Delete is class-aware (docs/plan-kb-ignore-disable.md):
+  for an override it removes the user copy and un-tombstones the name, so the
+  bundled command resurfaces; a tombstone is written only when deleting a
+  bundled-only command with no user copy.
 - Styling: new custom property if needed in `tokens.css` (e.g.
   `--accent-custom`); dark theme first per AGENTS.md.
 

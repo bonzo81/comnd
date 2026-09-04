@@ -397,11 +397,12 @@ impl KbStore {
             }
         }
 
-        // Load deleted-commands list
+        // Load deleted + disabled command lists
         let deleted_commands = read_deleted_list(&platform_dir);
+        let disabled_commands = read_disabled_list(&platform_dir);
 
-        // Filter out deleted commands
-        commands.retain(|c| !deleted_commands.contains(&c.name));
+        // Filter out deleted and disabled commands
+        commands.retain(|c| !deleted_commands.contains(&c.name) && !disabled_commands.contains(&c.name));
 
         // Sort alphabetically by name
         commands.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -588,14 +589,18 @@ impl KbManager {
                         }
                     }
 
-                    // Also filter by user KB's deleted list (catches bundled-only commands)
+                    // Also filter by user KB's deleted + disabled lists
+                    // (catches bundled-only commands)
                     let user_deleted = Self::load_deleted_names(&user_platform_dir);
-                    if !user_deleted.is_empty() {
+                    let user_disabled = read_disabled_list(&user_platform_dir);
+                    let hidden: HashSet<String> =
+                        user_deleted.union(&user_disabled).cloned().collect();
+                    if !hidden.is_empty() {
                         let before = store.commands.len();
-                        store.commands.retain(|c| !user_deleted.contains(&c.name));
+                        store.commands.retain(|c| !hidden.contains(&c.name));
                         log::info!(
-                            "Filtered {} deleted commands for '{}' ({} → {})",
-                            user_deleted.len(),
+                            "Filtered {} hidden commands for '{}' ({} → {})",
+                            hidden.len(),
                             platform_id,
                             before,
                             store.commands.len()
@@ -684,40 +689,54 @@ impl KbManager {
 
 // ─── User KB Command Editing ────────────────────────────────────────
 
-/// Read the set of deleted command names for a platform (`_deleted.yaml`).
-fn read_deleted_list(platform_dir: &Path) -> HashSet<String> {
-    #[derive(serde::Deserialize)]
-    struct DeletedFile {
-        deleted: Vec<String>,
-    }
-    let deleted_path = platform_dir.join("_deleted.yaml");
-    if deleted_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&deleted_path) {
-            if let Ok(file) = serde_yml::from_str::<DeletedFile>(&content) {
-                return file.deleted.into_iter().collect();
+/// Read a set of command names from a platform-level list file
+/// (`_deleted.yaml` / `_disabled.yaml`) keyed by `key`.
+fn read_name_list(platform_dir: &Path, filename: &str, key: &str) -> HashSet<String> {
+    let path = platform_dir.join(filename);
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_yml::from_str::<serde_yml::Value>(&content) {
+                if let Some(serde_yml::Value::Sequence(seq)) = value.get(key) {
+                    return seq.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                }
             }
         }
     }
     HashSet::new()
 }
 
-/// Write the set of deleted command names to `_deleted.yaml` (sorted).
-fn write_deleted_list(deleted_path: &Path, names: &HashSet<String>) -> Result<(), String> {
+/// Write a set of command names to a list file under `key` (sorted).
+fn write_name_list(path: &Path, key: &str, names: &HashSet<String>) -> Result<(), String> {
     use serde_yml::Value;
     let mut list: Vec<&String> = names.iter().collect();
     list.sort();
-    let yaml_content = serde_yml::to_string(&Value::Mapping({
-        let mut map = serde_yml::Mapping::new();
-        map.insert(
-            Value::String("deleted".to_string()),
-            serde_yml::to_value(&list).unwrap_or_default(),
-        );
-        map
-    }))
-    .map_err(|e| format!("Failed to serialize deleted list: {}", e))?;
+    let mut map = serde_yml::Mapping::new();
+    map.insert(Value::String(key.to_string()), serde_yml::to_value(&list).unwrap_or_default());
+    let yaml_content = serde_yml::to_string(&Value::Mapping(map))
+        .map_err(|e| format!("Failed to serialize list: {}", e))?;
 
-    crate::paths::atomic_write(deleted_path, yaml_content.as_bytes())
-        .map_err(|e| format!("Failed to write {}: {}", deleted_path.display(), e))
+    crate::paths::atomic_write(path, yaml_content.as_bytes())
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+/// Read the set of deleted command names for a platform (`_deleted.yaml`).
+fn read_deleted_list(platform_dir: &Path) -> HashSet<String> {
+    read_name_list(platform_dir, "_deleted.yaml", "deleted")
+}
+
+/// Write the set of deleted command names to `_deleted.yaml` (sorted).
+fn write_deleted_list(deleted_path: &Path, names: &HashSet<String>) -> Result<(), String> {
+    write_name_list(deleted_path, "deleted", names)
+}
+
+/// Read the set of disabled command names for a platform (`_disabled.yaml`).
+fn read_disabled_list(platform_dir: &Path) -> HashSet<String> {
+    read_name_list(platform_dir, "_disabled.yaml", "disabled")
+}
+
+/// Write the set of disabled command names to `_disabled.yaml` (sorted).
+fn write_disabled_list(disabled_path: &Path, names: &HashSet<String>) -> Result<(), String> {
+    write_name_list(disabled_path, "disabled", names)
 }
 
 /// Serialize commands under a top-level `commands:` key.
@@ -883,18 +902,24 @@ pub fn save_kb_command(
 
 /// Delete a single command from the user KB path by name.
 ///
-/// If the category YAML exists in the user KB path, removes the command from it.
-/// Always records the command name in _deleted.yaml in the user KB platform dir,
-/// which the KbStore loader uses to filter out deleted bundled commands.
+/// Class-aware semantics (docs/10-custom-knowledge-base.md):
+/// - `overrides == true` (user override of a bundled command): remove the user
+///   copy AND un-tombstone the name so the built-in version reappears.
+/// - `overrides == false` with a user copy present (user-only custom command):
+///   just remove the user copy — nothing to hide, no tombstone.
+/// - `overrides == false` with no user copy (bundled-only command): record the
+///   name in `_deleted.yaml` so the loader hides the bundled version.
 pub fn delete_kb_command(
     user_kb_path: &Path,
     platform: &str,
     category: &str,
     command_name: &str,
+    overrides: bool,
 ) -> Result<(), String> {
     let path = get_target_yaml_path(user_kb_path, platform, category);
 
-    // 1. Remove from category file if it exists
+    // 1. Remove the user copy from the category file if it exists.
+    let mut had_user_copy = false;
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
@@ -905,6 +930,7 @@ pub fn delete_kb_command(
         let len_before = cmd_file.commands.len();
         cmd_file.commands.retain(|c| c.name != command_name);
         let removed = len_before - cmd_file.commands.len();
+        had_user_copy = removed > 0;
 
         if removed > 0 {
             if cmd_file.commands.is_empty() {
@@ -928,18 +954,85 @@ pub fn delete_kb_command(
         }
     }
 
-    // 2. Always record in _deleted.yaml so bundled commands stay hidden
+    // 2. Tombstone logic by class.
     let platform_dir = user_kb_path.join(platform);
     std::fs::create_dir_all(&platform_dir)
         .map_err(|e| format!("Failed to create {}: {}", platform_dir.display(), e))?;
 
     let deleted_path = platform_dir.join("_deleted.yaml");
     let mut names = read_deleted_list(&platform_dir);
-    names.insert(command_name.to_string());
-    write_deleted_list(&deleted_path, &names)?;
 
-    log::info!("Deleted command '{}' (recorded in {})", command_name, deleted_path.display());
+    if overrides {
+        // Override: un-tombstone so the built-in version reappears.
+        if names.remove(command_name) {
+            write_deleted_list(&deleted_path, &names)?;
+            log::info!(
+                "Restored built-in '{}' (removed tombstone from {})",
+                command_name,
+                deleted_path.display()
+            );
+        }
+    } else if !had_user_copy {
+        // Bundled-only: record tombstone so the loader hides it.
+        names.insert(command_name.to_string());
+        write_deleted_list(&deleted_path, &names)?;
+        log::info!(
+            "Deleted command '{}' (recorded in {})",
+            command_name,
+            deleted_path.display()
+        );
+    } else {
+        // User-only custom: nothing to hide.
+        log::info!("Deleted user-only command '{}'", command_name);
+    }
+
     Ok(())
+}
+
+/// Disable a single command (non-destructive): record its name in
+/// `_disabled.yaml` so the loader hides it without touching the YAML.
+pub fn disable_kb_command(
+    user_kb_path: &Path,
+    platform: &str,
+    command_name: &str,
+) -> Result<(), String> {
+    let platform_dir = user_kb_path.join(platform);
+    std::fs::create_dir_all(&platform_dir)
+        .map_err(|e| format!("Failed to create {}: {}", platform_dir.display(), e))?;
+
+    let disabled_path = platform_dir.join("_disabled.yaml");
+    let mut names = read_disabled_list(&platform_dir);
+    if names.insert(command_name.to_string()) {
+        write_disabled_list(&disabled_path, &names)?;
+        log::info!("Disabled command '{}' (recorded in {})", command_name, disabled_path.display());
+    }
+    Ok(())
+}
+
+/// Enable a single command: remove its name from `_disabled.yaml` so it reappears.
+pub fn enable_kb_command(
+    user_kb_path: &Path,
+    platform: &str,
+    command_name: &str,
+) -> Result<(), String> {
+    let platform_dir = user_kb_path.join(platform);
+
+    let disabled_path = platform_dir.join("_disabled.yaml");
+    let mut disabled = read_disabled_list(&platform_dir);
+    if disabled.remove(command_name) {
+        write_disabled_list(&disabled_path, &disabled)?;
+    }
+
+    log::info!("Enabled command '{}'", command_name);
+    Ok(())
+}
+
+/// List the disabled command names for a platform (for the UI's "Ignored" section).
+pub fn get_disabled_commands(user_kb_path: &Path, platform: &str) -> Vec<String> {
+    let platform_dir = user_kb_path.join(platform);
+    let mut names: Vec<String> = read_disabled_list(&platform_dir).into_iter().collect();
+    names.sort();
+    names
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -1639,5 +1732,130 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ─── Delete / disable / enable (docs/plan-kb-ignore-disable.md) ──────
+
+    const INDEX_YAML: &str = "id: test-plat\nname: Test\ndescription: \"\"\nreference_url: \"\"\nversions: []\nprompt_patterns: {}\ndefault_mode: default\n";
+
+    fn cmd_yaml(name: &str, desc: &str) -> String {
+        format!(
+            "commands:\n  - name: {name}\n    syntax: {name}\n    description: {desc}\n    category: test\n    mode: default\n"
+        )
+    }
+
+    /// Isolated bundled + user KB fixture. Returns (bundled_path, user_path).
+    fn kb_fixture(suffix: &str, bundled_cmds: &str, user_cmds: Option<&str>) -> (PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!("netssh-kb-{}-{}", suffix, std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let bundled = base.join("bundled");
+        let user = base.join("user");
+        std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
+        std::fs::write(bundled.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+        std::fs::write(bundled.join("test-plat/commands/test.yaml"), bundled_cmds).unwrap();
+
+        if let Some(yaml) = user_cmds {
+            std::fs::create_dir_all(user.join("test-plat/commands")).unwrap();
+            std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+            std::fs::write(user.join("test-plat/commands/test.yaml"), yaml).unwrap();
+        } else {
+            std::fs::create_dir_all(user.join("test-plat")).unwrap();
+        }
+        (bundled, user)
+    }
+
+    /// Fresh manager per call so the store reloads from disk.
+    fn loaded_names(bundled: &Path, user: &Path) -> Vec<String> {
+        let mut mgr = KbManager::with_user_path(bundled.to_path_buf(), user.to_path_buf());
+        let store = mgr.get_or_load("test-plat").unwrap();
+        store.commands.iter().map(|c| c.name.clone()).collect()
+    }
+
+    fn loaded_cmd(bundled: &Path, user: &Path, name: &str) -> Option<Command> {
+        let mut mgr = KbManager::with_user_path(bundled.to_path_buf(), user.to_path_buf());
+        let store = mgr.get_or_load("test-plat").unwrap();
+        store.commands.iter().find(|c| c.name == name).cloned()
+    }
+
+    fn drop_fixture(bundled: &Path) {
+        std::fs::remove_dir_all(bundled.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn test_delete_override_restores_bundled() {
+        let (bundled, user) = kb_fixture(
+            "del-override",
+            &cmd_yaml("show version", "bundled"),
+            Some(&cmd_yaml("show version", "user override")),
+        );
+
+        // Fixture sanity: the user copy must win and be flagged as an override.
+        let pre = loaded_cmd(&bundled, &user, "show version").expect("override must load");
+        assert!(pre.overrides, "fixture must be an override");
+
+        delete_kb_command(&user, "test-plat", "test", "show version", true).unwrap();
+
+        // Bundled copy reappears with no provenance; no tombstone left behind.
+        let post = loaded_cmd(&bundled, &user, "show version").expect("bundled command must reappear");
+        assert!(!post.overrides);
+        assert!(post.source.is_none(), "must be the bundled copy, got {:?}", post.source);
+        assert!(!read_deleted_list(&user.join("test-plat")).contains("show version"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_delete_user_only_no_tombstone() {
+        let (bundled, user) = kb_fixture(
+            "del-useronly",
+            &cmd_yaml("other cmd", "bundled"),
+            Some(&cmd_yaml("my-command", "user only")),
+        );
+
+        delete_kb_command(&user, "test-plat", "test", "my-command", false).unwrap();
+
+        let names = loaded_names(&bundled, &user);
+        assert!(!names.contains(&"my-command".to_string()));
+        assert!(names.contains(&"other cmd".to_string()));
+        assert!(!read_deleted_list(&user.join("test-plat")).contains("my-command"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_delete_bundled_only_tombstones() {
+        let (bundled, user) = kb_fixture("del-bundled", &cmd_yaml("show version", "bundled"), None);
+
+        delete_kb_command(&user, "test-plat", "test", "show version", false).unwrap();
+
+        assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
+        assert!(read_deleted_list(&user.join("test-plat")).contains("show version"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_disable_hides_command() {
+        let (bundled, user) = kb_fixture("disable", &cmd_yaml("show version", "bundled"), None);
+
+        disable_kb_command(&user, "test-plat", "show version").unwrap();
+
+        assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
+        assert!(read_disabled_list(&user.join("test-plat")).contains("show version"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_enable_after_disable_restores() {
+        let (bundled, user) = kb_fixture("enable", &cmd_yaml("show version", "bundled"), None);
+
+        disable_kb_command(&user, "test-plat", "show version").unwrap();
+        enable_kb_command(&user, "test-plat", "show version").unwrap();
+
+        assert!(loaded_names(&bundled, &user).contains(&"show version".to_string()));
+        assert!(!read_disabled_list(&user.join("test-plat")).contains("show version"));
+
+        drop_fixture(&bundled);
     }
 }
