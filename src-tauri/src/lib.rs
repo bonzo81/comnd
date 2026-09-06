@@ -1186,6 +1186,7 @@ async fn extract_kb_preview(
     platform: String,
     category: String,
     platform_name: Option<String>,
+    allowed_categories: Option<Vec<String>>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExtractPreview, String> {
@@ -1215,9 +1216,52 @@ async fn extract_kb_preview(
         &config_ref,
         &app_handle,
         &platform_index,
+        &allowed_categories.unwrap_or_default(),
     ).await?;
 
     Ok(preview)
+}
+
+/// Paste-text import: same pipeline as `extract_kb_preview` but the source is
+/// user-provided page text (their browser did the fetching — sidesteps bot
+/// blocks and JS-rendered pages).
+#[tauri::command]
+async fn extract_kb_preview_from_text(
+    text: String,
+    source_url: Option<String>,
+    platform: String,
+    category: String,
+    platform_name: Option<String>,
+    allowed_categories: Option<Vec<String>>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ExtractPreview, String> {
+    let request = ImportRequest {
+        url: source_url.unwrap_or_default(),
+        platform,
+        category,
+    };
+
+    let (config_ref, _user_kb_path) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        (config.get().clone(), config.user_kb_path())
+    };
+
+    let platform_index = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        match kb.get_platform_index(&request.platform) {
+            Ok(idx) => idx,
+            Err(e) => match platform_name {
+                Some(name) => {
+                    log::info!("Import: using placeholder single-mode index for new platform '{}'", request.platform);
+                    import::new_platform_index(&request.platform, &name)
+                }
+                None => return Err(e),
+            },
+        }
+    };
+
+    import::extract_from_text(request, text, &config_ref, &app_handle, &platform_index, &allowed_categories.unwrap_or_default()).await
 }
 
 /// Phase 5.6: Stage 2 of the two-stage import — write the user-approved
@@ -1753,6 +1797,7 @@ pub fn run() {
                 netbox_get_status,
                 import_kb_url,
                 extract_kb_preview,
+                extract_kb_preview_from_text,
                 commit_kb_import,
                 test_llm_connection,
                 list_kb_platforms,

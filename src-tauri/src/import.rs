@@ -34,7 +34,7 @@ pub struct ImportRequest {
 pub enum ImportProgress {
     Fetching { url: String },
     ExtractingText { content_length: usize },
-    SendingToLlm { command_count_estimate: usize },
+    SendingToLlm { },
     /// Streaming: chars of LLM output received so far + rolling tail of the
     /// raw output text (live view in the job modal).
     LlmOutput { chars: usize, tail: String },
@@ -172,6 +172,7 @@ pub async fn import_from_url(
         config,
         app_handle,
         platform_index,
+        &[],
     ).await?;
 
     let bundled_kb_path = default_bundled_kb_path();
@@ -207,24 +208,36 @@ pub async fn extract_from_url(
     config: &AppConfig,
     app_handle: &tauri::AppHandle,
     platform_index: &PlatformIndex,
+    allowed_categories: &[String],
 ) -> Result<ExtractPreview, String> {
-    let mut errors: Vec<String> = Vec::new();
-
-    // Stage 1: Fetch URL content
     emit_progress(app_handle, ImportProgress::Fetching { url: request.url.clone() });
     let html_content = fetch_url(&request.url).await?;
 
     // Stage 2: Extract text from HTML (Phase 5.2: preserves <pre>/<code> fences)
     let text_content = extract_text_from_html(&html_content);
+    extract_from_text(request, text_content, config, app_handle, platform_index, allowed_categories).await
+}
+
+/// Variant of `extract_from_url` for pre-fetched text (paste-text import):
+/// the user's browser did the fetching, so stages 2–4 run on the given text.
+pub async fn extract_from_text(
+    request: ImportRequest,
+    text_content: String,
+    config: &AppConfig,
+    app_handle: &tauri::AppHandle,
+    platform_index: &PlatformIndex,
+    allowed_categories: &[String],
+) -> Result<ExtractPreview, String> {
+    let mut errors: Vec<String> = Vec::new();
+
     emit_progress(app_handle, ImportProgress::ExtractingText { content_length: text_content.len() });
 
     if text_content.trim().is_empty() {
-        return Err("No text content extracted from the URL. The page may be JavaScript-rendered or empty.".to_string());
+        return Err("No text content was provided. Paste the page text (Ctrl+A, Ctrl+C in your browser, then paste here) and try again.".to_string());
     }
 
     // Stage 3: Send to the configured LLM for extraction (Phase 5.1: token-aware)
-    let command_estimate = estimate_command_count(&text_content);
-    emit_progress(app_handle, ImportProgress::SendingToLlm { command_count_estimate: command_estimate });
+    emit_progress(app_handle, ImportProgress::SendingToLlm { });
 
     let llm = LlmClient::new(
         config.llm_base_url.clone(),
@@ -234,8 +247,9 @@ pub async fn extract_from_url(
         config.llm_api_format.clone(),
     );
 
-    // Existing categories on this platform guide the LLM toward reuse.
-    let existing_categories = existing_categories_for(platform_index, &request.platform);
+    // Allowed categories (from the KB + frontend) injected into the prompt so
+    // the LLM can pick the best fit per command instead of one forced bucket.
+    let existing_categories = allowed_categories.to_vec();
 
     // Streaming: report received LLM output so the UI shows liveness.
     let progress_handle = app_handle.clone();
@@ -321,7 +335,7 @@ pub async fn extract_from_url(
     emit_progress(app_handle, ImportProgress::Validating { command_count: extracted.len() });
     let mut previews: Vec<CommandPreview> = Vec::with_capacity(extracted.len());
     for cmd in extracted {
-        match validate_extracted_command(cmd, platform_index) {
+        match validate_extracted_command(cmd, platform_index, allowed_categories, &request.category) {
             Ok((command, issues)) => {
                 let has_token_error = issues.iter().any(|i| i.contains("tokens[") && i.contains("error"));
                 let status = if has_token_error { "warn" } else { "ok" };
@@ -393,16 +407,32 @@ pub async fn commit_import(
         return Err("no commands selected".to_string());
     }
 
-    let target_file = get_target_yaml_path(user_kb_path, platform, category);
+    // Commands may carry different categories (LLM per-command picks) —
+    // group them so each lands in its own category YAML file.
+    let mut by_category: std::collections::BTreeMap<String, Vec<Command>> = std::collections::BTreeMap::new();
+    for cmd in &commands {
+        let cat = if cmd.category.trim().is_empty() { category.to_string() } else { cmd.category.clone() };
+        by_category.entry(cat).or_default().push(cmd.clone());
+    }
+
+    let mut primary_target = None;
+    for (cat, cmds) in &by_category {
+        let target_file = get_target_yaml_path(user_kb_path, platform, cat);
+        if primary_target.is_none() {
+            primary_target = Some(target_file.clone());
+        }
+        log::info!("Import commit: writing {} command(s) to {}", cmds.len(), target_file.display());
+        // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
+        write_commands_to_yaml(cmds, &target_file, cat)?;
+    }
+
+    let target_file = primary_target.ok_or_else(|| "no commands selected".to_string())?;
     emit_progress(app_handle, ImportProgress::WritingYaml {
         command_count: commands.len(),
         target_file: target_file.display().to_string(),
     });
 
     ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category, platform_name)?;
-
-    // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
-    write_commands_to_yaml(&commands, &target_file, category)?;
 
     emit_progress(app_handle, ImportProgress::ReloadingKb {});
 
@@ -412,17 +442,6 @@ pub async fn commit_import(
         target_file: target_file.display().to_string(),
     });
     Ok(())
-}
-
-/// Pull the existing categories from the platform's KB so the LLM reuses one
-/// instead of inventing a new one. ponytail: derive from the platform index
-/// when present; fall back to empty (the LLM still has the requested category).
-fn existing_categories_for(_pi: &PlatformIndex, _platform: &str) -> Vec<String> {
-    // ponytail: the KB store isn't passed here, and we already have the
-    // requested category from the caller. Listing real categories would
-    // require a KbStore reference threaded from the Tauri command — a future
-    // refinement. Returning empty is fine; the prompt still names the target.
-    Vec::new()
 }
 
 // ─── URL Fetching ───────────────────────────────────────────────────
@@ -615,6 +634,8 @@ fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> St
 fn validate_extracted_command(
     extracted: ExtractedCommand,
     platform_index: &PlatformIndex,
+    allowed_categories: &[String],
+    default_category: &str,
 ) -> Result<(Command, Vec<String>), String> {
     if extracted.name.trim().is_empty() {
         return Err("Command name is empty".to_string());
@@ -640,12 +661,21 @@ fn validate_extracted_command(
         .map(|s| s.to_string())
         .unwrap_or_else(|| platform_index.default_mode.clone());
 
+    // Category: the LLM may pick per-command from the allowed list (a page
+    // can cover several categories). Unknown/missing → requested category.
+    let category = extracted
+        .category
+        .as_deref()
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty() && allowed_categories.iter().any(|a| a == c))
+        .unwrap_or_else(|| default_category.to_string());
+
     // Map extracted command to our Command struct (Phase 5.1: tokens/order/negatable)
     let mut command = Command {
         name,
         syntax: extracted.syntax.unwrap_or_default(),
         description: extracted.description.unwrap_or_default(),
-        category: mode.clone(),
+        category: category.clone(),
         mode,
         aliases: extracted.aliases,
         examples: extracted.examples.into_iter().map(|ex| CommandExample {
@@ -690,34 +720,6 @@ fn validate_extracted_command(
     };
 
     Ok((command, final_issues))
-}
-
-/// Rough estimate of how many commands might be in the text.
-fn estimate_command_count(text: &str) -> usize {
-    // A rough heuristic: count lines that look like commands
-    let lines: Vec<&str> = text.lines().collect();
-    let mut count = 0;
-    for line in &lines {
-        let trimmed = line.trim();
-        // Commands typically start with a verb or common prefix
-        if trimmed.starts_with("show ")
-            || trimmed.starts_with("set ")
-            || trimmed.starts_with("configure ")
-            || trimmed.starts_with("ip ")
-            || trimmed.starts_with("interface ")
-            || trimmed.starts_with("router ")
-            || trimmed.starts_with("no ")
-            || trimmed.starts_with("default ")
-            || trimmed.starts_with("clear ")
-            || trimmed.starts_with("debug ")
-            || trimmed.starts_with("ping ")
-            || trimmed.starts_with("traceroute ")
-        {
-            count += 1;
-        }
-    }
-    // Lower bound of 1
-    count.max(1)
 }
 
 // ─── File Operations ────────────────────────────────────────────────
@@ -948,6 +950,7 @@ mod tests {
             syntax: None,
             description: None,
             mode: mode.map(|s| s.to_string()),
+            category: None,
             aliases: vec![],
             examples: vec![],
             tags: vec![],
@@ -964,6 +967,7 @@ mod tests {
             syntax: Some("show ip route [network]".to_string()),
             description: Some("Displays the routing table.".to_string()),
             mode: Some("privileged-exec".to_string()),
+            category: None,
             aliases: vec!["sh ip ro".to_string()],
             examples: vec![],
             tags: vec!["routing".to_string()],
@@ -972,9 +976,10 @@ mod tests {
             negatable: false,
         };
 
-        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         assert_eq!(cmd.name, "show ip route");
         assert_eq!(cmd.mode, "privileged-exec");
+        assert_eq!(cmd.category, "networking");
         // No token errors → empty issues (warnings only are still surfaced).
         assert!(issues.iter().all(|m| !m.contains("tokens[")));
     }
@@ -983,13 +988,13 @@ mod tests {
     fn test_validate_extracted_command_empty_name() {
         let mut extracted = mk_extracted("  ", None);
         extracted.name = "  ".to_string();
-        assert!(validate_extracted_command(extracted, &iosxe_index()).is_err());
+        assert!(validate_extracted_command(extracted, &iosxe_index(), &[], "networking").is_err());
     }
 
     #[test]
     fn test_validate_extracted_command_minimal() {
         let extracted = mk_extracted("show version", None);
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         assert_eq!(cmd.name, "show version");
         // Missing mode falls back to the platform default
         assert_eq!(cmd.mode, "privileged-exec");
@@ -1000,8 +1005,28 @@ mod tests {
         // LLM returned a Cisco mode for a linux command — must be coerced to
         // the platform default, or the mode filter hides it from suggestions.
         let extracted = mk_extracted("ip addr", Some("privileged-exec"));
-        let (cmd, _issues) = validate_extracted_command(extracted, &linux_index()).unwrap();
+        let (cmd, _issues) = validate_extracted_command(extracted, &linux_index(), &[], "networking").unwrap();
         assert_eq!(cmd.mode, "shell");
+    }
+
+    #[test]
+    fn test_validate_extracted_command_llm_category_used_when_allowed() {
+        // LLM picks a different category from the allowed list — kept.
+        let mut extracted = mk_extracted("show ip route", None);
+        extracted.category = Some("routing".to_string());
+        let allowed = vec!["networking".to_string(), "routing".to_string()];
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
+        assert_eq!(cmd.category, "routing");
+    }
+
+    #[test]
+    fn test_validate_extracted_command_llm_category_unknown_falls_back() {
+        // LLM invents a category — coerced to the requested one.
+        let mut extracted = mk_extracted("show ip route", None);
+        extracted.category = Some("made-up".to_string());
+        let allowed = vec!["networking".to_string(), "routing".to_string()];
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
+        assert_eq!(cmd.category, "networking");
     }
 
     #[test]
@@ -1014,6 +1039,7 @@ mod tests {
             syntax: Some("show ip route".to_string()),
             description: None,
             mode: Some("privileged-exec".to_string()),
+            category: None,
             aliases: vec![],
             examples: vec![],
             tags: vec![],
@@ -1024,7 +1050,7 @@ mod tests {
             negatable: false,
         };
 
-        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         // Command kept
         assert_eq!(cmd.name, "show ip route");
         // Tokens dropped (downgraded to legacy)
@@ -1042,6 +1068,7 @@ mod tests {
             syntax: Some("show ip interface [brief]".to_string()),
             description: None,
             mode: Some("privileged-exec".to_string()),
+            category: None,
             aliases: vec![],
             examples: vec![],
             tags: vec![],
@@ -1053,7 +1080,7 @@ mod tests {
             negatable: false,
         };
 
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index()).unwrap();
+        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         assert_eq!(cmd.tokens.len(), 2, "good tokens should survive, got {:?}", cmd.tokens);
     }
 
@@ -1093,13 +1120,6 @@ mod tests {
         }
         let total: usize = chunks.iter().map(|c| c.chars().count()).sum();
         assert_eq!(total, 25_000);
-    }
-
-    #[test]
-    fn test_estimate_command_count() {
-        let text = "show ip route\nshow interfaces\nping 10.0.0.1\nsome random text";
-        let estimate = estimate_command_count(text);
-        assert!(estimate >= 3);
     }
 
     #[test]

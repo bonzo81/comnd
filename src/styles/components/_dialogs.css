@@ -450,6 +450,70 @@
   margin-top: var(--space-2);
 }
 
+/* ─── Import: Source Mode Slider (URL / Paste Text) ────────────────── */
+.import-mode-toggle {
+  display: inline-flex;
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+  margin-bottom: var(--space-2);
+}
+
+.import-mode-btn {
+  position: relative;
+  z-index: 1;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.import-mode-btn.active {
+  color: var(--color-text-primary);
+}
+
+.import-mode-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.import-mode-slider {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  background: var(--color-surface-selected);
+  border-radius: var(--radius-sm);
+  transition: transform 0.15s ease;
+}
+
+.import-mode-toggle .import-mode-btn:nth-child(2).active ~ .import-mode-slider {
+  transform: translateX(100%);
+}
+
+.import-paste-text {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  resize: vertical;
+  min-height: 120px;
+}
+
+#import-paste-url {
+  margin-top: var(--space-1);
+}
+
+.import-error-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: var(--space-2) 0;
+}
+
 /* ─── Import: URL Pre-validation ───────────────────────────────────── */
 .import-url-row {
   display: flex;
@@ -661,6 +725,33 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
+}
+
+/* Category badge — shown only when it differs from the form's selection */
+.preview-cat {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-accent);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+/* Category editor — replaces the read-only badge, same visual language */
+.preview-cat-select {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-accent);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--color-surface-secondary);
+  max-width: 120px;
+  cursor: pointer;
+}
+
+.preview-cat-select:focus {
+  outline: 1px solid var(--color-accent);
 }
 
 .preview-syntax {

@@ -44,6 +44,22 @@ const LABELS: Record<string, string> = {
   shortcuts: "Shortcuts",
 };
 
+/** Quick-setup presets for the Base URL. Not exhaustive — the URL field stays
+ *  editable after selection. All are OpenAI-compatible (Anthropic is entered
+ *  manually via the API Format dropdown). */
+const LLM_PROVIDER_PRESETS: { name: string; url: string }[] = [
+  { name: "Ollama (local)", url: "http://localhost:11434/v1" },
+  { name: "LM Studio (local)", url: "http://localhost:1234/v1" },
+  { name: "Unsloth (local)", url: "http://localhost:8888/v1" },
+  { name: "OpenAI", url: "https://api.openai.com/v1" },
+  { name: "Groq", url: "https://api.groq.com/openai/v1" },
+  { name: "Mistral AI", url: "https://api.mistral.ai/v1" },
+  { name: "DeepSeek", url: "https://api.deepseek.com/v1" },
+  { name: "xAI (Grok)", url: "https://api.x.ai/v1" },
+  { name: "Together AI", url: "https://api.together.xyz/v1" },
+  { name: "OpenRouter", url: "https://openrouter.ai/api/v1" },
+];
+
 /** Planned providers. `available` = config fields render (implementation may
  *  still land in a later chunk — live status comes from list_providers). */
 interface ProviderCatalogEntry {
@@ -158,6 +174,14 @@ export class SettingsScreen {
           <span class="import-hint">Covers OpenAI, Gemini, Ollama, llama.cpp, vLLM, LM Studio, Unsloth, Groq, OpenRouter, … (OpenAI-compatible) and Claude (Anthropic)</span>
         </div>
         <div class="import-field">
+          <label for="llm-provider-preset">Quick Setup</label>
+          <select class="form-input" id="llm-provider-preset">
+            <option value="">— Choose a provider… —</option>
+            ${LLM_PROVIDER_PRESETS.map((p) => `<option value="${this.escAttr(p.url)}">${escHtml(p.name)}</option>`).join("")}
+          </select>
+          <span class="import-hint">Fills the Base URL below — edit it freely afterwards. Pick a local provider for Ollama/LM Studio.</span>
+        </div>
+        <div class="import-field">
           <label for="llm-url">Base URL</label>
           <input type="url" class="form-input" id="llm-url" value="${this.escAttr(baseUrl)}" required />
           <span class="import-hint">e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com</span>
@@ -173,7 +197,7 @@ export class SettingsScreen {
         <div class="import-field">
           <label for="llm-ctx">Context Length</label>
           <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />
-          <span class="import-hint">Higher = can process longer pages, but uses more memory</span>
+          <span class="import-hint">Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.</span>
         </div>
         <div class="import-config-row">
           <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
@@ -882,6 +906,17 @@ export class SettingsScreen {
     }
 
     this.container?.querySelector<HTMLElement>("#llm-test-btn")?.addEventListener("click", () => void this.testConnection());
+
+    // Provider preset → fill the editable Base URL, then reset the dropdown
+    // so it doesn't look like a saved selection.
+    this.container?.querySelector<HTMLSelectElement>("#llm-provider-preset")?.addEventListener("change", (e) => {
+      const sel = e.target as HTMLSelectElement;
+      const url = sel.value;
+      if (!url) return;
+      const urlInput = this.container?.querySelector<HTMLInputElement>("#llm-url");
+      if (urlInput) urlInput.value = url;
+      sel.value = "";
+    });
 
     this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
       setAppTheme((e.target as HTMLSelectElement).value as Theme);

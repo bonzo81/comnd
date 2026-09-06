@@ -286,15 +286,19 @@ class App {
   private importIndicator: HTMLElement | null = null;
   private importModalEl: HTMLElement | null = null;
   private unlistenImportJob: (() => void) | null = null;
+  /** Last modal stage label — full modal rebuild only when it changes. */
+  private modalStageKey: string = "";
 
   private initImportIndicator(bar: HTMLElement) {
     const indicator = document.createElement("button");
     indicator.className = "title-import-indicator";
     indicator.id = "title-import-indicator";
     indicator.hidden = true;
-    indicator.setAttribute("aria-label", "Import job running — click for details");
-    // Animated spinner only; the live stage goes in the tooltip.
-    indicator.innerHTML = `<span class="tii-spinner"></span>`;
+    indicator.setAttribute("aria-label", "Import job — click for details");
+    // Spinner while running; tick (styled by main.css) once done — the
+    // indicator stays visible until the user opens + closes the modal, so
+    // the completion summary is reachable after wandering off.
+    indicator.innerHTML = `<span class="tii-spinner"></span><span class="tii-done hidden">${icons.check}</span>`;
     indicator.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleImportModal();
@@ -314,13 +318,37 @@ class App {
 
   private refreshImportIndicator() {
     if (!this.importIndicator) return;
-    this.importIndicator.hidden = !importJob.active;
+    // Visible while running AND after completion (result summary pending) —
+    // cleared when the status modal is closed.
+    const showDone = !importJob.active && (importJob.result !== null || importJob.lines.length > 0);
+    this.importIndicator.hidden = !(importJob.active || showDone);
     this.importIndicator.title = importJob.active
       ? (importJob.stageLabel || "Import running — click for details")
-      : "";
+      : "Import job finished — click for details";
+    const spinner = this.importIndicator.querySelector<HTMLElement>(".tii-spinner");
+    const done = this.importIndicator.querySelector<HTMLElement>(".tii-done");
+    if (spinner) spinner.classList.toggle("hidden", !importJob.active);
+    if (done) done.classList.toggle("hidden", importJob.active);
     if (this.importModalEl && this.importModalEl.childElementCount > 0) {
+      // Same-stage emits: update text in place. Rebuilding the modal HTML
+      // recreates the h3 spinner element and resets its CSS animation
+      // (stuttering); rebuild only on stage transitions.
+      if (this.updateImportModalInPlace()) return;
       this.renderImportModalContent();
     }
+  }
+
+  /** Text-only modal update while the backend stage is unchanged. */
+  private updateImportModalInPlace(): boolean {
+    const modal = this.importModalEl?.querySelector<HTMLElement>(".import-status-modal");
+    if (!modal || !importJob.active) return false;
+    const prevStage = this.modalStageKey;
+    const head = modal.querySelector<HTMLElement>(".import-status-head");
+    if (head && importJob.stageLabel) head.textContent = importJob.stageLabel;
+    const indicator = document.getElementById("title-import-indicator");
+    const key = importJob.stageLabel || "running";
+    this.modalStageKey = key;
+    return key === prevStage && !!indicator;
   }
 
   private toggleImportModal() {
@@ -334,6 +362,7 @@ class App {
 
   private renderImportModalContent() {
     if (!this.importModalEl) return;
+    this.modalStageKey = importJob.active ? (importJob.stageLabel || "running") : "done";
     // Preserve the collapsible LLM output state across live re-renders.
     const detailsOpen = this.importModalEl.querySelector<HTMLDetailsElement>("details.import-llm-details")?.open ?? false;
     const done = !importJob.active;
@@ -344,11 +373,24 @@ class App {
     const lines = importJob.lines.map((l) =>
       `<div class="import-status-line import-status-${l.kind}"><span class="import-status-time">${escHtml(l.time)}</span>${escHtml(l.text)}</div>`
     ).join("");
+    const r = importJob.result;
+    const summary = done && r?.ok ? `
+          <div class="import-result-details">
+            <div class="import-result-row">
+              <span class="import-result-label">Commands imported:</span>
+              <span class="import-result-value">${r.commandsImported}</span>
+            </div>
+            <div class="import-result-row">
+              <span class="import-result-label">Target file:</span>
+              <span class="import-result-value import-result-path">${escHtml(r.targetFile)}</span>
+            </div>
+          </div>` : "";
     this.importModalEl.innerHTML = `
       <div class="modal-backdrop" id="import-status-backdrop">
         <div class="modal-panel import-status-modal" role="dialog" aria-modal="true" aria-labelledby="import-status-title">
           <h3 id="import-status-title">${done ? icons.check : ""} Import Job ${done ? "" : '<span class="tii-spinner tii-spinner-inline"></span>'}</h3>
           <div class="import-status-head">${escHtml(headText)}</div>
+          ${summary}
           <div class="import-status-log" id="import-status-log">${lines}</div>
           ${importJob.llmTail ? `
           <details class="import-llm-details"${detailsOpen ? " open" : ""}>
@@ -365,13 +407,15 @@ class App {
     if (log2) log2.scrollTop = log2.scrollHeight;
     const tail = this.importModalEl.querySelector("#import-status-llm-tail");
     if (tail && detailsOpen) tail.scrollTop = tail.scrollHeight;
-    this.importModalEl.querySelector("#import-status-close-btn")?.addEventListener("click", () => {
+    const closeImportModal = () => {
       if (this.importModalEl) this.importModalEl.innerHTML = "";
-    });
+      // Job fully acknowledged — retire the indicator tick.
+      importJob.setResult(null);
+      if (this.importIndicator) this.importIndicator.hidden = true;
+    };
+    this.importModalEl.querySelector("#import-status-close-btn")?.addEventListener("click", closeImportModal);
     this.importModalEl.querySelector("#import-status-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "import-status-backdrop") {
-        if (this.importModalEl) this.importModalEl.innerHTML = "";
-      }
+      if ((e.target as HTMLElement).id === "import-status-backdrop") closeImportModal();
     });
     this.importModalEl.querySelector("#import-status-cancel-btn")?.addEventListener("click", () => {
       const ok = importJob.requestCancel();

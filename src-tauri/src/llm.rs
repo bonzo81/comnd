@@ -53,6 +53,10 @@ pub struct ExtractedCommand {
     pub description: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
+    /// LLM-chosen category. The prompt supplies the allowed list; the
+    /// importer keeps it only when it's on the list, else the requested one.
+    #[serde(default)]
+    pub category: Option<String>,
     #[serde(default)]
     pub aliases: Vec<String>,
     #[serde(default)]
@@ -94,6 +98,18 @@ const OUTPUT_REPORT_INTERVAL: usize = 250;
 /// Rolling tail of streamed output sent to the UI (live view in the modal).
 const OUTPUT_TAIL_CHARS: usize = 400;
 
+/// Normalize the stored Base URL so endpoint building is uniform:
+/// strip trailing slashes AND a trailing `/v1` — the client appends
+/// `/v1/chat/completions` etc. itself. Handles users pasting full API roots
+/// like `https://api.openai.com/v1` (and accidental `.../v1/`).
+fn normalize_base_url(base_url: &str) -> String {
+    let mut url = base_url.trim().trim_end_matches('/').to_string();
+    if url.ends_with("/v1") {
+        url.truncate(url.len() - 3);
+    }
+    url
+}
+
 impl LlmClient {
     /// Create a new LLM client. `api_format` is `"openai"` or `"anthropic"`.
     pub fn new(
@@ -111,7 +127,7 @@ impl LlmClient {
             .unwrap_or_default();
 
         LlmClient {
-            base_url,
+            base_url: normalize_base_url(&base_url),
             model,
             api_key,
             context_length,
@@ -290,7 +306,7 @@ impl LlmClient {
     /// Chat via an OpenAI-compatible server: `POST {base}/v1/chat/completions`.
     /// Streams SSE deltas and reports received-output size via `on_output`.
     async fn openai_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
-        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let url = format!("{}/v1/chat/completions", self.base_url);
 
         let messages = vec![
             ChatMessage { role: "system".to_string(), content: system.to_string() },
@@ -301,6 +317,10 @@ impl LlmClient {
             "messages": messages,
             "stream": true,
             "response_format": { "type": "json_object" },
+            // Output cap. Servers that need more ignore or clamp it; servers
+            // with smaller limits accept it as a no-op ceiling. Without this,
+            // server defaults apply (e.g. Ollama) or generation is unbounded.
+            "max_tokens": self.context_length.min(8192).max(1024),
         });
 
         log::info!("LLM request: format=openai model={} url={} (streaming)", self.model, url);
@@ -370,11 +390,14 @@ impl LlmClient {
     /// Chat via the Anthropic wire format: `POST {base}/v1/messages`.
     /// Streams SSE deltas and reports received-output size via `on_output`.
     async fn anthropic_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
-        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let url = format!("{}/v1/messages", self.base_url);
 
         let request = serde_json::json!({
             "model": self.model,
-            "max_tokens": self.context_length.max(4096),
+            // Output cap, NOT the context window. Bounded to common model
+            // limits — larger values (e.g. the full context length) are
+            // rejected by models with smaller output caps (e.g. Claude).
+            "max_tokens": self.context_length.min(8192).max(1024),
             "system": system,
             "messages": [
                 { "role": "user", "content": user }
@@ -437,7 +460,7 @@ impl LlmClient {
 
     /// List available models. Both wire formats expose `GET {base}/v1/models`.
     pub async fn list_models(&self) -> Result<Vec<String>, String> {
-        let url = format!("{}/v1/models", self.base_url.trim_end_matches('/'));
+        let url = format!("{}/v1/models", self.base_url);
 
         let mut http_req = self.http_client
             .get(&url)
@@ -590,7 +613,7 @@ IMPORTANT RULES:
 2. The "name" field must be the full command string as typed in the CLI
 3. The "mode" field must be one of the valid modes listed above; any other value is rejected and coerced to the platform default "{default_mode}", so omit the field if unsure rather than guessing a mode name
 4. If you cannot determine a field with confidence, omit it rather than guessing
-5. Category for these commands: {category}
+5. Category for each command: pick the best fit from the allowed categories listed above. A page may cover several categories — assign each command its own. Omit to use the requested category ('{category}')
 6. Extract ALL commands found in the documentation — be thorough
 7. Descriptions should be practical and useful for a network engineer
 8. "tokens" should be empty [] only for trivial commands; prefer one {{lit: ...}} token over empty"#,
@@ -618,6 +641,7 @@ fn extraction_json_schema() -> serde_json::Value {
                         "syntax": { "type": "string" },
                         "description": { "type": "string" },
                         "mode": { "type": "string" },
+                        "category": { "type": "string" },
                         "aliases": { "type": "array", "items": { "type": "string" } },
                         "examples": {
                             "type": "array",
@@ -829,8 +853,21 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_base_url_variants() {
+        // Bare host (existing users) and full API roots (preset paste / manual)
+        // must all resolve to the same endpoint base.
+        assert_eq!(normalize_base_url("http://localhost:11434"), "http://localhost:11434");
+        assert_eq!(normalize_base_url("http://localhost:11434/v1"), "http://localhost:11434");
+        assert_eq!(normalize_base_url("http://localhost:11434/v1/"), "http://localhost:11434");
+        assert_eq!(normalize_base_url("https://api.openai.com/v1"), "https://api.openai.com");
+        assert_eq!(normalize_base_url("https://api.openai.com"), "https://api.openai.com");
+        assert_eq!(normalize_base_url("  https://api.x.ai/v1  "), "https://api.x.ai");
+        // Only the trailing /v1 is stripped — a /v1 nested deeper stays intact.
+        assert_eq!(normalize_base_url("https://gw.example.com/v1/proxy"), "https://gw.example.com/v1/proxy");
+    }
+
+    #[test]
     fn test_extracted_command_with_tokens_round_trips() {
-        // Phase 5.1: a token-bearing extracted command maps cleanly to kb::Command.
         let json = r#"{
             "commands": [
                 {

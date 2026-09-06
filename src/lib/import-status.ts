@@ -22,6 +22,15 @@ export interface ImportJobLine {
   kind: "stage" | "info" | "error" | "done";
 }
 
+/** Summary of a finished job — rendered by the wizard result and the status modal. */
+export interface ImportResultSummary {
+  ok: boolean;
+  commandsImported: number;
+  platform: string;
+  category: string;
+  targetFile: string;
+}
+
 /**
  * Normalize a backend ImportProgress event (serde tags are the PascalCase
  * Rust variant names; `detail` is the variant's field object) into a dialog
@@ -36,7 +45,7 @@ export function formatProgress(stage: string, detail: unknown): { key: string; l
     case "ExtractingText":
       return { key: "extracting", label: `Extracting content (${s(d.content_length)} chars)…` };
     case "SendingToLlm":
-      return { key: "sending", label: `Sending to LLM (~${s(d.command_count_estimate)} commands expected)…` };
+      return { key: "sending", label: "Sending to LLM…" };
     case "LlmOutput":
       return { key: "sending", label: `Receiving LLM output (${s(d.chars)} chars)…`, tail: s(d.tail) };
     case "ExtractingChunk":
@@ -65,7 +74,7 @@ class ImportJobStatus {
   /** Backend stage in a committing phase — cancel disabled. */
   committing = false;
   stageLabel = "";
-  startedAt: number | null = null;
+  startedAt: Date | null = null;
   lines: ImportJobLine[] = [];
   /** Rolling tail of raw LLM stream output (live view in the job modal). */
   llmTail = "";
@@ -73,9 +82,18 @@ class ImportJobStatus {
   llmChars = 0;
   /** Set by requestCancel(); consumed once by the dialog when its await resolves. */
   cancelRequested = false;
+  /**
+   * Result of the last completed job (single-job model: one at a time).
+   * Owned here — not the dialog — so the summary survives the dialog being
+   * unmounted/remounted (tab switches) and both surfaces render the same data.
+   */
+  result: ImportResultSummary | null = null;
 
   private listeners = new Set<Listener>();
   private listening = false;
+  /** Heartbeat while waiting for the LLM's first output token (TTFT silence). */
+  private waitingTimer: ReturnType<typeof setInterval> | null = null;
+  private waitingSince: number | null = null;
 
   /** Subscribe to state changes. Returns an unlisten function. */
   subscribe(fn: Listener): () => void {
@@ -105,6 +123,35 @@ class ImportJobStatus {
     }
   }
 
+  /**
+   * While the LLM ingests the prompt (time-to-first-token), no events arrive
+   * — update the header every 10s so the wait is visibly progressing, and log
+   * one line after 20s so the modal explains the silence.
+   */
+  private startWaiting() {
+    this.stopWaiting();
+    this.waitingSince = Date.now();
+    let logged = false;
+    this.waitingTimer = setInterval(() => {
+      if (!this.active || this.waitingSince === null) { this.stopWaiting(); return; }
+      const secs = Math.round((Date.now() - this.waitingSince) / 1000);
+      this.stageLabel = `Sending to LLM — model is processing the page (${secs}s)…`;
+      if (!logged && secs >= 20) {
+        logged = true;
+        this.addLine("Waiting for the model's first output — large pages take a while to process (this can be a minute or more on local models)", "info");
+      }
+      this.emit();
+    }, 1000);
+  }
+
+  private stopWaiting() {
+    if (this.waitingTimer !== null) {
+      clearInterval(this.waitingTimer);
+      this.waitingTimer = null;
+    }
+    this.waitingSince = null;
+  }
+
   /** Begin listening to backend progress events (once, lazily). */
   private async ensureListening() {
     if (this.listening) return;
@@ -121,6 +168,7 @@ class ImportJobStatus {
         } else if (stage === "LlmOutput") {
           // Streaming tick — update header/tooltip/live box only; logging a
           // line per tick spams the stream (one line per 250 chars).
+          this.stopWaiting();
           this.committing = false;
           this.stageLabel = info.label;
           this.llmTail = info.tail ?? "";
@@ -128,10 +176,12 @@ class ImportJobStatus {
           this.emit();
         } else {
           this.flushLlmChars();
+          this.stopWaiting();
           this.committing = stage === "WritingYaml" || stage === "ReloadingKb";
           this.stageLabel = info.label;
           if (info.tail !== undefined) this.llmTail = info.tail;
           this.addLine(info.label, "stage");
+          if (stage === "SendingToLlm") this.startWaiting();
           this.emit();
         }
       });
@@ -148,10 +198,11 @@ class ImportJobStatus {
     this.active = true;
     this.committing = false;
     this.cancelRequested = false;
-    this.startedAt = Date.now();
+    this.startedAt = new Date();
     this.lines = [];
     this.llmTail = "";
     this.llmChars = 0;
+    this.result = null;
     this.stageLabel = "Starting import…";
     this.addLine(`Import started — ${platform}/${category}`, "info");
     this.addLine(`Source: ${url}`, "info");
@@ -167,11 +218,18 @@ class ImportJobStatus {
     this.emit();
   }
 
+  /** Set the job's result summary (success or failure). */
+  setResult(result: ImportResultSummary | null) {
+    this.result = result;
+    this.emit();
+  }
+
   finish(ok: boolean, note: string) {
     if (!this.active && this.lines.length === 0) return;
     this.active = false;
     this.committing = false;
     this.stageLabel = "";
+    this.stopWaiting();
     this.flushLlmChars();
     this.addLine(note, ok ? "done" : "error");
     this.emit();
@@ -184,6 +242,7 @@ class ImportJobStatus {
     this.cancelRequested = true;
     this.active = false;
     this.stageLabel = "";
+    this.stopWaiting();
     this.addLine("Cancelled by user — nothing was written to the knowledge base", "error");
     this.emit();
     return true;

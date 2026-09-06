@@ -477,8 +477,34 @@ export async function extractKbPreview(
   platform: string,
   category: string,
   platformName?: string,
+  allowedCategories?: string[],
 ): Promise<ExtractPreview> {
-  return invoke<ExtractPreview>("extract_kb_preview", { url, platform, category, platformName: platformName ?? null });
+  return invoke<ExtractPreview>("extract_kb_preview", {
+    url,
+    platform,
+    category,
+    platformName: platformName ?? null,
+    allowedCategories: allowedCategories ?? null,
+  });
+}
+
+/** Stage 1 from pasted page text (user's browser did the fetching). */
+export async function extractKbPreviewFromText(
+  text: string,
+  sourceUrl: string,
+  platform: string,
+  category: string,
+  platformName?: string,
+  allowedCategories?: string[],
+): Promise<ExtractPreview> {
+  return invoke<ExtractPreview>("extract_kb_preview_from_text", {
+    text,
+    sourceUrl: sourceUrl || null,
+    platform,
+    category,
+    platformName: platformName ?? null,
+    allowedCategories: allowedCategories ?? null,
+  });
 }
 
 /** Stage 2: write the user-approved previews to YAML + reload. */

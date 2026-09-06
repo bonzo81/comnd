@@ -201,11 +201,9 @@ export class KbScreen {
     const panel = document.getElementById("kb-import-panel");
     if (!panel) return;
 
-    if (this.importDialog) {
-      // Unmount previous instance
-      this.importDialog.unmount();
-      panel.innerHTML = "";
-    }
+    // Reuse the mounted instance — the wizard's stage (preview, result)
+    // survives tab switches; remounting reset it mid-job.
+    if (this.importDialog) return;
 
     this.importDialog = new KbImportDialog(() => {
       // Import may have added platforms — reload list and refresh the nav panel

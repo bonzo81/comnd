@@ -181,6 +181,18 @@
   animation: tii-spin 0.8s linear infinite;
 }
 .tii-spinner-inline { display: inline-block; vertical-align: -2px; }
+.tii-spinner.hidden, .tii-done.hidden { display: none; }
+
+/* Done tick shown in the indicator once the job finishes (success green) */
+.tii-done svg {
+  width: 16px;
+  height: 16px;
+}
+.tii-done {
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+}
 @keyframes tii-spin {
   to { transform: rotate(360deg); }
 }
@@ -265,6 +277,12 @@
 .import-error-icon svg {
   width: 36px;
   height: 36px;
+}
+
+.import-status-modal h3 svg {
+  width: 20px;
+  height: 20px;
+  vertical-align: -3px;
 }
 
 .cred-badge svg {

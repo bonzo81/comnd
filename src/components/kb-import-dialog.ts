@@ -12,10 +12,10 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { escHtml } from "../lib/format";
 import {
   extractKbPreview,
+  extractKbPreviewFromText,
   commitKbImport,
   getAppConfig,
   listKbPlatforms,
-  ImportResult,
   AppConfig,
   ExtractPreview,
   Command,
@@ -83,11 +83,10 @@ export class KbImportDialog {
   private unlistenProgress: UnlistenFn | null = null;
   private stage: ImportStage = "idle";
   private progressDetail: string = "";
-  private result: ImportResult | null = null;
   private errorMessage: string = "";
+  /** Fetch failed with a bot-block (403/429) — offer the paste-text path. */
+  private fetchBlocked: boolean = false;
   private config: AppConfig | null = null;
-  private startTime: number | null = null;
-  private elapsedInterval: ReturnType<typeof setInterval> | null = null;
   private embedMode: boolean;
   /** Phase 5.6: preview stage state */
   private preview: ExtractPreview | null = null;
@@ -104,6 +103,8 @@ export class KbImportDialog {
   private platformOptions: { value: string; label: string }[] = FALLBACK_PLATFORM_OPTIONS;
   /** Last ID auto-generated from the platform name (so manual edits win). */
   private lastAutoSlug: string = "";
+  /** Source mode: "url" fetches server-side, "text" imports pasted page text. */
+  private sourceMode: "url" | "text" = "url";
 
   constructor(onImportComplete?: () => void, embedMode: boolean = false) {
     this.onImportComplete = onImportComplete ?? null;
@@ -125,6 +126,12 @@ export class KbImportDialog {
     } catch {
       // keep fallback options
     }
+    // Rehydrate: a fresh instance mid-job shows the running-job banner, not
+    // a bare form (the job singleton outlives the dialog).
+    if (importJob.active) {
+      this.stage = "extracting";
+      this.progressDetail = importJob.stageLabel;
+    }
     this.listenForProgress();
     this.render();
   }
@@ -134,11 +141,6 @@ export class KbImportDialog {
       this.unlistenProgress();
       this.unlistenProgress = null;
     }
-    if (this.elapsedInterval) {
-      clearInterval(this.elapsedInterval);
-      this.elapsedInterval = null;
-    }
-    this.startTime = null;
   }
 
   // ─── Progress Listening ──────────────────────────────────────────────
@@ -146,17 +148,29 @@ export class KbImportDialog {
   private async listenForProgress() {
     try {
       this.unlistenProgress = await listen<{ stage: string; detail?: unknown }>("import-progress", (event) => {
+        // The backend has no cancellation token — after the user cancels, the
+        // Rust pipeline still runs to completion and keeps emitting events.
+        // Ignore everything until a new job starts, or late events resurrect
+        // the progress banner on the "idle" form.
+        if (!importJob.active && !this.stageActive()) return;
         // Rust ImportProgress tags are PascalCase variant names; formatProgress
         // normalizes them to dialog stage keys + human labels.
         const info = formatProgress(event.payload.stage, event.payload.detail);
+        const prevStage = this.stage;
         this.stage = info.key as ImportStage;
         this.progressDetail = info.label;
         if (info.key === "error" && !this.errorMessage) this.errorMessage = info.label;
+        if (this.stage === prevStage) return; // same-stage tick — no render churn
         this.render();
       });
     } catch (e) {
       log.warn(LogTag.KbImport, `Import progress listener unavailable (Tauri not running): ${e}`);
     }
+  }
+
+  /** Is the dialog itself driving a live job? (stage in flight, not cancelled) */
+  private stageActive(): boolean {
+    return this.stage !== "idle" && this.stage !== "complete" && this.stage !== "error" && this.stage !== "preview";
   }
 
   private stageLabel(stage: ImportStage): string {
@@ -185,7 +199,7 @@ export class KbImportDialog {
     const model = this.config?.llm_model ?? "";
 
     const content = `
-      ${this.stage === "complete" && this.result ? this.renderResult() : ""}
+      ${this.stage === "complete" && importJob.result ? this.renderResult() : ""}
       ${this.stage === "error" ? this.renderError() : ""}
       ${this.stage === "preview" && this.preview ? this.renderPreview() : ""}
       ${isImporting ? this.renderProgressBanner() : ""}
@@ -212,17 +226,36 @@ export class KbImportDialog {
   }
 
   private renderForm(baseUrl: string, model: string, isImporting: boolean): string {
+    const isText = this.sourceMode === "text";
     return `
       <div class="import-form">
         <div class="import-field">
+          <div class="import-mode-toggle" role="radiogroup" aria-label="Source type">
+            <button type="button" class="import-mode-btn${!isText ? " active" : ""}" id="import-mode-url" aria-pressed="${!isText}" ${isImporting ? 'disabled' : ''}>From URL</button>
+            <button type="button" class="import-mode-btn${isText ? " active" : ""}" id="import-mode-text" aria-pressed="${isText}" ${isImporting ? 'disabled' : ''}>Paste Text</button>
+            <span class="import-mode-slider" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <div class="import-field" id="import-url-field" ${isText ? 'style="display:none"' : ''}>
           <label for="import-url">Documentation URL</label>
           <div class="import-url-row">
-            <input type="url" class="form-input" id="import-url" placeholder="https://www.cisco.com/c/en/us/td/docs/ios-xml/..." 
+            <input type="url" class="form-input" id="import-url" placeholder="https://www.cisco.com/c/en/us/td/docs/ios-xml/..."
                    ${isImporting ? 'disabled' : ''} />
             <button class="btn-secondary btn-small import-try-url" id="import-try-url-btn" ${isImporting ? 'disabled' : ''}>Try URL</button>
           </div>
           <span class="import-hint">Paste a link to a command reference page</span>
           <div class="url-status" id="import-url-status" role="status"></div>
+        </div>
+
+        <div class="import-field" id="import-text-field" ${!isText ? 'style="display:none"' : ''}>
+          <label for="import-paste-text">Page text</label>
+          <textarea class="form-input import-paste-text" id="import-paste-text" rows="10"
+                    placeholder="Open the docs page in your browser, select all (Ctrl+A), copy (Ctrl+C), and paste here…"
+                    ${isImporting ? 'disabled' : ''}></textarea>
+          <span class="import-hint">Use this when a site blocks the app's fetch — your browser can load pages the app cannot. Optional: paste the page URL below so imported commands keep a source link.</span>
+          <input type="url" class="form-input" id="import-paste-url" placeholder="Source URL (optional)"
+                 ${isImporting ? 'disabled' : ''} />
         </div>
 
         <div class="import-row">
@@ -279,20 +312,20 @@ export class KbImportDialog {
    * import is in flight — the form stays visible but every control is off.
    */
   private renderProgressBanner(): string {
-    const elapsed = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
     return `
       <div class="import-progress-banner" role="status" aria-live="polite">
         <div class="import-spinner" aria-hidden="true"></div>
         <div class="import-banner-text">
           <div class="import-stage">${escHtml(this.progressDetail || this.stageLabel(this.stage))}</div>
-          <div class="import-elapsed">${elapsed}s elapsed — you can leave this tab; the title-bar indicator tracks the job</div>
+          <div class="import-elapsed">Import running — live progress in the title-bar indicator</div>
         </div>
       </div>
     `;
   }
 
   private renderResult(): string {
-    if (!this.result) return "";
+    const r = importJob.result;
+    if (!r) return "";
     return `
       <div class="import-result" role="status">
         <div class="import-success-icon">${icons.check}</div>
@@ -300,30 +333,24 @@ export class KbImportDialog {
         <div class="import-result-details">
           <div class="import-result-row">
             <span class="import-result-label">Commands imported:</span>
-            <span class="import-result-value">${this.result.commands_imported}</span>
+            <span class="import-result-value">${r.commandsImported}</span>
           </div>
           <div class="import-result-row">
             <span class="import-result-label">Platform:</span>
-            <span class="import-result-value">${escHtml(this.result.platform)}</span>
+            <span class="import-result-value">${escHtml(r.platform)}</span>
           </div>
           <div class="import-result-row">
             <span class="import-result-label">Category:</span>
-            <span class="import-result-value">${escHtml(this.result.category)}</span>
+            <span class="import-result-value">${escHtml(r.category)}</span>
           </div>
           <div class="import-result-row">
             <span class="import-result-label">Target file:</span>
-            <span class="import-result-value import-result-path">${escHtml(this.result.target_file)}</span>
+            <span class="import-result-value import-result-path">${escHtml(r.targetFile)}</span>
           </div>
           ${this.rejectedByUser > 0 ? `
             <div class="import-result-row">
               <span class="import-result-label">Rejected at review:</span>
               <span class="import-result-value">${this.rejectedByUser}</span>
-            </div>
-          ` : ""}
-          ${this.result.errors.length > 0 ? `
-            <div class="import-result-row">
-              <span class="import-result-label">Warnings:</span>
-              <span class="import-result-value">${this.result.errors.length} commands skipped</span>
             </div>
           ` : ""}
         </div>
@@ -336,13 +363,19 @@ export class KbImportDialog {
   }
 
   private renderError(): string {
+    const pasteOffer = this.fetchBlocked ? `
+      <p class="import-error-hint">Your browser can open pages the app's fetcher cannot. Switch to <strong>Paste Text</strong> mode: open the page in your browser, select all (Ctrl+A), copy, and paste it into the import dialog.</p>
+    ` : "";
+    const pasteBtn = this.fetchBlocked ? `<button class="btn-secondary" id="import-paste-mode-btn">Paste Text Instead</button>` : "";
     return `
       <div class="import-error" role="alert">
         <div class="import-error-icon">${icons.x}</div>
         <h3>Import Failed</h3>
         <p class="import-error-message">${escHtml(this.errorMessage)}</p>
+        ${pasteOffer}
         <div class="import-actions">
           <button class="btn-primary" id="import-retry-btn">Try Again</button>
+          ${pasteBtn}
         </div>
       </div>
     `;
@@ -366,6 +399,16 @@ export class KbImportDialog {
         ? `<span class="preview-warn" title="${escHtml(p.issues.join("; "))}">${icons.alert}</span>`
         : `<span class="preview-ok">${icons.check}</span>`;
       const modeBadge = `<span class="preview-mode">${escHtml(p.command.mode)}</span>`;
+      // Per-command category editor: change before final import. The commit
+      // groups commands by this field, so edits land in the right YAML file.
+      const catSelect = `
+        <select class="preview-cat-select" data-index="${i}" aria-label="Category for ${escHtml(p.command.name)}" title="Category — edit before import">
+          ${CATEGORY_OPTIONS.map((c) =>
+            `<option value="${c.value}"${p.command.category === c.value ? " selected" : ""}>${escHtml(c.label)}</option>`
+          ).join("")}
+          ${CATEGORY_OPTIONS.some((c) => c.value === p.command.category) ? "" :
+            `<option value="${this.escAttr(p.command.category)}" selected>${escHtml(p.command.category)}</option>`}
+        </select>`;
       const provenance = p.in_bundled
         ? `<span class="preview-provenance">Overrides built-in entry</span>`
         : `<span class="preview-provenance preview-provenance-new">New command</span>`;
@@ -392,6 +435,7 @@ export class KbImportDialog {
             ${statusIcon}
             <span class="preview-name">${escHtml(p.command.name)}</span>
             ${modeBadge}
+            ${catSelect}
             ${provenance}
             ${compareBtn}
           </div>
@@ -465,6 +509,11 @@ export class KbImportDialog {
     // Try URL
     document.getElementById("import-try-url-btn")?.addEventListener("click", () => this.tryUrl());
 
+    // Source-mode slider: swap URL field / paste textarea in place (no full
+    // re-render, so typed text survives toggling).
+    document.getElementById("import-mode-url")?.addEventListener("click", () => this.setSourceMode("url"));
+    document.getElementById("import-mode-text")?.addEventListener("click", () => this.setSourceMode("text"));
+
     // Submit
     document.getElementById("import-submit-btn")?.addEventListener("click", () => this.startImport());
 
@@ -501,7 +550,6 @@ export class KbImportDialog {
     document.getElementById("import-done-btn")?.addEventListener("click", () => this.close());
     document.getElementById("import-another-btn")?.addEventListener("click", () => {
       this.stage = "idle";
-      this.result = null;
       this.errorMessage = "";
       this.render();
     });
@@ -511,6 +559,15 @@ export class KbImportDialog {
       this.stage = "idle";
       this.errorMessage = "";
       this.render();
+    });
+
+    // Bot-blocked fetch → jump to paste-text mode
+    document.getElementById("import-paste-mode-btn")?.addEventListener("click", () => {
+      this.stage = "idle";
+      this.errorMessage = "";
+      this.fetchBlocked = false;
+      this.render();
+      this.setSourceMode("text");
     });
 
     // Phase 5.6: preview confirm / reject
@@ -533,6 +590,16 @@ export class KbImportDialog {
       });
     });
 
+    // Per-command category editor — mutate the preview in place; the commit
+    // groups by each command's category, so no re-render is needed.
+    this.container?.querySelectorAll<HTMLSelectElement>(".preview-cat-select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const idx = parseInt(sel.dataset.index ?? "0", 10);
+        const cmd = this.preview?.previews[idx]?.command;
+        if (cmd) cmd.category = sel.value;
+      });
+    });
+
     // Compare toggle: show/hide the built-in vs import columns in place.
     this.container?.querySelectorAll<HTMLButtonElement>(".preview-compare-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -547,6 +614,28 @@ export class KbImportDialog {
   }
 
   // ─── Actions ────────────────────────────────────────────────────────
+
+  /** Swap URL/paste fields without a full re-render (preserves typed input). */
+  private setSourceMode(mode: "url" | "text") {
+    if (this.sourceMode === mode) return;
+    this.sourceMode = mode;
+    const isText = mode === "text";
+    const urlBtn = document.getElementById("import-mode-url");
+    const textBtn = document.getElementById("import-mode-text");
+    urlBtn?.classList.toggle("active", !isText);
+    textBtn?.classList.toggle("active", isText);
+    urlBtn?.setAttribute("aria-pressed", String(!isText));
+    textBtn?.setAttribute("aria-pressed", String(isText));
+    const urlField = document.getElementById("import-url-field");
+    const textField = document.getElementById("import-text-field");
+    if (urlField) urlField.style.display = isText ? "none" : "";
+    if (textField) textField.style.display = isText ? "" : "none";
+  }
+
+  /** Bot-block fetch errors → suggest the paste-text path. */
+  private static isFetchBlocked(msg: string): boolean {
+    return /403 Forbidden|blocked this request|429 Too Many Requests/i.test(msg);
+  }
 
   private close() {
     if (this.stage !== "idle" && this.stage !== "complete" && this.stage !== "error") return;
@@ -594,16 +683,25 @@ export class KbImportDialog {
   }
 
   private async startImport() {
-    const urlInput = document.getElementById("import-url") as HTMLInputElement;
     const platformSelect = document.getElementById("import-platform") as HTMLSelectElement;
     const categorySelect = document.getElementById("import-category") as HTMLSelectElement;
 
-    if (!urlInput?.value.trim()) {
+    const isText = this.sourceMode === "text";
+    const urlInput = document.getElementById("import-url") as HTMLInputElement;
+    const pasteText = document.getElementById("import-paste-text") as HTMLTextAreaElement;
+    const pasteUrl = document.getElementById("import-paste-url") as HTMLInputElement;
+
+    if (isText) {
+      if (!pasteText?.value.trim()) {
+        showToast("Paste the page text first", "error");
+        return;
+      }
+    } else if (!urlInput?.value.trim()) {
       showToast("Please enter a URL", "error");
       return;
     }
 
-    const url = urlInput.value.trim();
+    const url = isText ? (pasteUrl?.value.trim() ?? "") : urlInput.value.trim();
     let platform = platformSelect?.value ?? this.platformOptions[0]?.value ?? "cisco-iosxe";
     let platformName: string | null = null;
     if (platform === NEW_PLATFORM) {
@@ -636,19 +734,23 @@ export class KbImportDialog {
 
     this.stage = "fetching";
     this.errorMessage = "";
-    this.result = null;
     this.preview = null;
     this.selectedRows = [];
     importJob.start(url, platform, category);
     showToast("Import started — extracting commands…", "info", 4000);
-    this.startTime = Date.now();
-    this.elapsedInterval = setInterval(() => this.render(), 1000);
     this.render();
 
     try {
-      log.info(LogTag.KbImport, `Extracting preview from ${url} for ${platform}/${category}`);
-      // Phase 5.6: Stage 1 — extract + validate without writing.
-      const preview = await extractKbPreview(url, platform, category, platformName ?? undefined);
+      let preview: ExtractPreview;
+      const allowedCats = CATEGORY_OPTIONS.map((c) => c.value);
+      if (isText) {
+        log.info(LogTag.KbImport, `Extracting preview from pasted text (${pasteText!.value.trim().length} chars) for ${platform}/${category}`);
+        preview = await extractKbPreviewFromText(pasteText!.value.trim(), url, platform, category, platformName ?? undefined, allowedCats);
+      } else {
+        log.info(LogTag.KbImport, `Extracting preview from ${url} for ${platform}/${category}`);
+        // Phase 5.6: Stage 1 — extract + validate without writing.
+        preview = await extractKbPreview(url, platform, category, platformName ?? undefined, allowedCats);
+      }
       // Cancelled while extracting — discard the result.
       if (importJob.consumeCancel()) {
         this.stage = "idle";
@@ -668,6 +770,7 @@ export class KbImportDialog {
     } catch (e) {
       this.stage = "error";
       this.errorMessage = String(e);
+      this.fetchBlocked = KbImportDialog.isFetchBlocked(this.errorMessage) && !isText;
       if (!importJob.active) {
         // Cancelled — the cancel line is already logged; just stop.
       } else {
@@ -677,11 +780,6 @@ export class KbImportDialog {
       showToast(`Extract failed: ${e}`, "error", 8000);
     }
 
-    if (this.elapsedInterval) {
-      clearInterval(this.elapsedInterval);
-      this.elapsedInterval = null;
-    }
-    this.startTime = null;
     this.render();
   }
 
@@ -705,14 +803,13 @@ export class KbImportDialog {
         this.previewPlatformName ?? undefined,
       );
       this.rejectedByUser = this.preview.previews.length - accepted.length;
-      this.result = {
-        commands_imported: count,
-        target_file: `${this.previewPlatform}/commands/${this.previewCategory}.yaml`,
+      importJob.setResult({
+        ok: true,
+        commandsImported: count,
+        targetFile: `${this.previewPlatform}/commands/${this.previewCategory}.yaml`,
         platform: this.previewPlatform,
         category: this.previewCategory,
-        source_url: this.previewUrl,
-        errors: this.preview.errors,
-      };
+      });
       this.stage = "complete";
       log.info(LogTag.KbImport, `Commit complete: ${count} commands`);
       showToast(`Import complete: ${count} commands imported`, "success");
