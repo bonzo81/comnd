@@ -1,3 +1,14 @@
+/* ─── Z-index ladder ──────────────────────────────────────────────
+   Pick the tier that matches the overlay's role; do not invent new numbers.
+     10    title bar chrome
+     20    inline dropdowns (ref combo, suggestion list)
+     30–50 in-terminal layers (search bar 30 · disconnect banner 40 · connecting overlay 50)
+     100   modal backdrops + ms-dropdown
+     200   floating menus (context menu, global search results)
+     1000  toasts
+     9999  drag clone
+   ──────────────────────────────────────────────────────────────── */
+
 /* ─── Surface colors (Linear-inspired neutral grays) ─── */
 :root {
   --color-surface-primary: #0F172A;    /* App shell — nav panel, content panel, status bar */

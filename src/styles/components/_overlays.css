@@ -167,8 +167,8 @@
   grid-template-areas:
     "icon message close"
     ".    action  .";
-  align-items: start;
-  row-gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .toast-with-action .toast-icon {
@@ -217,11 +217,6 @@
 
 .toast-close:hover {
   color: var(--color-text-primary);
-}
-
-.toast-with-action {
-  align-items: center;
-  gap: var(--space-2);
 }
 
 .toast-action {

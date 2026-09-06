@@ -130,7 +130,7 @@ export class KbViewerDialog {
     `;
     this.container.innerHTML = this.embedMode
       ? inner
-      : `<div class="import-overlay"><div class="import-dialog">${inner}</div></div>`;
+      : `<div class="modal-backdrop"><div class="import-dialog">${inner}</div></div>`;
   }
 
   private renderError(message: string) {
@@ -145,7 +145,7 @@ export class KbViewerDialog {
     `;
     this.container.innerHTML = this.embedMode
       ? inner
-      : `<div class="import-overlay"><div class="import-dialog">${inner}</div></div>`;
+      : `<div class="modal-backdrop"><div class="import-dialog">${inner}</div></div>`;
     this.container.querySelector("#kb-viewer-close-error")?.addEventListener("click", () => this.close());
   }
 
@@ -171,7 +171,7 @@ export class KbViewerDialog {
       `;
     } else {
       this.container.innerHTML = `
-        <div class="import-overlay" id="kb-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="kb-viewer-title">
+        <div class="modal-backdrop" id="kb-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="kb-viewer-title">
           <div class="import-dialog kb-viewer">
             <div class="import-header">
               <h2 id="kb-viewer-title">Knowledge Base</h2>

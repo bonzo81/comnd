@@ -210,7 +210,7 @@ export class KbImportDialog {
       this.container.innerHTML = content;
     } else {
       this.container.innerHTML = `
-        <div class="import-overlay" id="import-overlay" role="dialog" aria-modal="true" aria-labelledby="import-title">
+        <div class="modal-backdrop" id="import-overlay" role="dialog" aria-modal="true" aria-labelledby="import-title">
           <div class="import-dialog">
             <div class="import-header">
               <h2 id="import-title">Import Commands from URL</h2>

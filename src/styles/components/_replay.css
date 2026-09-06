@@ -2,17 +2,17 @@
 
 /* Top-level management view */
 .replay-screen {
-  padding: 20px;
+  padding: var(--space-5);
   max-width: 900px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 .rsm-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .rsm-title {
   font-size: 18px;
@@ -22,113 +22,111 @@
 .rsm-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .rsm-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  border: 1px solid var(--border-default, #2a2a33);
-  border-radius: 8px;
-  padding: 10px 12px;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
 }
 .rsm-main {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .rsm-cmd {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
   word-break: break-all;
-  color: var(--text-primary, #e6e8eb);
+  color: var(--color-text-primary);
 }
 .rsm-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1-5);
   flex-shrink: 0;
 }
 .rsm-empty {
-  border: 1px dashed var(--border-default, #2a2a33);
-  border-radius: 8px;
-  padding: 32px;
+  padding: var(--space-8);
   text-align: center;
 }
 .rsm-empty-hint {
-  color: var(--text-secondary, #9aa0aa);
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 
 /* Sidebar KB ⇄ Replay toggle */
 .sb-toggle {
   display: flex;
-  gap: 2px;
-  padding: 8px 8px 0;
-  border-bottom: 1px solid var(--border-default, #2a2a33);
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
 }
 .sb-toggle-btn {
   flex: 1;
   background: none;
   border: none;
-  color: var(--text-secondary, #9aa0aa);
+  color: var(--color-text-secondary);
   font-size: 12px;
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border-bottom: 2px solid transparent;
   cursor: pointer;
 }
 .sb-toggle-btn.active {
-  color: var(--text-primary, #e6e8eb);
-  border-bottom-color: var(--color-accent, #22C55E);
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
 }
 
 /* Replay list in side panel */
 .replay-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .replay-panel-head {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px 0;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2) 0;
 }
 .replay-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2);
   overflow-y: auto;
 }
 .replay-item {
-  border: 1px solid var(--border-default, #2a2a33);
-  border-radius: 6px;
-  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .replay-cmd {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
-  color: var(--text-primary, #e6e8eb);
+  color: var(--color-text-primary);
   flex: 1;
   min-width: 0;
 }
 .replay-var {
-  color: var(--color-accent, #22C55E);
-  background: color-mix(in srgb, var(--color-accent, #22C55E) 12%, transparent);
-  border-radius: 3px;
-  padding: 0 3px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
 }
 .replay-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   justify-content: flex-end;
 }
 .replay-play {
@@ -137,10 +135,10 @@
 .replay-del {
   font-size: 14px;
   margin-left: auto;
-  color: var(--text-secondary, #9aa0aa);
+  color: var(--color-text-secondary);
 }
 .replay-del:hover {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-error);
 }
 
 /* Save dialog + variable prompt */
@@ -149,21 +147,21 @@
   width: 90%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   max-height: 85vh;
   overflow-y: auto;
 }
 .replay-dialog-hint {
   font-size: 12px;
-  color: var(--text-secondary, #9aa0aa);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 .rsv-preview {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
-  border: 1px solid var(--border-default, #2a2a33);
-  border-radius: 6px;
-  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
   min-height: 3.5em;
   word-break: break-all;
   cursor: text;
@@ -173,11 +171,11 @@
   display: none;
 }
 .rsv-chip {
-  color: var(--color-accent, #22C55E);
-  background: color-mix(in srgb, var(--color-accent, #22C55E) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-accent, #22C55E) 35%, transparent);
-  border-radius: 4px;
-  padding: 0 4px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
   cursor: pointer;
 }
 .rsv-mark-row {
@@ -186,18 +184,18 @@
 }
 .rsv-vars-list h4 {
   font-size: 12px;
-  margin: 0 0 6px;
-  color: var(--text-secondary, #9aa0aa);
+  margin: 0 0 var(--space-1-5);
+  color: var(--color-text-secondary);
 }
 .rsv-var-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1-5);
 }
 .rsv-var-token {
   font-size: 12px;
-  color: var(--color-accent, #22C55E);
+  color: var(--color-accent);
   min-width: 70px;
 }
 .rsv-var-name {
@@ -206,10 +204,10 @@
 .rsv-var-remove {
   background: none;
   border: none;
-  color: var(--text-secondary, #9aa0aa);
+  color: var(--color-text-secondary);
   font-size: 16px;
   cursor: pointer;
 }
 .rsv-var-remove:hover {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-error);
 }
