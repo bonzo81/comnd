@@ -65,6 +65,10 @@ Implementation plans live in `docs/plan-*.md` and `docs/*-plan-*.md`. The roadma
 ### CSS
 
 - CSS custom properties for all colors (defined in `:root` in `src/styles/tokens.css`)
+- Tokens only — no raw px font sizes, colors, or shadows in component CSS; use `--font-size-*`, `--color-*`, `--shadow-*`, `--radius-*`
+- One input class: `.form-input` (+ `.form-input-sm` size modifier). Do not hand-roll new input/select styles; compose with layout-only classes
+- No `var()` fallbacks for tokens — tokens are always defined
+- No inline `style="..."` in TS markup except dynamic values (positions, indents); everything else gets a class
 - 4px spacing grid (`var(--spacing)`)
 - Multiple app themes (dark, light, solarized) — tokens in `tokens.css`, component styles in `src/styles/components/`
 - JetBrains Mono for terminal and code; Inter for UI text (via `@fontsource`)

@@ -1,4 +1,4 @@
-/* Command Replay — side panel list, save dialog, variable prompt (docs/09) */
+﻿/* Command Replay â€” side panel list, save dialog, variable prompt (docs/09) */
 
 /* Top-level management view */
 .replay-screen {
@@ -41,7 +41,7 @@
 }
 .rsm-cmd {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-base);
   word-break: break-all;
   color: var(--color-text-primary);
 }
@@ -56,10 +56,10 @@
 }
 .rsm-empty-hint {
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-base);
 }
 
-/* Sidebar KB ⇄ Replay toggle */
+/* Sidebar KB â‡„ Replay toggle */
 .sb-toggle {
   display: flex;
   gap: var(--space-0-5);
@@ -71,7 +71,7 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   padding: var(--space-1-5) var(--space-2);
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -112,7 +112,7 @@
 }
 .replay-cmd {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   word-break: break-all;
   color: var(--color-text-primary);
   flex: 1;
@@ -130,10 +130,10 @@
   justify-content: flex-end;
 }
 .replay-play {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .replay-del {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   margin-left: auto;
   color: var(--color-text-secondary);
 }
@@ -152,13 +152,13 @@
   overflow-y: auto;
 }
 .replay-dialog-hint {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   margin: 0;
 }
 .rsv-preview {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-base);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-3);
@@ -183,7 +183,7 @@
   justify-content: flex-start;
 }
 .rsv-vars-list h4 {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   margin: 0 0 var(--space-1-5);
   color: var(--color-text-secondary);
 }
@@ -194,7 +194,7 @@
   margin-bottom: var(--space-1-5);
 }
 .rsv-var-token {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--color-accent);
   min-width: 70px;
 }
@@ -205,7 +205,7 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   cursor: pointer;
 }
 .rsv-var-remove:hover {

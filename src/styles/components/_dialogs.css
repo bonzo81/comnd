@@ -1,4 +1,4 @@
-/* ─── Context menu ─────────────────────────────────────────────────── */
+/* â”€â”€â”€ Context menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .context-menu {
   position: fixed;
   background: var(--color-surface-elevated);
@@ -45,7 +45,7 @@
   margin: var(--space-1) 0;
 }
 
-/* ─── Import Dialog ────────────────────────────────────────────────── */
+/* â”€â”€â”€ Import Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-dialog {
   background: var(--color-surface-elevated);
   border: 1px solid var(--color-border);
@@ -255,7 +255,7 @@
   word-break: break-word;
 }
 
-/* ─── KB Viewer ────────────────────────────────────────────────────── */
+/* â”€â”€â”€ KB Viewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .kb-viewer {
   width: 700px;
   max-width: 90vw;
@@ -270,37 +270,16 @@
 }
 
 .kb-platform-select {
-  padding: var(--space-1-5) var(--space-2);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-ui);
-  outline: none;
-  appearance: none;
-  cursor: pointer;
   min-width: 160px;
-}
-
-.kb-platform-select:focus {
-  border-color: var(--color-accent);
 }
 
 .kb-search {
   flex: 1;
-  padding: var(--space-1-5) var(--space-2);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-ui);
-  outline: none;
 }
 
-.kb-search:focus {
-  border-color: var(--color-accent);
+.kb-edit-errors {
+  padding: var(--space-4);
+  color: var(--color-error);
 }
 
 .kb-count {
@@ -388,7 +367,7 @@
   opacity: 0.7;
 }
 
-/* ─── KB Edit / Delete ─────────────────────────────────────────────── */
+/* â”€â”€â”€ KB Edit / Delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .kb-detail-wrapper {
   display: flex;
   flex-direction: column;
@@ -435,12 +414,12 @@
   border-color: var(--color-error);
 }
 
-/* ─── Import: Model Select ─────────────────────────────────────────── */
+/* â”€â”€â”€ Import: Model Select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-models {
   margin-top: var(--space-2);
 }
 
-/* ─── Import: Source Mode Slider (URL / Paste Text) ────────────────── */
+/* â”€â”€â”€ Import: Source Mode Slider (URL / Paste Text) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-mode-toggle {
   display: inline-flex;
   position: relative;
@@ -504,7 +483,7 @@
   margin: var(--space-2) 0;
 }
 
-/* ─── Import: URL Pre-validation ───────────────────────────────────── */
+/* â”€â”€â”€ Import: URL Pre-validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-url-row {
   display: flex;
   gap: var(--space-2);
@@ -530,7 +509,7 @@
 .url-status-progress { color: var(--color-text-secondary); }
 .url-status svg { width: 12px; height: 12px; vertical-align: -2px; }
 
-/* ─── Import: Elapsed Time ─────────────────────────────────────────── */
+/* â”€â”€â”€ Import: Elapsed Time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-elapsed {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
@@ -566,7 +545,7 @@
   font-size: var(--font-size-xs);
 }
 
-/* ─── Import: Preview Stage (Phase 5.6) ────────────────────────────── */
+/* â”€â”€â”€ Import: Preview Stage (Phase 5.6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-preview {
   padding: var(--space-3) 0;
 }
@@ -582,7 +561,7 @@
   margin: 0;
   font-size: var(--font-size-base);
 }
-/* docs/10 § Part 4: per-command accept/reject preview */
+/* docs/10 Â§ Part 4: per-command accept/reject preview */
 .preview-counts {
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
@@ -604,7 +583,7 @@
   flex-shrink: 0;
 }
 .preview-provenance-new {
-  color: var(--color-success, #16a34a);
+  color: var(--color-success);
 }
 
 .preview-why {
@@ -625,7 +604,7 @@
   opacity: 0.7;
 }
 
-/* Built-in vs import comparison (docs/10 § Part 4) */
+/* Built-in vs import comparison (docs/10 Â§ Part 4) */
 .preview-compare {
   display: flex;
   flex-wrap: wrap;
@@ -650,7 +629,7 @@
   margin-bottom: var(--space-1);
 }
 .preview-compare-builtin { color: var(--color-text-secondary); }
-.preview-compare-imported { color: var(--color-success, #16a34a); }
+.preview-compare-imported { color: var(--color-success); }
 .preview-compare-syntax {
   display: block;
   font-size: var(--font-size-xs);
@@ -697,8 +676,8 @@
   height: 14px;
   flex-shrink: 0;
 }
-.preview-row-head .preview-ok { color: var(--color-success, #16a34a); }
-.preview-row-head .preview-warn { color: var(--color-warning, #d97706); }
+.preview-row-head .preview-ok { color: var(--color-success); }
+.preview-row-head .preview-warn { color: var(--color-warning); }
 
 .preview-name {
   font-weight: 600;
@@ -717,7 +696,7 @@
   flex-shrink: 0;
 }
 
-/* Category badge — shown only when it differs from the form's selection */
+/* Category badge â€” shown only when it differs from the form's selection */
 .preview-cat {
   color: var(--color-accent);
   font-size: var(--font-size-xs);
@@ -727,7 +706,7 @@
   flex-shrink: 0;
 }
 
-/* Category editor — replaces the read-only badge, same visual language */
+/* Category editor â€” replaces the read-only badge, same visual language */
 .preview-cat-select {
   color: var(--color-accent);
   font-size: var(--font-size-xs);
@@ -756,7 +735,7 @@
 .preview-issues {
   margin-top: var(--space-1);
   margin-left: 22px;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning);
   font-size: var(--font-size-xs);
   font-family: var(--font-sans);
 }

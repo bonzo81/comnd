@@ -1,4 +1,4 @@
-/* ─── Connecting Overlay ───────────────────────────────────────────── */
+﻿/* â”€â”€â”€ Connecting Overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tv-overlay {
   position: absolute;
   inset: 0;
@@ -73,7 +73,7 @@
   overflow-y: auto;
   margin: var(--space-3) 0;
   padding: var(--space-2);
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--overlay-solid);
   border-radius: var(--radius-sm);
   text-align: left;
 }
@@ -102,7 +102,7 @@
   gap: var(--space-3);
 }
 
-/* ─── Disconnect Banner ────────────────────────────────────────────── */
+/* â”€â”€â”€ Disconnect Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tv-banner {
   position: absolute;
   top: 0;
@@ -129,7 +129,7 @@
   align-items: center;
 }
 
-/* ─── Toast Notifications ──────────────────────────────────────────── */
+/* â”€â”€â”€ Toast Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .toast-container {
   position: fixed;
   bottom: var(--space-4);

@@ -1425,21 +1425,21 @@ export class SettingsScreen {
     const overlay = document.createElement("div");
     overlay.className = "modal-backdrop";
     overlay.innerHTML = `
-      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="restore-mode-title" style="max-width: 480px;">
-        <h3 id="restore-mode-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-3);">Restore backup</h3>
-        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-4); line-height: 1.5;">
-          Choose how to restore from <strong style="color: var(--color-text-primary);">${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
+      <div class="modal-panel modal-panel-sm" role="dialog" aria-modal="true" aria-labelledby="restore-mode-title">
+        <h3 id="restore-mode-title">Restore backup</h3>
+        <p class="modal-intro">
+          Choose how to restore from <strong>${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
         </p>
-        <div style="display: flex; flex-direction: column; gap: var(--space-3);">
-          <button class="btn-primary" id="import-overwrite" style="display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); text-align: left;">
+        <div class="modal-choice-list">
+          <button class="btn-primary modal-choice" id="import-overwrite">
             <span>Overwrite everything</span>
             <span class="import-hint">Replaces all current data with the backup. Files not in the backup are deleted.</span>
           </button>
-          <button class="btn-secondary" id="import-merge" style="display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); text-align: left;">
+          <button class="btn-secondary modal-choice" id="import-merge">
             <span>Merge</span>
             <span class="import-hint">Combines current and backup data. You'll review any conflicts before anything is changed.</span>
           </button>
-          <button class="btn-text" id="import-cancel" style="align-self: center;">Cancel</button>
+          <button class="btn-text" id="import-cancel">Cancel</button>
         </div>
       </div>
     `;
@@ -1535,19 +1535,19 @@ export class SettingsScreen {
     `).join("");
 
     overlay.innerHTML = `
-      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="merge-conflicts-title" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
-        <h3 id="merge-conflicts-title" style="font-size: var(--font-size-xl); margin-bottom: var(--space-2);">Merge conflicts</h3>
-        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-3); line-height: 1.5;">
+      <div class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="merge-conflicts-title">
+        <h3 id="merge-conflicts-title">Merge conflicts</h3>
+        <p class="modal-intro">
           ${newCount} new entries will be added. ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} need resolution:
         </p>
-        <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-3);">
-          <button class="btn-text" id="conflict-all-keep" style="font-size: var(--font-size-xs);">Keep all current</button>
-          <button class="btn-text" id="conflict-all-backup" style="font-size: var(--font-size-xs);">Use all backup</button>
+        <div class="modal-actions modal-actions-header">
+          <button class="btn-text btn-xs" id="conflict-all-keep">Keep all current</button>
+          <button class="btn-text btn-xs" id="conflict-all-backup">Use all backup</button>
         </div>
-        <div class="conflict-list" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4);">
+        <div class="conflict-list">
           ${conflictRows}
         </div>
-        <div style="display: flex; gap: var(--space-3); justify-content: flex-end;">
+        <div class="modal-actions">
           <button class="btn-text" id="conflict-cancel">Cancel</button>
           <button class="btn-primary" id="conflict-apply">Apply merge</button>
         </div>

@@ -75,7 +75,7 @@ export class ReplayScreen {
         <div class="rsm-toolbar">
           <h2 class="rsm-title">Command Replay</h2>
           <span class="kb-count">${shown.length} command${shown.length === 1 ? "" : "s"}</span>
-          <select id="rsm-platform-filter" class="kb-platform-select" aria-label="Filter by platform">${options}</select>
+          <select id="rsm-platform-filter" class="form-input form-input-sm kb-platform-select" aria-label="Filter by platform">${options}</select>
           <button class="btn-primary rsm-add">+ Add Command</button>
         </div>
         ${shown.length === 0

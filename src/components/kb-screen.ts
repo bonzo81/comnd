@@ -81,7 +81,7 @@ export class KbScreen {
         <div class="kb-content">
           <div class="kb-platform-filter${this.activeTab !== "browse" ? " hidden" : ""}" id="kb-platform-filter">
             <span class="kb-platform-filter-label">Platform:</span>
-            <select id="kb-platform-filter-select" class="kb-platform-select"></select>
+            <select id="kb-platform-filter-select" class="form-input form-input-sm kb-platform-select"></select>
           </div>
           <div class="kb-content-panel${this.activeTab !== "browse" ? " hidden" : ""}" id="kb-browse-panel"></div>
           <div class="kb-content-panel${this.activeTab !== "import" ? " hidden" : ""}" id="kb-import-panel"></div>

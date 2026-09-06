@@ -1,4 +1,4 @@
-/* ─── xterm.js custom scrollbar ───────────────────────────────────── */
+/* â”€â”€â”€ xterm.js custom scrollbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .xterm-viewport::-webkit-scrollbar {
   width: 8px;
 }
@@ -21,7 +21,7 @@
   scrollbar-color: var(--color-text-tertiary) transparent;
 }
 
-/* ─── Session Tab Bar ─────────────────────────────────────────────── */
+/* â”€â”€â”€ Session Tab Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .session-tab-bar {
   display: flex;
   align-items: center;
@@ -224,7 +224,7 @@ body.tv-resizing * {
 .sb-connected { color: var(--color-success); }
 .sb-disconnected { color: var(--color-error); }
 
-/* ─── Sidebar Command Detail ───────────────────────────────────────── */
+/* â”€â”€â”€ Sidebar Command Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .cmd-detail {
   font-size: var(--font-size-base);
@@ -239,7 +239,7 @@ body.tv-resizing * {
   margin-bottom: var(--space-3);
 }
 
-/* docs/10 § Part 2: override note in the KB viewer detail panel */
+/* docs/10 Â§ Part 2: override note in the KB viewer detail panel */
 .kb-override-note {
   margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -354,7 +354,7 @@ body.tv-resizing * {
   border-radius: var(--radius-lg);
 }
 
-/* ─── Phase 5.7: token breakdown in side panel + KB viewer ────────── */
+/* â”€â”€â”€ Phase 5.7: token breakdown in side panel + KB viewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .cmd-tokens {
   margin-bottom: var(--space-3);
@@ -390,7 +390,7 @@ body.tv-resizing * {
 }
 
 .token-lit { color: var(--color-text-primary); font-weight: 600; }
-.token-choice { color: var(--color-warning, #d97706); }
+.token-choice { color: var(--color-warning); }
 .token-choice.opt { opacity: 0.8; }
 .token-choice.rep::after { content: " *"; opacity: 0.6; }
 .token-var { color: var(--color-accent); font-style: italic; }
@@ -399,7 +399,7 @@ body.tv-resizing * {
 .token-type-badge,
 .token-source-badge {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   background: var(--color-surface-secondary);
   color: var(--color-text-secondary);
   padding: 0 var(--space-1);
@@ -413,7 +413,7 @@ body.tv-resizing * {
   margin-top: var(--space-2);
 }
 .token-issue {
-  color: var(--color-error, #dc2626);
+  color: var(--color-error);
   font-size: var(--font-size-xs);
   font-family: var(--font-sans);
   padding: var(--space-1) 0;
@@ -450,13 +450,13 @@ body.tv-resizing * {
   text-decoration: underline;
 }
 
-/* ─── Platform Badge Colors ────────────────────────────────────────── */
+/* â”€â”€â”€ Platform Badge Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .badge-iosxe { color: var(--color-accent) !important; }
 .badge-nxos { color: var(--badge-nxos) !important; }
 .badge-tmos { color: var(--color-warning) !important; }
 .badge-bash { color: var(--color-success) !important; }
 
-/* ─── Line Timestamps (iTerm-style gutter) ─────────────────────────── */
+/* â”€â”€â”€ Line Timestamps (iTerm-style gutter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* All topbar buttons share the pill shape; tint only appears on hover */
 .tv-topbar .btn-text {
   border-radius: var(--radius-md);
@@ -470,7 +470,7 @@ body.tv-resizing * {
   color: var(--color-accent);
 }
 
-/* Active toggles keep their accent family on hover — the default white
+/* Active toggles keep their accent family on hover â€” the default white
    .btn-text:hover would read as "off" for a colored (enabled) icon.
    Tint pill + brighter shade make the hover clearly perceptible. */
 .tv-timestamps-btn.active:hover,
@@ -532,7 +532,7 @@ body.tv-resizing * {
   user-select: none;
 }
 
-/* ─── Credential Badge ─────────────────────────────────────────────── */
+/* â”€â”€â”€ Credential Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .cred-badge {
   display: inline-flex;
   align-items: center;
@@ -546,7 +546,7 @@ body.tv-resizing * {
   font-weight: 600;
 }
 
-/* ─── Scrollback search bar ────────────────────────────────────────── */
+/* â”€â”€â”€ Scrollback search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tv-search-bar {
   position: absolute;
   top: var(--space-2);
@@ -558,7 +558,7 @@ body.tv-resizing * {
   padding: var(--space-1) var(--space-1-5);
   background: var(--color-surface-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-md);
 }
 

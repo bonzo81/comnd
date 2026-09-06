@@ -1,10 +1,10 @@
-/* ─── Buttons ──────────────────────────────────────────────────────── */
+﻿/* â”€â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .btn-primary {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border: none;
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
@@ -38,7 +38,7 @@
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   font-family: inherit;
   font-size: var(--font-size-base);
   cursor: pointer;
@@ -53,7 +53,7 @@
   color: var(--color-surface-secondary);
   border: none;
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   font-family: inherit;
   font-size: var(--font-size-base);
   font-weight: 600;
@@ -68,6 +68,11 @@
   padding: var(--space-1) var(--space-3);
   font-family: inherit;
   font-size: var(--font-size-sm);
+}
+
+.btn-text.btn-xs,
+.btn-link.btn-xs {
+  font-size: var(--font-size-xs);
 }
 
 .btn-primary:disabled,
@@ -93,7 +98,7 @@
   text-decoration: underline;
 }
 
-/* ─── Shortcuts Button in Header ───────────────────────────────────── */
+/* â”€â”€â”€ Shortcuts Button in Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .btn-shortcuts {
   background: none;
   border: 1px solid var(--color-border);

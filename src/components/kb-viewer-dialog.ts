@@ -155,7 +155,7 @@ export class KbViewerDialog {
     if (this.embedMode) {
       this.container.innerHTML = `
         <div class="kb-viewer-toolbar">
-          <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
+          <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
           <span class="kb-count">${this.filteredCommands.length} commands</span>
         </div>
         <div class="kb-viewer-body">
@@ -178,7 +178,7 @@ export class KbViewerDialog {
               <button class="import-close-btn" id="kb-viewer-close" aria-label="Close knowledge base">&times;</button>
             </div>
             <div class="kb-viewer-toolbar">
-              <input type="text" id="kb-search" class="kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
+              <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
               <span class="kb-count">${this.filteredCommands.length} commands</span>
             </div>
             <div class="kb-viewer-body">
@@ -554,7 +554,7 @@ export class KbViewerDialog {
     } catch (e) {
       const detailEl = this.container?.querySelector("#kb-command-detail");
       if (detailEl) {
-        detailEl.innerHTML = `<div class="kb-edit-errors" style="padding:16px;color:var(--color-error)">Ignore failed: ${escHtml(String(e))}</div>`;
+        detailEl.innerHTML = `<div class="kb-edit-errors">Ignore failed: ${escHtml(String(e))}</div>`;
       }
     }
   }
@@ -566,7 +566,7 @@ export class KbViewerDialog {
     } catch (e) {
       const detailEl = this.container?.querySelector("#kb-command-detail");
       if (detailEl) {
-        detailEl.innerHTML = `<div class="kb-edit-errors" style="padding:16px;color:var(--color-error)">Enable failed: ${escHtml(String(e))}</div>`;
+        detailEl.innerHTML = `<div class="kb-edit-errors">Enable failed: ${escHtml(String(e))}</div>`;
       }
     }
   }
@@ -665,7 +665,7 @@ export class KbViewerDialog {
       // Render error inline
       const detailEl = this.container?.querySelector("#kb-command-detail");
       if (detailEl) {
-        detailEl.innerHTML = `<div class="kb-edit-errors" style="padding:16px;color:var(--color-error)">Delete failed: ${escHtml(String(e))}</div>`;
+        detailEl.innerHTML = `<div class="kb-edit-errors">Delete failed: ${escHtml(String(e))}</div>`;
       }
     }
   }

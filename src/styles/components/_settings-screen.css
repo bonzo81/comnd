@@ -1,4 +1,4 @@
-/* ─── Settings Screen ─────────────────────────────────────────────── */
+/* â”€â”€â”€ Settings Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .settings-screen {
   height: 100%;
   overflow-y: auto;
@@ -43,7 +43,7 @@
   color: var(--color-text-secondary);
 }
 
-/* ─── General section ─────────────────────────────────────────────── */
+/* â”€â”€â”€ General section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .settings-section-title {
   font-size: var(--font-size-lg);
   font-weight: 600;
@@ -91,7 +91,7 @@
   min-width: 0;
 }
 
-/* ─── Auth Integrations (chunk 7) ─────────────────────────────────── */
+/* â”€â”€â”€ Auth Integrations (chunk 7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .provider-refresh-row {
   display: flex;
   justify-content: flex-end;
@@ -158,7 +158,7 @@
   margin-top: var(--space-3);
 }
 
-/* --- NetBox host source (plan �9.2) ------------------------------- */
+/* --- NetBox host source (plan ï¿½9.2) ------------------------------- */
 
 .netbox-body {
   display: flex;
@@ -218,7 +218,7 @@
 .netbox-device-meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -229,7 +229,7 @@
   opacity: 0.5;
 }
 
-/* --- NetBox Configure dialog (plan �9.4) -------------------------- */
+/* --- NetBox Configure dialog (plan ï¿½9.4) -------------------------- */
 
 .netbox-cfg-summary {
   display: flex;
@@ -249,24 +249,24 @@
 .netbox-cfg-meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
-/* Save Token button � highlighted after a successful Test (plan �9.2) */
+/* Save Token button ï¿½ highlighted after a successful Test (plan ï¿½9.2) */
 #netbox-token-save.netbox-save-token-ready {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 #netbox-token-save.netbox-save-token-ready:hover {
   filter: brightness(1.08);
 }
 
-/* ─── NetBox filter multi-select ─────────────────────────────── */
+/* â”€â”€â”€ NetBox filter multi-select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .ms-wrap {
   position: relative;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   background: var(--color-surface-elevated);
 }
 .ms-chips {
@@ -278,7 +278,7 @@
 }
 .ms-placeholder {
   color: var(--color-text-tertiary);
-  font-size: 13px;
+  font-size: var(--font-size-base);
 }
 .ms-chip {
   display: inline-flex;
@@ -288,7 +288,7 @@
   border-radius: var(--radius-sm);
   background: var(--accent-tint-soft);
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
 }
 .ms-chip-x {
@@ -297,7 +297,7 @@
   color: inherit;
   cursor: pointer;
   padding: 0 var(--space-0-5);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   line-height: 1;
   opacity: 0.7;
 }
@@ -309,7 +309,7 @@
   border-radius: 0;
   background: transparent;
   padding: var(--space-1) var(--space-2) var(--space-1-5);
-  font-size: 13px;
+  font-size: var(--font-size-base);
   width: 100%;
   box-sizing: border-box;
 }
@@ -331,14 +331,14 @@
   border: 1px solid var(--color-border);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
 }
 .ms-dropdown-open {
   display: block;
 }
 .ms-item {
   padding: var(--space-1-5) var(--space-3);
-  font-size: 13px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   color: var(--color-text-primary);
 }

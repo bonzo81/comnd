@@ -362,7 +362,7 @@ export class NavPanel {
         </button>
       </div>
       <div class="nav-search-wrap">
-        <input type="text" class="nav-search-input" id="nav-host-search" placeholder="Search hosts…" aria-label="Search hosts" value="${escHtml(this.searchQuery)}" />
+        <input type="text" class="form-input form-input-sm nav-search-input" id="nav-host-search" placeholder="Search hosts…" aria-label="Search hosts" value="${escHtml(this.searchQuery)}" />
       </div>
       <div class="nav-group-row nav-root-zone${this.searchQuery ? " hidden" : ""}" data-drop-root data-group-id="${ALL_GROUP_ID}">
         <button class="nav-item nav-sub" data-group-id="${ALL_GROUP_ID}">

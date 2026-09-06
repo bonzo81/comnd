@@ -1,4 +1,4 @@
-/* ─── Left Nav Panel ──────────────────────────────────────────────── */
+﻿/* â”€â”€â”€ Left Nav Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .app-nav {
   width: 240px;
   flex-shrink: 0;
@@ -31,10 +31,10 @@
 
 .nav-section-items.open {
   /* ponytail: max-height caps the expand animation. A real cap (e.g. 2000px)
-     clips long host lists — the section stops growing, the outer .app-nav
+     clips long host lists â€” the section stops growing, the outer .app-nav
      overflow-y:auto never sees the extra content, and the bottom of the
      list becomes unreachable. 100000px is well beyond any realistic nav
-     tree (≈3000 rows at 32px) while still giving the transition a finite
+     tree (â‰ˆ3000 rows at 32px) while still giving the transition a finite
      ceiling to animate against. If a user genuinely exceeds this, switch
      to a post-transition `max-height: none` via an `animationend` class. */
   max-height: 100000px;
@@ -79,7 +79,7 @@
   height: 14px;
 }
 
-/* ─── Nav items ───────────────────────────────────────────────────── */
+/* â”€â”€â”€ Nav items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-item {
   display: flex;
   align-items: center;
@@ -104,7 +104,7 @@
   color: var(--color-text-primary);
 }
 
-/* Bare items (not inside a flex row) must span the full column width —
+/* Bare items (not inside a flex row) must span the full column width â€”
    <button> shrinks to fit content, unlike the row-wrapped items whose
    flex:1 stretches them to the same width. width:100% + horizontal margin
    would overflow the container (clipped by .app-nav overflow-x:hidden),
@@ -137,24 +137,8 @@
   padding: 0 var(--space-2) var(--space-2);
 }
 
-.nav-search-input {
-  width: 100%;
-  padding: var(--space-1-5) var(--space-3);
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-ui);
-  outline: none;
-}
-
 .nav-search-input::placeholder {
   color: var(--color-text-tertiary);
-}
-
-.nav-search-input:focus {
-  border-color: var(--color-accent);
 }
 
 .nav-action {
@@ -182,7 +166,7 @@
   line-height: 1;
 }
 
-/* ─── Group row (label + hover actions) ──────────────────────────── */
+/* â”€â”€â”€ Group row (label + hover actions) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-group-row {
   display: flex;
   align-items: center;
@@ -253,7 +237,7 @@
   text-align: center;
 }
 
-/* ─── Group expand/collapse animation ─────────────────────────────── */
+/* â”€â”€â”€ Group expand/collapse animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-host-row > .nav-item,
 .nav-group-row > .nav-item,
 .nav-group-row > .nav-row-actions,
@@ -294,7 +278,7 @@
   }
 }
 
-/* ─── Host row (nested under groups) ─────────────────────────────── */
+/* â”€â”€â”€ Host row (nested under groups) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-host-row {
   display: flex;
   align-items: center;
@@ -317,12 +301,12 @@
   margin: 0 3px;
 }
 
-/* Active session — green dot, matching the content-area host card. */
+/* Active session â€” green dot, matching the content-area host card. */
 .nav-host-dot.dot-ok {
   background: var(--color-accent);
 }
 
-/* ─── Drag & drop (pointer-based) ─────────────────────────────────── */
+/* â”€â”€â”€ Drag & drop (pointer-based) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Source row becomes an invisible placeholder while its clone follows the cursor */
 .nav-drag-lift {
@@ -340,7 +324,7 @@
   margin: 0;
   background: var(--color-surface-elevated);
   color: var(--color-text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-lg);
   border-radius: var(--radius-md);
 }
 
@@ -370,17 +354,17 @@
   pointer-events: none;
 }
 
-/* ─── Inline "new group" input ────────────────────────────────────── */
+/* â”€â”€â”€ Inline "new group" input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-creating {
   margin: 0 var(--space-2) var(--space-0-5);
 }
 
 .nav-create-input {
   width: 100%;
-  padding: 5px var(--space-2);
+  padding: 5px var(--space-3);
   background: var(--color-surface-primary);
   border: 1px solid var(--color-accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   color: var(--color-text-primary);
   font-family: inherit;
   font-size: var(--font-size-sm);
@@ -391,13 +375,13 @@
   color: var(--color-text-tertiary);
 }
 
-/* ─── Inline rename input ─────────────────────────────────────── */
+/* â”€â”€â”€ Inline rename input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-rename-input {
   width: 100%;
-  padding: 5px var(--space-2);
+  padding: 5px var(--space-3);
   background: var(--color-surface-primary);
   border: 1px solid var(--color-accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   color: var(--color-text-primary);
   font-family: inherit;
   font-size: var(--font-size-sm);
@@ -425,7 +409,7 @@
   flex-shrink: 0;
 }
 
-/* ─── Focus ───────────────────────────────────────────────────────── */
+/* â”€â”€â”€ Focus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nav-section-header:focus-visible,
 .nav-item:focus-visible {
   outline: 2px solid var(--color-accent);
