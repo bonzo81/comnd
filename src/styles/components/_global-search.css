@@ -101,6 +101,9 @@
   gap: var(--space-3);
   min-height: 28px;
   padding: var(--space-1) var(--space-3);
+  /* 1px transparent border reserves the selected-state border space
+     so arrow-key selection never shifts the row's layout. */
+  border: 1px solid transparent;
   cursor: pointer;
   outline: none;
 }
@@ -111,8 +114,7 @@
 }
 
 .title-bar-search-row.selected {
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-sm);
+  border-color: var(--color-accent);
 }
 
 .title-bar-search-row:focus-visible {

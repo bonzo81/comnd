@@ -152,12 +152,13 @@
 }
 
 /* ─── Import job indicator (title bar, docs/10 UX) ─── */
+/* In flow, left of .title-bar-controls (margin-left:auto on controls
+   pins both to the right edge). No pixel offset — works regardless of
+   platform window-control widths. */
 .title-import-indicator {
-  position: absolute;
-  right: 190px;
-  top: 0;
   height: 44px;
   width: 40px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -267,10 +268,6 @@
 .cm-empty-icon svg {
   width: 48px;
   height: 48px;
-}
-
-.cm-empty-icon {
-  color: var(--color-text-secondary);
 }
 
 .import-success-icon svg,

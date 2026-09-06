@@ -17,6 +17,7 @@
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   width: 520px;
+  max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
@@ -157,6 +158,7 @@ select.form-input {
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   width: 520px;
+  max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
