@@ -26,6 +26,7 @@
   max-height: 0;
   visibility: hidden;
   transition: max-height 260ms ease, visibility 0s linear 260ms;
+  padding: var(--space-0-5) 0 var(--space-2);
 }
 
 .nav-section-items.open {
@@ -78,10 +79,6 @@
   height: 14px;
 }
 
-.nav-section-items {
-  padding: var(--space-0-5) 0 var(--space-2);
-}
-
 /* ─── Nav items ───────────────────────────────────────────────────── */
 .nav-item {
   display: flex;
@@ -107,9 +104,21 @@
   color: var(--color-text-primary);
 }
 
+/* Bare items (not inside a flex row) must span the full column width —
+   <button> shrinks to fit content, unlike the row-wrapped items whose
+   flex:1 stretches them to the same width. width:100% + horizontal margin
+   would overflow the container (clipped by .app-nav overflow-x:hidden),
+   so subtract the margins via calc. */
+.nav-section-items > .nav-item,
+.nav-action-wrap > .nav-item {
+  width: calc(100% - 2 * var(--space-2));
+}
+
 .nav-selected {
   background: var(--color-surface-selected);
   color: var(--color-text-primary);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
 }
 
 .nav-item-label {
@@ -190,7 +199,7 @@
 
 .nav-row-actions {
   display: flex;
-  gap: 2px;
+  gap: var(--space-0-5);
   opacity: 0;
   transition: opacity 0.12s ease;
   flex-shrink: 0;
@@ -297,7 +306,6 @@
   flex: 1;
   margin: 0;
   min-width: 0;
-  font-size: var(--font-size-sm);
 }
 
 .nav-host-dot {

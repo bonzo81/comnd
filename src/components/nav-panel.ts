@@ -69,7 +69,14 @@ export class NavPanel {
   private hosts: Host[] = [];
   private selectedHostId: string | null = null;
   private searchQuery = "";
-  private activeKbTab: "browse" | "import" = "browse";
+  /**
+   * THE active sub-item, app-wide. Exactly one sub-item is highlighted:
+   * the active one in the current view. Replaces the former per-section
+   * fields (activeKbTab / activeSettingsId / activeReplayId).
+   */
+  private activeItem: { section: NavSection; id: string } | null = { section: "settings", id: "llm" };
+  /** Current app view, so sub-item highlights match the visible screen. */
+  private currentView: NavSection | "terminal" | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -170,22 +177,46 @@ export class NavPanel {
     this.applyRovingTabindex();
   }
 
-  /** Update the highlighted host (driven by HostScreen). */
-  setSelectedHost(hostId: string | null) {
-    if (this.selectedHostId === hostId) return;
-    this.selectedHostId = hostId;
+  /**
+   * Single source of truth for sub-item highlighting. Exactly one sub-item
+   * across ALL sections is highlighted at a time — the active one in the
+   * current view. Host rows are excluded (their selection is independent
+   * of view switching).
+   */
+  private applyActiveItem() {
+    const view = this.currentView;
+    const active = this.activeItem;
+    // Host rows highlight independently of the current view.
     this.container.querySelectorAll<HTMLElement>(".nav-host-row[data-host-id]").forEach((el) => {
-      el.classList.toggle("nav-selected", el.dataset.hostId === hostId);
+      el.classList.toggle("nav-selected", el.dataset.hostId === this.selectedHostId);
+    });
+    this.container.querySelectorAll<HTMLElement>(".nav-item[data-section]").forEach((el) => {
+      const isActive = active !== null
+        && el.dataset.section === active.section
+        && el.dataset.subId === active.id
+        && view === active.section;
+      el.classList.toggle("nav-selected", isActive);
     });
   }
 
-  /** Update the highlighted KB tab (driven by KbScreen). */
-  setActiveKbTab(tab: "browse" | "import") {
-    if (this.activeKbTab === tab) return;
-    this.activeKbTab = tab;
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-kb-tab]").forEach((el) => {
-      el.classList.toggle("nav-selected", el.dataset.kbTab === tab);
-    });
+  /** Set the current view so sub-item highlights match the visible screen. */
+  setView(view: "connections" | "terminal" | "knowledge-base" | "replay" | "settings") {
+    const section: NavSection | "terminal" =
+      view === "knowledge-base" ? "kb" : view;
+    if (this.currentView === section) return;
+    this.currentView = section;
+    this.applyActiveItem();
+  }
+
+  /**
+   * Sync the active sub-item from the current view's truth-holder
+   * (kbScreen tab, settings screen item, replay's single item).
+   * Called from showView() so deep-links and keyboard shortcuts highlight
+   * correctly even when no nav item was clicked.
+   */
+  syncActiveItem(item: { section: NavSection; id: string } | null) {
+    this.activeItem = item;
+    this.applyActiveItem();
   }
 
   /** Look up a host by id (for the connect flow). */
@@ -615,40 +646,36 @@ export class NavPanel {
     }
   }
 
-  private renderKbItems(): string {
+  /**
+   * One sub-item primitive for every section. Same DOM shape everywhere:
+   * a full-width row-wrapped button tagged with data-section + data-sub-id,
+   * so selection, styling, and click handling are uniform by construction.
+   */
+  private renderSubItem(section: NavSection, id: string, label: string, opts?: { disabled?: boolean; badge?: string }): string {
+    const active = this.activeItem;
+    const selected = active !== null && active.section === section && active.id === id && this.currentView === section;
     return `
       <div class="nav-group-row">
-        <button class="nav-item nav-sub ${this.activeKbTab === "browse" ? "nav-selected" : ""}" data-kb-tab="browse">
-          <span class="nav-item-label">Browse KB</span>
-        </button>
-      </div>
-      <div class="nav-group-row">
-        <button class="nav-item nav-sub ${this.activeKbTab === "import" ? "nav-selected" : ""}" data-kb-tab="import">
-          <span class="nav-item-label">Import KB</span>
+        <button class="nav-item nav-sub${opts?.disabled ? " nav-disabled" : ""}${selected ? " nav-selected" : ""}"
+                data-section="${section}" data-sub-id="${id}"${opts?.disabled ? " disabled" : ""}>
+          <span class="nav-item-label">${escHtml(label)}</span>
+          ${opts?.badge ? `<span class="nav-soon">${opts.badge}</span>` : ""}
         </button>
       </div>
     `;
+  }
+
+  private renderKbItems(): string {
+    return this.renderSubItem("kb", "browse", "Browse KB")
+      + this.renderSubItem("kb", "import", "Import KB");
   }
 
   private renderReplayItems(): string {
-    return `
-      <div class="nav-group-row">
-        <button class="nav-item nav-sub" data-replay-open="manage">
-          <span class="nav-item-label">Manage Commands</span>
-        </button>
-      </div>
-    `;
+    return this.renderSubItem("replay", "manage", "Manage Commands");
   }
 
   private renderSettingsItems(): string {
-    return SETTINGS_ITEMS.map(
-      (s) => `
-        <button class="nav-item nav-sub${s.ready ? "" : " nav-disabled"}" data-settings-id="${s.id}" ${s.ready ? "" : "disabled"}>
-          <span class="nav-item-label">${s.label}</span>
-          ${s.ready ? "" : '<span class="nav-soon">soon</span>'}
-        </button>
-      `,
-    ).join("");
+    return SETTINGS_ITEMS.map((s) => this.renderSubItem("settings", s.id, s.label, s.ready ? undefined : { disabled: true, badge: "soon" })).join("");
   }
 
   // ─── Context Menu ────────────────────────────────────────────────
@@ -793,21 +820,18 @@ export class NavPanel {
       });
     }
 
-    // KB tab items (Browse KB / Import KB)
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-kb-tab]").forEach((el) => {
+    // Sub-items (KB tabs / Replay / Settings) — one delegated handler for
+    // every section. Clicks only fire the callback; the highlight sync
+    // happens in showView() via syncActiveItem, keyed off the uniform
+    // data-section/data-sub-id attrs.
+    this.container.querySelectorAll<HTMLElement>(".nav-item[data-section][data-sub-id]").forEach((el) => {
       el.addEventListener("click", () => {
-        const tab = el.dataset.kbTab as "browse" | "import";
-        if (!tab) return;
-        this.activeKbTab = tab;
-        this.cb.onKbTab(tab);
-        this.render();
-      });
-    });
-
-    // Command Replay item
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-replay-open]").forEach((el) => {
-      el.addEventListener("click", () => {
-        this.cb.onOpenReplay();
+        const section = el.dataset.section as NavSection;
+        const id = el.dataset.subId ?? "";
+        if (!section || !id) return;
+        if (section === "kb") this.cb.onKbTab(id as "browse" | "import");
+        else if (section === "replay") this.cb.onOpenReplay();
+        else if (section === "settings") this.cb.onSelectSettings(id);
       });
     });
 
@@ -822,13 +846,6 @@ export class NavPanel {
     // Action items
     this.container.querySelector<HTMLElement>('[data-action="new-connection"]')?.addEventListener("click", () => {
       this.cb.onNewConnection();
-    });
-
-    // Settings placeholders — fire callback, no state change
-    this.container.querySelectorAll<HTMLElement>(".nav-item[data-settings-id]").forEach((el) => {
-      el.addEventListener("click", () => {
-        this.cb.onSelectSettings(el.dataset.settingsId ?? "");
-      });
     });
 
     // Context menu on group rows (right-click)

@@ -163,8 +163,8 @@ class App {
         this.hostScreen.openEditHost(hostId);
       },
       onKbTab: (tab) => {
-        this.showView("knowledge-base");
         this.kbScreen.setTab(tab);
+        this.showView("knowledge-base");
       },
       onOpenReplay: () => {
         this.showView("replay");
@@ -272,6 +272,8 @@ class App {
       (p, c) => {
         this.showView("knowledge-base");
         this.kbScreen.openCommand(p, c);
+        // openCommand switches to the browse tab — re-sync the nav highlight.
+        this.navPanel.syncActiveItem({ section: "kb", id: this.kbScreen.getActiveTab() });
       },
     );
     bar.appendChild(searchWrap);
@@ -481,12 +483,22 @@ class App {
       this.navPanel.setSection("connections");
     } else if (view === "knowledge-base") {
       this.navPanel.setSection("kb");
-      this.navPanel.setActiveKbTab(this.kbScreen.getActiveTab());
     } else if (view === "replay") {
       this.navPanel.setSection("replay");
       void this.replayScreen?.refresh();
-    } else {
+    } else if (view === "settings") {
       this.navPanel.setSection("settings");
+    }
+    // One call: sub-item highlight matches the visible view everywhere.
+    this.navPanel.setView(view);
+    // Sync the active sub-item from the view's truth-holder so deep-links
+    // and keyboard shortcuts highlight correctly without a nav click.
+    if (view === "knowledge-base") {
+      this.navPanel.syncActiveItem({ section: "kb", id: this.kbScreen.getActiveTab() });
+    } else if (view === "replay") {
+      this.navPanel.syncActiveItem({ section: "replay", id: "manage" });
+    } else if (view === "settings") {
+      this.navPanel.syncActiveItem({ section: "settings", id: this.settingsItemId });
     }
     if (view === "settings") {
       this.settingsScreen.setItem(this.settingsItemId);
@@ -800,7 +812,6 @@ class App {
             this.onDetach(this.activeTabId);
           }
           this.showView("knowledge-base");
-          this.navPanel.setSection("kb");
         }
         return;
       }
