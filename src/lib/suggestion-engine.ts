@@ -734,12 +734,25 @@ export class SuggestionEngine {
     commands: Command[],
     platform: string,
     negationPrefix?: string | null,
-    prefixCommands?: Record<string, PrefixCommandDef>,
   ) {
     this.commands = commands;
     this._platform = platform;
     this.negationPrefix = negationPrefix ?? null;
-    this.prefixCommands = new Map(Object.entries(prefixCommands ?? {}));
+  }
+
+  /** Set prefix commands independently of loadCommands (single source: platform index). */
+  setPrefixCommands(prefixCommands: Record<string, PrefixCommandDef>) {
+    this.prefixCommands = new Map(Object.entries(prefixCommands));
+  }
+
+  /**
+   * Input minus a known prefix command and its skip-flag+value pairs
+   * (e.g. `sudo -u root cmd` → `cmd`). The caller passes a prefix it already
+   * confirmed is present (came from this engine's own stripPrefix).
+   */
+  effectiveInputAfterPrefix(input: string, prefix: string): string {
+    const stripped = stripPrefix(input, this.prefixCommands);
+    return stripped?.remainder ?? input.substring(prefix.length).trimStart();
   }
 
   /** Set current version filter */

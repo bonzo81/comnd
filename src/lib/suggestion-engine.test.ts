@@ -472,7 +472,8 @@ describe("SuggestionEngine.query — prefix commands", () => {
 
   function linuxEngine(): SuggestionEngine {
     const e = new SuggestionEngine();
-    e.loadCommands([systemctl, ls, sudo], "linux-bash", null, {
+    e.loadCommands([systemctl, ls, sudo], "linux-bash", null);
+    e.setPrefixCommands({
       sudo: { unlocks: ["shell"], skip_flag_value: ["-u"] },
     });
     e.setMode("shell");
@@ -481,7 +482,8 @@ describe("SuggestionEngine.query — prefix commands", () => {
 
   function f5Engine(mode: string): SuggestionEngine {
     const e = new SuggestionEngine();
-    e.loadCommands([listVirtual, tmsh], "f5-tmos", null, {
+    e.loadCommands([listVirtual, tmsh], "f5-tmos", null);
+    e.setPrefixCommands({
       tmsh: { unlocks: ["tmsh"] },
     });
     e.setMode(mode);
@@ -548,5 +550,26 @@ describe("SuggestionEngine.query — prefix commands", () => {
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].command.name).toBe("tmsh");
     expect(results[0].prefix).toBeUndefined();
+  });
+});
+
+describe("effectiveInputAfterPrefix — direct", () => {
+  const e = new SuggestionEngine();
+  e.setPrefixCommands({ sudo: { unlocks: ["shell"], skip_flag_value: ["-u"] } });
+
+  it("strips the prefix word and skip-flag+value pair", () => {
+    expect(e.effectiveInputAfterPrefix("sudo -u root systemctl", "sudo")).toBe("systemctl");
+  });
+
+  it("returns empty string when the flag+value is at end of input", () => {
+    expect(e.effectiveInputAfterPrefix("sudo -u root", "sudo")).toBe("");
+  });
+
+  it("strips only the prefix word when no skip flags follow", () => {
+    expect(e.effectiveInputAfterPrefix("sudo systemctl", "sudo")).toBe("systemctl");
+  });
+
+  it("leaves a non-skip flag in place", () => {
+    expect(e.effectiveInputAfterPrefix("sudo -H systemctl", "sudo")).toBe("-H systemctl");
   });
 });

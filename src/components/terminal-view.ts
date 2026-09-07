@@ -28,11 +28,16 @@ import { substitute, renderReplayTemplate } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
 import { PromptDetector } from "../lib/prompt-detector";
-import { ShadowBuffer, MAX_SHADOW_LEN } from "../lib/shadow-buffer";
-import { EchoLineTracker } from "../lib/echo-line";
-import { SuggestionEngine, ghostPayloadFor, SuggestionResult } from "../lib/suggestion-engine";
-import { GhostText, GhostPayload, ghostPayloadAcceptText } from "../lib/ghost-text";
+import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
+import {
+  routeKeystroke,
+  S_ACCEPT_GHOST,
+  S_ACCEPT_NEXTWORD,
+  S_ACCEPT_DROPDOWN,
+  type RouteResult,
+} from "../lib/keystroke-router";
+import { GhostText } from "../lib/ghost-text";
 import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
@@ -140,23 +145,14 @@ export class TerminalView {
   private channel: SessionChannel;
   private progress: ConnectProgress = { stage: "" };
 
-  // Prompt detection & shadow buffer (Stage 8)
+  // Prompt detection & suggestion pipeline (controller owns buffer/engine)
   private promptDetector: PromptDetector;
-  private shadowBuffer: ShadowBuffer;
-  private suggestionEngine: SuggestionEngine;
+  private controller: SuggestionController;
   private ghostText: GhostText | null = null;
   private dropdown: Dropdown | null = null;
   private sidebarContent: SidebarContent | null = null;
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
-  private currentInput = "";
-  private receivingOutput = false;
-  // True when line-editing keys (arrows/Ctrl+A/E/U/W/D) made the shadow
-  // buffer untrustworthy — suggestions suppressed until next Enter/Ctrl+C/prompt
-  private cursorMoved = false;
-  private echoLine = new EchoLineTracker();
-  private outputTimer: ReturnType<typeof setTimeout> | null = null;
-  private suggestionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private outputBuffer: string[] = [];
   private fontSize = 14;
 
@@ -189,28 +185,26 @@ export class TerminalView {
     this.onRequestCloseCb = onRequestClose;
     this.channel = new SessionChannel(new TauriTransport());
     this.channel.on((e) => this.handleSessionEvent(e));
-    this.suggestionEngine = new SuggestionEngine();
+    this.controller = new SuggestionController({
+      send: (data) => this.sendData(data),
+      ghost: () => this.ghostText,
+      dropdown: () => this.dropdown,
+      sidebar: {
+        detail: (cmd) => this.updateSidebarDetail(cmd),
+        placeholder: () => this.updateSidebarPlaceholder(),
+      },
+    });
     this.promptDetector = new PromptDetector(
       (mode) => {
         this.currentMode = mode;
-        this.suggestionEngine.setMode(mode);
+        this.controller.setMode(mode);
         this.updateModeDisplay(mode);
         log.info(LogTag.Prompt, `Mode changed: ${mode}`);
       },
       () => {
-        // Prompt detected — reset shadow buffer, suppress output flag
-        this.shadowBuffer.reset();
-        this.receivingOutput = false;
-        this.cursorMoved = false;
-        this.echoLine.reset();
-        // A fresh prompt always wants a visible cursor (DECTCEM desync guard)
-        this.ghostText?.hide();
+        this.controller.onPromptDetected();
       },
     );
-    this.shadowBuffer = new ShadowBuffer((text) => {
-      this.currentInput = text;
-      this.debounceSuggestionQuery(text);
-    });
   }
 
   private $<T extends HTMLElement = HTMLElement>(sel: string): T | null {
@@ -306,114 +300,14 @@ export class TerminalView {
 
     // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
     this.terminal.onData((data) => {
-      if (this.channel.state === "connected") {
-        // Check for Tab — context-sensitive
-        if (data === "\t") {
-          if (this.dropdown?.isVisible()) {
-            // Accept dropdown selection (token-aware — dropdown builds payload)
-            this.acceptDropdownSelection();
-            return;
-          } else if (this.ghostText?.isShowing()) {
-            // Accept ghost text suggestion (returns null for variable placeholders)
-            const remainder = this.ghostText.getCurrentRemainder();
-            if (remainder) {
-              this.sendData(remainder);
-              this.shadowBuffer.reset();
-            }
-            this.ghostText.hide();
-            return;
-          }
-          // No suggestion visible — pass Tab through to remote
-          this.sendData(data);
-          this.shadowBuffer.reset();
-          return;
-        }
-
-        // Check for Escape — cascade dismiss
-        if (data === "\x1b") {
-          if (this.dropdown?.isVisible()) {
-            this.dropdown.hide();
-            return;
-          }
-          if (this.sidePanelOpen) {
-            this.toggleSidebar();
-            return;
-          }
-          if (this.ghostText?.isShowing()) {
-            this.ghostText.hide();
-          }
-        }
-
-        // Check for Ctrl+Space — toggle auto-suggestions
-        if (data === "\x00") {
-          setSuggestionsEnabled(!getSuggestionsEnabled());
-          return;
-        }
-
-        // Arrow keys in dropdown. Enter always submits to remote — it falls
-        // through to sendData below and the reset block hides the dropdown.
-        if (this.dropdown?.isVisible()) {
-          if (data === "\x1b[A") { this.dropdown.moveUp(); this.syncDropdownToGhostText(); return; }
-          if (data === "\x1b[B") { this.dropdown.moveDown(); this.syncDropdownToGhostText(); return; }
-        }
-
-        // Alt+ArrowRight — accept next word of ghost suggestion (fish-style).
-        // xterm delivers it as \x1b[1;3C (or ESC-prefixed variants).
-        if (data === "\x1b[1;3C" || data === "\x1b\x1b[C" || data === "\x1b\x1b[1;3C") {
-          const word = this.ghostText?.isShowing() ? this.ghostText.acceptNextWord() : null;
-          if (word) {
-            this.sendData(word);
-            for (const ch of word) this.shadowBuffer.append(ch);
-          } else {
-            this.sendData(data);
-          }
-          return;
-        }
-
-        // Send to SSH
-        this.sendData(data);
-
-        // Update shadow buffer based on input
-        if (data === "\r") {
-          // Enter — reset
-          this.shadowBuffer.reset();
-          this.cursorMoved = false;
-          this.ghostText?.hide();
-          this.dropdown?.hide();
-        } else if (data === "\x7f" || data === "\b") {
-          // Backspace
-          this.shadowBuffer.backspace();
-        } else if (data === "\x03") {
-          // Ctrl+C — reset
-          this.shadowBuffer.reset();
-          this.cursorMoved = false;
-          this.ghostText?.hide();
-          this.dropdown?.hide();
-        } else if (data === "\x1b[A" || data === "\x1b[B") {
-          // Arrow up/down — history navigation, reset
-          this.shadowBuffer.reset();
-          this.cursorMoved = false;
-          this.ghostText?.hide();
-        } else if (data === "\x1b[D" || data === "\x1b[C" || data === "\x1b[H" || data === "\x1b[F"
-          || data === "\x1b[1~" || data === "\x1b[4~"
-          || data === "\x15" || data === "\x17" || data === "\x04") {
-          // Line editing (arrows/Home/End/Ctrl+A/E/U/W/D) — buffer no longer
-          // EOL-trustworthy; echo re-sync (echo-line.ts) clears the flag.
-          this.cursorMoved = true;
-          this.ghostText?.hide();
-          this.dropdown?.hide();
-        } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
-          // Printable character
-          this.shadowBuffer.append(data);
-        } else if (data.length > 1 && !data.startsWith("\x1b")) {
-          // Paste — multi-character input
-          for (const ch of data) {
-            if (ch.charCodeAt(0) >= 32) {
-              this.shadowBuffer.append(ch);
-            }
-          }
-        }
-      }
+      // Pure routing decision (keystroke-router.ts), then resolve + apply here.
+      const r = routeKeystroke(data, {
+        connected: this.channel.state === "connected",
+        dropdownVisible: this.dropdown?.isVisible() ?? false,
+        ghostShowing: this.ghostText?.isShowing() ?? false,
+        sidebarOpen: this.sidePanelOpen,
+      });
+      this.applyRoute(data, r);
     });
   }
 
@@ -422,6 +316,51 @@ export class TerminalView {
     if (this.channel.state === "connected" && this.channel.sessionId) {
       sshSend(this.channel.sessionId, data).catch(() => {});
     }
+  }
+
+  /**
+   * Resolve a RouteResult against the live widgets and forward/apply it.
+   * Sentinels in `send` carry state only the widget knows (ghost remainder,
+   * next word, dropdown payload), so they're resolved here, not in the router.
+   */
+  private applyRoute(data: string, r: RouteResult) {
+    for (const s of r.send) {
+      if (s === S_ACCEPT_DROPDOWN) {
+        this.controller.acceptDropdownSelection();
+      } else if (s === S_ACCEPT_GHOST) {
+        const rem = this.ghostText?.getCurrentRemainder();
+        if (rem) {
+          this.sendData(rem);
+          this.controller.reset();
+        }
+        this.ghostText?.hide();
+      } else if (s === S_ACCEPT_NEXTWORD) {
+        const word = this.ghostText?.isShowing() ? this.ghostText.acceptNextWord() : null;
+        if (word) {
+          this.sendData(word);
+          for (const ch of word) this.controller.buffer.append(ch);
+        } else {
+          this.sendData(data);
+        }
+      } else {
+        this.sendData(s);
+      }
+    }
+
+    for (const op of r.shadowOps) {
+      if (op.op === "append") this.controller.buffer.append(op.ch);
+      else if (op.op === "backspace") this.controller.buffer.backspace();
+      else if (op.op === "reset") this.controller.reset();
+    }
+
+    if (r.markCursorMoved) this.controller.markCursorMoved();
+    if (r.hideGhost) this.ghostText?.hide();
+    if (r.hideDropdown) this.dropdown?.hide();
+    if (r.dismissSidebar) this.toggleSidebar();
+    if (r.toggleSuggestions) setSuggestionsEnabled(!getSuggestionsEnabled());
+    if (r.moveDropdown === "up") this.dropdown?.moveUp();
+    else if (r.moveDropdown === "down") this.dropdown?.moveDown();
+    if (r.rebuildGhost) this.controller.syncDropdownToGhostText();
   }
 
   // ─── Clipboard ───────────────────────────────────────────────────
@@ -449,11 +388,7 @@ export class TerminalView {
     navigator.clipboard.readText().then((text) => {
       if (text && this.channel.state === "connected" && this.channel.sessionId) {
         sshSend(this.channel.sessionId, text).catch(() => {});
-        for (const ch of text) {
-          if (ch.charCodeAt(0) >= 32) {
-            this.shadowBuffer.append(ch);
-          }
-        }
+        this.controller.buffer.appendAll(text);
       }
     });
   }
@@ -805,7 +740,8 @@ export class TerminalView {
         this.platformIndex = await loadPlatformIndex(host.platform);
         this.promptDetector.loadPatterns(this.platformIndex.prompt_patterns, this.platformIndex.default_mode);
         this.currentMode = this.platformIndex.default_mode;
-        this.suggestionEngine.setMode(this.currentMode);
+        this.controller.setPlatformIndex(this.platformIndex);
+        this.controller.setMode(this.currentMode);
         log.info(LogTag.Terminal, `Platform index loaded: ${this.platformIndex.name}, default mode: ${this.platformIndex.default_mode}`);
       } catch (e) {
         log.warn(LogTag.Terminal, `Failed to load platform index: ${e}`);
@@ -849,8 +785,9 @@ export class TerminalView {
           // output chunk (which flips the flag) would otherwise pass through
           // raw. Use text.includes("\n") as the same output signal that sets
           // the flag, so the first chunk is highlighted too.
+          const receivingOutput = this.controller.isReceivingOutput;
           const highlightOn = getOutputHighlightEnabled()
-            && (this.receivingOutput || text.includes("\n"))
+            && (receivingOutput || text.includes("\n"))
             && !this.promptDetector.isPassthrough
             && this.outputHighlighter !== null;
 
@@ -877,29 +814,11 @@ export class TerminalView {
             this.ghostText.notifyCursorShown();
           }
 
-          // Echo re-sync: rebuild the shadow buffer from what the remote
-          // actually echoed when the simulated buffer is untrustworthy
-          // (line-editing keys set cursorMoved). Skipped during output bursts.
-          this.echoLine.feed(text);
-          if (!this.receivingOutput && !this.promptDetector.isPassthrough) {
-            if (this.cursorMoved) {
-              const echoed = this.echoLine.contentAfter(this.promptDetector.lastPrompt, this.shadowBuffer.content);
-              if (echoed !== null) {
-                // Flag clears on any successful reconcile — even when the echoed
-                // content matches the buffer (arrow key edited nothing), otherwise
-                // the guard never lifts and suggestions stay dead.
-                const changed = echoed !== this.shadowBuffer.content;
-                this.shadowBuffer.setContent(echoed);
-                this.cursorMoved = false;
-                if (!changed && echoed) this.debounceSuggestionQuery(echoed);
-              }
-            } else {
-              // Trusted EOL state (buffer reliable) — learn the prompt prefix
-              // from line = prompt + buffer for platforms without prompt
-              // patterns (bash).
-              this.echoLine.learnPrompt(this.shadowBuffer.content);
-            }
-          }
+          // Echo re-sync + receivingOutput burst timer live in the controller.
+          this.controller.onOutput(text, {
+            isPassthrough: this.promptDetector.isPassthrough,
+            lastPrompt: this.promptDetector.lastPrompt,
+          });
         } else {
           // Connection phase — capture output for the output pane
           const cleanText = stripAnsi(text);
@@ -907,24 +826,6 @@ export class TerminalView {
           this.renderOutputPane();
         }
 
-        // Only suppress ghost text for real output (command results), not for
-        // keystroke echoes. Newline is the reliable signal: echoes never contain
-        // one, command output virtually always does. A byte-count heuristic
-        // flickered on devices that echo with ANSI cursor codes.
-        if (e.phase === "connected" && text.includes("\n")) {
-          this.receivingOutput = true;
-          this.ghostText?.hide();
-          this.dropdown?.hide();
-          if (this.outputTimer) clearTimeout(this.outputTimer);
-          this.outputTimer = setTimeout(() => {
-            this.receivingOutput = false;
-            // Re-trigger suggestions if shadow buffer has content (e.g. after paste echo).
-            // The debounce timer re-checks staleness against the live buffer.
-            if (this.currentInput) {
-              this.debounceSuggestionQuery(this.currentInput);
-            }
-          }, 300);
-        }
         break;
       }
 
@@ -938,6 +839,7 @@ export class TerminalView {
         this.terminal?.focus();
         this.updateStatusBar("connected");
         this.updateModeDisplay(this.currentMode);
+        this.controller.setConnected(true);
 
         // Initialize ghost text overlay, dropdown, and sidebar content
         const termContainer = this.$(".tv-terminal")!;
@@ -946,16 +848,7 @@ export class TerminalView {
           this.dropdown?.destroy();
           this.ghostText = new GhostText(this.terminal, termContainer);
           this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
-            // On dropdown accept: send the ghost remainder (current token
-            // completion), not the full command name. Phase 3 token-aware.
-            const text = payload
-              ? ghostPayloadAcceptText(payload)
-              : this.getCommandRemainder(cmd.name, this.currentInput);
-            if (text) {
-              this.sendData(text);
-              this.shadowBuffer.reset();
-            }
-            this.ghostText?.hide();
+            this.controller.acceptFromDropdown(cmd, payload);
           });
           this.sidebarContent = new SidebarContent();
           // Output highlighter — per-host profile ("auto" → use platform)
@@ -972,13 +865,12 @@ export class TerminalView {
           this.syncHighlight();
         }
 
-        // Load KB commands into frontend suggestion engine
+        // Load KB commands into the frontend suggestion engine
         if (this.host) {
           this.loadKbCommands(
             this.host.platform,
             this.host.os_version ?? null,
             this.platformIndex?.negation_prefix ?? null,
-            this.platformIndex?.prefix_commands,
           );
         }
         break;
@@ -986,6 +878,7 @@ export class TerminalView {
 
       case "disconnected": {
         this.clearOutputBuffer();
+        this.controller.setConnected(false);
         log.info(LogTag.Terminal, `SSH disconnected event: ${e.reason}`);
         const wasConnected = e.wasConnected;
 
@@ -1342,13 +1235,12 @@ export class TerminalView {
     platform: string,
     version: string | null,
     negationPrefix?: string | null,
-    prefixCommands?: Record<string, { unlocks: string[]; skip_flag_value?: string[] }>,
   ) {
     try {
       log.info(LogTag.Kb, `Loading commands for platform=${platform}, version=${version}`);
       const commands = await queryKb("", platform, null, version);
       log.info(LogTag.Kb, `queryKb returned ${commands.length} commands`);
-      this.suggestionEngine.loadCommands(commands, platform, negationPrefix, prefixCommands);
+      this.controller.loadCommands(commands, platform, negationPrefix ?? null);
       log.info(LogTag.Terminal, `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
       log.warn(LogTag.Terminal, `Failed to load KB commands: ${e}`);
@@ -1357,170 +1249,7 @@ export class TerminalView {
   }
 
   // ─── Suggestion pipeline ─────────────────────────────────────────
-
-  private debounceSuggestionQuery(text: string) {
-    if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
-    if (!text || this.receivingOutput || this.cursorMoved || this.channel.state !== "connected"
-      || text.length > MAX_SHADOW_LEN) {
-      this.ghostText?.hide();
-      if (this.dropdown?.isVisible()) {
-        this.dropdown.updateResults([]);
-      }
-      this.updateSidebarPlaceholder();
-      return;
-    }
-    this.suggestionDebounceTimer = setTimeout(() => {
-      // Staleness check: if the buffer changed since scheduling, re-debounce
-      // with the current content instead of rendering a stale result.
-      const current = this.shadowBuffer.content;
-      if (current !== text) {
-        log.debug(LogTag.Suggest, `stale query dropped ('${text}' != '${current}')`);
-        this.debounceSuggestionQuery(current);
-        return;
-      }
-      this.showSuggestions(text);
-    }, 40);
-  }
-
-  private showSuggestions(text: string) {
-    const results = this.suggestionEngine.query(text);
-    log.debug(LogTag.Suggest, `query('${text}') mode='${this.currentMode}' → ${results.length} results`);
-
-    if (results.length === 0) {
-      this.ghostText?.hide();
-      if (this.dropdown?.isVisible()) {
-        this.dropdown.updateResults([]);
-      }
-      this.updateSidebarPlaceholder();
-      return;
-    }
-
-    // Show ghost text for top match
-    const top = results[0];
-    this.applyTopMatch(top, text, results.length - 1);
-
-    // Auto-show dropdown when enabled; keep in sync while open
-    if (this.suggestionsEnabled) {
-      if (this.dropdown?.isVisible()) {
-        this.dropdown.updateResults(results);
-      } else {
-        this.openDropdown(results);
-      }
-    } else if (this.dropdown?.isVisible()) {
-      this.dropdown.hide();
-    }
-
-    // Update sidebar with top match detail
-    this.updateSidebarDetail(top.command);
-  }
-
-  /**
-   * Build ghost text for the top result. Token-aware commands render the
-   * next expected token (Phase 3); legacy commands and name-prefix matches
-   * render the name remainder.
-   */
-  private applyTopMatch(top: SuggestionResult, input: string, extraMatchCount: number) {
-    const payload = this.ghostPayloadForTop(top, input);
-    if (payload && this.terminal) {
-      this.ghostText?.showPayload(payload, extraMatchCount);
-    } else {
-      this.ghostText?.hide();
-    }
-  }
-
-  /**
-   * Build a ghost payload for the top result. Token match → token payload;
-   * name/alias match → text remainder (legacy).
-   */
-  private ghostPayloadForTop(
-    top: SuggestionResult,
-    input: string,
-  ): GhostPayload | null {
-    if (top.matchType === "token" && top.tokenMatch) {
-      const payload = ghostPayloadFor(top.tokenMatch, top.command);
-      if (payload) return payload;
-      // Token match with no renderable payload (e.g. past all tokens) — fall
-      // back to name remainder so something is still shown.
-    }
-    // Prefix results matched the stripped remainder, not the full input —
-    // derive the remainder against the input minus the prefix word.
-    const effInput = top.prefix && input.toLowerCase().startsWith(top.prefix + " ")
-      ? this.inputAfterPrefix(input, top.prefix)
-      : input;
-    const remainder = this.getCommandRemainder(top.command.name, effInput);
-    return remainder ? { kind: "text", text: remainder } : null;
-  }
-
-  /** Input with a prefix command word (and its skip-flag pairs) removed. */
-  private inputAfterPrefix(input: string, prefix: string): string {
-    let rest = input.substring(prefix.length).trimStart();
-    const skips = this.platformIndex?.prefix_commands?.[prefix]?.skip_flag_value ?? [];
-    for (;;) {
-      const m = rest.match(/^(\S+)\s+(\S+)(\s|$)/);
-      const flag = m?.[1]?.toLowerCase();
-      if (flag && skips.includes(flag)) {
-        rest = rest.replace(/^\S+\s+\S+(\s|$)/, "");
-        rest = rest.trimStart();
-        continue;
-      }
-      break;
-    }
-    return rest;
-  }
-
-  private getCommandRemainder(commandName: string, input: string): string | null {
-    if (!input) return commandName;
-    const lowerInput = input.toLowerCase();
-    const lowerCmd = commandName.toLowerCase();
-    if (lowerCmd.startsWith(lowerInput)) {
-      const remainder = commandName.substring(input.length);
-      return remainder || null;
-    }
-    return null;
-  }
-
-  private syncDropdownToGhostText() {
-    const selected = this.dropdown?.getSelected();
-    if (selected) {
-      this.applyTopMatch(selected, this.currentInput, 0);
-    }
-  }
-
-  /**
-   * Accept the dropdown's current selection. Token-aware: the dropdown
-   * provides the ghost payload to send; for legacy matches we send the name
-   * remainder.
-   */
-  private acceptDropdownSelection() {
-    const selected = this.dropdown?.getSelected();
-    if (!selected) return;
-    const payload = this.dropdown?.getSelectedPayload() ?? this.ghostPayloadForTop(selected, this.currentInput);
-    const text = payload ? ghostPayloadAcceptText(payload) : this.getCommandRemainder(selected.command.name, this.currentInput);
-    if (text) {
-      this.sendData(text);
-      this.shadowBuffer.reset();
-    }
-    this.dropdown?.hide();
-    this.ghostText?.hide();
-  }
-
-  private openDropdown(results: SuggestionResult[]) {
-    if (!this.dropdown && this.terminal) {
-      const termContainer = this.$(".tv-terminal")!;
-      this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
-        const text = payload
-          ? ghostPayloadAcceptText(payload)
-          : this.getCommandRemainder(cmd.name, this.currentInput);
-        if (text) {
-          this.sendData(text);
-          this.shadowBuffer.reset();
-        }
-        this.ghostText?.hide();
-      });
-    }
-    this.dropdown?.show(results, this.currentInput);
-    this.syncDropdownToGhostText();
-  }
+  // Query/ghost/dropdown logic lives in SuggestionController.
 
   // ─── Sidebar content ─────────────────────────────────────────────
 
@@ -1741,20 +1470,15 @@ export class TerminalView {
 
   private syncSuggestions() {
     this.suggestionsEnabled = getSuggestionsEnabled();
+    this.controller.setSuggestionsEnabled(this.suggestionsEnabled);
     const btn = this.$(".tv-suggestions-btn");
     if (btn) {
       btn.innerHTML = icons.lightbulb;
       btn.classList.toggle("active", this.suggestionsEnabled);
       setToggleState(btn, this.suggestionsEnabled, this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions");
     }
-    if (!this.suggestionsEnabled) {
-      this.dropdown?.hide();
-      return;
-    }
-    if (this.currentInput && !this.receivingOutput && this.channel.state === "connected") {
-      const results = this.suggestionEngine.query(this.currentInput);
-      if (results.length > 0) this.openDropdown(results);
-    }
+    if (!this.suggestionsEnabled) return;
+    this.controller.refresh();
   }
 
   private syncAutoCopy() {
@@ -1866,6 +1590,7 @@ export class TerminalView {
 
     this.timestampGutter?.dispose();
     this.timestampGutter = null;
+    this.controller.dispose();
     this.ghostText?.destroy();
     this.ghostText = null;
     this.dropdown?.destroy();
@@ -1873,8 +1598,6 @@ export class TerminalView {
     this.outputHighlighter = null;
     this.sidebarContent = null;
     this.platformIndex = null;
-    if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
-    if (this.outputTimer) clearTimeout(this.outputTimer);
     if (this.sidebarResizeRaf) {
       cancelAnimationFrame(this.sidebarResizeRaf);
       this.sidebarResizeRaf = 0;

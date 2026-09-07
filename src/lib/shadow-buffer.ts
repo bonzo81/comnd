@@ -41,6 +41,13 @@ export class ShadowBuffer {
     this.onUpdate(this.buffer);
   }
 
+  /** Append every printable char of a string (test convenience). */
+  appendAll(text: string) {
+    for (const ch of text) {
+      if (ch.charCodeAt(0) >= 32) this.append(ch);
+    }
+  }
+
   /** Get current buffer contents */
   get content(): string {
     return this.buffer;
