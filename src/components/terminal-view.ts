@@ -10,12 +10,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon, ISearchDecorationOptions } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   Host,
-  sshConnect,
   sshSend,
-  sshDisconnect,
   sshResize,
   touchHost,
   loadPlatformIndex,
@@ -40,8 +37,7 @@ import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
-import { mintSessionId } from "../lib/session-id";
-import { shouldAcceptEvent } from "../lib/session-filter";
+import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
 import { icons } from "../lib/icons";
 import {
   getTimestampsEnabled,
@@ -119,8 +115,6 @@ function setSuggestionsEnabled(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent("netssh:suggestions", { detail: enabled }));
 }
 
-type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
-
 interface ConnectProgress {
   stage: string;
   error?: string;
@@ -143,14 +137,8 @@ export class TerminalView {
   private sidebarResizing = false;
   private sidebarResizeRaf = 0;
   private host: Host | null = null;
-  private state: ConnectionState = "idle";
+  private channel: SessionChannel;
   private progress: ConnectProgress = { stage: "" };
-  private cleanDisconnect = false;
-
-  // Set by the ssh-connected listener once the backend confirms the session;
-  // ssh-disconnected events for a session that never reached "connected"
-  // (e.g. channel EOF right after shell open) must not bounce the view.
-  private connectedAtLeastOnce = false;
 
   // Prompt detection & shadow buffer (Stage 8)
   private promptDetector: PromptDetector;
@@ -172,16 +160,6 @@ export class TerminalView {
   private outputBuffer: string[] = [];
   private fontSize = 14;
 
-  // Session ID for event correlation — stale events from old connections are ignored
-  private sessionId = 0;
-
-  // Event listener cleanup
-  private unlistenOutput: UnlistenFn | null = null;
-  private unlistenConnected: UnlistenFn | null = null;
-  private unlistenDisconnected: UnlistenFn | null = null;
-  private unlistenError: UnlistenFn | null = null;
-  private unlistenTofu: UnlistenFn | null = null;
-  private unlistenAuthUrl: UnlistenFn | null = null;
   private resizeHandler: (() => void) | null = null;
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
   private themeChangeHandler: (() => void) | null = null;
@@ -209,6 +187,8 @@ export class TerminalView {
     this.onDisconnectCb = onDisconnect;
     this.onSessionDiedCb = onSessionDied;
     this.onRequestCloseCb = onRequestClose;
+    this.channel = new SessionChannel(new TauriTransport());
+    this.channel.on((e) => this.handleSessionEvent(e));
     this.suggestionEngine = new SuggestionEngine();
     this.promptDetector = new PromptDetector(
       (mode) => {
@@ -281,8 +261,8 @@ export class TerminalView {
     // xterm.js resize event → send PTY resize to remote
     this.terminal.onResize(({ cols, rows }) => {
       if (this.sidebarResizing) return;
-      if (this.state === "connected" && this.sessionId) {
-        sshResize(this.sessionId, cols, rows).catch(() => {});
+      if (this.channel.state === "connected" && this.channel.sessionId) {
+        sshResize(this.channel.sessionId, cols, rows).catch(() => {});
       }
     });
 
@@ -326,7 +306,7 @@ export class TerminalView {
 
     // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
     this.terminal.onData((data) => {
-      if (this.state === "connected") {
+      if (this.channel.state === "connected") {
         // Check for Tab — context-sensitive
         if (data === "\t") {
           if (this.dropdown?.isVisible()) {
@@ -439,8 +419,8 @@ export class TerminalView {
 
   /** Send data to the current session (no-op when not connected). */
   private sendData(data: string) {
-    if (this.state === "connected" && this.sessionId) {
-      sshSend(this.sessionId, data).catch(() => {});
+    if (this.channel.state === "connected" && this.channel.sessionId) {
+      sshSend(this.channel.sessionId, data).catch(() => {});
     }
   }
 
@@ -467,8 +447,8 @@ export class TerminalView {
   /** Read clipboard and send it to the remote session + shadow buffer. */
   private pasteClipboard() {
     navigator.clipboard.readText().then((text) => {
-      if (text && this.state === "connected" && this.sessionId) {
-        sshSend(this.sessionId, text).catch(() => {});
+      if (text && this.channel.state === "connected" && this.channel.sessionId) {
+        sshSend(this.channel.sessionId, text).catch(() => {});
         for (const ch of text) {
           if (ch.charCodeAt(0) >= 32) {
             this.shadowBuffer.append(ch);
@@ -484,7 +464,7 @@ export class TerminalView {
     this.hideContextMenu();
     const items = [
       { label: "Copy", enabled: !!this.terminal?.getSelection(), action: () => this.copySelection() },
-      { label: "Paste", enabled: this.state === "connected", action: () => this.pasteClipboard() },
+      { label: "Paste", enabled: this.channel.state === "connected", action: () => this.pasteClipboard() },
       {
         label: "Add to Command Replay",
         enabled: !!this.terminal?.getSelection(),
@@ -786,7 +766,7 @@ export class TerminalView {
 
     // Prevent Ctrl+W from closing browser tab — must pass through to remote
     this.ctrlWHandler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "w" && this.state === "connected") {
+      if (e.ctrlKey && e.key === "w" && this.channel.state === "connected") {
         e.preventDefault();
       }
     };
@@ -795,7 +775,7 @@ export class TerminalView {
 
   async connect(host: Host) {
     // If we're already connected to this host, just reattach — no reconnect needed
-    if (this.state === "connected" && this.host?.id === host.id) {
+    if (this.channel.state === "connected" && this.host?.id === host.id) {
       log.info(LogTag.Terminal, `Reattaching to existing session for '${host.display_name}'`);
       this.hideOverlay();
       this.hideDisconnectBanner();
@@ -815,7 +795,6 @@ export class TerminalView {
     this.clearOutputBuffer();
 
     // Show connecting overlay
-    this.setState("connecting");
     this.updateStatusBar("connecting");
     this.setProgress("Initializing...", 5);
 
@@ -832,10 +811,6 @@ export class TerminalView {
         log.warn(LogTag.Terminal, `Failed to load platform index: ${e}`);
       }
 
-      // Clean up any existing SSH listeners before registering new ones
-      this.unregisterSshListeners();
-      await this.registerSshListeners();
-
       // Determine terminal dimensions
       const cols = this.terminal?.cols ?? 80;
       const rows = this.terminal?.rows ?? 24;
@@ -849,294 +824,244 @@ export class TerminalView {
         this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
       }
 
-      // Generate unique session_id BEFORE sshConnect so all events are correlated correctly
-      this.sessionId = mintSessionId();
+      // Mint session ID, register listeners, open the SSH connection.
+      await this.channel.connect(host.id, { cols, rows });
 
-      await sshConnect({
-        hostId: host.id,
-        cols,
-        rows,
-        sessionId: this.sessionId,
-      });
-
-      log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.sessionId})`);
+      log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.channel.sessionId})`);
     } catch (err) {
       log.error(LogTag.Terminal, `Connection failed: ${err}`);
       this.showError(String(err));
     }
   }
 
-  private async registerSshListeners() {
-    // SSH output → xterm.js + prompt detector
-    this.unlistenOutput = await listen<{ data: string; session_id: number }>("ssh-output", (event) => {
-      // Ignore stale output from old connections
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
+  private handleSessionEvent(e: SessionEvent) {
+    switch (e.type) {
+      case "output": {
+        const bytes = e.data;
+        const text = new TextDecoder().decode(bytes);
 
-      const bytes = this.base64ToUint8Array(event.payload.data);
-      const text = new TextDecoder().decode(bytes);
+        if (e.phase === "connected") {
+          const buf = this.terminal!.buffer.active;
+          const lineBefore = buf.baseY + buf.cursorY;
 
-      if (this.state === "connected") {
-        const buf = this.terminal!.buffer.active;
-        const lineBefore = buf.baseY + buf.cursorY;
+          // Output highlighting — gate on "this chunk is real output". The
+          // receivingOutput flag is set AFTER the write below, so the first
+          // output chunk (which flips the flag) would otherwise pass through
+          // raw. Use text.includes("\n") as the same output signal that sets
+          // the flag, so the first chunk is highlighted too.
+          const highlightOn = getOutputHighlightEnabled()
+            && (this.receivingOutput || text.includes("\n"))
+            && !this.promptDetector.isPassthrough
+            && this.outputHighlighter !== null;
 
-        // Output highlighting — gate on "this chunk is real output". The
-        // receivingOutput flag is set AFTER the write below, so the first
-        // output chunk (which flips the flag) would otherwise pass through
-        // raw. Use text.includes("\n") as the same output signal that sets
-        // the flag, so the first chunk is highlighted too.
-        const highlightOn = getOutputHighlightEnabled()
-          && (this.receivingOutput || text.includes("\n"))
-          && !this.promptDetector.isPassthrough
-          && this.outputHighlighter !== null;
-
-        if (highlightOn) {
-          const transformed = this.outputHighlighter!.transform(text);
-          this.terminal?.write(transformed, () => {
-            const b = this.terminal?.buffer.active;
-            if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
-          });
-        } else {
-          this.terminal?.write(bytes, () => {
-            const b = this.terminal?.buffer.active;
-            if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
-          });
-        }
-        // Prompt detector ALWAYS receives original (untransformed) text —
-        // injected ANSI would corrupt prompt regex matching.
-        this.promptDetector.feed(text);
-
-        // Cursor-escape desync guard: remote showed the cursor while ghost
-        // had hidden it — sync bookkeeping so a later hide() doesn't strand
-        // the cursor invisible.
-        if (text.includes("\x1b[?25h") && this.ghostText?.isShowing()) {
-          this.ghostText.notifyCursorShown();
-        }
-
-        // Echo re-sync: rebuild the shadow buffer from what the remote
-        // actually echoed when the simulated buffer is untrustworthy
-        // (line-editing keys set cursorMoved). Skipped during output bursts.
-        this.echoLine.feed(text);
-        if (!this.receivingOutput && !this.promptDetector.isPassthrough) {
-          if (this.cursorMoved) {
-            const echoed = this.echoLine.contentAfter(this.promptDetector.lastPrompt, this.shadowBuffer.content);
-            if (echoed !== null) {
-              // Flag clears on any successful reconcile — even when the echoed
-              // content matches the buffer (arrow key edited nothing), otherwise
-              // the guard never lifts and suggestions stay dead.
-              const changed = echoed !== this.shadowBuffer.content;
-              this.shadowBuffer.setContent(echoed);
-              this.cursorMoved = false;
-              if (!changed && echoed) this.debounceSuggestionQuery(echoed);
-            }
+          if (highlightOn) {
+            const transformed = this.outputHighlighter!.transform(text);
+            this.terminal?.write(transformed, () => {
+              const b = this.terminal?.buffer.active;
+              if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
+            });
           } else {
-            // Trusted EOL state (buffer reliable) — learn the prompt prefix
-            // from line = prompt + buffer for platforms without prompt
-            // patterns (bash).
-            this.echoLine.learnPrompt(this.shadowBuffer.content);
+            this.terminal?.write(bytes, () => {
+              const b = this.terminal?.buffer.active;
+              if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
+            });
           }
+          // Prompt detector ALWAYS receives original (untransformed) text —
+          // injected ANSI would corrupt prompt regex matching.
+          this.promptDetector.feed(text);
+
+          // Cursor-escape desync guard: remote showed the cursor while ghost
+          // had hidden it — sync bookkeeping so a later hide() doesn't strand
+          // the cursor invisible.
+          if (text.includes("\x1b[?25h") && this.ghostText?.isShowing()) {
+            this.ghostText.notifyCursorShown();
+          }
+
+          // Echo re-sync: rebuild the shadow buffer from what the remote
+          // actually echoed when the simulated buffer is untrustworthy
+          // (line-editing keys set cursorMoved). Skipped during output bursts.
+          this.echoLine.feed(text);
+          if (!this.receivingOutput && !this.promptDetector.isPassthrough) {
+            if (this.cursorMoved) {
+              const echoed = this.echoLine.contentAfter(this.promptDetector.lastPrompt, this.shadowBuffer.content);
+              if (echoed !== null) {
+                // Flag clears on any successful reconcile — even when the echoed
+                // content matches the buffer (arrow key edited nothing), otherwise
+                // the guard never lifts and suggestions stay dead.
+                const changed = echoed !== this.shadowBuffer.content;
+                this.shadowBuffer.setContent(echoed);
+                this.cursorMoved = false;
+                if (!changed && echoed) this.debounceSuggestionQuery(echoed);
+              }
+            } else {
+              // Trusted EOL state (buffer reliable) — learn the prompt prefix
+              // from line = prompt + buffer for platforms without prompt
+              // patterns (bash).
+              this.echoLine.learnPrompt(this.shadowBuffer.content);
+            }
+          }
+        } else {
+          // Connection phase — capture output for the output pane
+          const cleanText = stripAnsi(text);
+          this.outputBuffer.push(cleanText);
+          this.renderOutputPane();
         }
-      } else {
-        // Connection phase — capture output for the output pane
-        const cleanText = stripAnsi(text);
-        this.outputBuffer.push(cleanText);
-        this.renderOutputPane();
-      }
 
-      // Only suppress ghost text for real output (command results), not for
-      // keystroke echoes. Newline is the reliable signal: echoes never contain
-      // one, command output virtually always does. A byte-count heuristic
-      // flickered on devices that echo with ANSI cursor codes.
-      if (this.state === "connected" && text.includes("\n")) {
-        this.receivingOutput = true;
-        this.ghostText?.hide();
-        this.dropdown?.hide();
-        if (this.outputTimer) clearTimeout(this.outputTimer);
-        this.outputTimer = setTimeout(() => {
-          this.receivingOutput = false;
-          // Re-trigger suggestions if shadow buffer has content (e.g. after paste echo).
-          // The debounce timer re-checks staleness against the live buffer.
-          if (this.currentInput) {
-            this.debounceSuggestionQuery(this.currentInput);
-          }
-        }, 300);
-      }
-    });
-
-    // SSH connected
-    this.unlistenConnected = await listen<{ reason: string; session_id: number }>("ssh-connected", (event) => {
-      // Ignore connected events for other tabs' sessions — see session-filter.ts
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
-        log.debug(LogTag.Terminal, `Ignoring foreign ssh-connected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
-        return;
-      }
-      this.cleanDisconnect = false; // Reset — stale disconnects before this are ignored
-      this.connectedAtLeastOnce = true;
-      log.info(LogTag.Terminal, `SSH connected event received (session_id=${this.sessionId})`);
-      this.setState("connected");
-      // Update last_connected timestamp
-      if (this.host) {
-        touchHost(this.host.id).catch(() => {});
-      }
-      this.hideOverlay();
-      this.terminal?.focus();
-      this.updateStatusBar("connected");
-      this.updateModeDisplay(this.currentMode);
-
-      // Initialize ghost text overlay, dropdown, and sidebar content
-      const termContainer = this.$(".tv-terminal")!;
-      if (this.terminal) {
-        this.ghostText?.destroy();
-        this.dropdown?.destroy();
-        this.ghostText = new GhostText(this.terminal, termContainer);
-        this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
-          // On dropdown accept: send the ghost remainder (current token
-          // completion), not the full command name. Phase 3 token-aware.
-          const text = payload
-            ? ghostPayloadAcceptText(payload)
-            : this.getCommandRemainder(cmd.name, this.currentInput);
-          if (text) {
-            this.sendData(text);
-            this.shadowBuffer.reset();
-          }
+        // Only suppress ghost text for real output (command results), not for
+        // keystroke echoes. Newline is the reliable signal: echoes never contain
+        // one, command output virtually always does. A byte-count heuristic
+        // flickered on devices that echo with ANSI cursor codes.
+        if (e.phase === "connected" && text.includes("\n")) {
+          this.receivingOutput = true;
           this.ghostText?.hide();
-        });
-        this.sidebarContent = new SidebarContent();
-        // Output highlighter — per-host profile ("auto" → use platform)
-        const hlProfile = this.host?.highlight_profile;
-        const hlPlatform = hlProfile && hlProfile !== "auto"
-          ? hlProfile
-          : this.host?.platform ?? "linux-bash";
-        if (hlPlatform === "none") {
-          this.outputHighlighter = null;
-        } else {
-          this.outputHighlighter = new OutputHighlighter(hlPlatform);
+          this.dropdown?.hide();
+          if (this.outputTimer) clearTimeout(this.outputTimer);
+          this.outputTimer = setTimeout(() => {
+            this.receivingOutput = false;
+            // Re-trigger suggestions if shadow buffer has content (e.g. after paste echo).
+            // The debounce timer re-checks staleness against the live buffer.
+            if (this.currentInput) {
+              this.debounceSuggestionQuery(this.currentInput);
+            }
+          }, 300);
         }
-        // Update toolbar button state (disabled when profile is "none")
-        this.syncHighlight();
+        break;
       }
 
-      // Load KB commands into frontend suggestion engine
-      if (this.host) {
-        this.loadKbCommands(
-          this.host.platform,
-          this.host.os_version ?? null,
-          this.platformIndex?.negation_prefix ?? null,
-          this.platformIndex?.prefix_commands,
-        );
+      case "connected": {
+        log.info(LogTag.Terminal, `SSH connected event received (session_id=${this.channel.sessionId})`);
+        // Update last_connected timestamp
+        if (this.host) {
+          touchHost(this.host.id).catch(() => {});
+        }
+        this.hideOverlay();
+        this.terminal?.focus();
+        this.updateStatusBar("connected");
+        this.updateModeDisplay(this.currentMode);
+
+        // Initialize ghost text overlay, dropdown, and sidebar content
+        const termContainer = this.$(".tv-terminal")!;
+        if (this.terminal) {
+          this.ghostText?.destroy();
+          this.dropdown?.destroy();
+          this.ghostText = new GhostText(this.terminal, termContainer);
+          this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
+            // On dropdown accept: send the ghost remainder (current token
+            // completion), not the full command name. Phase 3 token-aware.
+            const text = payload
+              ? ghostPayloadAcceptText(payload)
+              : this.getCommandRemainder(cmd.name, this.currentInput);
+            if (text) {
+              this.sendData(text);
+              this.shadowBuffer.reset();
+            }
+            this.ghostText?.hide();
+          });
+          this.sidebarContent = new SidebarContent();
+          // Output highlighter — per-host profile ("auto" → use platform)
+          const hlProfile = this.host?.highlight_profile;
+          const hlPlatform = hlProfile && hlProfile !== "auto"
+            ? hlProfile
+            : this.host?.platform ?? "linux-bash";
+          if (hlPlatform === "none") {
+            this.outputHighlighter = null;
+          } else {
+            this.outputHighlighter = new OutputHighlighter(hlPlatform);
+          }
+          // Update toolbar button state (disabled when profile is "none")
+          this.syncHighlight();
+        }
+
+        // Load KB commands into frontend suggestion engine
+        if (this.host) {
+          this.loadKbCommands(
+            this.host.platform,
+            this.host.os_version ?? null,
+            this.platformIndex?.negation_prefix ?? null,
+            this.platformIndex?.prefix_commands,
+          );
+        }
+        break;
       }
-    });
 
-    // SSH disconnected — session ended (user typed exit, server closed, timeout, etc.)
-    this.unlistenDisconnected = await listen<{ reason: string; session_id: number }>("ssh-disconnected", (event) => {
-      // Ignore stale disconnect events from old connections
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) {
-        log.debug(LogTag.Terminal, `Ignoring stale ssh-disconnected (session_id=${event.payload.session_id}, expected=${this.sessionId})`);
-        return;
-      }
+      case "disconnected": {
+        this.clearOutputBuffer();
+        log.info(LogTag.Terminal, `SSH disconnected event: ${e.reason}`);
+        const wasConnected = e.wasConnected;
 
-      this.clearOutputBuffer();
-      log.info(LogTag.Terminal, `SSH disconnected event: ${event.payload.reason}`);
-      if (this.cleanDisconnect) return; // User initiated — handled elsewhere
-      if (!this.connectedAtLeastOnce) {
-        // Session died before (or just as) it reached "connected" — treat as a
-        // failed connect, not a dropped session. Bouncing to the host list here
-        // is what made the first connect flash "connecting" then vanish.
-        log.warn(LogTag.Terminal, `Ignoring ssh-disconnected before ever connected: ${event.payload.reason}`);
-        this.showError(`Connection dropped during setup (${event.payload.reason})`);
-        return;
-      }
+        // "connection_lost" = TCP dropped / keepalive failed (network blip,
+        // VPN flap, server reboot). Show the reconnect banner so the user can
+        // get back in without navigating to the host list.
+        //
+        // "channel_closed" / "channel_eof" = the remote end closed the channel
+        // (user typed `exit`, server shutdown, admin reset). Treat as a clean
+        // session end — bounce to host list or clean up the green dot.
+        const reason = e.reason;
+        const isConnectionLost = reason === "connection_lost";
 
-      const wasConnected = this.state === "connected";
-      this.setState("disconnected");
-
-      // "connection_lost" = TCP dropped / keepalive failed (network blip,
-      // VPN flap, server reboot). Show the reconnect banner so the user can
-      // get back in without navigating to the host list.
-      //
-      // "channel_closed" / "channel_eof" = the remote end closed the channel
-      // (user typed `exit`, server shutdown, admin reset). Treat as a clean
-      // session end — bounce to host list or clean up the green dot.
-      const reason = event.payload.reason;
-      const isConnectionLost = reason === "connection_lost";
-
-      if (wasConnected && this.host && isConnectionLost) {
-        // Unexpected network drop — show reconnect banner in the terminal
-        this.showDisconnectBanner(reason);
-        this.updateStatusBar("disconnected");
-        // Notify the app that the session died (green dot) but DON'T close
-        // the terminal — the user stays on this tab and can reconnect.
-        this.onSessionDiedCb(this.host.id);
-      } else if (wasConnected && this.host) {
-        // Clean session end (exit / channel closed / EOF)
-        const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
-        const terminalVisible = wrapper && wrapper.style.display !== "none";
-
-        if (terminalVisible) {
-          // User was looking at the terminal — close it and return to host list
-          this.onDisconnectCb(this.host.id);
-        } else {
-          // User was in host list — silently clean up green dot
+        if (wasConnected && this.host && isConnectionLost) {
+          // Unexpected network drop — show reconnect banner in the terminal
+          this.showDisconnectBanner(reason);
+          this.updateStatusBar("disconnected");
+          // Notify the app that the session died (green dot) but DON'T close
+          // the terminal — the user stays on this tab and can reconnect.
           this.onSessionDiedCb(this.host.id);
+        } else if (wasConnected && this.host) {
+          // Clean session end (exit / channel closed / EOF)
+          const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
+          const terminalVisible = wrapper && wrapper.style.display !== "none";
+
+          if (terminalVisible) {
+            // User was looking at the terminal — close it and return to host list
+            this.onDisconnectCb(this.host.id);
+          } else {
+            // User was in host list — silently clean up green dot
+            this.onSessionDiedCb(this.host.id);
+          }
         }
+        break;
       }
-    });
 
-    // SSH error
-    this.unlistenError = await listen<{ reason: string; session_id: number }>("ssh-error", (event) => {
-      // Ignore stale error events from old connections
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
-      log.error(LogTag.Terminal, `SSH error event: ${event.payload.reason}`);
-      this.showError(event.payload.reason);
-    });
-
-    // TOFU: new host key accepted (visibility only, no dialog)
-    this.unlistenTofu = await listen<{ reason: string; session_id: number }>("ssh-tofu", (event) => {
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
-      log.info(LogTag.Terminal, event.payload.reason);
-    });
-
-    // Auth URL: browser-auth gateway detected — browser already opened in backend
-    this.unlistenAuthUrl = await listen<{ url: string; session_id: number }>("ssh-auth-url", (event) => {
-      if (!shouldAcceptEvent(event.payload.session_id, this.sessionId)) return;
-      const url = event.payload.url;
-      log.info(LogTag.Terminal, `Auth URL opened in browser: ${url}`);
-      // Update overlay stage text
-      const stageEl = this.$(".tv-overlay-stage");
-      if (stageEl) {
-        stageEl.textContent = `Authentication required — opened ${url} in browser`;
+      case "connect-failed": {
+        log.error(LogTag.Terminal, `SSH connect failed: ${e.reason}`);
+        this.showError(`Connection dropped during setup (${e.reason})`);
+        break;
       }
-      // Add "Open again" button next to Cancel
-      const actionsEl = this.$(".tv-overlay-actions");
-      if (actionsEl) {
-        const openBtn = document.createElement("button");
-        openBtn.className = "btn-text";
-        openBtn.textContent = "Open again";
-        openBtn.addEventListener("click", () => openUrl(url));
-        actionsEl.insertBefore(openBtn, actionsEl.firstChild);
-      }
-    });
-  }
 
-  private unregisterSshListeners() {
-    this.unlistenOutput?.();
-    this.unlistenConnected?.();
-    this.unlistenDisconnected?.();
-    this.unlistenError?.();
-    this.unlistenTofu?.();
-    this.unlistenAuthUrl?.();
-    this.unlistenOutput = null;
-    this.unlistenConnected = null;
-    this.unlistenDisconnected = null;
-    this.unlistenError = null;
-    this.unlistenTofu = null;
-    this.unlistenAuthUrl = null;
+      case "error": {
+        log.error(LogTag.Terminal, `SSH error event: ${e.reason}`);
+        this.showError(e.reason);
+        break;
+      }
+
+      case "tofu": {
+        log.info(LogTag.Terminal, e.reason);
+        break;
+      }
+
+      case "auth-url": {
+        const url = e.url;
+        log.info(LogTag.Terminal, `Auth URL opened in browser: ${url}`);
+        // Update overlay stage text
+        const stageEl = this.$(".tv-overlay-stage");
+        if (stageEl) {
+          stageEl.textContent = `Authentication required — opened ${url} in browser`;
+        }
+        // Add "Open again" button next to Cancel
+        const actionsEl = this.$(".tv-overlay-actions");
+        if (actionsEl) {
+          const openBtn = document.createElement("button");
+          openBtn.className = "btn-text";
+          openBtn.textContent = "Open again";
+          openBtn.addEventListener("click", () => openUrl(url));
+          actionsEl.insertBefore(openBtn, actionsEl.firstChild);
+        }
+        break;
+      }
+    }
   }
 
   // ─── Overlay / Banner UI ─────────────────────────────────────────
-
-  private setState(state: ConnectionState) {
-    this.state = state;
-  }
 
   private setProgress(stage: string, percent: number) {
     this.progress.stage = stage;
@@ -1161,7 +1086,6 @@ export class TerminalView {
   }
 
   private showError(message: string) {
-    this.setState("error");
     const overlay = this.$(".tv-overlay");
     const stageEl = this.$(".tv-overlay-stage");
     const fillEl = this.$(".tv-progress-fill");
@@ -1265,30 +1189,16 @@ export class TerminalView {
    */
   async disconnect() {
     log.info(LogTag.Terminal, "Full disconnect requested");
-    this.cleanDisconnect = true;
     const hostId = this.host?.id ?? "";
-    if (this.sessionId) {
-      try {
-        await sshDisconnect(this.sessionId);
-      } catch {
-        // Already disconnected or no session
-      }
-    }
+    await this.channel.disconnect();
     this.cleanup();
     this.onDisconnectCb(hostId);
   }
 
   private async cancelConnect() {
     this.clearOutputBuffer();
-    this.cleanDisconnect = true;
     const hostId = this.host?.id ?? "";
-    if (this.sessionId) {
-      try {
-        await sshDisconnect(this.sessionId);
-      } catch {
-        // Ignore
-      }
-    }
+    await this.channel.disconnect();
     this.cleanup();
     this.onDisconnectCb(hostId);
   }
@@ -1298,7 +1208,6 @@ export class TerminalView {
     if (!this.host) return;
     this.hideOverlay();
     this.hideDisconnectBanner();
-    this.unregisterSshListeners();
     this.terminal?.clear();
     this.timestampGutter?.reset();
     // Show "reconnecting" state in the status bar while the new connection
@@ -1451,7 +1360,7 @@ export class TerminalView {
 
   private debounceSuggestionQuery(text: string) {
     if (this.suggestionDebounceTimer) clearTimeout(this.suggestionDebounceTimer);
-    if (!text || this.receivingOutput || this.cursorMoved || this.state !== "connected"
+    if (!text || this.receivingOutput || this.cursorMoved || this.channel.state !== "connected"
       || text.length > MAX_SHADOW_LEN) {
       this.ghostText?.hide();
       if (this.dropdown?.isVisible()) {
@@ -1625,7 +1534,7 @@ export class TerminalView {
     content.querySelectorAll(".example-item").forEach((el) => {
       el.addEventListener("click", () => {
         const cmd = (el as HTMLElement).dataset.command;
-        if (cmd && this.state === "connected") {
+        if (cmd && this.channel.state === "connected") {
           this.sendData(cmd + "\r");
           this.terminal?.focus();
         }
@@ -1726,7 +1635,7 @@ export class TerminalView {
 
   /** Play a replay command: prompt for variables if needed, then insert. */
   private playReplay(cmd: ReplayCommand) {
-    if (this.state !== "connected") return;
+    if (this.channel.state !== "connected") return;
     if (cmd.variables.length === 0) {
       this.insertReplayCommand(cmd.command);
       return;
@@ -1795,7 +1704,7 @@ export class TerminalView {
 
   /** Insert a command at the terminal prompt without executing it. */
   private insertReplayCommand(text: string) {
-    if (this.state !== "connected" || !this.sessionId) return;
+    if (this.channel.state !== "connected" || !this.channel.sessionId) return;
     this.sendData(text);
     this.terminal?.focus();
   }
@@ -1842,7 +1751,7 @@ export class TerminalView {
       this.dropdown?.hide();
       return;
     }
-    if (this.currentInput && !this.receivingOutput && this.state === "connected") {
+    if (this.currentInput && !this.receivingOutput && this.channel.state === "connected") {
       const results = this.suggestionEngine.query(this.currentInput);
       if (results.length > 0) this.openDropdown(results);
     }
@@ -1920,7 +1829,7 @@ export class TerminalView {
 
   private cleanup() {
     this.hideContextMenu();
-    this.unregisterSshListeners();
+    this.channel.dispose();
 
     if (this.resizeHandler) {
       window.removeEventListener("resize", this.resizeHandler);
@@ -1976,8 +1885,6 @@ export class TerminalView {
     this.terminal = null;
     this.fitAddon = null;
     this.host = null;
-    this.state = "idle";
-    this.connectedAtLeastOnce = false;
   }
 
   // ─── Output pane ─────────────────────────────────────────────────
@@ -2000,14 +1907,4 @@ export class TerminalView {
     }
   }
 
-  // ─── Util ────────────────────────────────────────────────────────
-
-  private base64ToUint8Array(base64: string): Uint8Array {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  }
 }

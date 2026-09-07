@@ -20,10 +20,13 @@ describe("mintSessionId", () => {
     expect(c).toBeGreaterThan(b);
   });
 
-  it("resets to 1 after __resetSessionId (F3)", () => {
+  it("resets to a fresh epoch-based counter after __resetSessionId (F3)", () => {
     mintSessionId();
     mintSessionId();
+    const before = Date.now();
     __resetSessionId();
-    expect(mintSessionId()).toBe(1);
+    const v = mintSessionId();
+    expect(v).toBeGreaterThanOrEqual(before);
+    expect(v).toBeLessThan(before + 1000);
   });
 });
