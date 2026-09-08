@@ -108,12 +108,12 @@
   outline: none;
 }
 
-.title-bar-search-row:hover,
-.title-bar-search-row.selected {
+.title-bar-search-row:hover {
   background: var(--color-surface-hover);
 }
 
 .title-bar-search-row.selected {
+  background: var(--color-surface-selected);
   border-color: var(--color-accent);
 }
 

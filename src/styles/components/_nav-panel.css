@@ -104,7 +104,7 @@
   color: var(--color-text-primary);
 }
 
-/* Bare items (not inside a flex row) must span the full column width â€”
+/* Bare items (not inside a flex row) must span the full column width —
    <button> shrinks to fit content, unlike the row-wrapped items whose
    flex:1 stretches them to the same width. width:100% + horizontal margin
    would overflow the container (clipped by .app-nav overflow-x:hidden),

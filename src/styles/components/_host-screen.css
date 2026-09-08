@@ -197,9 +197,14 @@
   border-bottom: none;
 }
 
-.hs-browse-item:hover,
+.hs-browse-item:hover {
+  background: var(--color-surface-hover);
+}
+
 .hs-browse-item-active {
   background: var(--color-surface-selected);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
 }
 
 .hs-browse-label {

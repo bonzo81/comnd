@@ -70,6 +70,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 * **Dropdown max height:** 8 visible items, scroll indicator if more
 * **Dropdown item height:** 32px
 * **Radii:** 4px / 6px / 8px (`--radius-sm/md/lg`)
+* **Content column** (centered, `margin: 0 auto`): Settings 560px, Replay 900px. Full-bleed screens (terminal, connection manager, KB) have no max-width.
 
 ## Screens / Views
 
