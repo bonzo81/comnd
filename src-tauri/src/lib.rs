@@ -1363,11 +1363,6 @@ async fn save_kb_command(
     negatable: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Result<(), Vec<kb::KbValidationIssue>>, String> {
-    let user_kb_path = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.user_kb_path()
-    };
-
     // Malformed token JSON is a hard error (outer Err), not a silent downgrade.
     let tokens: Vec<kb::CommandToken> = kb::parse_tokens(tokens_json.as_deref())?;
 
@@ -1398,25 +1393,9 @@ async fn save_kb_command(
         overrides: false,
     };
 
-    // Error-severity issues block the save and are returned to the UI. Warnings
-    // don't block — they're surfaced separately via validate_kb.
-    let errors: Vec<kb::KbValidationIssue> = kb::validate_command(&command)
-        .into_iter()
-        .filter(|i| i.severity == "error")
-        .collect();
-    if !errors.is_empty() {
-        return Ok(Err(errors));
-    }
-
-    kb::save_kb_command(&user_kb_path, &platform, &category, &command)?;
-
-    // Reload KB so changes are reflected immediately
-    {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.reload_all();
-    }
-
-    Ok(Ok(()))
+    // Validation + write + invalidation live in the manager (policy with model).
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.save_user_command(&platform, &category, &command)
 }
 
 #[tauri::command]
@@ -1427,20 +1406,8 @@ async fn delete_kb_command(
     overrides: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let user_kb_path = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.user_kb_path()
-    };
-
-    kb::delete_kb_command(&user_kb_path, &platform, &category, &command_name, overrides)?;
-
-    // Reload KB so changes are reflected immediately
-    {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.reload_all();
-    }
-
-    Ok(())
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.delete_user_command(&platform, &category, &command_name, overrides)
 }
 
 #[tauri::command]
@@ -1449,20 +1416,8 @@ async fn disable_kb_command(
     command_name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let user_kb_path = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.user_kb_path()
-    };
-
-    kb::disable_kb_command(&user_kb_path, &platform, &command_name)?;
-
-    // Reload KB so changes are reflected immediately
-    {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.reload_all();
-    }
-
-    Ok(())
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.disable_command(&platform, &command_name)
 }
 
 #[tauri::command]
@@ -1471,20 +1426,8 @@ async fn enable_kb_command(
     command_name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let user_kb_path = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.user_kb_path()
-    };
-
-    kb::enable_kb_command(&user_kb_path, &platform, &command_name)?;
-
-    // Reload KB so changes are reflected immediately
-    {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.reload_all();
-    }
-
-    Ok(())
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.enable_command(&platform, &command_name)
 }
 
 #[tauri::command]
@@ -1492,12 +1435,8 @@ async fn get_disabled_commands(
     platform: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let user_kb_path = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.user_kb_path()
-    };
-
-    Ok(kb::get_disabled_commands(&user_kb_path, &platform))
+    let kb = state.kb.lock().map_err(|e| e.to_string())?;
+    Ok(kb.disabled_commands(&platform))
 }
 
 // ─── Test Commands (debug only) ─────────────────────────────────────

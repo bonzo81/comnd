@@ -423,7 +423,7 @@ pub async fn commit_import(
         }
         log::info!("Import commit: writing {} command(s) to {}", cmds.len(), target_file.display());
         // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
-        write_commands_to_yaml(cmds, &target_file, cat)?;
+        write_commands_to_yaml(cmds, &target_file)?;
     }
 
     let target_file = primary_target.ok_or_else(|| "no commands selected".to_string())?;

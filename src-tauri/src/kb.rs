@@ -516,24 +516,9 @@ impl KbManager {
         }
     }
 
-    /// Read deleted command names from a user KB platform directory.
-    fn load_deleted_names(platform_dir: &Path) -> HashSet<String> {
-        let deleted_path = platform_dir.join("_deleted.yaml");
-        let mut names = HashSet::new();
-        if deleted_path.exists() {
-            #[derive(serde::Deserialize)]
-            struct DeletedFile {
-                deleted: Vec<String>,
-            }
-            if let Ok(content) = std::fs::read_to_string(&deleted_path) {
-                if let Ok(file) = serde_yml::from_str::<DeletedFile>(&content) {
-                    for name in file.deleted {
-                        names.insert(name);
-                    }
-                }
-            }
-        }
-        names
+    /// The user KB path, or an error if not configured.
+    fn user_path(&self) -> Result<&Path, String> {
+        self.user_kb_path.as_deref().ok_or_else(|| "No user KB path configured".to_string())
     }
 
     /// Get or load a platform's KB store.
@@ -591,7 +576,7 @@ impl KbManager {
 
                     // Also filter by user KB's deleted + disabled lists
                     // (catches bundled-only commands)
-                    let user_deleted = Self::load_deleted_names(&user_platform_dir);
+                    let user_deleted = read_deleted_list(&user_platform_dir);
                     let user_disabled = read_disabled_list(&user_platform_dir);
                     let hidden: HashSet<String> =
                         user_deleted.union(&user_disabled).cloned().collect();
@@ -685,6 +670,72 @@ impl KbManager {
         list.sort();
         list
     }
+
+    /// Save (create or update-by-name) a user command. Validation is policy that
+    /// belongs with the model: error-severity issues block the write and are
+    /// returned to the UI as `Ok(Err(issues))`; warnings don't block. The nested
+    /// Result preserves the frontend contract (outer = plumbing, inner = validation).
+    pub fn save_user_command(
+        &mut self,
+        platform: &str,
+        category: &str,
+        command: &Command,
+    ) -> Result<Result<(), Vec<KbValidationIssue>>, String> {
+        let user_kb_path = self.user_path()?;
+
+        let errors: Vec<KbValidationIssue> = validate_command(command)
+            .into_iter()
+            .filter(|i| i.severity == "error")
+            .collect();
+        if !errors.is_empty() {
+            return Ok(Err(errors));
+        }
+
+        save_kb_command(&user_kb_path, platform, category, command)?;
+        self.stores.remove(platform);
+        Ok(Ok(()))
+    }
+
+    /// Delete a user command (tombstone logic per overrides flag).
+    pub fn delete_user_command(
+        &mut self,
+        platform: &str,
+        category: &str,
+        name: &str,
+        overrides: bool,
+    ) -> Result<(), String> {
+        let user_kb_path = self.user_path()?;
+
+        delete_kb_command(user_kb_path, platform, category, name, overrides)?;
+        self.stores.remove(platform);
+        Ok(())
+    }
+
+    /// Disable a command (hide from suggestions without deleting).
+    pub fn disable_command(&mut self, platform: &str, name: &str) -> Result<(), String> {
+        let user_kb_path = self.user_path()?;
+
+        disable_kb_command(user_kb_path, platform, name)?;
+        self.stores.remove(platform);
+        Ok(())
+    }
+
+    /// Re-enable a previously disabled command.
+    pub fn enable_command(&mut self, platform: &str, name: &str) -> Result<(), String> {
+        let user_kb_path = self.user_path()?;
+
+        enable_kb_command(user_kb_path, platform, name)?;
+        self.stores.remove(platform);
+        Ok(())
+    }
+
+    /// Names of disabled commands for a platform (read-only).
+    pub fn disabled_commands(&self, platform: &str) -> Vec<String> {
+        self.user_kb_path
+            .as_deref()
+            .map(|p| get_disabled_commands(p, platform))
+            .unwrap_or_default()
+    }
 }
 
 // ─── User KB Command Editing ────────────────────────────────────────
@@ -773,7 +824,7 @@ pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str)
 }
 
 /// Write commands to a YAML file, merging with existing content if the file already exists.
-pub fn write_commands_to_yaml(commands: &[Command], path: &Path, _category: &str) -> Result<(), String> {
+pub fn write_commands_to_yaml(commands: &[Command], path: &Path) -> Result<(), String> {
     let mut existing_commands = Vec::new();
 
     // Load existing commands if file exists
@@ -885,7 +936,7 @@ pub fn save_kb_command(
             .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
     }
 
-    write_commands_to_yaml(&[command.clone()], &path, category)?;
+    write_commands_to_yaml(&[command.clone()], &path)?;
 
     // Remove from _deleted.yaml if it was previously deleted
     let platform_dir = user_kb_path.join(platform);
@@ -1576,7 +1627,7 @@ mod tests {
             source: None,
             overrides: false,
         };
-        write_commands_to_yaml(&[legacy], &path, "networking").unwrap();
+        write_commands_to_yaml(&[legacy], &path).unwrap();
 
         // Re-import with tokens + non-default order + negatable.
         let upgraded = Command {
@@ -1597,7 +1648,7 @@ mod tests {
             source: None,
             overrides: false,
         };
-        write_commands_to_yaml(&[upgraded], &path, "networking").unwrap();
+        write_commands_to_yaml(&[upgraded], &path).unwrap();
 
         // Read back and verify the merge upgraded the legacy entry.
         let content = std::fs::read_to_string(&path).unwrap();
@@ -1855,6 +1906,104 @@ mod tests {
 
         assert!(loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(!read_disabled_list(&user.join("test-plat")).contains("show version"));
+
+        drop_fixture(&bundled);
+    }
+
+    // ─── Mutation through a single persistent KbManager (invalidation) ──
+    // These prove each manager method invalidates its own store in place:
+    // the SAME instance must reflect the change on the next get_or_load,
+    // not serve a stale cached snapshot.
+
+    #[test]
+    fn test_manager_save_adds_and_invalidates() {
+        let (bundled, user) = kb_fixture("mgr-save", &cmd_yaml("show version", "bundled"), None);
+        // User platform needs an index.yaml to be loadable on merge (see KbStore::load).
+        std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+
+        let before = mgr.get_or_load("test-plat").unwrap();
+        assert!(!before.commands.iter().any(|c| c.name == "my new cmd"));
+
+        mgr.save_user_command("test-plat", "test", &mk_cmd("my new cmd", vec![]))
+            .unwrap()
+            .expect("no validation issues");
+
+        let after = mgr.get_or_load("test-plat").unwrap();
+        assert!(after.commands.iter().any(|c| c.name == "my new cmd"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_manager_delete_removes_and_invalidates() {
+        let (bundled, user) = kb_fixture("mgr-del", &cmd_yaml("show version", "bundled"), None);
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+
+        assert!(mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+
+        mgr.delete_user_command("test-plat", "test", "show version", false).unwrap();
+
+        let after = mgr.get_or_load("test-plat").unwrap();
+        assert!(!after.commands.iter().any(|c| c.name == "show version"));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_manager_disable_hides_and_invalidates() {
+        let (bundled, user) = kb_fixture("mgr-dis", &cmd_yaml("show version", "bundled"), None);
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+
+        assert!(mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+
+        mgr.disable_command("test-plat", "show version").unwrap();
+
+        let after = mgr.get_or_load("test-plat").unwrap();
+        assert!(!after.commands.iter().any(|c| c.name == "show version"));
+        assert!(mgr.disabled_commands("test-plat").contains(&"show version".to_string()));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_manager_enable_restores_and_invalidates() {
+        let (bundled, user) = kb_fixture("mgr-en", &cmd_yaml("show version", "bundled"), None);
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+
+        mgr.disable_command("test-plat", "show version").unwrap();
+        assert!(!mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+
+        mgr.enable_command("test-plat", "show version").unwrap();
+
+        let after = mgr.get_or_load("test-plat").unwrap();
+        assert!(after.commands.iter().any(|c| c.name == "show version"));
+        assert!(!mgr.disabled_commands("test-plat").contains(&"show version".to_string()));
+
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_manager_disabled_commands_empty_when_none() {
+        let (bundled, user) = kb_fixture("mgr-dis-none", &cmd_yaml("show version", "bundled"), None);
+        let mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+        assert!(mgr.disabled_commands("test-plat").is_empty());
+        drop_fixture(&bundled);
+    }
+
+    #[test]
+    fn test_manager_save_returns_validation_issues() {
+        let (bundled, user) = kb_fixture("mgr-val", &cmd_yaml("show version", "bundled"), None);
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+
+        let bad = mk_cmd("bad cmd", vec![CommandToken::Lit { lit: String::new(), optional: false }]);
+
+        match mgr.save_user_command("test-plat", "test", &bad).unwrap() {
+            Ok(()) => panic!("expected validation issues"),
+            Err(issues) => assert!(!issues.is_empty(), "must report the empty-literal issue"),
+        }
+
+        assert!(!mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "bad cmd"));
 
         drop_fixture(&bundled);
     }
