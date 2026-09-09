@@ -6,7 +6,7 @@
  *
  * Gating is enforced by the CALLER (terminal-view.ts):
  *   - Only active when receivingOutput === true (command output, not echo)
- *   - Only active when promptDetector.isPassthrough === false (not vi/more/top)
+ *   - Only active when tracker.isPassthrough === false (not vi/more/top)
  *   - Only active when feature flag is on
  *   - Only active when outputHighlighter !== null
  *

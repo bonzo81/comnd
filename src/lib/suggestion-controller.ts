@@ -10,7 +10,7 @@
 
 import { log, LogTag } from "./logger";
 import { ShadowBuffer, MAX_SHADOW_LEN } from "./shadow-buffer";
-import { EchoLineTracker } from "./echo-line";
+import type { LineTracker } from "./line-tracker";
 import {
   SuggestionEngine,
   ghostPayloadFor,
@@ -23,7 +23,10 @@ import type { Command, PlatformIndex } from "./tauri-api";
 export interface ControllerDeps {
   /** Send bytes to the current SSH session. */
   send: (data: string) => void;
-  /** Live widgets â€” accessors, not fields; re-created on reconnect. */
+  /** Shared line tracker — view constructs it once per session; it is never
+   *  re-created on reconnect (unlike ghost/dropdown), so it's a plain field. */
+  tracker: LineTracker;
+  /** Live widgets — accessors, not fields; re-created on reconnect. */
   ghost: () => GhostText | null;
   dropdown: () => Dropdown | null;
   /** Show command detail / placeholder in the side panel. */
@@ -33,7 +36,6 @@ export interface ControllerDeps {
 export class SuggestionController {
   private engine = new SuggestionEngine();
   private shadowBuffer: ShadowBuffer;
-  private echoLine = new EchoLineTracker();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private receivingOutput = false;
@@ -106,12 +108,13 @@ export class SuggestionController {
    * untrustworthy, prompt learning on trusted EOL state, and the
    * receivingOutput burst timer with its 300ms re-trigger.
    */
-  onOutput(text: string, pd: { isPassthrough: boolean; lastPrompt: string | null }): void {
-    this.echoLine.feed(text);
+  onOutput(text: string): void {
+    const tracker = this.deps.tracker;
+    tracker.feed(text);
 
-    if (!this.receivingOutput && !pd.isPassthrough) {
+    if (!this.receivingOutput && !tracker.isPassthrough) {
       if (this.cursorMoved) {
-        const echoed = this.echoLine.contentAfter(pd.lastPrompt ?? "", this.shadowBuffer.content);
+        const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
         if (echoed !== null) {
           // Flag clears on any successful reconcile â€” even when the echoed
           // content matches the buffer (arrow key edited nothing), otherwise
@@ -125,7 +128,7 @@ export class SuggestionController {
         // Trusted EOL state (buffer reliable) â€” learn the prompt prefix
         // from line = prompt + buffer for platforms without prompt
         // patterns (bash).
-        this.echoLine.learnPrompt(this.shadowBuffer.content);
+        tracker.learnPrompt(this.shadowBuffer.content);
       }
     }
 
@@ -154,7 +157,7 @@ export class SuggestionController {
   onPromptDetected(): void {
     this.reset();
     this.receivingOutput = false;
-    this.echoLine.reset();
+    this.deps.tracker.reset();
     // A fresh prompt always wants a visible cursor (DECTCEM desync guard)
     this.deps.ghost()?.hide();
   }

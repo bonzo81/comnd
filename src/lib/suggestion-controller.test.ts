@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { SuggestionController } from "./suggestion-controller";
+import { LineTracker } from "./line-tracker";
 import { GhostText, GhostPayload } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import type { Command } from "./tauri-api";
@@ -30,17 +31,19 @@ const cmd = (name: string, mode = "bash"): Command => ({
 function makeController() {
   const ghost = new FakeGhost();
   const dropdown = new FakeDropdown();
+  const tracker = new LineTracker(() => {}, () => {});
   const sent: string[] = [];
   const detail = vi.fn();
   const placeholder = vi.fn();
   const c = new SuggestionController({
     send: (d) => sent.push(d),
+    tracker: tracker,
     ghost: () => ghost as unknown as GhostText,
     dropdown: () => dropdown as unknown as Dropdown,
     sidebar: { detail, placeholder },
   });
   c.setConnected(true);
-  return { c, ghost, dropdown, sent, detail, placeholder };
+  return { c, ghost, dropdown, tracker, sent, detail, placeholder };
 }
 
 // debounce is 40ms — advance fake timers
@@ -147,7 +150,7 @@ describe("SuggestionController — output handling", () => {
     vi.advanceTimersByTime(50);
     expect(dropdown.visible).toBe(true);
 
-    c.onOutput("command output\nline2\n", { isPassthrough: false, lastPrompt: null });
+    c.onOutput("command output\nline2\n");
     expect(dropdown.visible).toBe(false);
 
     // Queries stay suppressed while the burst timer runs
@@ -159,22 +162,39 @@ describe("SuggestionController — output handling", () => {
     expect(dropdown.visible).toBe(true);
   });
 
-  it("echo re-sync rebuilds buffer after cursor move", () => {
+  it("echo re-sync rebuilds buffer after cursor move (learned prompt)", () => {
     const { c } = makeController();
     c.setMode("bash");
     c.buffer.appendAll("ls");
+    // Trusted EOL echo: line = prompt + buffer → tracker learns the prefix
+    c.onOutput("user@host:~$ ls");
+    expect(c.input).toBe("ls");
     c.markCursorMoved();
-    // Remote echoed "ls -l" — line after prompt, buffer was "ls"
-    c.onOutput("user@host:~$ ls -l", { isPassthrough: false, lastPrompt: "user@host:~$ " });
-    // No newline → no burst; cursorMoved cleared and buffer re-synced
+    // Arrow-key redraw of the edited line — no newline, no burst
+    c.onOutput("\ruser@host:~$ ls -l");
     expect(c.input).toBe("ls -l");
+  });
+
+  it("passthrough suppresses echo re-sync", () => {
+    const { c, tracker } = makeController();
+    tracker.loadPatterns({ enable: "Router#" }, "user");
+    c.setMode("enable");
+    c.buffer.appendAll("show");
+    c.markCursorMoved();
+    // Interactive-app output (vi/more/top) — no prompt for 2s arms passthrough
+    c.onOutput("top screen\nuptime line\n");
+    vi.advanceTimersByTime(2000);
+    expect(tracker.isPassthrough).toBe(true);
+    // A prompt-looking echo arrives during passthrough — re-sync must be skipped
+    c.onOutput("Router# show int");
+    expect(c.input).toBe("show");
   });
 
   it("onPromptDetected resets state", () => {
     const { c } = makeController();
     c.buffer.appendAll("old");
     c.markCursorMoved();
-    c.onOutput("out\n", { isPassthrough: false, lastPrompt: null });
+    c.onOutput("out\n");
     c.onPromptDetected();
     expect(c.input).toBe("");
     expect(c.isReceivingOutput).toBe(false);

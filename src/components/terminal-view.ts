@@ -27,7 +27,7 @@ import { ReplaySaveDialog } from "./replay-save-dialog";
 import { substitute, renderReplayTemplate } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
-import { PromptDetector } from "../lib/prompt-detector";
+import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
 import {
@@ -138,8 +138,8 @@ export class TerminalView {
   private channel: SessionChannel;
   private progress: ConnectProgress = { stage: "" };
 
-  // Prompt detection & suggestion pipeline (controller owns buffer/engine)
-  private promptDetector: PromptDetector;
+  // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
+  private tracker: LineTracker;
   private controller: SuggestionController;
   private ghostText: GhostText | null = null;
   private dropdown: Dropdown | null = null;
@@ -178,16 +178,7 @@ export class TerminalView {
     this.onRequestCloseCb = onRequestClose;
     this.channel = new SessionChannel(new TauriTransport());
     this.channel.on((e) => this.handleSessionEvent(e));
-    this.controller = new SuggestionController({
-      send: (data) => this.sendData(data),
-      ghost: () => this.ghostText,
-      dropdown: () => this.dropdown,
-      sidebar: {
-        detail: (cmd) => this.updateSidebarDetail(cmd),
-        placeholder: () => this.updateSidebarPlaceholder(),
-      },
-    });
-    this.promptDetector = new PromptDetector(
+    this.tracker = new LineTracker(
       (mode) => {
         this.currentMode = mode;
         this.controller.setMode(mode);
@@ -198,6 +189,16 @@ export class TerminalView {
         this.controller.onPromptDetected();
       },
     );
+    this.controller = new SuggestionController({
+      send: (data) => this.sendData(data),
+      tracker: this.tracker,
+      ghost: () => this.ghostText,
+      dropdown: () => this.dropdown,
+      sidebar: {
+        detail: (cmd) => this.updateSidebarDetail(cmd),
+        placeholder: () => this.updateSidebarPlaceholder(),
+      },
+    });
   }
 
   private $<T extends HTMLElement = HTMLElement>(sel: string): T | null {
@@ -731,7 +732,7 @@ export class TerminalView {
       this.setProgress("Loading knowledge base...", 8);
       try {
         this.platformIndex = await loadPlatformIndex(host.platform);
-        this.promptDetector.loadPatterns(this.platformIndex.prompt_patterns, this.platformIndex.default_mode);
+        this.tracker.loadPatterns(this.platformIndex.prompt_patterns, this.platformIndex.default_mode);
         this.currentMode = this.platformIndex.default_mode;
         this.controller.setPlatformIndex(this.platformIndex);
         this.controller.setMode(this.currentMode);
@@ -781,7 +782,7 @@ export class TerminalView {
           const receivingOutput = this.controller.isReceivingOutput;
           const highlightOn = getOutputHighlightEnabled()
             && (receivingOutput || text.includes("\n"))
-            && !this.promptDetector.isPassthrough
+            && !this.tracker.isPassthrough
             && this.outputHighlighter !== null;
 
           if (highlightOn) {
@@ -796,10 +797,6 @@ export class TerminalView {
               if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
             });
           }
-          // Prompt detector ALWAYS receives original (untransformed) text —
-          // injected ANSI would corrupt prompt regex matching.
-          this.promptDetector.feed(text);
-
           // Cursor-escape desync guard: remote showed the cursor while ghost
           // had hidden it — sync bookkeeping so a later hide() doesn't strand
           // the cursor invisible.
@@ -807,11 +804,9 @@ export class TerminalView {
             this.ghostText.notifyCursorShown();
           }
 
-          // Echo re-sync + receivingOutput burst timer live in the controller.
-          this.controller.onOutput(text, {
-            isPassthrough: this.promptDetector.isPassthrough,
-            lastPrompt: this.promptDetector.lastPrompt,
-          });
+          // Feeds the line tracker (original untransformed text — injected ANSI
+          // would corrupt prompt matching), then echo re-sync + burst timer.
+          this.controller.onOutput(text);
         } else {
           // Connection phase — capture output for the output pane
           const cleanText = stripAnsi(text);
