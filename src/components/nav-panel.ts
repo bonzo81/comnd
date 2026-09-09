@@ -22,6 +22,7 @@ import {
 } from "../lib/tauri-api";
 import { ALL_GROUP_ID, hostMatches, sortByRecent, isNetboxHostId, isNetboxGroup } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
+import { confirmDialog } from "../lib/confirm-dialog";
 import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { initContextMenu } from "../lib/a11y";
@@ -81,8 +82,6 @@ export class NavPanel {
   private creatingIn: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
   private renaming: { type: "host" | "group"; id: string } | null = null;
-  private deleteConfirmType: "host" | "group" = "host";
-  private deleteConfirmId: string | null = null;
   private dragPayload: DragPayload | null = null;
   private dropIndicator: HTMLElement | null = null;
 
@@ -310,7 +309,6 @@ export class NavPanel {
       ${this.renderSection("settings", icons.settings, "Settings", this.renderSettingsItems())}
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
-      ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
     `;
     this.bindEvents();
     this.applyRovingTabindex();
@@ -723,38 +721,6 @@ export class NavPanel {
       </div>`;
   }
 
-  private renderDeleteConfirm(): string {
-    if (this.deleteConfirmType === "group") {
-      const group = this.groups.find((g) => g.id === this.deleteConfirmId);
-      if (!group) return "";
-      return `
-        <div class="modal-backdrop" id="nav-delete-backdrop">
-          <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="nav-delete-title">
-            <h3 id="nav-delete-title">Delete Group</h3>
-            <p>Delete <strong>${escHtml(group.name)}</strong>? Hosts in this group will be moved to All Hosts. This cannot be undone.</p>
-            <div class="form-actions">
-              <button class="btn-text" id="nav-delete-cancel">Cancel</button>
-              <button class="btn-danger" id="nav-delete-confirm">Delete</button>
-            </div>
-          </div>
-        </div>`;
-    } else {
-      const host = this.hosts.find((h) => h.id === this.deleteConfirmId);
-      if (!host) return "";
-      return `
-        <div class="modal-backdrop" id="nav-delete-backdrop">
-          <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="nav-delete-title">
-            <h3 id="nav-delete-title">Delete Host</h3>
-            <p>Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.</p>
-            <div class="form-actions">
-              <button class="btn-text" id="nav-delete-cancel">Cancel</button>
-              <button class="btn-danger" id="nav-delete-confirm">Delete</button>
-            </div>
-          </div>
-        </div>`;
-    }
-  }
-
   // ─── Events ──────────────────────────────────────────────────────
 
   /**
@@ -913,11 +879,29 @@ export class NavPanel {
             this.renaming = { type: ctx.type, id: ctx.id };
             this.render();
             break;
-          case "delete":
-            this.deleteConfirmType = ctx.type;
-            this.deleteConfirmId = ctx.id;
-            this.render();
+          case "delete": {
+            const isGroup = ctx.type === "group";
+            const group = isGroup ? this.groups.find((g) => g.id === ctx.id) : null;
+            const host = isGroup ? null : this.hosts.find((h) => h.id === ctx.id);
+            if (isGroup && !group) break;
+            if (!isGroup && !host) break;
+            confirmDialog({
+              title: isGroup ? "Delete Group" : "Delete Host",
+              message: isGroup
+                ? `Delete <strong>${escHtml(group!.name)}</strong>? Hosts in this group will be moved to All Hosts. This cannot be undone.`
+                : `Delete <strong>${escHtml(host!.display_name)}</strong>? This cannot be undone.`,
+              confirmLabel: "Delete",
+              destructive: true,
+              onConfirm: () => {
+                if (isGroup) {
+                  void this.doDeleteGroup(ctx.id);
+                } else {
+                  void this.doDeleteHost(ctx.id);
+                }
+              },
+            });
             break;
+          }
           case "configure":
             void new NetBoxConfigureDialog(ctx.id, () => {
               void this.refresh().then(() => this.cb.onTreeChanged());
@@ -951,26 +935,6 @@ export class NavPanel {
       }
     };
     document.addEventListener("pointerdown", this._clickOutsideHandler);
-
-    // Delete confirm
-    document.getElementById("nav-delete-cancel")?.addEventListener("click", () => {
-      this.deleteConfirmId = null;
-      this.render();
-    });
-    document.getElementById("nav-delete-confirm")?.addEventListener("click", () => {
-      if (!this.deleteConfirmId) return;
-      if (this.deleteConfirmType === "group") {
-        void this.doDeleteGroup(this.deleteConfirmId);
-      } else {
-        void this.doDeleteHost(this.deleteConfirmId);
-      }
-    });
-    document.getElementById("nav-delete-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "nav-delete-backdrop") {
-        this.deleteConfirmId = null;
-        this.render();
-      }
-    });
   }
 
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
@@ -983,7 +947,6 @@ export class NavPanel {
     }
     try {
       await deleteHostGroup(groupId);
-      this.deleteConfirmId = null;
       this.contextMenu = null;
       await this.refresh();
       this.cb.onTreeChanged();
@@ -996,13 +959,10 @@ export class NavPanel {
     if (isNetboxHostId(hostId)) {
       log.warn(LogTag.Netbox, `Guard: delete blocked on NetBox host ${hostId}`);
       showToast("NetBox hosts are managed by the NetBox integration — disable it via the context menu or Settings → NetBox", "info");
-      this.deleteConfirmId = null;
-      this.render();
       return;
     }
     try {
       await deleteHost(hostId);
-      this.deleteConfirmId = null;
       this.contextMenu = null;
       await this.refresh();
       this.cb.onTreeChanged();
@@ -1507,12 +1467,11 @@ export class NavPanel {
       if (!focusInPanel) return;
       // Typing in the inline rename input must not trigger tree navigation
       if (this.renaming && (document.activeElement as HTMLElement | null)?.classList.contains("nav-rename-input")) return;
-      // Context menu / delete confirm take priority over navigation keys
-      if (this.contextMenu || this.deleteConfirmId) {
+      // Context menu takes priority over navigation keys
+      if (this.contextMenu) {
         if (e.key === "Escape") {
           e.preventDefault();
           this.contextMenu = null;
-          this.deleteConfirmId = null;
           this.render();
         }
         return;

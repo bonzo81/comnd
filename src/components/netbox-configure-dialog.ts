@@ -8,7 +8,6 @@
  */
 
 import {
-  CredentialSource,
   DeviceOverlay,
   NetBoxDeviceEntry,
   netboxGetDevices,
@@ -19,8 +18,8 @@ import {
 import { showToast } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";
 import { escHtml } from "../lib/format";
+import { collectCredential, renderCredentialFieldset, updateCredentialVisibility } from "../lib/credential-fieldset";
 import { platformBadge, platformColorClass } from "../lib/platforms";
-import { icons } from "../lib/icons";
 
 export class NetBoxConfigureDialog {
   private overlay: HTMLDivElement | null = null;
@@ -89,63 +88,16 @@ export class NetBoxConfigureDialog {
             <input type="number" class="form-input" name="port" min="1" max="65535"
                    placeholder="Inherit source default" value="${o.port ?? ""}" />
           </label>
-          <fieldset class="form-auth-group">
-            <legend>Authentication</legend>
-            <label class="radio-label">
-              <input type="radio" name="auth_type" value="inherit" ${authType === "inherit" ? "checked" : ""} />
-              Inherit source default
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auth_type" value="password" ${authType === "password" ? "checked" : ""} />
-              Password
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auth_type" value="ssh_key" ${authType === "ssh_key" ? "checked" : ""} />
-              SSH Key
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auth_type" value="agent" ${authType === "agent" ? "checked" : ""} />
-              SSH Agent
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="auth_type" value="secret_ref" ${authType === "secret_ref" ? "checked" : ""} />
-              Secret Manager
-            </label>
-          </fieldset>
-          <div id="nb-cfg-password" class="auth-conditional ${authType === "password" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Password ${this.hasPassword ? `<span class="cred-badge">${icons.lock} Password saved</span>` : ""}</span>
-              <input type="password" class="form-input" name="password"
-                     placeholder="${this.hasPassword ? "Leave blank to keep saved password" : "Enter password"}" />
-            </label>
-          </div>
-          <div id="nb-cfg-key" class="auth-conditional ${authType === "ssh_key" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>SSH Key Path</span>
-              <input type="text" class="form-input" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
-                     value="${escHtml(cred?.type === "ssh_key" ? cred.key_path : "")}" />
-            </label>
-          </div>
-          <div id="nb-cfg-agent" class="auth-conditional ${authType === "agent" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Identity fingerprint</span>
-              <input type="text" class="form-input" name="agent_identity" placeholder="Blank = offer all identities"
-                     spellcheck="false" autocomplete="off"
-                     value="${escHtml(cred?.type === "agent" ? (cred.identity ?? "") : "")}" />
-            </label>
-          </div>
-          <div id="nb-cfg-secretref" class="auth-conditional ${authType === "secret_ref" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Provider</span>
-              <select class="form-input" name="secret_ref_provider" id="nb-cfg-ref-provider"></select>
-            </label>
-            <label>
-              <span>Reference</span>
-              <input type="text" class="form-input" name="secret_ref_reference" placeholder="Item reference"
-                     spellcheck="false" autocomplete="off"
-                     value="${escHtml(cred?.type === "secret_ref" ? cred.reference : "")}" />
-            </label>
-          </div>
+          ${renderCredentialFieldset({
+            name: "auth_type",
+            credential: cred ?? null,
+            providers: [],
+            idPrefix: "nb-cfg",
+            defaultType: "inherit",
+            extraRadios: [{ value: "inherit", checked: authType === "inherit", label: "Inherit source default" }],
+            passwordBadge: this.hasPassword,
+            passwordPlaceholder: this.hasPassword ? "Leave blank to keep saved password" : "Enter password",
+          })}
           <label>
             <span>Notes</span>
             <textarea class="form-input" name="notes" rows="3" placeholder="Optional notes">${escHtml(o.notes ?? "")}</textarea>
@@ -180,7 +132,7 @@ export class NetBoxConfigureDialog {
   }
 
   private async loadProviders(selectedType: string): Promise<void> {
-    const select = this.overlay?.querySelector<HTMLSelectElement>("#nb-cfg-ref-provider");
+    const select = this.overlay?.querySelector<HTMLSelectElement>('select[name="secret_ref_provider"]');
     if (!select) return;
     let providers: { id: string }[] = [];
     try {
@@ -206,14 +158,8 @@ export class NetBoxConfigureDialog {
   }
 
   private updateAuthVisibility(): void {
-    const type =
-      this.overlay?.querySelector<HTMLInputElement>('input[name="auth_type"]:checked')?.value ?? "inherit";
-    const show = (id: string, on: boolean) =>
-      this.overlay?.querySelector<HTMLElement>(id)?.classList.toggle("auth-conditional-hidden", !on);
-    show("#nb-cfg-password", type === "password");
-    show("#nb-cfg-key", type === "ssh_key");
-    show("#nb-cfg-agent", type === "agent");
-    show("#nb-cfg-secretref", type === "secret_ref");
+    if (!this.overlay) return;
+    updateCredentialVisibility(this.overlay, "auth_type", "nb-cfg");
   }
 
   private async save(): Promise<void> {
@@ -225,37 +171,22 @@ export class NetBoxConfigureDialog {
     const username = (fd.get("username") as string)?.trim() || null;
     const portRaw = (fd.get("port") as string)?.trim();
     const port = portRaw ? parseInt(portRaw, 10) : null;
-    const authType = (fd.get("auth_type") as string) ?? "inherit";
-    const password = (fd.get("password") as string) ?? "";
-    const keyPath = (fd.get("ssh_key_path") as string)?.trim() ?? "";
-    const agentIdentity = (fd.get("agent_identity") as string)?.trim() ?? "";
-    const refProvider = (fd.get("secret_ref_provider") as string)?.trim() ?? "";
-    const refReference = (fd.get("secret_ref_reference") as string)?.trim() ?? "";
+    const { credential, password } = collectCredential("auth_type", (k) => fd.get(k) as string | null);
+    const authType = fd.get("auth_type") as string;
     const notes = (fd.get("notes") as string)?.trim() || null;
 
     if (port !== null && (port < 1 || port > 65535)) {
       if (errEl) errEl.textContent = "Port must be 1-65535.";
       return;
     }
-    if (authType === "ssh_key" && !keyPath) {
+    if (authType === "ssh_key" && !(credential as { key_path?: string } | null)?.key_path) {
       if (errEl) errEl.textContent = "SSH key path is required.";
       return;
     }
-    if (authType === "secret_ref" && (!refProvider || !refReference)) {
+    if (authType === "secret_ref" && credential?.type === "secret_ref" && (!credential.provider || !credential.reference)) {
       if (errEl) errEl.textContent = "Select a provider and enter a reference.";
       return;
     }
-
-    const credential: CredentialSource | null =
-      authType === "password"
-        ? { type: "password" }
-        : authType === "ssh_key"
-          ? { type: "ssh_key", key_path: keyPath }
-          : authType === "agent"
-            ? { type: "agent", identity: agentIdentity || null }
-            : authType === "secret_ref"
-              ? { type: "secret_ref", provider: refProvider, reference: refReference, label: null }
-              : null;
 
     const overlay: DeviceOverlay = {
       username,

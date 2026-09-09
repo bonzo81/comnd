@@ -26,6 +26,9 @@ import {
 import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass, getPlatformMeta } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
+import { confirmDialog } from "../lib/confirm-dialog";
+import { moveListItem } from "../lib/listbox-nav";
+import { renderCredentialFieldset, updateCredentialVisibility, collectCredential } from "../lib/credential-fieldset";
 import { ALL_GROUP_ID, recentHosts, isNetboxHostId } from "../lib/host-filters";
 import { icons } from "../lib/icons";
 import { initContextMenu } from "../lib/a11y";
@@ -75,10 +78,7 @@ export class HostScreen {
   private comboSelection: CredentialItem | null = null;
   private editingGroupId: string | null = null;
   private pendingGroupId: string | null = null;
-  private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
-  private deleteConfirmId: string | null = null;
-  private deleteConfirmType: "host" | "group" = "host";
-
+  private contextMenu: { type: "host"; id: string; x: number; y: number } | null = null;
   // Bound handler refs
   private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
@@ -194,7 +194,6 @@ export class HostScreen {
 
       ${this.formOpen ? this.renderForm() : ""}
       ${this.contextMenu ? this.renderContextMenu() : ""}
-      ${this.deleteConfirmId ? this.renderDeleteConfirm() : ""}
     `;
 
     this.bindEvents();
@@ -300,72 +299,20 @@ export class HostScreen {
                      value="${escAttr((h?.tags ?? []).join(", "))}" />
             </label>
 
-            <fieldset class="form-auth-group">
-              <legend>Authentication</legend>
-              <label class="radio-label">
-                <input type="radio" name="auth_type" value="password"
-                       ${(!h || !h.credential || h.credential.type === "password") ? "checked" : ""} />
-                Password
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="auth_type" value="ssh_key"
-                       ${h?.credential?.type === "ssh_key" ? "checked" : ""} />
-                SSH Key
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="auth_type" value="agent"
-                       ${isAgent ? "checked" : ""} />
-                SSH Agent
-              </label>
-              <label class="radio-label">
-                <input type="radio" name="auth_type" value="secret_ref"
-                       ${isSecretRef ? "checked" : ""} />
-                Secret Manager
-              </label>
-            </fieldset>
-            <div id="hs-auth-password-field" class="auth-conditional ${(!h || !h.credential || h.credential.type === "password") ? "" : "auth-conditional-hidden"}">
-              <label>
-                <span>Password ${h && this.editingHasCredential ? `<span class="cred-badge">${icons.lock} Password saved</span>` : ""}</span>
-                <input type="password" class="form-input" name="password"
-                       placeholder="${h && this.editingHasCredential ? "Leave blank to keep saved password" : "Enter password"}" />
-              </label>
-            </div>
-            <div id="hs-auth-key-field" class="auth-conditional ${h?.credential?.type === "ssh_key" ? "" : "auth-conditional-hidden"}">
-              <label>
-                <span>SSH Key Path</span>
-              <input type="text" class="form-input" name="ssh_key_path" placeholder="~/.ssh/id_rsa"
-                     value="${escAttr(h?.credential?.type === "ssh_key" ? h.credential.key_path : "")}" />
-              </label>
-            </div>
-            <div id="hs-auth-agent-field" class="auth-conditional ${isAgent ? "" : "auth-conditional-hidden"}">
-              <label>
-                <span>Identity</span>
-                <select class="form-input" name="agent_identity">
-                  <option value="" ${agentIdentityValue === "" ? "selected" : ""}>Offer all identities</option>
-                  ${this.agentIdentities.map((id) => `<option value="${escAttr(id.fingerprint)}" ${agentIdentityValue === id.fingerprint ? "selected" : ""}>${escHtml(this.agentIdentityLabel(id))}</option>`).join("")}
-                </select>
-              </label>
-              <div class="form-hint">The agent offers only this key at login. "Offer all" sends every loaded key in turn. Devices with login limits can block you after repeated failures.</div>
-              ${this.agentStatus ? `<div class="form-hint">${escHtml(this.agentStatus)}</div>` : ""}
-            </div>
-            <div id="hs-auth-secretref-field" class="auth-conditional auth-conditional-tall ${isSecretRef ? "" : "auth-conditional-hidden"}">
-              <label>
-                <span>Provider</span>
-                <select class="form-input" name="secret_ref_provider">
-                  ${this.secretRefProviderOptions(isSecretRef, secretRefProvider)}
-                </select>
-              </label>
-              ${this.readyProviders.length === 0 ? `<div class="form-hint">No secret managers ready — enable one in Settings → Auth Integrations.</div>` : ""}
-              <div class="hs-ref-combo" id="hs-ref-combo-wrap">
-                <label>
-                  <span>Reference</span>
-                  <input type="text" class="form-input" name="secret_ref_reference" placeholder="Search or paste item reference"
-                         spellcheck="false" autocomplete="off"
-                         value="${escAttr(secretRefReference)}" />
-                </label>
-                <div class="hs-ref-combo-list" id="hs-ref-combo-list"></div>
-              </div>
-            </div>
+            ${renderCredentialFieldset({
+              name: "auth_type",
+              credential: cred ?? null,
+              providers: this.secretRefProviderList(isSecretRef, secretRefProvider),
+              idPrefix: "hs-auth",
+              passwordBadge: !!(h && this.editingHasCredential),
+              passwordPlaceholder: h && this.editingHasCredential ? "Leave blank to keep saved password" : "Enter password",
+              agentIdentityOptions: `<option value="" ${agentIdentityValue === "" ? "selected" : ""}>Offer all identities</option>${this.agentIdentities.map((id) => `<option value="${escAttr(id.fingerprint)}" ${agentIdentityValue === id.fingerprint ? "selected" : ""}>${escHtml(this.agentIdentityLabel(id))}</option>`).join("")}`,
+              agentHints: `<div class="form-hint">The agent offers only this key at login. "Offer all" sends every loaded key in turn. Devices with login limits can block you after repeated failures.</div>${this.agentStatus ? `<div class="form-hint">${escHtml(this.agentStatus)}</div>` : ""}`,
+              referencePlaceholder: "Search or paste item reference",
+              referenceWrapClass: "hs-ref-combo",
+              noProvidersHint: "No secret managers ready — enable one in Settings → Auth Integrations.",
+              referenceExtra: `<div class="hs-ref-combo-list" id="hs-ref-combo-list"></div>`,
+            })}
             <label>
               <span>Platform <em>*</em></span>
               <select class="form-input" name="platform" required>
@@ -438,24 +385,6 @@ export class HostScreen {
       </div>`;
   }
 
-  // ─── Delete Confirm ──────────────────────────────────────────────
-
-  private renderDeleteConfirm(): string {
-    const host = this.hosts.find((h) => h.id === this.deleteConfirmId);
-    if (!host) return "";
-    return `
-      <div class="modal-backdrop" id="hs-delete-backdrop">
-        <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="hs-delete-title">
-          <h3 id="hs-delete-title">Delete Host</h3>
-          <p>Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.</p>
-          <div class="form-actions">
-            <button class="btn-text" id="hs-delete-cancel">Cancel</button>
-            <button class="btn-danger" id="hs-delete-confirm">Delete</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
   // ─── Event Binding ──────────────────────────────────────────────
 
   private bindEvents() {
@@ -508,9 +437,7 @@ export class HostScreen {
             this.duplicateHost(ctx.id);
             break;
           case "delete":
-            this.deleteConfirmId = ctx.id;
-            this.deleteConfirmType = "host";
-            this.render();
+            this.confirmDeleteHost(ctx.id);
             break;
         }
       });
@@ -542,23 +469,6 @@ export class HostScreen {
 
     // Form events
     this.bindFormEvents();
-
-    // Delete confirm
-    document.getElementById("hs-delete-cancel")?.addEventListener("click", () => {
-      this.deleteConfirmId = null;
-      this.render();
-    });
-    document.getElementById("hs-delete-confirm")?.addEventListener("click", () => {
-      if (this.deleteConfirmId) {
-        this.doDeleteHost(this.deleteConfirmId);
-      }
-    });
-    document.getElementById("hs-delete-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "hs-delete-backdrop") {
-        this.deleteConfirmId = null;
-        this.render();
-      }
-    });
   }
 
   private bindFormEvents() {
@@ -567,15 +477,7 @@ export class HostScreen {
     // Auth type toggle
     this.container.querySelectorAll('input[name="auth_type"]').forEach((radio) => {
       radio.addEventListener("change", () => {
-        const val = (radio as HTMLInputElement).value;
-        const pwField = document.getElementById("hs-auth-password-field");
-        const keyField = document.getElementById("hs-auth-key-field");
-        const agentField = document.getElementById("hs-auth-agent-field");
-        const refField = document.getElementById("hs-auth-secretref-field");
-        if (pwField) pwField.classList.toggle("auth-conditional-hidden", val !== "password");
-        if (keyField) keyField.classList.toggle("auth-conditional-hidden", val !== "ssh_key");
-        if (agentField) agentField.classList.toggle("auth-conditional-hidden", val !== "agent");
-        if (refField) refField.classList.toggle("auth-conditional-hidden", val !== "secret_ref");
+        updateCredentialVisibility(this.container!, "auth_type", "hs-auth");
       });
     });
 
@@ -631,15 +533,6 @@ export class HostScreen {
       return;
     }
 
-    if (this.deleteConfirmId) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        this.deleteConfirmId = null;
-        this.render();
-      }
-      return;
-    }
-
     if (this.contextMenu) {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -657,22 +550,14 @@ export class HostScreen {
 
     switch (e.key) {
       case "ArrowDown":
-        e.preventDefault();
-        if (this.recent.length > 0) {
-          this.selectedHostIndex = Math.min(this.selectedHostIndex + 1, this.recent.length - 1);
-          this.render();
-          this.scrollSelectedIntoView();
-          this.focusHostItem();
-        }
-        break;
       case "ArrowUp":
         e.preventDefault();
-        if (this.recent.length > 0) {
-          this.selectedHostIndex = Math.max(this.selectedHostIndex - 1, 0);
+        moveListItem(this.recent.length, this.selectedHostIndex, (i) => {
+          this.selectedHostIndex = i;
           this.render();
           this.scrollSelectedIntoView();
           this.focusHostItem();
-        }
+        }, e.key === "ArrowDown" ? 1 : -1, false);
         break;
       case "Enter":
         if (this.recent[this.selectedHostIndex]) {
@@ -684,9 +569,7 @@ export class HostScreen {
       case "Backspace":
         if (this.recent[this.selectedHostIndex]) {
           e.preventDefault();
-          this.deleteConfirmId = this.recent[this.selectedHostIndex].id;
-          this.deleteConfirmType = "host";
-          this.render();
+          this.confirmDeleteHost(this.recent[this.selectedHostIndex].id);
         }
         break;
       case "n":
@@ -810,15 +693,14 @@ export class HostScreen {
     const hostname = (fd.get("hostname") as string)?.trim();
     const port = parseInt(fd.get("port") as string, 10) || 22;
     const username = (fd.get("username") as string)?.trim();
-    const authType = (fd.get("auth_type") as string) ?? "password";
-    const password = (fd.get("password") as string) ?? "";
-    const sshKeyPath = (fd.get("ssh_key_path") as string)?.trim() || null;
-    const secretRefProvider = (fd.get("secret_ref_provider") as string)?.trim() || "";
     const secretRefInput = (fd.get("secret_ref_reference") as string)?.trim();
     // Combobox shows the item name; store the real reference id for it.
     const secretRefReference = this.comboSelection && secretRefInput === this.comboSelection.label
       ? this.comboSelection.id
       : secretRefInput;
+    const { credential, password } = collectCredential("auth_type", (k) =>
+      k === "secret_ref_reference" ? (secretRefReference ?? "") : (fd.get(k) as string | null), this.secretRefLabel);
+    const authType = credential?.type ?? "password";
     const platform = (fd.get("platform") as string) ?? "cisco-iosxe";
     const osVersion = (fd.get("os_version") as string)?.trim() || null;
     const highlightProfile = (fd.get("highlight_profile") as string)?.trim() || null;
@@ -833,8 +715,10 @@ export class HostScreen {
     if (!hostname) errors.push("Hostname is required.");
     if (!username) errors.push("Username is required.");
     if (port < 1 || port > 65535) errors.push("Port must be 1-65535.");
-    if (authType === "secret_ref" && !secretRefProvider) errors.push("Select a secret manager provider.");
-    if (authType === "secret_ref" && !secretRefReference) errors.push("Secret reference is required.");
+    if (authType === "secret_ref" && credential?.type === "secret_ref") {
+      if (!credential.provider) errors.push("Select a secret manager provider.");
+      if (!credential.reference) errors.push("Secret reference is required.");
+    }
 
     const errEl = document.getElementById("hs-form-errors");
     if (errors.length) {
@@ -854,14 +738,7 @@ export class HostScreen {
         notes,
         tags,
         group_id: groupId,
-        credential:
-          authType === "ssh_key"
-            ? { type: "ssh_key", key_path: sshKeyPath ?? "" }
-            : authType === "agent"
-              ? { type: "agent", identity: (fd.get("agent_identity") as string) || null }
-              : authType === "secret_ref"
-                ? { type: "secret_ref", provider: secretRefProvider, reference: secretRefReference ?? "", label: this.secretRefLabel }
-                : { type: "password" },
+        credential: credential ?? { type: "password" },
       };
 
       if (this.editingHost) {
@@ -919,18 +796,27 @@ export class HostScreen {
     }
   }
 
+  private confirmDeleteHost(hostId: string) {
+    const host = this.hosts.find((h) => h.id === hostId) ?? this.recent.find((h) => h.id === hostId);
+    if (!host) return;
+    confirmDialog({
+      title: "Delete Host",
+      message: `Delete <strong>${escHtml(host.display_name)}</strong>? This cannot be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+      onConfirm: () => this.doDeleteHost(hostId),
+    });
+  }
+
   private async doDeleteHost(hostId: string) {
     if (isNetboxHostId(hostId)) {
       log.warn(LogTag.Netbox, `Guard: delete blocked on NetBox host ${hostId}`);
       showToast("NetBox hosts are managed by the NetBox integration — disable it in Settings → NetBox", "info");
-      this.deleteConfirmId = null;
-      this.render();
       return;
     }
     try {
       await deleteHost(hostId);
       this.hosts = await getHosts();
-      this.deleteConfirmId = null;
       this.recent = recentHosts(this.hosts);
       this.render();
       this._onHostsChanged?.();
@@ -955,12 +841,9 @@ export class HostScreen {
   }
 
   /** Ready providers, plus the saved one when it is no longer ready (so edits still show). */
-  private secretRefProviderOptions(isSecretRef: boolean, savedProvider: string): string {
+  private secretRefProviderList(isSecretRef: boolean, savedProvider: string): { id: string; label: string }[] {
     const ids = [...new Set([...this.readyProviders.map((p) => p.id), ...(isSecretRef && savedProvider ? [savedProvider] : [])])];
-    if (ids.length === 0) return `<option value="" disabled selected>No secret managers ready</option>`;
-    return ids
-      .map((id) => `<option value="${escAttr(id)}" ${savedProvider === id ? "selected" : ""}>${escHtml(this.providerName(id))}</option>`)
-      .join("");
+    return ids.map((id) => ({ id, label: this.providerName(id) }));
   }
 
   private async loadReadyProviders() {
@@ -1003,7 +886,7 @@ export class HostScreen {
   }
 
   private comboOutsideClose = (e: MouseEvent) => {
-    const wrap = document.getElementById("hs-ref-combo-wrap");
+    const wrap = document.getElementById("hs-auth-ref-combo-wrap");
     if (wrap && !wrap.contains(e.target as Node)) this.closeCombo();
   };
 
@@ -1019,14 +902,14 @@ export class HostScreen {
     }
     switch (e.key) {
       case "ArrowDown":
-        e.preventDefault();
-        e.stopPropagation();
-        this.moveCombo(1);
-        break;
       case "ArrowUp":
         e.preventDefault();
         e.stopPropagation();
-        this.moveCombo(-1);
+        moveListItem(this.comboFiltered.length, this.comboIndex, (i) => {
+          this.comboIndex = i;
+          this.comboNavigated = true;
+          this.updateComboList();
+        }, e.key === "ArrowDown" ? 1 : -1);
         break;
       case "Enter":
         if (this.comboNavigated && this.comboFiltered.length > 0) {
@@ -1097,13 +980,6 @@ export class HostScreen {
       });
     });
     list.querySelector(".hs-browse-item-active")?.scrollIntoView({ block: "nearest" });
-  }
-
-  private moveCombo(delta: number) {
-    if (this.comboFiltered.length === 0) return;
-    this.comboIndex = (this.comboIndex + delta + this.comboFiltered.length) % this.comboFiltered.length;
-    this.comboNavigated = true;
-    this.updateComboList();
   }
 
   /** Fill the reference input from a picked item and cache its label. */

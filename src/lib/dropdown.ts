@@ -12,6 +12,7 @@ import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine"
 import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { escHtml } from "./format";
 import { renderToken, isChoice as isChoiceTok } from "./tokens";
+import { moveListItem } from "./listbox-nav";
 
 export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
 
@@ -86,18 +87,21 @@ export class Dropdown {
 
   /** Move selection up */
   moveUp() {
-    const count = this.choiceMode ? this.choiceMode.options.length : this.items.length;
-    if (count === 0) return;
-    this.selectedIndex = (this.selectedIndex - 1 + count) % count;
-    this.render();
+    this.move(-1);
   }
 
   /** Move selection down */
   moveDown() {
+    this.move(1);
+  }
+
+  private move(delta: number) {
     const count = this.choiceMode ? this.choiceMode.options.length : this.items.length;
-    if (count === 0) return;
-    this.selectedIndex = (this.selectedIndex + 1) % count;
-    this.render();
+    moveListItem(count, this.selectedIndex, (i) => {
+      this.selectedIndex = i;
+      if (this.choiceMode) this.renderChoice();
+      else this.render();
+    }, delta);
   }
 
   /**

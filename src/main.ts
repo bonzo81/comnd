@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { importJob } from "./lib/import-status";
 import { icons } from "./lib/icons";
 import { escHtml } from "./lib/format";
+import { confirmDialog } from "./lib/confirm-dialog";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme } from "./lib/theme";
 import "@fontsource/inter/400.css";
@@ -701,41 +702,12 @@ class App {
   // ─── Close Confirm Modal ─────────────────────────────────────────
 
   private showCloseConfirm(hostName: string, onConfirm: () => void) {
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const backdrop = document.createElement("div");
-    backdrop.className = "modal-backdrop";
-    backdrop.innerHTML = `
-      <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
-        <h3 id="close-confirm-title">Close Session</h3>
-        <p>Close session to <strong>${esc(hostName)}</strong>?<br/>Your SSH session will be terminated.</p>
-        <div class="form-actions">
-          <button class="btn-text close-confirm-cancel">Cancel</button>
-          <button class="btn-danger close-confirm-ok">Close Session</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-
-    const cleanup = () => {
-      backdrop.remove();
-      window.removeEventListener("keydown", onKey, true);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation(); // keep Escape away from xterm cascade
-        cleanup();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) cleanup();
-    });
-    backdrop.querySelector(".close-confirm-cancel")!.addEventListener("click", cleanup);
-    backdrop.querySelector(".close-confirm-ok")!.addEventListener("click", () => {
-      cleanup();
-      onConfirm();
+    confirmDialog({
+      title: "Close Session",
+      message: `Close session to <strong>${escHtml(hostName)}</strong>?<br/>Your SSH session will be terminated.`,
+      confirmLabel: "Close Session",
+      destructive: true,
+      onConfirm,
     });
   }
 
@@ -760,16 +732,14 @@ class App {
       { key: "Ctrl+Shift+S", action: "Toggle sidebar" },
       { key: "Ctrl+Shift+Q", action: "Disconnect" },
     ];
-    const esc = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const items = shortcuts
       .map((s) => {
         if ("section" in s) {
-          return `<div class="shortcuts-section">${esc((s as { section: string }).section)}</div>`;
+          return `<div class="shortcuts-section">${escHtml((s as { section: string }).section)}</div>`;
         }
         return `
-          <span class="shortcut-key">${esc(s.key)}</span>
-          <span class="shortcut-action">${esc(s.action)}</span>`;
+          <span class="shortcut-key">${escHtml(s.key)}</span>
+          <span class="shortcut-action">${escHtml(s.action)}</span>`;
       })
       .join("");
 

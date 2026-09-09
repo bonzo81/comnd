@@ -8,6 +8,7 @@
 
 import { Host, Command, getHosts, listKbPlatforms, getAllKbCommands } from "../lib/tauri-api";
 import { escHtml } from "../lib/format";
+import { moveListItem } from "../lib/listbox-nav";
 import { icons } from "../lib/icons";
 import { getSearchIncludeTags } from "../lib/search-prefs";
 
@@ -302,20 +303,13 @@ export class GlobalSearch {
   private onKeydown(e: KeyboardEvent) {
     switch (e.key) {
       case "ArrowDown":
-        e.preventDefault();
-        if (!this.open) this.openResults();
-        if (this.rows.length > 0) {
-          this.selectedIdx = (this.selectedIdx + 1) % this.rows.length;
-          this.markSelected();
-        }
-        break;
       case "ArrowUp":
         e.preventDefault();
         if (!this.open) this.openResults();
-        if (this.rows.length > 0) {
-          this.selectedIdx = (this.selectedIdx - 1 + this.rows.length) % this.rows.length;
+        moveListItem(this.rows.length, this.selectedIdx, (i) => {
+          this.selectedIdx = i;
           this.markSelected();
-        }
+        }, e.key === "ArrowDown" ? 1 : -1);
         break;
       case "Tab":
         if (this.open && this.rows.length > 0) {

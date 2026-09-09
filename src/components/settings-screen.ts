@@ -20,7 +20,8 @@ import {
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { showToast, showToastWithAction } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";
-import { escHtml } from "../lib/format";
+import { escAttr, escHtml } from "../lib/format";
+import { collectCredential, renderCredentialFieldset, updateCredentialVisibility } from "../lib/credential-fieldset";
 import { relativeTime } from "../lib/format";
 import { icons } from "../lib/icons";
 import { platformBadge, platformColorClass } from "../lib/platforms";
@@ -177,13 +178,13 @@ export class SettingsScreen {
           <label for="llm-provider-preset">Quick Setup</label>
           <select class="form-input" id="llm-provider-preset">
             <option value="">— Choose a provider… —</option>
-            ${LLM_PROVIDER_PRESETS.map((p) => `<option value="${this.escAttr(p.url)}">${escHtml(p.name)}</option>`).join("")}
+            ${LLM_PROVIDER_PRESETS.map((p) => `<option value="${escAttr(p.url)}">${escHtml(p.name)}</option>`).join("")}
           </select>
           <span class="import-hint">Fills the Base URL below — edit it freely afterwards. Pick a local provider for Ollama/LM Studio.</span>
         </div>
         <div class="import-field">
           <label for="llm-url">Base URL</label>
-          <input type="url" class="form-input" id="llm-url" value="${this.escAttr(baseUrl)}" required />
+          <input type="url" class="form-input" id="llm-url" value="${escAttr(baseUrl)}" required />
           <span class="import-hint">e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com</span>
         </div>
         <div class="import-field">
@@ -192,7 +193,7 @@ export class SettingsScreen {
         </div>
         <div class="import-field">
           <label for="llm-key">API Key (cloud only)</label>
-          <input type="password" class="form-input" id="llm-key" value="${this.escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />
+          <input type="password" class="form-input" id="llm-key" value="${escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />
         </div>
         <div class="import-field">
           <label for="llm-ctx">Context Length</label>
@@ -214,7 +215,7 @@ export class SettingsScreen {
     if (this.availableModels.length === 0) {
       return `
         <select class="form-input form-input-mono" id="llm-model-select">
-          <option value="${this.escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "— Run Test Connection to load models —"}</option>
+          <option value="${escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "— Run Test Connection to load models —"}</option>
         </select>
       `;
     }
@@ -224,7 +225,7 @@ export class SettingsScreen {
       : [currentModel, ...this.availableModels].filter(Boolean);
     return `
       <select class="form-input form-input-mono" id="llm-model-select">
-        ${options.map((m) => `<option value="${this.escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
+        ${options.map((m) => `<option value="${escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
       </select>
     `;
   }
@@ -339,7 +340,7 @@ export class SettingsScreen {
           <label for="log-file-path">Log file location</label>
           <div class="log-file-row">
             <input type="text" class="form-input" id="log-file-path"
-              value="${this.escAttr(this.config?.log_file_path ?? "")}"
+              value="${escAttr(this.config?.log_file_path ?? "")}"
               placeholder="Default: app data dir"
               spellcheck="false" autocomplete="off" />
             <button type="button" id="log-file-browse" class="btn-secondary">Browse...</button>
@@ -366,8 +367,8 @@ export class SettingsScreen {
           <label for="session-log-dir">Session log directory</label>
           <div class="log-file-row">
             <input type="text" class="form-input" id="session-log-dir"
-              value="${this.escAttr(sessionDir)}"
-              placeholder="Default: ${this.escAttr(this.sessionLogDefaultDir)}"
+              value="${escAttr(sessionDir)}"
+              placeholder="Default: ${escAttr(this.sessionLogDefaultDir)}"
               spellcheck="false" autocomplete="off" />
             <button type="button" id="session-log-dir-browse" class="btn-secondary">Browse...</button>
             <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>
@@ -448,18 +449,18 @@ export class SettingsScreen {
       return `
         <div class="import-field">
           <label for="${id}">${label}</label>
-          <input type="text" class="form-input" id="${id}" value="${this.escAttr(selected.join(", "))}" placeholder="Connect NetBox to enable selection" disabled />
-          <input type="hidden" data-ms-hidden="${id}" value="${this.escAttr(selected.join(","))}" />
+          <input type="text" class="form-input" id="${id}" value="${escAttr(selected.join(", "))}" placeholder="Connect NetBox to enable selection" disabled />
+          <input type="hidden" data-ms-hidden="${id}" value="${escAttr(selected.join(","))}" />
         </div>`;
     }
     const chips = selected.map((slug) => {
       const opt = options.find((o) => o.slug === slug);
       const display = opt ? opt.name : slug;
-      return `<span class="ms-chip" data-ms-slug="${this.escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
     }).join("");
     const listItems = options.map((o) => {
       const sel = selected.includes(o.slug) ? " ms-item-selected" : "";
-      return `<li class="ms-item${sel}" data-ms-slug="${this.escAttr(o.slug)}">${escHtml(o.name)}</li>`;
+      return `<li class="ms-item${sel}" data-ms-slug="${escAttr(o.slug)}">${escHtml(o.name)}</li>`;
     }).join("");
     return `
       <div class="import-field">
@@ -469,7 +470,7 @@ export class SettingsScreen {
           <input type="text" class="form-input ms-search" id="${id}-search" placeholder="Search..." autocomplete="off" />
           <ul class="ms-dropdown" data-ms-list="${id}">${listItems}</ul>
         </div>
-        <input type="hidden" id="${id}" value="${this.escAttr(selected.join(","))}" />
+        <input type="hidden" id="${id}" value="${escAttr(selected.join(","))}" />
       </div>`;
   }
 
@@ -483,7 +484,7 @@ export class SettingsScreen {
     chipsEl.innerHTML = selected.map((slug) => {
       const opt = options.find((o) => o.dataset.msSlug === slug);
       const display = opt ? opt.textContent ?? slug : slug;
-      return `<span class="ms-chip" data-ms-slug="${this.escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
     }).join("");
   }
 
@@ -509,8 +510,6 @@ export class SettingsScreen {
     const readyProviders = [...this.providerStatuses.values()].filter(
       (p) => p.status.kind === "ready",
     );
-    const providerOpt = (p: ProviderInfo) =>
-      `<option value="${p.id}" ${cred?.type === "secret_ref" && cred.provider === p.id ? "selected" : ""}>${escHtml(p.id)}</option>`;
     const testLine = this.netboxTestLine;
 
     return `
@@ -529,7 +528,7 @@ export class SettingsScreen {
             <label for="netbox-url">NetBox URL</label>
             <input type="url" class="form-input" id="netbox-url"
                    placeholder="https://netbox.example.com" spellcheck="false" autocomplete="off"
-                   value="${this.escAttr(cfg?.base_url ?? "")}" />
+                   value="${escAttr(cfg?.base_url ?? "")}" />
           </div>
           <div class="import-field">
             <label for="netbox-token">API Token</label>
@@ -555,7 +554,7 @@ export class SettingsScreen {
           <div class="import-field">
             <label for="netbox-filter-status">Device status</label>
             <input type="text" class="form-input" id="netbox-filter-status" placeholder="active"
-                   value="${this.escAttr(filters.status ?? "active")}" />
+                   value="${escAttr(filters.status ?? "active")}" />
             <span class="import-hint">NetBox status slug. Leave blank to sync devices in any status.</span>
           </div>
           ${this.renderFilterMultiSelect("netbox-filter-sites", "Sites", "Search sites…", this.netboxSites, filters.sites)}
@@ -592,76 +591,25 @@ export class SettingsScreen {
           <div class="import-field">
             <label for="netbox-default-username">Username</label>
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
-                   autocomplete="off" value="${this.escAttr(cfg?.default_username ?? "")}" />
+                   autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />
           </div>
           <div class="import-field">
             <label for="netbox-default-port">Port</label>
             <input type="number" class="form-input" id="netbox-default-port" min="1" max="65535"
                    value="${cfg?.default_port ?? 22}" />
           </div>
-          <fieldset class="form-auth-group">
-            <legend>Authentication</legend>
-            <label class="radio-label">
-              <input type="radio" name="netbox_auth_type" value="none" ${authType === "none" ? "checked" : ""} />
-              None
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="netbox_auth_type" value="password" ${authType === "password" ? "checked" : ""} />
-              Password
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="netbox_auth_type" value="ssh_key" ${authType === "ssh_key" ? "checked" : ""} />
-              SSH Key
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="netbox_auth_type" value="agent" ${authType === "agent" ? "checked" : ""} />
-              SSH Agent
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="netbox_auth_type" value="secret_ref" ${authType === "secret_ref" ? "checked" : ""} />
-              Secret Manager
-            </label>
-          </fieldset>
-          <div id="netbox-auth-password-field" class="auth-conditional ${authType === "password" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Password ${this.netboxHasDefaultPw() ? `<span class="cred-badge">${icons.lock} Saved</span>` : ""}</span>
-              <input type="password" class="form-input" id="netbox-default-password"
-                     placeholder="${this.netboxHasDefaultPw() ? "Leave blank to keep saved password" : "Enter default password"}"
-                     autocomplete="off" />
-            </label>
-          </div>
-          <div id="netbox-auth-key-field" class="auth-conditional ${authType === "ssh_key" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>SSH Key Path</span>
-              <input type="text" class="form-input" id="netbox-default-key" placeholder="~/.ssh/id_rsa"
-                     value="${this.escAttr(cred?.type === "ssh_key" ? cred.key_path : "")}" />
-            </label>
-          </div>
-          <div id="netbox-auth-agent-field" class="auth-conditional ${authType === "agent" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Identity fingerprint</span>
-              <input type="text" class="form-input" id="netbox-default-agent" placeholder="Blank = offer all identities"
-                     spellcheck="false" autocomplete="off"
-                     value="${this.escAttr(cred?.type === "agent" ? (cred.identity ?? "") : "")}" />
-            </label>
-          </div>
-          <div id="netbox-auth-secretref-field" class="auth-conditional auth-conditional-tall ${authType === "secret_ref" ? "" : "auth-conditional-hidden"}">
-            <label>
-              <span>Provider</span>
-              <select class="form-input" id="netbox-default-ref-provider">
-                ${readyProviders.length > 0
-                  ? readyProviders.map(providerOpt).join("")
-                  : `<option value="">No secret managers ready</option>`}
-              </select>
-            </label>
-            <label>
-              <span>Reference</span>
-              <input type="text" class="form-input" id="netbox-default-ref-reference" placeholder="Item reference"
-                     spellcheck="false" autocomplete="off"
-                     value="${this.escAttr(cred?.type === "secret_ref" ? cred.reference : "")}" />
-            </label>
-            ${readyProviders.length === 0 ? `<div class="import-hint">Enable a secret manager in Settings → Auth Integrations first.</div>` : ""}
-          </div>
+          ${renderCredentialFieldset({
+            name: "netbox_auth_type",
+            credential: cred ?? null,
+            providers: readyProviders.map((p) => ({ id: p.id, label: p.id })),
+            idPrefix: "netbox-auth",
+            defaultType: "none",
+            extraRadios: [{ value: "none", checked: authType === "none", label: "None" }],
+            passwordBadge: this.netboxHasDefaultPw(),
+            passwordBadgeLabel: "Saved",
+            passwordPlaceholder: this.netboxHasDefaultPw() ? "Leave blank to keep saved password" : "Enter default password",
+            noProvidersHint: "Enable a secret manager in Settings → Auth Integrations first.",
+          })}
 
           <div class="settings-actions">
             <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.folder} Refresh Now</button>
@@ -670,7 +618,7 @@ export class SettingsScreen {
           <h3 class="settings-section-title">Devices</h3>
           <div class="import-field">
             <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
-                   value="${this.escAttr(this.netboxDeviceSearch)}" />
+                   value="${escAttr(this.netboxDeviceSearch)}" />
             <span class="import-hint" id="netbox-status-line">${this.netboxStatusLine()}</span>
           </div>
           <div class="netbox-device-list" id="netbox-device-list">${this.renderNetBoxDeviceList()}</div>
@@ -961,9 +909,10 @@ export class SettingsScreen {
       "#netbox-invalid-certs",
       "#netbox-filter-status", "#netbox-filter-sites", "#netbox-filter-roles", "#netbox-filter-tags",
       "#netbox-platform-policy", "#netbox-platform-fallback", "#netbox-platform-overrides",
-      "#netbox-default-username", "#netbox-default-port", "#netbox-default-key",
-      "#netbox-default-agent", "#netbox-default-ref-provider", "#netbox-default-ref-reference",
-      "#netbox-default-password",
+      "#netbox-default-username", "#netbox-default-port",
+      'input[name="ssh_key_path"]', 'input[name="agent_identity"]',
+      'select[name="secret_ref_provider"]', 'input[name="secret_ref_reference"]',
+      'input[name="password"]',
     ];
     autosaveFields.forEach((sel) => {
       const el = this.container?.querySelector<HTMLElement>(sel);
@@ -1131,16 +1080,8 @@ export class SettingsScreen {
   }
 
   private updateNetboxAuthVisibility() {
-    const selected = this.container?.querySelector<HTMLInputElement>('input[name="netbox_auth_type"]:checked');
-    const type = selected?.value ?? "none";
-    const show = (id: string, on: boolean) => {
-      const el = this.container?.querySelector<HTMLElement>(id);
-      el?.classList.toggle("auth-conditional-hidden", !on);
-    };
-    show("#netbox-auth-password-field", type === "password");
-    show("#netbox-auth-key-field", type === "ssh_key");
-    show("#netbox-auth-agent-field", type === "agent");
-    show("#netbox-auth-secretref-field", type === "secret_ref");
+    if (!this.container) return;
+    updateCredentialVisibility(this.container, "netbox_auth_type", "netbox-auth");
   }
 
   /** Read the NetBox form into a config for auto-save. The URL always comes
@@ -1148,17 +1089,17 @@ export class SettingsScreen {
   private collectNetboxConfig(): { config: NetBoxConfig; password: string | null } {
     const q = (id: string) => this.container?.querySelector<HTMLInputElement>(id);
     const val = (id: string) => (q(id)?.value ?? "").trim();
+    const nameVal = (name: string) =>
+      (this.container?.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`)?.value ?? "").trim();
     const listVal = (id: string) =>
       val(id)
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s);
-    const authType =
-      this.container?.querySelector<HTMLInputElement>('input[name="netbox_auth_type"]:checked')?.value ?? "none";
-    const keyPath = val("netbox-default-key");
-    const agentIdentity = val("netbox-default-agent");
-    const refProvider = this.container?.querySelector<HTMLSelectElement>("#netbox-default-ref-provider")?.value ?? "";
-    const refReference = val("netbox-default-ref-reference");
+    const { credential } = collectCredential("netbox_auth_type", (k) =>
+      k === "netbox_auth_type"
+        ? this.container?.querySelector<HTMLInputElement>('input[name="netbox_auth_type"]:checked')?.value ?? "none"
+        : nameVal(k));
 
     const overrides: Record<string, string> = {};
     for (const line of (this.container?.querySelector<HTMLTextAreaElement>("#netbox-platform-overrides")?.value ?? "").split("\n")) {
@@ -1168,17 +1109,6 @@ export class SettingsScreen {
       const platform = line.slice(idx + 1).trim();
       if (slug && platform) overrides[slug] = platform;
     }
-
-    const credential =
-      authType === "password"
-        ? { type: "password" as const }
-        : authType === "ssh_key"
-          ? { type: "ssh_key" as const, key_path: keyPath }
-          : authType === "agent"
-            ? { type: "agent" as const, identity: agentIdentity || null }
-            : authType === "secret_ref"
-              ? { type: "secret_ref" as const, provider: refProvider, reference: refReference, label: null }
-              : null;
 
     const status = val("netbox-filter-status");
     const config: NetBoxConfig = {
@@ -1202,7 +1132,7 @@ export class SettingsScreen {
       default_credential: credential,
       allow_invalid_certs: !!q("netbox-invalid-certs")?.checked,
     };
-    const password = val("netbox-default-password") || null;
+    const password = (this.container?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? "") || null;
     return { config, password };
   }
 
@@ -1246,7 +1176,7 @@ export class SettingsScreen {
         allow_invalid_certs: false,
       };
       const config: NetBoxConfig = { ...saved, base_url: fieldUrl.trim() };
-      const password = (this.container?.querySelector<HTMLInputElement>("#netbox-default-password")?.value ?? "").trim() || null;
+      const password = (this.container?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? "").trim() || null;
       this.netboxConfig = await netboxSaveConfig(config, password);
       if (config.default_credential?.type !== "password") this.netboxDefaultPwSaved = false;
       // Token: only write when a new one was entered (blank = keep stored).
@@ -1592,10 +1522,6 @@ export class SettingsScreen {
     } catch (e) {
       showToast(`Merge failed: ${e}`, "error", 8000);
     }
-  }
-
-  private escAttr(text: string): string {
-    return (text ?? "").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   private async saveSettings() {

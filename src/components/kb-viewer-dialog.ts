@@ -6,7 +6,9 @@
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, disableKbCommand, enableKbCommand, getDisabledCommands, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
 import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
-import { escHtml, formatMode } from "../lib/format";
+import { escAttr, escHtml, formatMode } from "../lib/format";
+import { confirmDialog } from "../lib/confirm-dialog";
+import { moveListItem } from "../lib/listbox-nav";
 import { icons } from "../lib/icons";
 import { getSearchIncludeTags } from "../lib/search-prefs";
 
@@ -39,7 +41,6 @@ export class KbViewerDialog {
   private editOrder = "";
   private editNegatable = false;
   private saving = false;
-  private deleteConfirmName: string | null = null;
   private disabledCommands: string[] = [];
   private embedMode: boolean;
 
@@ -155,7 +156,7 @@ export class KbViewerDialog {
     if (this.embedMode) {
       this.container.innerHTML = `
         <div class="kb-viewer-toolbar">
-          <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
+          <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${escAttr(this.searchQuery)}" />
           <span class="kb-count">${this.filteredCommands.length} commands</span>
         </div>
         <div class="kb-viewer-body">
@@ -167,7 +168,6 @@ export class KbViewerDialog {
             ${this.renderDetailPanel()}
           </div>
         </div>
-        ${this.deleteConfirmName ? this.renderDeleteOverlay() : ""}
       `;
     } else {
       this.container.innerHTML = `
@@ -178,7 +178,7 @@ export class KbViewerDialog {
               <button class="import-close-btn" id="kb-viewer-close" aria-label="Close knowledge base">&times;</button>
             </div>
             <div class="kb-viewer-toolbar">
-              <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${this.escAttr(this.searchQuery)}" />
+              <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${escAttr(this.searchQuery)}" />
               <span class="kb-count">${this.filteredCommands.length} commands</span>
             </div>
             <div class="kb-viewer-body">
@@ -192,7 +192,6 @@ export class KbViewerDialog {
             </div>
           </div>
         </div>
-        ${this.deleteConfirmName ? this.renderDeleteOverlay() : ""}
       `;
     }
 
@@ -217,7 +216,6 @@ export class KbViewerDialog {
     if (!this.platforms.includes(platform) || platform === this.selectedPlatform) return;
     this.selectedPlatform = platform;
     this.editing = false;
-    this.deleteConfirmName = null;
     this.loadPlatform();
   }
 
@@ -254,11 +252,11 @@ export class KbViewerDialog {
         <h3 style="margin-bottom:12px">Edit Command</h3>
         <label class="kb-edit-field">
           <span>Name</span>
-          <input type="text" class="form-input" id="kb-edit-name" value="${this.escAttr(this.editName)}" />
+          <input type="text" class="form-input" id="kb-edit-name" value="${escAttr(this.editName)}" />
         </label>
         <label class="kb-edit-field">
           <span>Syntax</span>
-          <input type="text" class="form-input" id="kb-edit-syntax" value="${this.escAttr(this.editSyntax)}" />
+          <input type="text" class="form-input" id="kb-edit-syntax" value="${escAttr(this.editSyntax)}" />
         </label>
         <label class="kb-edit-field">
           <span>Description</span>
@@ -266,15 +264,15 @@ export class KbViewerDialog {
         </label>
         <label class="kb-edit-field">
           <span>Mode</span>
-          <input type="text" class="form-input" id="kb-edit-mode" value="${this.escAttr(this.editMode)}" />
+          <input type="text" class="form-input" id="kb-edit-mode" value="${escAttr(this.editMode)}" />
         </label>
         <label class="kb-edit-field">
           <span>Aliases (comma-separated)</span>
-          <input type="text" class="form-input" id="kb-edit-aliases" value="${this.escAttr(this.editAliases)}" />
+          <input type="text" class="form-input" id="kb-edit-aliases" value="${escAttr(this.editAliases)}" />
         </label>
         <label class="kb-edit-field">
           <span>Tags (comma-separated)</span>
-          <input type="text" class="form-input" id="kb-edit-tags" value="${this.escAttr(this.editTags)}" />
+          <input type="text" class="form-input" id="kb-edit-tags" value="${escAttr(this.editTags)}" />
         </label>
         <label class="kb-edit-field">
           <span>Tokens (JSON array — empty for legacy)</span>
@@ -301,23 +299,6 @@ export class KbViewerDialog {
         <div class="kb-edit-errors" id="kb-edit-errors" role="alert"></div>
       </div>
     `;
-  }
-
-  private renderDeleteOverlay(): string {
-    const isOverride = !!this.selectedCommand?.overrides;
-    return `
-      <div class="modal-backdrop" id="kb-delete-backdrop">
-        <div class="modal-panel delete-confirm" role="dialog" aria-modal="true" aria-labelledby="kb-delete-title" style="width:400px">
-          <h3 id="kb-delete-title">${isOverride ? "Restore Built-in Version" : "Delete Command"}</h3>
-          <p>${isOverride
-            ? `Delete your custom version of <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>? The built-in KB entry will be shown again.`
-            : `Delete <strong>${escHtml(this.deleteConfirmName ?? "")}</strong>?<br/>This cannot be undone.`}</p>
-          <div class="form-actions">
-            <button class="btn-text" id="kb-delete-cancel-btn">Cancel</button>
-            <button class="btn-danger" id="kb-delete-confirm-btn">${isOverride ? "Restore Built-in" : "Delete"}</button>
-          </div>
-        </div>
-      </div>`;
   }
 
   private renderCategory(category: KbCategory): string {
@@ -360,9 +341,9 @@ export class KbViewerDialog {
         <div class="kb-category-header">Ignored (${this.disabledCommands.length})</div>
         ${this.disabledCommands
           .map((name) => `
-            <div class="kb-command-item kb-command-ignored" data-ignore-name="${this.escAttr(name)}" role="option" tabindex="0">
+            <div class="kb-command-item kb-command-ignored" data-ignore-name="${escAttr(name)}" role="option" tabindex="0">
               <span class="kb-command-name">${escHtml(name)}</span>
-              <button class="btn-text btn-small kb-btn-enable" data-enable-name="${this.escAttr(name)}">Enable</button>
+              <button class="btn-text btn-small kb-btn-enable" data-enable-name="${escAttr(name)}">Enable</button>
             </div>
           `)
           .join("")}
@@ -440,19 +421,6 @@ export class KbViewerDialog {
       this.render();
     });
 
-    // Delete confirm
-    document.getElementById("kb-delete-confirm-btn")?.addEventListener("click", () => this.confirmDelete());
-    document.getElementById("kb-delete-cancel-btn")?.addEventListener("click", () => {
-      this.deleteConfirmName = null;
-      this.render();
-    });
-    document.getElementById("kb-delete-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "kb-delete-backdrop") {
-        this.deleteConfirmName = null;
-        this.render();
-      }
-    });
-
     // Keyboard navigation
     this._keyHandler = (e: KeyboardEvent) => this.handleKey(e);
     document.addEventListener("keydown", this._keyHandler);
@@ -467,14 +435,6 @@ export class KbViewerDialog {
     if (!this.container || this.container.offsetParent === null) return;
     const ae = document.activeElement;
     if (ae instanceof HTMLElement && ae !== document.body && !this.container.contains(ae)) return;
-    if (this.deleteConfirmName) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        this.deleteConfirmName = null;
-        this.render();
-      }
-      return;
-    }
     if (this.editing) {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -489,27 +449,14 @@ export class KbViewerDialog {
         this.close();
         break;
       case "ArrowDown":
-        e.preventDefault();
-        if (this.filteredCommands.length > 0) {
-          this.selectedIndex = Math.min(this.selectedIndex + 1, this.filteredCommands.length - 1);
-          this.selectedCommand = this.filteredCommands[this.selectedIndex];
-          this.render();
-          this.scrollSelectedIntoView();
-        }
-        break;
       case "ArrowUp":
         e.preventDefault();
-        if (this.filteredCommands.length > 0) {
-          this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-          this.selectedCommand = this.filteredCommands[this.selectedIndex];
+        moveListItem(this.filteredCommands.length, this.selectedIndex, (i) => {
+          this.selectedIndex = i;
+          this.selectedCommand = this.filteredCommands[i];
           this.render();
           this.scrollSelectedIntoView();
-        }
-        break;
-      case "Enter":
-        if (this.selectedCommand) {
-          // Could copy to clipboard or run command
-        }
+        }, e.key === "ArrowDown" ? 1 : -1, false);
         break;
     }
   }
@@ -540,8 +487,19 @@ export class KbViewerDialog {
   }
 
   private promptDelete() {
-    this.deleteConfirmName = this.selectedCommand?.name ?? null;
-    this.render();
+    const cmd = this.selectedCommand;
+    if (!cmd) return;
+    const isOverride = !!cmd.overrides;
+    const name = cmd.name;
+    confirmDialog({
+      title: isOverride ? "Restore Built-in Version" : "Delete Command",
+      message: isOverride
+        ? `Delete your custom version of <strong>${escHtml(name)}</strong>? The built-in KB entry will be shown again.`
+        : `Delete <strong>${escHtml(name)}</strong>?<br/>This cannot be undone.`,
+      confirmLabel: isOverride ? "Restore Built-in" : "Delete",
+      destructive: true,
+      onConfirm: () => void this.confirmDelete(name),
+    });
   }
 
   private async ignoreCommand() {
@@ -647,20 +605,16 @@ export class KbViewerDialog {
     else el.textContent = "";
   }
 
-  private async confirmDelete() {
-    const cmdName = this.deleteConfirmName;
-    if (!cmdName) return;
+  private async confirmDelete(cmdName: string) {
     const category = this.selectedCommand?.category || "general";
     const overrides = !!this.selectedCommand?.overrides;
 
     try {
       await deleteKbCommand(this.selectedPlatform, category, cmdName, overrides);
-      this.deleteConfirmName = null;
       this.selectedCommand = null;
       // Reload the platform
       await this.loadPlatform();
     } catch (e) {
-      this.deleteConfirmName = null;
       this.render();
       // Render error inline
       const detailEl = this.container?.querySelector("#kb-command-detail");
@@ -680,7 +634,4 @@ export class KbViewerDialog {
     }
   }
 
-  private escAttr(s: string): string {
-    return escHtml(s).replace(/'/g, "&#39;");
-  }
 }

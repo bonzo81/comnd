@@ -9,7 +9,7 @@
  */
 
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { escHtml } from "../lib/format";
+import { escAttr, escHtml } from "../lib/format";
 import {
   extractKbPreview,
   extractKbPreviewFromText,
@@ -407,7 +407,7 @@ export class KbImportDialog {
             `<option value="${c.value}"${p.command.category === c.value ? " selected" : ""}>${escHtml(c.label)}</option>`
           ).join("")}
           ${CATEGORY_OPTIONS.some((c) => c.value === p.command.category) ? "" :
-            `<option value="${this.escAttr(p.command.category)}" selected>${escHtml(p.command.category)}</option>`}
+            `<option value="${escAttr(p.command.category)}" selected>${escHtml(p.command.category)}</option>`}
         </select>`;
       const provenance = p.in_bundled
         ? `<span class="preview-provenance">Overrides built-in entry</span>`
@@ -837,9 +837,4 @@ export class KbImportDialog {
     this.render();
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────────────
-
-  private escAttr(text: string): string {
-    return text.replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
 }
