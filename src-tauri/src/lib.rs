@@ -26,7 +26,7 @@ use hosts::{Host, HostStore, HostGroup, HostGroupStore};
 use credentials::ResolvedCredentials;
 use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter, get_llm_api_key};
-use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview};
+use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview, ImportProgress};
 use paths::{MergeScan, ConflictResolution};
 
 // ─── Log MultiWriter ────────────────────────────────────────────────
@@ -1131,6 +1131,13 @@ async fn netbox_get_status(
 
 // ─── KB Import Commands ──────────────────────────────────────────────
 
+fn tauri_progress(app_handle: &tauri::AppHandle) -> impl Fn(&ImportProgress) + '_ {
+    move |p: &ImportProgress| {
+        log::info!("import progress: {:?}", p);
+        let _ = app_handle.emit("import-progress", p);
+    }
+}
+
 #[tauri::command]
 async fn import_kb_url(
     url: String,
@@ -1156,11 +1163,13 @@ async fn import_kb_url(
         kb.get_platform_index(&request.platform)?
     };
 
+    let progress = tauri_progress(&app_handle);
+
     let result = import::import_from_url(
         request,
         &config_ref,
         &user_kb_path,
-        &app_handle,
+        &progress,
         &platform_index,
     ).await?;
 
@@ -1186,7 +1195,6 @@ async fn extract_kb_preview(
     platform: String,
     category: String,
     platform_name: Option<String>,
-    allowed_categories: Option<Vec<String>>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExtractPreview, String> {
@@ -1197,9 +1205,9 @@ async fn extract_kb_preview(
         (config.get().clone(), config.user_kb_path())
     };
 
-    let platform_index = {
+    let (platform_index, kb_categories) = {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        match kb.get_platform_index(&request.platform) {
+        let idx = match kb.get_platform_index(&request.platform) {
             Ok(idx) => idx,
             Err(e) => match platform_name {
                 Some(name) => {
@@ -1208,15 +1216,27 @@ async fn extract_kb_preview(
                 }
                 None => return Err(e),
             },
-        }
+        };
+        let cats = kb.categories_for_platform(&request.platform);
+        (idx, cats)
     };
+
+    // New platform (no KB loaded) → fall back to the requested category so
+    // validation doesn't reject every LLM-picked category.
+    let allowed_categories = if kb_categories.is_empty() {
+        vec![request.category.clone()]
+    } else {
+        kb_categories
+    };
+
+    let progress = tauri_progress(&app_handle);
 
     let preview = import::extract_from_url(
         request,
         &config_ref,
-        &app_handle,
+        &progress,
         &platform_index,
-        &allowed_categories.unwrap_or_default(),
+        &allowed_categories,
     ).await?;
 
     Ok(preview)
@@ -1232,7 +1252,6 @@ async fn extract_kb_preview_from_text(
     platform: String,
     category: String,
     platform_name: Option<String>,
-    allowed_categories: Option<Vec<String>>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExtractPreview, String> {
@@ -1247,9 +1266,9 @@ async fn extract_kb_preview_from_text(
         (config.get().clone(), config.user_kb_path())
     };
 
-    let platform_index = {
+    let (platform_index, kb_categories) = {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        match kb.get_platform_index(&request.platform) {
+        let idx = match kb.get_platform_index(&request.platform) {
             Ok(idx) => idx,
             Err(e) => match platform_name {
                 Some(name) => {
@@ -1258,10 +1277,22 @@ async fn extract_kb_preview_from_text(
                 }
                 None => return Err(e),
             },
-        }
+        };
+        let cats = kb.categories_for_platform(&request.platform);
+        (idx, cats)
     };
 
-    import::extract_from_text(request, text, &config_ref, &app_handle, &platform_index, &allowed_categories.unwrap_or_default()).await
+    // New platform (no KB loaded) → fall back to the requested category so
+    // validation doesn't reject every LLM-picked category.
+    let allowed_categories = if kb_categories.is_empty() {
+        vec![request.category.clone()]
+    } else {
+        kb_categories
+    };
+
+    let progress = tauri_progress(&app_handle);
+
+    import::extract_from_text(request, text, &config_ref, &progress, &platform_index, &allowed_categories).await
 }
 
 /// Phase 5.6: Stage 2 of the two-stage import — write the user-approved
@@ -1287,13 +1318,15 @@ async fn commit_kb_import(
     let commands: Vec<Command> = previews.into_iter().map(|p| p.command).collect();
     let count = commands.len();
 
+    let progress = tauri_progress(&app_handle);
+
     import::commit_import(
         commands,
         &import::default_bundled_kb_path(),
         &user_kb_path,
         &platform,
         &category,
-        &app_handle,
+        &progress,
         platform_name.as_deref(),
     ).await?;
 

@@ -18,6 +18,10 @@ use crate::llm::{ExtractedCommand, LlmClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Progress callback for the import pipeline. The Tauri layer provides an
+/// adapter that emits a frontend event and writes a log line; tests supply
+/// a recorder.
+pub type ProgressFn<'a> = dyn Fn(&ImportProgress) + Send + Sync + 'a;
 // ─── Types ──────────────────────────────────────────────────────────
 
 /// Parameters for a KB import request.
@@ -164,13 +168,13 @@ pub async fn import_from_url(
     request: ImportRequest,
     config: &AppConfig,
     user_kb_path: &PathBuf,
-    app_handle: &tauri::AppHandle,
+    progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
 ) -> Result<ImportResult, String> {
     let preview = extract_from_url(
         request.clone(),
         config,
-        app_handle,
+        progress,
         platform_index,
         &[],
     ).await?;
@@ -182,7 +186,7 @@ pub async fn import_from_url(
         user_kb_path,
         &request.platform,
         &request.category,
-        app_handle,
+        progress,
         None,
     ).await?;
 
@@ -206,16 +210,16 @@ pub async fn import_from_url(
 pub async fn extract_from_url(
     request: ImportRequest,
     config: &AppConfig,
-    app_handle: &tauri::AppHandle,
+    progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
     allowed_categories: &[String],
 ) -> Result<ExtractPreview, String> {
-    emit_progress(app_handle, ImportProgress::Fetching { url: request.url.clone() });
-    let html_content = fetch_url(&request.url).await?;
+    progress(&ImportProgress::Fetching { url: request.url.clone() });
+    let html_content = real_http_fetch(&request.url).await?;
 
     // Stage 2: Extract text from HTML (Phase 5.2: preserves <pre>/<code> fences)
     let text_content = extract_text_from_html(&html_content);
-    extract_from_text(request, text_content, config, app_handle, platform_index, allowed_categories).await
+    extract_from_text(request, text_content, config, progress, platform_index, allowed_categories).await
 }
 
 /// Variant of `extract_from_url` for pre-fetched text (paste-text import):
@@ -224,20 +228,20 @@ pub async fn extract_from_text(
     request: ImportRequest,
     text_content: String,
     config: &AppConfig,
-    app_handle: &tauri::AppHandle,
+    progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
     allowed_categories: &[String],
 ) -> Result<ExtractPreview, String> {
     let mut errors: Vec<String> = Vec::new();
 
-    emit_progress(app_handle, ImportProgress::ExtractingText { content_length: text_content.len() });
+    progress(&ImportProgress::ExtractingText { content_length: text_content.len() });
 
     if text_content.trim().is_empty() {
         return Err("No text content was provided. Paste the page text (Ctrl+A, Ctrl+C in your browser, then paste here) and try again.".to_string());
     }
 
     // Stage 3: Send to the configured LLM for extraction (Phase 5.1: token-aware)
-    emit_progress(app_handle, ImportProgress::SendingToLlm { });
+    progress(&ImportProgress::SendingToLlm { });
 
     let llm = LlmClient::new(
         config.llm_base_url.clone(),
@@ -252,9 +256,8 @@ pub async fn extract_from_text(
     let existing_categories = allowed_categories.to_vec();
 
     // Streaming: report received LLM output so the UI shows liveness.
-    let progress_handle = app_handle.clone();
-    let on_output = move |chars: usize, tail: &str| {
-        emit_progress(&progress_handle, ImportProgress::LlmOutput { chars, tail: tail.to_string() });
+    let on_output = |chars: usize, tail: &str| {
+        progress(&ImportProgress::LlmOutput { chars, tail: tail.to_string() });
     };
 
     // Chunked extraction (docs/10): large pages produce oversized JSON that
@@ -272,7 +275,7 @@ pub async fn extract_from_text(
             &existing_categories,
             &on_output,
         ).await.map_err(|e| {
-            emit_progress(app_handle, ImportProgress::Error { message: e.clone() });
+            progress(&ImportProgress::Error { message: e.clone() });
             e
         })?;
     } else {
@@ -282,7 +285,7 @@ pub async fn extract_from_text(
         let mut chunk_errors: Vec<String> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (i, chunk) in chunks.iter().enumerate() {
-            emit_progress(app_handle, ImportProgress::ExtractingChunk { chunk: i + 1, total });
+            progress(&ImportProgress::ExtractingChunk { chunk: i + 1, total });
             match llm.extract_commands(
                 chunk,
                 &request.platform,
@@ -312,7 +315,7 @@ pub async fn extract_from_text(
                 total,
                 chunk_errors.last().map(|s| s.as_str()).unwrap_or("unknown")
             );
-            emit_progress(app_handle, ImportProgress::Error { message: msg.clone() });
+            progress(&ImportProgress::Error { message: msg.clone() });
             return Err(msg);
         }
         if !chunk_errors.is_empty() {
@@ -326,13 +329,13 @@ pub async fn extract_from_text(
         log::info!("Chunked extraction: {} chunks, {} deduped commands", total, extracted.len());
     }
 
-    emit_progress(app_handle, ImportProgress::ExtractingCommands {});
+    progress(&ImportProgress::ExtractingCommands {});
     if extracted.is_empty() {
         return Err("No commands were extracted from the documentation. The LLM may not have found any valid commands.".to_string());
     }
 
     // Stage 4: Validate extracted commands (Phase 5.3: drop bad tokens, keep cmd)
-    emit_progress(app_handle, ImportProgress::Validating { command_count: extracted.len() });
+    progress(&ImportProgress::Validating { command_count: extracted.len() });
     let mut previews: Vec<CommandPreview> = Vec::with_capacity(extracted.len());
     for cmd in extracted {
         match validate_extracted_command(cmd, platform_index, allowed_categories, &request.category) {
@@ -400,7 +403,7 @@ pub async fn commit_import(
     user_kb_path: &PathBuf,
     platform: &str,
     category: &str,
-    app_handle: &tauri::AppHandle,
+    progress: &ProgressFn<'_>,
     platform_name: Option<&str>,
 ) -> Result<(), String> {
     if commands.is_empty() {
@@ -427,17 +430,17 @@ pub async fn commit_import(
     }
 
     let target_file = primary_target.ok_or_else(|| "no commands selected".to_string())?;
-    emit_progress(app_handle, ImportProgress::WritingYaml {
+    progress(&ImportProgress::WritingYaml {
         command_count: commands.len(),
         target_file: target_file.display().to_string(),
     });
 
     ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category, platform_name)?;
 
-    emit_progress(app_handle, ImportProgress::ReloadingKb {});
+    progress(&ImportProgress::ReloadingKb {});
 
     // Final event — the title-bar indicator clears on this.
-    emit_progress(app_handle, ImportProgress::Complete {
+    progress(&ImportProgress::Complete {
         commands_imported: commands.len(),
         target_file: target_file.display().to_string(),
     });
@@ -473,7 +476,7 @@ fn validate_fetch_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn fetch_url(url: &str) -> Result<String, String> {
+async fn real_http_fetch(url: &str) -> Result<String, String> {
     validate_fetch_url(url)?;
     log::info!("Fetching URL: {}", url);
 
@@ -782,16 +785,6 @@ fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathB
 
     log::info!("Created platform index: {}", path.display());
     Ok(())
-}
-
-fn emit_progress(app_handle: &tauri::AppHandle, progress: ImportProgress) {
-    // Every pipeline stage lands in the app log — this is the persistent
-    // record of import flows (the in-app stream modal is memory-only).
-    log::info!("import progress: {:?}", progress);
-    use tauri::Emitter;
-    if let Err(e) = app_handle.emit("import-progress", &progress) {
-        log::warn!("Failed to emit import progress: {}", e);
-    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -1166,5 +1159,116 @@ mod tests {
         }
 
         assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn test_validate_fetch_url() {
+        // accepts public HTTPS
+        assert!(validate_fetch_url("https://example.com/page").is_ok());
+        assert!(validate_fetch_url("https://93.184.216.34/").is_ok());
+        // rejects non-HTTPS
+        assert!(validate_fetch_url("http://example.com").is_err());
+        assert!(validate_fetch_url("ftp://example.com").is_err());
+        // rejects private IPs
+        assert!(validate_fetch_url("https://192.168.1.1/").is_err());
+        assert!(validate_fetch_url("https://10.0.0.1/").is_err());
+        assert!(validate_fetch_url("https://172.16.0.1/").is_err());
+        // rejects loopback, link-local, unspecified
+        assert!(validate_fetch_url("https://127.0.0.1/").is_err());
+        assert!(validate_fetch_url("https://169.254.1.1/").is_err());
+        assert!(validate_fetch_url("https://0.0.0.0/").is_err());
+        // rejects invalid URLs
+        assert!(validate_fetch_url("not a url").is_err());
+        assert!(validate_fetch_url("").is_err());
+    }
+
+    // ─── Pipeline tests (step 4) ──────────────────────────────────────
+
+    use crate::llm::sse_test_mock::sse_mock_n;
+
+    fn sse_json(commands: &[&str]) -> String {
+        let cmds: Vec<serde_json::Value> = commands
+            .iter()
+            .map(|name| serde_json::json!({
+                "name": name,
+                "syntax": null,
+                "description": format!("Desc for {}", name),
+                "mode": null,
+                "category": null,
+                "aliases": [],
+                "examples": [],
+                "tags": [],
+                "tokens": [],
+                "order": "fixed",
+                "negatable": false
+            }))
+            .collect();
+        let payload = serde_json::json!({"commands": cmds});
+        let chunk = serde_json::json!({"choices":[{"delta":{"content": payload.to_string()}}]});
+        format!("data: {}\n\ndata: [DONE]\n\n", chunk)
+    }
+
+    fn test_config(base_url: &str) -> AppConfig {
+        let mut cfg = AppConfig::default();
+        cfg.llm_base_url = base_url.to_string();
+        cfg
+    }
+
+    #[tokio::test]
+    async fn test_extract_single_chunk_happy_path() {
+        let sse_body = sse_json(&["show ip route", "show version"]);
+        let addr = sse_mock_n(vec![Some(sse_body)]);
+        let base_url = format!("http://{}", addr);
+
+        let request = ImportRequest {
+            url: "http://example.com/docs".to_string(),
+            platform: "cisco-iosxe".to_string(),
+            category: "networking".to_string(),
+        };
+        let text = "show ip route\nshow version\nsome documentation text";
+        let config = test_config(&base_url);
+        let index = iosxe_index();
+        let progress: &ProgressFn<'_> = &|_| {};
+
+        let result = extract_from_text(request, text.to_string(), &config, progress, &index, &[]).await;
+        assert!(result.is_ok(), "extract failed: {:?}", result.err());
+        let preview = result.unwrap();
+        assert_eq!(preview.previews.len(), 2);
+        assert_eq!(preview.previews[0].command.name, "show ip route");
+        assert_eq!(preview.previews[1].command.name, "show version");
+        assert!(preview.previews.iter().all(|p| p.status == "ok"));
+    }
+
+    #[tokio::test]
+    async fn test_extract_multi_chunk_partial_failure() {
+        // 3 chunks: need text > 24K chars (CHUNK_EXTRACTION_CHARS = 12_000)
+        let filler = "lorem ipsum dolor sit amet ";
+        let text = std::iter::repeat(filler).take(1000).collect::<String>();
+        assert!(text.len() > 24_000, "text too short: {}", text.len());
+
+        let sse_a = sse_json(&["show ip route"]);
+        let sse_b = sse_json(&["show version"]);
+        // chunk 1 ok, chunk 2 fails (HTTP 500), chunk 3 ok
+        let addr = sse_mock_n(vec![Some(sse_a), None, Some(sse_b)]);
+        let base_url = format!("http://{}", addr);
+
+        let request = ImportRequest {
+            url: "http://example.com/big-docs".to_string(),
+            platform: "cisco-iosxe".to_string(),
+            category: "networking".to_string(),
+        };
+        let config = test_config(&base_url);
+        let index = iosxe_index();
+        let progress: &ProgressFn<'_> = &|_| {};
+
+        let result = extract_from_text(request, text, &config, progress, &index, &[]).await;
+        assert!(result.is_ok(), "extract failed: {:?}", result.err());
+        let preview = result.unwrap();
+        // Commands from chunks 1 and 3 survive; chunk 2 error is surfaced
+        assert_eq!(preview.previews.len(), 2);
+        assert_eq!(preview.previews[0].command.name, "show ip route");
+        assert_eq!(preview.previews[1].command.name, "show version");
+        assert_eq!(preview.errors.len(), 1);
+        assert!(preview.errors[0].contains("chunk 2/3"), "unexpected error: {}", preview.errors[0]);
     }
 }

@@ -760,6 +760,74 @@ Documentation content:
     )
 }
 
+// ─── Shared test SSE mock (stdlib TcpListener, no extra deps) ───────
+
+#[cfg(test)]
+pub(crate) mod sse_test_mock {
+    /// Multi-request SSE mock: accepts N sequential connections, each gets
+    /// one response from the queue. `Some(body)` = chunked SSE 200, `None` = HTTP 500.
+    pub fn sse_mock_n(responses: Vec<Option<String>>) -> std::net::SocketAddr {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        std::thread::spawn(move || {
+            for resp in responses {
+                let (mut stream, _) = match listener.accept() { Ok(s) => s, Err(_) => break };
+
+                let mut buf = vec![0u8; 65536];
+                let mut total = 0usize;
+                loop {
+                    let n = match stream.read(&mut buf[total..]) { Ok(n) if n > 0 => n, _ => break };
+                    total += n;
+                    if String::from_utf8_lossy(&buf[..total]).contains("\r\n\r\n") { break; }
+                }
+
+                let headers = String::from_utf8_lossy(&buf[..total]);
+                let content_len = headers
+                    .lines()
+                    .find_map(|l| l.to_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok()))
+                    .unwrap_or(0);
+                let header_end = headers.find("\r\n\r\n").map(|i| i + 4).unwrap_or(total);
+                let already_read = total - header_end;
+                let remaining = content_len.saturating_sub(already_read);
+                let mut drained = 0;
+                while drained < remaining {
+                    let n = match stream.read(&mut buf[..]) { Ok(n) if n > 0 => n, _ => break };
+                    drained += n;
+                }
+
+                let out = match resp {
+                    Some(body) => {
+                        let data = body.as_bytes();
+                        let mut r = Vec::new();
+                        r.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+                        r.extend_from_slice(b"Content-Type: text/event-stream\r\n");
+                        r.extend_from_slice(b"Transfer-Encoding: chunked\r\n\r\n");
+                        r.extend_from_slice(format!("{:x}\r\n", data.len()).as_bytes());
+                        r.extend_from_slice(data);
+                        r.extend_from_slice(b"\r\n0\r\n\r\n");
+                        r
+                    }
+                    None => {
+                        let body = b"internal error";
+                        let mut r = Vec::new();
+                        r.extend_from_slice(b"HTTP/1.1 500 Internal Server Error\r\n");
+                        r.extend_from_slice(b"Content-Type: text/plain\r\n");
+                        r.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
+                        r.extend_from_slice(body);
+                        r
+                    }
+                };
+                let _ = stream.write_all(&out);
+                let _ = stream.flush();
+            }
+        });
+
+        addr
+    }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -934,5 +1002,54 @@ mod tests {
         assert_eq!(strip_code_fences("```\n{\"a\":1}\n```"), "{\"a\":1}");
         assert_eq!(strip_code_fences("  {\"a\":1}  "), "{\"a\":1}");
         assert_eq!(strip_code_fences("```json\n{\"a\":1}"), "{\"a\":1}");
+    }
+
+    #[tokio::test]
+    async fn test_extract_commands_parses_sse_stream() {
+        use super::sse_test_mock::sse_mock_n;
+
+        // LLM "responds" with one SSE chunk containing the full JSON payload
+        let llm_json = r#"{"commands":[{"name":"show ip","syntax":null,"description":"Show IP config","mode":null,"category":null,"aliases":[],"examples":[],"tags":[],"tokens":[],"order":"fixed","negatable":false}]}"#;
+        let chunk = serde_json::json!({"choices":[{"delta":{"content": llm_json}}]});
+        let sse_body = format!("data: {}\n\ndata: [DONE]\n\n", chunk);
+
+        let addr = sse_mock_n(vec![Some(sse_body)]);
+        let base_url = format!("http://{}", addr);
+
+        let client = LlmClient::new(
+            base_url,
+            "test-model".to_string(),
+            None,
+            64000,
+            "openai".to_string(),
+        );
+
+        let index = crate::kb::PlatformIndex {
+            id: "linux-bash".to_string(),
+            name: "Linux Bash".to_string(),
+            description: String::new(),
+            reference_url: String::new(),
+            versions: vec![],
+            prompt_patterns: std::collections::HashMap::new(),
+            default_mode: "user".to_string(),
+            negation_prefix: None,
+            prefix_commands: std::collections::HashMap::new(),
+        };
+
+        let output_chars = std::sync::atomic::AtomicUsize::new(0);
+        let oc = &output_chars;
+        let result = client.extract_commands(
+            "some documentation text",
+            "linux-bash",
+            "networking",
+            &index,
+            &[],
+            |n, _| { oc.fetch_add(n, std::sync::atomic::Ordering::Relaxed); },
+        ).await.unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "show ip");
+        assert_eq!(result[0].description.as_deref(), Some("Show IP config"));
+        assert!(output_chars.load(std::sync::atomic::Ordering::Relaxed) > 0, "on_output should have been called");
     }
 }

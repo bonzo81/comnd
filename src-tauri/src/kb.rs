@@ -636,6 +636,21 @@ impl KbManager {
         Ok(store.platform.clone())
     }
 
+    /// Unique category names for a platform's loaded commands.
+    pub fn categories_for_platform(&mut self, platform_id: &str) -> Vec<String> {
+        self.get_or_load(platform_id)
+            .map(|store| {
+                store
+                    .commands
+                    .iter()
+                    .map(|c| c.category.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// List all available platform IDs from both bundled and user KB paths.
     pub fn list_platforms(&self) -> Vec<String> {
         let mut platforms = std::collections::HashSet::new();
