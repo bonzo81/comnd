@@ -22,7 +22,7 @@ export function platformBadge(platform: string): string {
 }
 
 export function platformColorClass(platform: string): string {
-  return PLATFORM_COLOR_CLASS[platform] ?? "";
+  return PLATFORM_COLOR_CLASS[platform] ?? "badge-custom";
 }
 
 export function getPlatformMeta(platform: string): { badge: string; label: string } {

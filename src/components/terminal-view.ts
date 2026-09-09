@@ -54,14 +54,7 @@ import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { OutputHighlighter } from "../lib/output-highlighter";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
 import { initContextMenu, setToggleState } from "../lib/a11y";
-
-// Platform display name mapping
-const PLATFORM_LABELS: Record<string, string> = {
-  "cisco-iosxe": "Cisco IOS-XE",
-  "cisco-nxos": "Cisco NX-OS",
-  "f5-tmos": "F5 TMOS",
-  "linux-bash": "Linux Bash",
-};
+import { getPlatformMeta } from "../lib/platforms";
 
 // Secret provider display names (connect progress, chunk 10)
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
@@ -1043,7 +1036,7 @@ export class TerminalView {
   private updateHostInfo() {
     const infoEl = this.$(".tv-host-info");
     if (infoEl && this.host) {
-      const platformLabel = PLATFORM_LABELS[this.host.platform] ?? this.host.platform;
+      const platformLabel = getPlatformMeta(this.host.platform).label;
       const version = this.host.os_version ? ` ${this.host.os_version}` : "";
       infoEl.textContent = `${this.host.display_name} (${platformLabel}${version})`;
     }
@@ -1068,7 +1061,7 @@ export class TerminalView {
       hostEl.textContent = this.host.hostname;
     }
     if (platformEl && this.host) {
-      const label = PLATFORM_LABELS[this.host.platform] ?? this.host.platform;
+      const label = getPlatformMeta(this.host.platform).label;
       const version = this.host.os_version ? ` ${this.host.os_version}` : "";
       platformEl.textContent = `${label}${version}`;
     }

@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::hosts::is_valid_platform;
+use crate::platform::PlatformRegistry;
+use crate::AppState;
 use crate::paths::{app_data_dir, preserve_corrupt, secure_write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +55,7 @@ fn save(cmds: &[ReplayCommand]) -> Result<(), String> {
 }
 
 /// Validate a replay command's user-editable fields before persisting.
-pub fn validate(cmd: &ReplayCommand) -> Result<(), String> {
+pub fn validate(cmd: &ReplayCommand, platforms: &PlatformRegistry) -> Result<(), String> {
     let trimmed = cmd.command.trim();
     if trimmed.is_empty() {
         return Err("Command is required".to_string());
@@ -62,7 +63,7 @@ pub fn validate(cmd: &ReplayCommand) -> Result<(), String> {
     if cmd.command.len() > MAX_COMMAND {
         return Err(format!("Command exceeds {} characters", MAX_COMMAND));
     }
-    if !is_valid_platform(&cmd.platform) {
+    if !platforms.is_valid(&cmd.platform) {
         return Err(format!("Invalid platform: {}", cmd.platform));
     }
     if cmd.variables.len() > MAX_VARS {
@@ -96,8 +97,12 @@ pub async fn replay_list() -> Result<Vec<ReplayCommand>, String> {
 }
 
 #[tauri::command]
-pub async fn replay_save(cmd: ReplayCommand) -> Result<ReplayCommand, String> {
-    validate(&cmd)?;
+pub async fn replay_save(
+    cmd: ReplayCommand,
+    state: tauri::State<'_, AppState>,
+) -> Result<ReplayCommand, String> {
+    let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+    validate(&cmd, &platforms)?;
     let mut cmds = load()?;
     if cmd.id.is_empty() {
         // New entry
@@ -144,34 +149,48 @@ mod tests {
 
     #[test]
     fn test_validate_ok() {
-        assert!(validate(&sample()).is_ok());
+        assert!(validate(&sample(), &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_rejects() {
         let mut c = sample();
         c.command = "  ".to_string();
-        assert!(validate(&c).is_err(), "empty command rejected");
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "empty command rejected");
 
         let mut c = sample();
         c.platform = "not-a-platform".to_string();
-        assert!(validate(&c).is_err(), "bad platform rejected");
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "bad platform rejected");
 
         let mut c = sample();
         c.variables.push(ReplayVariable {
             name: "interface".to_string(),
         });
-        assert!(validate(&c).is_err(), "duplicate names rejected");
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "duplicate names rejected");
 
         let mut c = sample();
         c.variables.clear();
-        assert!(validate(&c).is_ok(), "no variables is fine");
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_ok(), "no variables is fine");
 
         let mut c = sample();
         c.variables.push(ReplayVariable {
             name: "ghost".to_string(),
         });
-        assert!(validate(&c).is_err(), "declared var missing from template rejected");
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "declared var missing from template rejected");
+    }
+
+    #[test]
+    fn test_validate_custom_platform_when_in_registry() {
+        let dir = std::env::temp_dir().join(format!("netssh_replay_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("my-custom")).unwrap();
+        std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
+        let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
+
+        let mut c = sample();
+        c.platform = "my-custom".to_string();
+        assert!(validate(&c, &platforms).is_ok());
+        // Fails against a registry that lacks the custom platform
+        assert!(validate(&c, &PlatformRegistry::builtin()).is_err());
     }
 
     #[test]

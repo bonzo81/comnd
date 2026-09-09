@@ -7,6 +7,7 @@ use std::path::PathBuf;
 // Credential types live in credentials.rs (Phase 0 of the host-source
 // plan); re-exported here so existing `hosts::...` paths keep compiling.
 pub use crate::credentials::{AgentAuth, CredentialSource};
+use crate::platform::PlatformRegistry;
 
 // ─── Host Types ──────────────────────────────────────────────────────
 
@@ -53,14 +54,6 @@ fn default_port() -> u16 { 22 }
 fn default_auth_type() -> String { "password".to_string() }
 fn default_platform() -> String { "cisco-iosxe".to_string() }
 
-/// Platforms that have a knowledge base and platform index.
-const VALID_PLATFORMS: &[&str] = &["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"];
-
-/// Whether `platform` is one of the four known platforms.
-pub fn is_valid_platform(platform: &str) -> bool {
-    VALID_PLATFORMS.contains(&platform)
-}
-
 // ─── Validation ─────────────────────────────────────────────────────
 
 /// Field length caps — generous enough for real-world values, tight enough
@@ -73,7 +66,7 @@ const MAX_OS_VERSION: usize = 64;
 
 /// Validate a host's user-editable fields before persisting. Returns a
 /// human-readable error string on the first violation.
-pub fn validate_host(host: &Host) -> Result<(), String> {
+pub fn validate_host(host: &Host, platforms: &PlatformRegistry) -> Result<(), String> {
     if host.display_name.trim().is_empty() {
         return Err("Display name is required".to_string());
     }
@@ -102,11 +95,11 @@ pub fn validate_host(host: &Host) -> Result<(), String> {
         return Err("Username contains control characters".to_string());
     }
 
-    if !VALID_PLATFORMS.contains(&host.platform.as_str()) {
+    if !platforms.is_valid(&host.platform) {
         return Err(format!(
             "Platform '{}' is not valid (must be one of: {})",
             host.platform,
-            VALID_PLATFORMS.join(", ")
+            platforms.all().join(", ")
         ));
     }
 
@@ -232,8 +225,8 @@ impl HostStore {
     }
 
     /// Create a new host with generated UUID and timestamp.
-    pub fn create(&mut self, mut host: Host) -> Result<Host, String> {
-        validate_host(&host)?;
+    pub fn create(&mut self, mut host: Host, platforms: &PlatformRegistry) -> Result<Host, String> {
+        validate_host(&host, platforms)?;
         host.normalize_credential();
         host.id = uuid::Uuid::new_v4().to_string();
         host.created_at = chrono::Utc::now().to_rfc3339();
@@ -245,8 +238,8 @@ impl HostStore {
     }
 
     /// Update an existing host by id.
-    pub fn update(&mut self, mut host: Host) -> Result<Host, String> {
-        validate_host(&host)?;
+    pub fn update(&mut self, mut host: Host, platforms: &PlatformRegistry) -> Result<Host, String> {
+        validate_host(&host, platforms)?;
         host.normalize_credential();
         let pos = self.hosts.iter().position(|h| h.id == host.id)
             .ok_or_else(|| format!("Host not found: {}", host.id))?;
@@ -423,7 +416,7 @@ mod tests {
         let mut store = HostStore::in_memory();
         let host = make_host("Test Router", "192.168.1.1");
 
-        let created = store.create(host).unwrap();
+        let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         assert!(!created.id.is_empty());
         assert!(!created.created_at.is_empty());
 
@@ -437,11 +430,11 @@ mod tests {
         let mut store = HostStore::in_memory();
         let host = make_host("Router A", "10.0.0.1");
 
-        let created = store.create(host).unwrap();
+        let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         let mut updated = created.clone();
         updated.display_name = "Router B".to_string();
 
-        let result = store.update(updated).unwrap();
+        let result = store.update(updated, &PlatformRegistry::builtin()).unwrap();
         assert_eq!(result.display_name, "Router B");
     }
 
@@ -450,7 +443,7 @@ mod tests {
         let mut store = HostStore::in_memory();
         let host = make_host("Delete Me", "10.0.0.2");
 
-        let created = store.create(host).unwrap();
+        let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         store.delete(&created.id).unwrap();
         let all = store.get_all().unwrap();
         assert!(all.is_empty());
@@ -506,21 +499,21 @@ mod tests {
     #[test]
     fn test_validate_host_accepts_valid() {
         let host = make_host("Core Switch", "core-sw-01.lab.local");
-        assert!(validate_host(&host).is_ok());
+        assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_accepts_ipv6_bracketed() {
         let mut host = make_host("IPv6 Host", "[::1]");
         host.platform = "linux-bash".to_string();
-        assert!(validate_host(&host).is_ok());
+        assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_rejects_empty_display_name() {
         let mut host = make_host("", "10.0.0.1");
         host.display_name = "   ".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Display name"));
     }
 
@@ -528,7 +521,7 @@ mod tests {
     fn test_validate_host_rejects_empty_hostname() {
         let mut host = make_host("R1", "");
         host.hostname = "  ".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Hostname"));
     }
 
@@ -536,7 +529,7 @@ mod tests {
     fn test_validate_host_rejects_empty_username() {
         let mut host = make_host("R1", "10.0.0.1");
         host.username = "".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Username"));
     }
 
@@ -544,7 +537,7 @@ mod tests {
     fn test_validate_host_rejects_control_chars_in_hostname() {
         let mut host = make_host("R1", "10.0.0.1\nbad");
         host.hostname = "evil.com\nSSH-2.0".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("invalid character"));
     }
 
@@ -552,7 +545,7 @@ mod tests {
     fn test_validate_host_rejects_control_chars_in_username() {
         let mut host = make_host("R1", "10.0.0.1");
         host.username = "root\n".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
     }
 
@@ -560,7 +553,7 @@ mod tests {
     fn test_validate_host_rejects_control_chars_in_display_name() {
         let mut host = make_host("R1", "10.0.0.1");
         host.display_name = "Bad\x07Name".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
     }
 
@@ -568,7 +561,7 @@ mod tests {
     fn test_validate_host_rejects_leading_hyphen_hostname() {
         let mut host = make_host("R1", "10.0.0.1");
         host.hostname = "-bad".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("hyphen"));
     }
 
@@ -576,7 +569,7 @@ mod tests {
     fn test_validate_host_rejects_invalid_platform() {
         let mut host = make_host("R1", "10.0.0.1");
         host.platform = "juniper-junos".to_string();
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("not valid"));
         assert!(err.contains("juniper-junos"));
     }
@@ -585,7 +578,7 @@ mod tests {
     fn test_validate_host_rejects_oversized_display_name() {
         let mut host = make_host("R1", "10.0.0.1");
         host.display_name = "x".repeat(129);
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("too long"));
     }
 
@@ -593,7 +586,7 @@ mod tests {
     fn test_validate_host_rejects_oversized_notes() {
         let mut host = make_host("R1", "10.0.0.1");
         host.notes = Some("x".repeat(4097));
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("too long"));
     }
 
@@ -601,14 +594,14 @@ mod tests {
     fn test_validate_host_allows_newlines_in_notes() {
         let mut host = make_host("R1", "10.0.0.1");
         host.notes = Some("Line 1\nLine 2\r\nLine 3\tTabbed".to_string());
-        assert!(validate_host(&host).is_ok());
+        assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_rejects_non_tab_control_in_notes() {
         let mut host = make_host("R1", "10.0.0.1");
         host.notes = Some("bad\x00data".to_string());
-        let err = validate_host(&host).unwrap_err();
+        let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
     }
 
@@ -617,15 +610,30 @@ mod tests {
         let mut store = HostStore::in_memory();
         let mut host = make_host("R1", "10.0.0.1");
         host.hostname = "bad\nname".to_string();
-        assert!(store.create(host).is_err());
+        assert!(store.create(host, &PlatformRegistry::builtin()).is_err());
     }
 
     #[test]
     fn test_update_rejects_invalid_host() {
         let mut store = HostStore::in_memory();
-        let created = store.create(make_host("R1", "10.0.0.1")).unwrap();
+        let platforms = PlatformRegistry::builtin();
+        let created = store.create(make_host("R1", "10.0.0.1"), &platforms).unwrap();
         let mut updated = created;
         updated.username = "".to_string();
-        assert!(store.update(updated).is_err());
+        assert!(store.update(updated, &platforms).is_err());
+    }
+
+    #[test]
+    fn test_custom_platform_host_validates_when_in_registry() {
+        let dir = std::env::temp_dir().join(format!("netssh_hosts_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("my-custom")).unwrap();
+        std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
+        let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
+
+        let mut host = make_host("R1", "10.0.0.1");
+        host.platform = "my-custom".to_string();
+        assert!(validate_host(&host, &platforms).is_ok());
+        // Fails against a registry that lacks the custom platform
+        assert!(validate_host(&host, &PlatformRegistry::builtin()).is_err());
     }
 }

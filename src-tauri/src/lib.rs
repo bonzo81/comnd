@@ -17,6 +17,7 @@ mod paths;
 mod session_log;
 mod replay;
 mod secrets;
+mod platform;
 
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
@@ -28,6 +29,7 @@ use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter, get_llm_api_key};
 use import::{ImportRequest, ImportResult, ExtractPreview, CommandPreview, ImportProgress};
 use paths::{MergeScan, ConflictResolution};
+use platform::PlatformRegistry;
 
 // ─── Log MultiWriter ────────────────────────────────────────────────
 
@@ -149,6 +151,8 @@ struct AppState {
     /// NetBox device cache (host source). Like the other std-Mutex stores:
     /// clone data out, never hold the guard across an await.
     netbox: Mutex<netbox::NetBoxCacheStore>,
+    /// Known platforms (bundled + user KB dirs). Rescanned after KB reloads.
+    platforms: Mutex<PlatformRegistry>,
     /// Human-readable reason the custom log path fell back to the default at
     /// startup, if any. Pulled by the frontend on mount (no emit race).
     log_status: Mutex<Option<String>>,
@@ -227,11 +231,12 @@ async fn save_host(
         log::warn!("Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)", host.id);
         return Err("Cannot edit NetBox-sourced hosts".to_string());
     }
+    let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
     if host.id.is_empty() {
-        hosts.create(host)
+        hosts.create(host, &platforms)
     } else {
-        hosts.update(host)
+        hosts.update(host, &platforms)
     }
 }
 
@@ -393,13 +398,14 @@ async fn delete_host_group(
     }
     // Also un-group any hosts in this group
     {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
         let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         let all = hosts.get_all()?;
         for host in all {
             if host.group_id.as_deref() == Some(&id) {
                 let mut updated = host.clone();
                 updated.group_id = None;
-                let _ = hosts.update(updated);
+                let _ = hosts.update(updated, &platforms);
             }
         }
     }
@@ -933,7 +939,10 @@ async fn netbox_save_config(
     default_password: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<netbox::NetBoxConfig, String> {
-    config.validate()?;
+    {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+        config.validate(&platforms)?;
+    }
     {
         let mut store = state.config.lock().map_err(|e| e.to_string())?;
         let json = serde_json::to_value(&config)
@@ -1003,10 +1012,14 @@ async fn netbox_sync(
     let token = credentials::get_secret(netbox::TOKEN_KEY)?
         .ok_or_else(|| "No NetBox API token saved — enter one in Settings → NetBox".to_string())?;
 
+    let policy = {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+        config.platform_policy(&platforms)
+    };
     let client = netbox::NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)?;
     let fetch = client.fetch_devices(&config.filters).await?;
     let geo = client.fetch_geo().await; // degrades internally — never fails the sync
-    let (entries, mut report) = netbox::build_entries(&fetch.devices, &config.platform_policy());
+    let (entries, mut report) = netbox::build_entries(&fetch.devices, &policy);
     report.no_primary_ip = fetch.no_primary_ip;
 
     log::info!(
@@ -1178,6 +1191,7 @@ async fn import_kb_url(
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
         kb.reload_all();
     }
+    state.platforms.lock().map_err(|e| e.to_string())?.rescan();
 
     Ok(result)
 }
@@ -1335,6 +1349,7 @@ async fn commit_kb_import(
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
         kb.reload_all();
     }
+    state.platforms.lock().map_err(|e| e.to_string())?.rescan();
 
     Ok(count)
 }
@@ -1707,6 +1722,8 @@ pub fn run() {
                 netbox::NetBoxCacheStore::in_memory()
             });
 
+            let platform_registry = PlatformRegistry::scan(&kb_path, Some(user_kb_path.as_path()));
+
             app.manage(AppState {
                 kb: Mutex::new(KbManager::with_user_path(kb_path, user_kb_path)),
                 hosts: Mutex::new(host_store),
@@ -1715,6 +1732,7 @@ pub fn run() {
                 config: Mutex::new(config_store),
                 providers: Mutex::new(provider_registry),
                 netbox: Mutex::new(netbox_store),
+                platforms: Mutex::new(platform_registry),
                 log_status: Mutex::new(log_fallback_reason),
             });
 

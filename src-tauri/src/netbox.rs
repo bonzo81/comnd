@@ -16,6 +16,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::credentials::CredentialSource;
+use crate::platform::PlatformRegistry;
 
 // ─── Filters ────────────────────────────────────────────────────────
 
@@ -616,26 +617,26 @@ impl NetBoxConfig {
     }
 
     /// Effective platform policy for `build_entries`.
-    pub fn platform_policy(&self) -> PlatformPolicy {
+    pub fn platform_policy(&self, platforms: &PlatformRegistry) -> PlatformPolicy {
         PlatformPolicy {
             fallback: if self.platform_policy == "fallback" {
                 self.platform_fallback
                     .clone()
-                    .filter(|p| crate::hosts::is_valid_platform(p))
+                    .filter(|p| platforms.is_valid(p))
             } else {
                 None
             },
             overrides: self
                 .platform_overrides
                 .iter()
-                .filter(|(_, p)| crate::hosts::is_valid_platform(p))
+                .filter(|(_, p)| platforms.is_valid(p))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         }
     }
 
     /// Validate user-editable fields before persisting.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self, platforms: &PlatformRegistry) -> Result<(), String> {
         if !self.base_url.trim().is_empty() {
             let trimmed = self.base_url.trim().trim_end_matches('/');
             if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
@@ -649,17 +650,18 @@ impl NetBoxConfig {
             "skip" => {}
             "fallback" => {
                 let fallback = self.platform_fallback.as_deref().unwrap_or("");
-                if !crate::hosts::is_valid_platform(fallback) {
+                if !platforms.is_valid(fallback) {
                     return Err(format!(
-                        "Fallback platform '{}' is not valid (must be one of: cisco-iosxe, cisco-nxos, f5-tmos, linux-bash)",
-                        fallback
+                        "Fallback platform '{}' is not valid (must be one of: {})",
+                        fallback,
+                        platforms.all().join(", ")
                     ));
                 }
             }
             other => return Err(format!("Unknown platform policy '{}' (must be skip or fallback)", other)),
         }
         for (slug, platform) in &self.platform_overrides {
-            if !crate::hosts::is_valid_platform(platform) {
+            if !platforms.is_valid(platform) {
                 return Err(format!(
                     "Platform override '{}' -> '{}' is not a valid platform",
                     slug, platform
@@ -1968,38 +1970,52 @@ mod tests {
         let json = serde_json::to_value(&cfg).unwrap();
         let parsed = NetBoxConfig::from_json(Some(&json));
         assert_eq!(parsed, cfg);
-        assert!(parsed.validate().is_ok());
+        assert!(parsed.validate(&PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_netbox_config_validation() {
         let mut cfg = NetBoxConfig::default();
-        assert!(cfg.validate().is_ok());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_ok());
 
         cfg.base_url = "ftp://bad".into();
-        assert!(cfg.validate().is_err());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err());
         cfg.base_url = "http://192.168.1.10:8000".into();
-        assert!(cfg.validate().is_ok());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_ok());
 
         cfg.default_port = 0;
-        assert!(cfg.validate().is_err());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err());
         cfg.default_port = 22;
 
         cfg.platform_policy = "fallback".into();
-        assert!(cfg.validate().is_err(), "fallback without a platform");
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err(), "fallback without a platform");
         cfg.platform_fallback = Some("juniper-junos".into());
-        assert!(cfg.validate().is_err(), "invalid fallback platform");
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err(), "invalid fallback platform");
         cfg.platform_fallback = Some("linux-bash".into());
-        assert!(cfg.validate().is_ok());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_ok());
 
         cfg.platform_policy = "bogus".into();
-        assert!(cfg.validate().is_err());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err());
 
         cfg.platform_policy = "skip".into();
         cfg.platform_overrides.insert("x".into(), "not-a-platform".into());
-        assert!(cfg.validate().is_err());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err());
         cfg.platform_overrides.insert("x".into(), "cisco-nxos".into());
-        assert!(cfg.validate().is_ok());
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_ok());
+    }
+
+    #[test]
+    fn test_override_to_custom_platform_validates_when_in_registry() {
+        let dir = std::env::temp_dir().join(format!("netssh_netbox_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("my-custom")).unwrap();
+        std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
+        let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
+
+        let mut cfg = NetBoxConfig::default();
+        cfg.platform_overrides.insert("foo-os".into(), "my-custom".into());
+        assert!(cfg.validate(&platforms).is_ok());
+        // Fails against a registry that lacks the custom platform
+        assert!(cfg.validate(&PlatformRegistry::builtin()).is_err());
     }
 
     #[test]
@@ -2011,7 +2027,7 @@ mod tests {
         };
         // Invalid fallback/override values are dropped, not fatal
         cfg.platform_overrides.insert("foo".into(), "bogus".into());
-        let policy = cfg.platform_policy();
+        let policy = cfg.platform_policy(&PlatformRegistry::builtin());
         assert_eq!(policy.resolve(Some("anything")), Some("linux-bash".into()));
         assert_eq!(policy.resolve(Some("nxos")), Some("cisco-nxos".into()));
         assert!(policy.overrides.is_empty());
@@ -2020,7 +2036,7 @@ mod tests {
         let mut cfg = NetBoxConfig::default();
         cfg.platform_policy = "skip".into();
         cfg.platform_fallback = Some("linux-bash".into());
-        assert_eq!(cfg.platform_policy().resolve(Some("foo")), None);
+        assert_eq!(cfg.platform_policy(&PlatformRegistry::builtin()).resolve(Some("foo")), None);
     }
 
     #[test]

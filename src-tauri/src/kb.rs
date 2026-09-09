@@ -653,37 +653,12 @@ impl KbManager {
 
     /// List all available platform IDs from both bundled and user KB paths.
     pub fn list_platforms(&self) -> Vec<String> {
-        let mut platforms = std::collections::HashSet::new();
-
-        // Bundled KB platforms
-        if let Ok(entries) = std::fs::read_dir(&self.kb_path) {
-            for entry in entries.flatten() {
-                if entry.path().is_dir() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if entry.path().join("index.yaml").exists() {
-                        platforms.insert(name);
-                    }
-                }
-            }
-        }
-
-        // User KB platforms
+        let mut platforms = std::collections::BTreeSet::new();
+        crate::platform::scan_root(&self.kb_path, &mut platforms);
         if let Some(ref user_path) = self.user_kb_path {
-            if let Ok(entries) = std::fs::read_dir(user_path) {
-                for entry in entries.flatten() {
-                    if entry.path().is_dir() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if entry.path().join("index.yaml").exists() {
-                            platforms.insert(name);
-                        }
-                    }
-                }
-            }
+            crate::platform::scan_root(user_path, &mut platforms);
         }
-
-        let mut list: Vec<String> = platforms.into_iter().collect();
-        list.sort();
-        list
+        platforms.into_iter().collect()
     }
 
     /// Save (create or update-by-name) a user command. Validation is policy that
