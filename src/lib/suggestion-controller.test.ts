@@ -3,14 +3,24 @@ import { SuggestionController } from "./suggestion-controller";
 import { LineTracker } from "./line-tracker";
 import { GhostText, GhostPayload } from "./ghost-text";
 import { Dropdown } from "./dropdown";
+import { routeKeystroke } from "./keystroke-router";
 import type { Command } from "./tauri-api";
 
 // Lightweight widget fakes — only the methods the controller calls.
 class FakeGhost {
   shown: GhostPayload | null = null;
+  remainder = "";
   hide = vi.fn(() => { this.shown = null; });
-  showPayload = vi.fn((p: GhostPayload) => { this.shown = p; });
+  showPayload = vi.fn((p: GhostPayload) => { this.shown = p; this.remainder = p.kind === "text" ? p.text : ""; });
   isShowing() { return this.shown !== null; }
+  getCurrentRemainder() { return this.shown && this.shown.kind === "text" ? this.remainder : null; }
+  acceptNextWord() {
+    if (!this.shown || this.shown.kind !== "text") return null;
+    const m = this.remainder.match(/^\S+\s*/);
+    if (!m) return null;
+    this.remainder = this.remainder.substring(m[0].length);
+    return m[0];
+  }
 }
 
 class FakeDropdown {
@@ -21,6 +31,7 @@ class FakeDropdown {
   show = vi.fn((r: unknown[]) => { this.results = r; this.visible = true; });
   updateResults = vi.fn((r: unknown[]) => { this.results = r; });
   getSelected() { return this.results[0] ?? null; }
+  getSelectedPayload = vi.fn(() => null);
 }
 
 const cmd = (name: string, mode = "bash"): Command => ({
@@ -198,5 +209,98 @@ describe("SuggestionController — output handling", () => {
     c.onPromptDetected();
     expect(c.input).toBe("");
     expect(c.isReceivingOutput).toBe(false);
+  });
+});
+
+describe("SuggestionController — keyIn routing", () => {
+  function key(c: SuggestionController, ghost: FakeGhost, dropdown: FakeDropdown, data: string) {
+    c.keyIn(data, routeKeystroke(data, {
+      connected: true,
+      dropdownVisible: dropdown.isVisible(),
+      ghostShowing: ghost.isShowing(),
+      sidebarOpen: false,
+    }));
+  }
+
+  function type(c: SuggestionController, ghost: FakeGhost, dropdown: FakeDropdown, text: string) {
+    for (const ch of text) key(c, ghost, dropdown, ch);
+  }
+
+  it("Tab accepts ghost remainder and resets buffer", () => {
+    const { c, ghost, dropdown, sent } = makeController();
+    c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    c.setMode("bash");
+    type(c, ghost, dropdown, "show inter");
+    vi.advanceTimersByTime(50);
+    expect(ghost.shown).toEqual({ kind: "text", text: "faces" });
+    key(c, ghost, dropdown, "\t");
+    expect(sent[sent.length - 1]).toBe("faces");
+    expect(c.input).toBe("");
+    expect(ghost.shown).toBeNull();
+  });
+
+  it("Tab with dropdown visible accepts the selection", () => {
+    const { c, ghost, dropdown, sent } = makeController();
+    c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    c.setMode("bash");
+    c.setSuggestionsEnabled(true);
+    type(c, ghost, dropdown, "show ");
+    vi.advanceTimersByTime(50);
+    expect(dropdown.visible).toBe(true);
+    key(c, ghost, dropdown, "\t");
+    expect(sent[sent.length - 1]).toBe("interfaces");
+    expect(c.input).toBe("");
+    expect(dropdown.visible).toBe(false);
+    expect(ghost.shown).toBeNull();
+  });
+
+  it("Tab with no suggestion passes through and resets", () => {
+    const { c, ghost, dropdown, sent } = makeController();
+    c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    c.setMode("bash");
+    type(c, ghost, dropdown, "zzz");
+    vi.advanceTimersByTime(50);
+    key(c, ghost, dropdown, "\t");
+    expect(sent[sent.length - 1]).toBe("\t");
+    expect(c.input).toBe("");
+  });
+
+  it("Alt+right accepts the next word of the ghost remainder", () => {
+    const { c, ghost, dropdown, sent } = makeController();
+    c.loadCommands([cmd("show interfaces brief")], "linux-bash", null);
+    c.setMode("bash");
+    type(c, ghost, dropdown, "show inter");
+    vi.advanceTimersByTime(50);
+    key(c, ghost, dropdown, "\x1b[1;3C");
+    expect(sent[sent.length - 1]).toBe("faces ");
+    expect(c.input).toBe("show interfaces ");
+    expect(ghost.remainder).toBe("brief");
+  });
+
+  it("backspace edits the shadow buffer", () => {
+    const { c, ghost, dropdown } = makeController();
+    type(c, ghost, dropdown, "ab");
+    key(c, ghost, dropdown, "\x7f");
+    expect(c.input).toBe("a");
+  });
+
+  it("line-editing keys mark the buffer untrustworthy", () => {
+    const { c, ghost, dropdown } = makeController();
+    c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    c.setMode("bash");
+    type(c, ghost, dropdown, "show inter");
+    vi.advanceTimersByTime(50);
+    expect(ghost.shown).not.toBeNull();
+    key(c, ghost, dropdown, "\x1b[D"); // left arrow
+    type(c, ghost, dropdown, "f");
+    vi.advanceTimersByTime(50);
+    expect(ghost.shown).toBeNull(); // cursorMoved suppresses until re-sync
+  });
+
+  it("paste forwards text and mirrors it into the buffer", () => {
+    const { c, sent } = makeController();
+    c.paste("ls -l");
+    expect(sent).toEqual(["ls -l"]);
+    expect(c.input).toBe("ls -l");
   });
 });

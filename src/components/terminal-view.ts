@@ -30,13 +30,7 @@ import { log, LogTag } from "../lib/logger";
 import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
-import {
-  routeKeystroke,
-  S_ACCEPT_GHOST,
-  S_ACCEPT_NEXTWORD,
-  S_ACCEPT_DROPDOWN,
-  type RouteResult,
-} from "../lib/keystroke-router";
+import { routeKeystroke } from "../lib/keystroke-router";
 import { GhostText } from "../lib/ghost-text";
 import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
@@ -294,14 +288,19 @@ export class TerminalView {
 
     // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
     this.terminal.onData((data) => {
-      // Pure routing decision (keystroke-router.ts), then resolve + apply here.
+      // Pure routing decision (keystroke-router.ts); the controller resolves
+      // accepts and applies shadow ops. The view keeps UI-only flags.
       const r = routeKeystroke(data, {
         connected: this.channel.state === "connected",
         dropdownVisible: this.dropdown?.isVisible() ?? false,
         ghostShowing: this.ghostText?.isShowing() ?? false,
         sidebarOpen: this.sidePanelOpen,
       });
-      this.applyRoute(data, r);
+      this.controller.keyIn(data, r);
+      if (r.hideGhost) this.ghostText?.hide();
+      if (r.hideDropdown) this.dropdown?.hide();
+      if (r.dismissSidebar) this.toggleSidebar();
+      if (r.toggleSuggestions) setSuggestionsEnabled(!getSuggestionsEnabled());
     });
   }
 
@@ -310,51 +309,6 @@ export class TerminalView {
     if (this.channel.state === "connected" && this.channel.sessionId) {
       sshSend(this.channel.sessionId, data).catch(() => {});
     }
-  }
-
-  /**
-   * Resolve a RouteResult against the live widgets and forward/apply it.
-   * Sentinels in `send` carry state only the widget knows (ghost remainder,
-   * next word, dropdown payload), so they're resolved here, not in the router.
-   */
-  private applyRoute(data: string, r: RouteResult) {
-    for (const s of r.send) {
-      if (s === S_ACCEPT_DROPDOWN) {
-        this.controller.acceptDropdownSelection();
-      } else if (s === S_ACCEPT_GHOST) {
-        const rem = this.ghostText?.getCurrentRemainder();
-        if (rem) {
-          this.sendData(rem);
-          this.controller.reset();
-        }
-        this.ghostText?.hide();
-      } else if (s === S_ACCEPT_NEXTWORD) {
-        const word = this.ghostText?.isShowing() ? this.ghostText.acceptNextWord() : null;
-        if (word) {
-          this.sendData(word);
-          for (const ch of word) this.controller.buffer.append(ch);
-        } else {
-          this.sendData(data);
-        }
-      } else {
-        this.sendData(s);
-      }
-    }
-
-    for (const op of r.shadowOps) {
-      if (op.op === "append") this.controller.buffer.append(op.ch);
-      else if (op.op === "backspace") this.controller.buffer.backspace();
-      else if (op.op === "reset") this.controller.reset();
-    }
-
-    if (r.markCursorMoved) this.controller.markCursorMoved();
-    if (r.hideGhost) this.ghostText?.hide();
-    if (r.hideDropdown) this.dropdown?.hide();
-    if (r.dismissSidebar) this.toggleSidebar();
-    if (r.toggleSuggestions) setSuggestionsEnabled(!getSuggestionsEnabled());
-    if (r.moveDropdown === "up") this.dropdown?.moveUp();
-    else if (r.moveDropdown === "down") this.dropdown?.moveDown();
-    if (r.rebuildGhost) this.controller.syncDropdownToGhostText();
   }
 
   // ─── Clipboard ───────────────────────────────────────────────────
@@ -381,8 +335,7 @@ export class TerminalView {
   private pasteClipboard() {
     navigator.clipboard.readText().then((text) => {
       if (text && this.channel.state === "connected" && this.channel.sessionId) {
-        sshSend(this.channel.sessionId, text).catch(() => {});
-        this.controller.buffer.appendAll(text);
+        this.controller.paste(text);
       }
     });
   }

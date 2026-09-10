@@ -18,6 +18,12 @@ import {
 } from "./suggestion-engine";
 import { GhostText, GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
+import {
+  S_ACCEPT_DROPDOWN,
+  S_ACCEPT_GHOST,
+  S_ACCEPT_NEXTWORD,
+  type RouteResult,
+} from "./keystroke-router";
 import type { Command, PlatformIndex } from "./tauri-api";
 
 export interface ControllerDeps {
@@ -90,13 +96,63 @@ export class SuggestionController {
 
   // â”€â”€â”€ Keystrokes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  /**
+   * Apply a routed keystroke (keystroke-router.ts): resolve accept sentinels
+   * through the live widgets, forward bytes, mutate the shadow buffer. The
+   * view routes first and keeps UI-only flags (sidebar, ghost/dropdown hide,
+   * suggestion persistence).
+   */
+  keyIn(data: string, r: RouteResult): void {
+    for (const s of r.send) {
+      if (s === S_ACCEPT_DROPDOWN) this.acceptDropdownSelection();
+      else if (s === S_ACCEPT_GHOST) {
+        // Tab with a ghost showing: send the remainder, reset, hide.
+        const rem = this.deps.ghost()?.getCurrentRemainder();
+        if (rem) {
+          this.deps.send(rem);
+          this.reset();
+        }
+        this.deps.ghost()?.hide();
+      } else if (s === S_ACCEPT_NEXTWORD) {
+        // Alt+→: accept the next word of the ghost remainder, else forward raw.
+        const ghost = this.deps.ghost();
+        const word = ghost?.isShowing() ? ghost.acceptNextWord() : null;
+        if (word) {
+          this.deps.send(word);
+          this.shadowBuffer.appendAll(word);
+        } else {
+          this.deps.send(data);
+        }
+      } else {
+        this.deps.send(s);
+      }
+    }
+
+    for (const op of r.shadowOps) {
+      if (op.op === "append") this.shadowBuffer.append(op.ch);
+      else if (op.op === "backspace") this.shadowBuffer.backspace();
+      else if (op.op === "reset") this.reset();
+    }
+
+    if (r.markCursorMoved) this.markCursorMoved();
+    if (r.moveDropdown === "up") this.deps.dropdown()?.moveUp();
+    else if (r.moveDropdown === "down") this.deps.dropdown()?.moveDown();
+    if (r.rebuildGhost) this.syncDropdownToGhostText();
+  }
+
+  /** Clipboard paste: forward the text and mirror it into the shadow buffer. */
+  paste(text: string): void {
+    this.deps.send(text);
+    this.shadowBuffer.appendAll(text);
+  }
+
   /** Line-editing keys (arrows etc.) made the buffer untrustworthy. */
   markCursorMoved(): void {
     this.cursorMoved = true;
   }
 
   /** Reset the shadow buffer and trust state (Enter/Ctrl+C/prompt/accept). */
-  reset(): void {
+  private reset(): void {
     this.shadowBuffer.reset();
     this.cursorMoved = false;
   }
@@ -293,14 +349,8 @@ export class SuggestionController {
     const selected = dd?.getSelected();
     if (!selected) return;
     const payload = dd?.getSelectedPayload() ?? this.ghostPayloadForTop(selected, this.shadowBuffer.content);
-    const text = payload ? ghostPayloadAcceptText(payload)
-      : this.remainderFor(selected.command.name, this.shadowBuffer.content);
-    if (text) {
-      this.deps.send(text);
-      this.reset();
-    }
+    this.acceptFromDropdown(selected.command, payload);
     dd?.hide();
-    this.deps.ghost()?.hide();
   }
 
   /**
