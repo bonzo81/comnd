@@ -29,7 +29,15 @@ netssh includes built-in command knowledge for:
 3. **See suggestions** — Relevant commands appear as ghost text (like IDE autocomplete)
 4. **Accept** — Press Tab to accept a suggestion, or keep typing
 
-The suggestion engine runs locally on your machine — no cloud dependencies or AI models.
+The suggestion engine runs locally on your machine — no cloud or network dependency. Suggestions are matched against a per-device command knowledge base and never leave your computer.
+
+## Getting started
+
+Prebuilt binaries for Windows, macOS, and Linux are published as [GitHub Releases](https://github.com/bonzo81/netssh/releases). Download the latest release for your platform.
+
+> **Note:** Builds are currently **unsigned drafts** — expect SmartScreen (Windows) or Gatekeeper (macOS) warnings on first launch. See [CI/CD install notes](docs/plan-ci-cd.md) for how to proceed safely.
+
+Building from source is a developer task. See [Development setup](docs/DEVELOPMENT.md).
 
 ## Technology
 
@@ -38,7 +46,7 @@ netssh is built as a cross-platform desktop application:
 - **TypeScript frontend** — Terminal emulator and user interface
 - **YAML knowledge base** — Human-readable command definitions per device type
 
-Runs on Windows, macOS, and Linux.
+Targets Windows, macOS, and Linux.
 
 ## Documentation
 
@@ -47,10 +55,6 @@ For detailed specifications and implementation plans:
 - [Technical Architecture](docs/02-technical-architecture.md) — How SSH connections and suggestions work
 - [Knowledge Base](docs/06-knowledge-base.md) — Command definition format and structure
 - [Implementation Plan](implementation/README.md) — Development stages and progress
-
-## Current Status
-
-🟡 **Specification complete** — Development has not yet begun.
 
 ## License
 
