@@ -5,7 +5,7 @@
  * Phase 3: rows show a tokenized suffix (remaining tokens) with the current
  * token highlighted. For `choice` tokens, the dropdown can switch into a
  * "choice mode" where rows are the choice options instead of commands. See
- * docs/plan-kb-token-engine.md § 3.2.
+ * docs/plans/plan-kb-token-engine.md § 3.2.
  */
 
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";

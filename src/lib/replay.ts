@@ -1,6 +1,6 @@
 /**
  * Command Replay helpers — template substitution + rendering for {{name}}
- * variables. See docs/09-command-replay.md.
+ * variables. See docs/specs/09-command-replay.md.
  */
 
 import { ReplayVariable } from "./tauri-api";

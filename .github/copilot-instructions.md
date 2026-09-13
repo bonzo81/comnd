@@ -8,18 +8,18 @@ netssh is a cross-platform desktop SSH client with context-aware command suggest
 
 ## Architecture — Read Before Coding
 
-Full spec docs are in `docs/01` through `docs/08`. Read the relevant doc before implementing any feature:
+Full spec docs are in `docs/specs/`. Read the relevant doc before implementing any feature:
 
 | Area | Doc |
 |---|---|
-| Goals, scope, target platforms | `docs/01-overview-goals.md` |
-| SSH, keystroke flow, prompt detection | `docs/02-technical-architecture.md` |
-| UI layout, colours, typography, components | `docs/03-ui-visual-design.md` |
-| Host list, empty state, forms | `docs/04-connection-manager.md` |
-| Ghost text, dropdown, mode detection | `docs/05-suggestion-engine.md` |
-| YAML schema, version filtering, matching | `docs/06-knowledge-base.md` |
-| Shortcuts, keyboard-first design | `docs/07-keyboard-shortcuts.md` |
-| Post-MVP backlog, decision log | `docs/08-future-open-questions.md` |
+| Goals, scope, target platforms | `docs/specs/01-overview-goals.md` |
+| SSH, keystroke flow, prompt detection | `docs/specs/02-technical-architecture.md` |
+| UI layout, colours, typography, components | `docs/specs/03-ui-visual-design.md` |
+| Host list, empty state, forms | `docs/specs/04-connection-manager.md` |
+| Ghost text, dropdown, mode detection | `docs/specs/05-suggestion-engine.md` |
+| YAML schema, version filtering, matching | `docs/specs/06-knowledge-base.md` |
+| Shortcuts, keyboard-first design | `docs/specs/07-keyboard-shortcuts.md` |
+| Post-MVP backlog, decision log | `docs/specs/08-future-open-questions.md` |
 
 ## Key Architecture Decisions
 
@@ -35,7 +35,7 @@ These are non-negotiable. Don't deviate without discussion.
 
 5. **Tab is context-sensitive** — accepts ghost suggestion when one is showing; passes through to remote device when no suggestion is visible. Never intercept Tab unconditionally.
 
-6. **Keyboard-first** — the entire app must be navigable without a mouse. See `docs/07-keyboard-shortcuts.md` for the full shortcut table. `Ctrl+W` must pass through to remote (it's delete-word in shells).
+6. **Keyboard-first** — the entire app must be navigable without a mouse. See `docs/specs/07-keyboard-shortcuts.md` for the full shortcut table. `Ctrl+W` must pass through to remote (it's delete-word in shells).
 
 ## Code Style
 
@@ -63,7 +63,7 @@ These are non-negotiable. Don't deviate without discussion.
 ## Knowledge Base
 
 - YAML files in `knowledge-base/<platform>/commands/<category>.yaml`
-- Schema defined in `docs/06-knowledge-base.md` — follow it exactly
+- Schema defined in `docs/specs/06-knowledge-base.md` — follow it exactly
 - Each platform is self-contained — duplication across platforms is intentional
 - See `CONTRIBUTING.md` for the command entry format
 

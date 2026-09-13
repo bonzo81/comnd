@@ -1,7 +1,7 @@
 //! Credential resolution — the single path from a `CredentialSource` to the
 //! concrete auth inputs an SSH session needs, plus key-based keyring helpers.
 //!
-//! Phase 0 of the host-source plan (docs/plan-netbox-host-source.md §5):
+//! Phase 0 of the host-source plan (docs/plans/plan-netbox-host-source.md §5):
 //! extracted from hosts.rs so source-level defaults (e.g. NetBox) can reuse
 //! the same resolution with a different keyring key. Types are re-exported
 //! from hosts.rs so existing `hosts::...` paths keep compiling.

@@ -2,7 +2,7 @@
  * Per-platform highlighting rules for terminal output.
  *
  * Derived from a real-world MobaXterm custom syntax config (Cisco rules)
- * plus common network/Unix patterns. See docs/plan-terminal-output-highlighting.md.
+ * plus common network/Unix patterns. See docs/plans/plan-terminal-output-highlighting.md.
  *
  * Rules are deliberately conservative — high signal, low false-positive.
  * Boundary convention: MobaXterm-style `[^A-Za-z0-9]` char classes (more

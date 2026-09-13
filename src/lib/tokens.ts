@@ -1,7 +1,7 @@
 /**
  * Tokens — the single home for KB token type guards and token→HTML
  * rendering. Consumed by the suggestion engine, the dropdown, and the
- * terminal sidebar. See docs/plan-kb-schema-deepening.md.
+ * terminal sidebar. See docs/plans/plan-kb-schema-deepening.md.
  */
 
 import type { CommandToken, VarType, VarSource, PipeFilter } from "./tauri-api";

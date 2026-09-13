@@ -35,7 +35,7 @@ The suggestion engine runs locally on your machine — no cloud or network depen
 
 Prebuilt binaries for Windows, macOS, and Linux are published as [GitHub Releases](https://github.com/bonzo81/netssh/releases). Download the latest release for your platform.
 
-> **Note:** Builds are currently **unsigned drafts** — expect SmartScreen (Windows) or Gatekeeper (macOS) warnings on first launch. See [CI/CD install notes](docs/plan-ci-cd.md) for how to proceed safely.
+> **Note:** Builds are currently **unsigned drafts** — expect SmartScreen (Windows) or Gatekeeper (macOS) warnings on first launch. See [CI/CD install notes](docs/plans/plan-ci-cd.md) for how to proceed safely.
 
 Building from source is a developer task. See [Development setup](docs/DEVELOPMENT.md).
 
@@ -51,10 +51,9 @@ Targets Windows, macOS, and Linux.
 ## Documentation
 
 For detailed specifications and implementation plans:
-- [Overview & Goals](docs/01-overview-goals.md) — What netssh aims to achieve
-- [Technical Architecture](docs/02-technical-architecture.md) — How SSH connections and suggestions work
-- [Knowledge Base](docs/06-knowledge-base.md) — Command definition format and structure
-- [Implementation Plan](implementation/README.md) — Development stages and progress
+- [Overview & Goals](docs/specs/01-overview-goals.md) — What netssh aims to achieve
+- [Technical Architecture](docs/specs/02-technical-architecture.md) — How SSH connections and suggestions work
+- [Knowledge Base](docs/specs/06-knowledge-base.md) — Command definition format and structure
 
 ## License
 

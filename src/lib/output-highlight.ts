@@ -3,7 +3,7 @@
  * tabs via window CustomEvent. Follows the established pattern of the
  * timestamps, suggestions, and auto-copy toggles.
  *
- * See docs/plan-terminal-output-highlighting.md.
+ * See docs/plans/plan-terminal-output-highlighting.md.
  */
 
 const STORAGE_KEY = "netssh-output-highlight";

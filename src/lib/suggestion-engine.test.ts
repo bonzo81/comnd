@@ -1,6 +1,6 @@
 /**
  * Unit tests for the token-aware suggestion engine.
- * See docs/plan-kb-token-engine.md § 2.5.
+ * See docs/plans/plan-kb-token-engine.md § 2.5.
  */
 
 import { describe, expect, it } from "vitest";

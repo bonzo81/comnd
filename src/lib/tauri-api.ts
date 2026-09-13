@@ -586,7 +586,7 @@ export async function getDisabledCommands(platform: string): Promise<string[]> {
   return invoke<string[]>("get_disabled_commands", { platform });
 }
 
-// ─── Command Replay (docs/09-command-replay.md) ──────────────────────
+// ─── Command Replay (docs/specs/09-command-replay.md) ──────────────────────
 
 export interface ReplayVariable {
   name: string;

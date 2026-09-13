@@ -6,7 +6,7 @@
  * codes, not CSS variables. Chosen for contrast on both dark (#0F172A) and
  * light (#F8FAFC) terminal themes.
  *
- * See docs/plan-terminal-output-highlighting.md.
+ * See docs/plans/plan-terminal-output-highlighting.md.
  */
 
 export type AnsiColor =

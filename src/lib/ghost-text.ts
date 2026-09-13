@@ -5,7 +5,7 @@
  * Phase 3: token-aware payload. `literal`/`choice` are completable (Tab
  * accepts); `variable` is a placeholder hint (Tab passes through). Legacy
  * `text` (name remainder) stays completable.
- * See docs/plan-kb-token-engine.md § 3.1.
+ * See docs/plans/plan-kb-token-engine.md § 3.1.
  */
 
 import { Terminal } from "@xterm/xterm";

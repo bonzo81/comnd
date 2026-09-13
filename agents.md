@@ -16,18 +16,18 @@ Read these docs before implementing anything in their domain:
 
 | Domain | Doc |
 |---|---|
-| Goals, scope, target platforms | `docs/01-overview-goals.md` |
-| SSH, keystroke flow, prompt detection | `docs/02-technical-architecture.md` |
-| UI layout, colors, typography, components | `docs/03-ui-visual-design.md` |
-| Host list, empty state, forms | `docs/04-connection-manager.md` |
-| Ghost text, dropdown, mode detection | `docs/05-suggestion-engine.md` |
-| YAML schema, version filtering, matching | `docs/06-knowledge-base.md` |
-| Shortcuts, keyboard-first design | `docs/07-keyboard-shortcuts.md` |
-| Post-MVP backlog, decision log | `docs/08-future-open-questions.md` |
-| Command Replay (user-saved commands, variables, playback) | `docs/09-command-replay.md` |
+| Goals, scope, target platforms | `docs/specs/01-overview-goals.md` |
+| SSH, keystroke flow, prompt detection | `docs/specs/02-technical-architecture.md` |
+| UI layout, colors, typography, components | `docs/specs/03-ui-visual-design.md` |
+| Host list, empty state, forms | `docs/specs/04-connection-manager.md` |
+| Ghost text, dropdown, mode detection | `docs/specs/05-suggestion-engine.md` |
+| YAML schema, version filtering, matching | `docs/specs/06-knowledge-base.md` |
+| Shortcuts, keyboard-first design | `docs/specs/07-keyboard-shortcuts.md` |
+| Post-MVP backlog, decision log | `docs/specs/08-future-open-questions.md` |
+| Command Replay (user-saved commands, variables, playback) | `docs/specs/09-command-replay.md` |
 | Accessibility conformance target (WCAG 2.1 AA) | `docs/accessibility.md` |
 
-Implementation plans live in `docs/plan-*.md` and `docs/*-plan-*.md`. The roadmap is `docs/roadmap.md`. Read the plan document for a feature before you build it.
+Implementation plans live in `docs/plans/`. Read the plan document for a feature before you build it.
 
 ## Non-Negotiable Architecture Rules
 
@@ -76,7 +76,7 @@ Implementation plans live in `docs/plan-*.md` and `docs/*-plan-*.md`. The roadma
 ## Knowledge Base
 
 - YAML files in `knowledge-base/<platform>/commands/<category>.yaml`
-- Schema defined in `docs/06-knowledge-base.md`
+- Schema defined in `docs/specs/06-knowledge-base.md`
 - Each platform is self-contained, because platforms name commands differently. Duplication across platforms is intentional.
 
 ## What NOT To Do

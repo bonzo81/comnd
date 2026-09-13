@@ -3,7 +3,7 @@
  *
  * Merges PromptDetector (prompt regex, mode, passthrough) and EchoLineTracker
  * (char-walk line reconstruction, prompt learning) into one char walk and one
- * stripAnsi call per chunk. See docs/plan-line-tracker.md.
+ * stripAnsi call per chunk. See docs/plans/plan-line-tracker.md.
  */
 
 import { stripAnsi } from "./ansi";

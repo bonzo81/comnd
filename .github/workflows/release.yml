@@ -59,7 +59,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'netssh v__VERSION__'
-          releaseBody: 'Unsigned build — SmartScreen/Gatekeeper warnings are expected. See docs/plan-ci-cd.md for install notes.'
+          releaseBody: 'Unsigned build — SmartScreen/Gatekeeper warnings are expected. See docs/plans/plan-ci-cd.md for install notes.'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

@@ -399,7 +399,7 @@ pub async fn extract_from_text(
 /// commands to YAML and trigger a reload. Does not re-extract.
 ///
 /// Invariant: LLM import writes ONLY to the custom (user) KB — never the
-/// bundled KB; see docs/10-custom-knowledge-base.md.
+/// bundled KB; see docs/specs/10-custom-knowledge-base.md.
 pub async fn commit_import(
     commands: Vec<Command>,
     bundled_kb_path: &PathBuf,

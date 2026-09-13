@@ -1247,7 +1247,7 @@ export class TerminalView {
     content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
   }
 
-  // ─── Command Replay panel (docs/09-command-replay.md) ────────────
+  // ─── Command Replay panel (docs/specs/09-command-replay.md) ────────────
 
   private initSidebarToggle() {
     const kbBtn = this.$(".sb-toggle-kb");

@@ -1,6 +1,6 @@
 //! Command Replay — user-saved commands with named variables.
 //! JSON file in the app data dir (`replay.json`), one command template per
-//! entry with `{{name}}` markers. See docs/09-command-replay.md.
+//! entry with `{{name}}` markers. See docs/specs/09-command-replay.md.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

@@ -1,5 +1,5 @@
 /**
- * Replay Save Dialog — save a command to Command Replay (docs/09-command-replay.md).
+ * Replay Save Dialog — save a command to Command Replay (docs/specs/09-command-replay.md).
  *
  * Single modal: type/edit the command, see it live in the preview, select a
  * span of the preview and click "Mark as variable" to turn it into a {{name}}

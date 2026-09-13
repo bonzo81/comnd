@@ -5,7 +5,7 @@
  * Phase 2: token-aware positional matching. Commands with `tokens` use
  * `matchTokens` (knows the user's position within the command's syntax).
  * Commands without `tokens` fall back to legacy `name.startsWith` matching.
- * See docs/plan-kb-token-engine.md § 2.
+ * See docs/plans/plan-kb-token-engine.md § 2.
  */
 
 import type { Command, CommandToken, CommandOrder } from "./tauri-api";
@@ -46,7 +46,7 @@ import type { GhostPayload } from "./ghost-text";
 /**
  * Derive the ghost-text payload for a token match. Returns null if the
  * current position has nothing to render (e.g. input past all tokens).
- * See docs/plan-kb-token-engine.md § 3.3.
+ * See docs/plans/plan-kb-token-engine.md § 3.3.
  */
 export function ghostPayloadFor(tm: TokenMatch, cmd: Command): GhostPayload | null {
   const toks = cmd.tokens;

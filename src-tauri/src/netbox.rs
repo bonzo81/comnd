@@ -1,5 +1,5 @@
 //! NetBox host source — REST client, device parsing, platform mapping,
-//! and the local device cache (Phase 1 of docs/plan-netbox-host-source.md).
+//! and the local device cache (Phase 1 of docs/plans/plan-netbox-host-source.md).
 //!
 //! The cache is the only local storage: `netbox-cache.json` in the app data
 //! dir, written with `secure_write`, loaded with `preserve_corrupt` fallback.

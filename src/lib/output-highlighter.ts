@@ -12,7 +12,7 @@
  *
  * This module is purely the transform. It does NOT decide WHEN to run.
  *
- * See docs/plan-terminal-output-highlighting.md.
+ * See docs/plans/plan-terminal-output-highlighting.md.
  */
 
 import { HIGHLIGHT_RULES, HighlightRule } from "./highlight-rules";

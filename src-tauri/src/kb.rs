@@ -22,7 +22,7 @@ pub struct PlatformIndex {
     #[serde(default)]
     pub negation_prefix: Option<String>,
     /// Commands that may precede other commands (e.g. linux `sudo`, F5 bash
-    /// `tmsh`). Keyed by prefix word. See docs/06-knowledge-base.md § Prefix Commands.
+    /// `tmsh`). Keyed by prefix word. See docs/specs/06-knowledge-base.md § Prefix Commands.
     #[serde(default)]
     pub prefix_commands: HashMap<String, PrefixCommand>,
 }
@@ -58,7 +58,7 @@ pub struct Command {
     pub order: CommandOrder,
     #[serde(default)]
     pub negatable: bool,
-    /// Provenance (docs/10-custom-knowledge-base.md): Some("custom") when the
+    /// Provenance (docs/specs/10-custom-knowledge-base.md): Some("custom") when the
     /// command came from the user KB layer; None (bundled). Merge-generated,
     /// never authored — stripped from YAML writes in `serialize_commands`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -83,7 +83,7 @@ pub struct CommandVersions {
 }
 
 // ─── Token schema (machine-readable syntax) ─────────────────────────
-// See docs/06-knowledge-base.md § Token Schema. Optional; legacy commands
+// See docs/specs/06-knowledge-base.md § Token Schema. Optional; legacy commands
 // without `tokens` fall back to name/alias prefix matching.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,7 +173,7 @@ pub struct PipeFilter {
 fn default_true() -> bool { true }
 
 // ─── Token validation ────────────────────────────────────────────────
-// See docs/plan-kb-token-engine.md § 1.1. Validator returns a list of
+// See docs/plans/plan-kb-token-engine.md § 1.1. Validator returns a list of
 // human-readable issues per command; the loader logs warnings and surfaces
 // them to the UI via the `validate_kb` Tauri command (Phase 5).
 
@@ -409,7 +409,7 @@ impl KbStore {
         commands.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         // Validate tokens — log warnings, never fail the load (a single typo
-        // should not brick the app). See docs/plan-kb-token-engine.md § 1.1.
+        // should not brick the app). See docs/plans/plan-kb-token-engine.md § 1.1.
         let issues = validate_platform(&commands);
         let errors = issues.iter().filter(|i| i.severity == "error").count();
         let warnings = issues.len() - errors;
@@ -431,7 +431,7 @@ impl KbStore {
 
     /// Merge commands from another store into this one.
     /// User commands win: a user command fully replaces the bundled command
-    /// with the same name (docs/10-custom-knowledge-base.md § Part 1) and is
+    /// with the same name (docs/specs/10-custom-knowledge-base.md § Part 1) and is
     /// stamped `source: "custom"` + `overrides: true`. User-only names are
     /// added with `source: "custom"`, `overrides: false`.
     pub fn merge_from(&mut self, other: KbStore) {
@@ -525,7 +525,7 @@ impl KbManager {
     /// Get or load a platform's KB store.
     /// Loads from bundled KB, then merges the user KB on top (user wins).
     /// Platforms that exist only in the user KB (custom platforms,
-    /// docs/10-custom-knowledge-base.md § Part 5) load directly from the
+    /// docs/specs/10-custom-knowledge-base.md § Part 5) load directly from the
     /// user path with no merge.
     pub fn get_or_load(&mut self, platform_id: &str) -> Result<&KbStore, String> {
         if !self.stores.contains_key(platform_id) {
@@ -783,7 +783,7 @@ fn write_disabled_list(disabled_path: &Path, names: &HashSet<String>) -> Result<
 
 /// Serialize commands under a top-level `commands:` key.
 /// Strips merge-generated provenance (`source`/`overrides`) — they are
-/// computed at load, never authored (docs/10-custom-knowledge-base.md § 1.3).
+/// computed at load, never authored (docs/specs/10-custom-knowledge-base.md § 1.3).
 fn serialize_commands(commands: &[Command]) -> Result<String, String> {
     use serde_yml::Value;
     let cleaned: Vec<Command> = commands
@@ -817,7 +817,7 @@ pub fn valid_kb_slug(s: &str) -> bool {
 ///
 /// Invariant: this always resolves inside the user (custom) KB path. LLM
 /// import writes ONLY to the custom (user) KB — never the bundled KB; see
-/// docs/10-custom-knowledge-base.md.
+/// docs/specs/10-custom-knowledge-base.md.
 pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> Result<PathBuf, String> {
     if !valid_kb_slug(platform) {
         return Err(format!("Invalid platform id '{}'", platform));
@@ -958,7 +958,7 @@ pub fn upsert_command(
 
 /// Delete a single command from the user KB path by name.
 ///
-/// Class-aware semantics (docs/10-custom-knowledge-base.md):
+/// Class-aware semantics (docs/specs/10-custom-knowledge-base.md):
 /// - `overrides == true` (user override of a bundled command): remove the user
 ///   copy AND un-tombstone the name so the built-in version reappears.
 /// - `overrides == false` with a user copy present (user-only custom command):
@@ -1938,7 +1938,7 @@ mod tests {
         std::fs::remove_dir_all(&base).ok();
     }
 
-    // ─── Delete / disable / enable (docs/plan-kb-ignore-disable.md) ──────
+    // ─── Delete / disable / enable (docs/plans/plan-kb-ignore-disable.md) ──────
 
     const INDEX_YAML: &str = "id: test-plat\nname: Test\ndescription: \"\"\nreference_url: \"\"\nversions: []\nprompt_patterns: {}\ndefault_mode: default\n";
 

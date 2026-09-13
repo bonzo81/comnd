@@ -2,7 +2,7 @@
  * Validation Cache — KbValidationIssue[] for the current platform, fetched
  * via the `validate_kb` IPC once at KB load. Rust kb.rs is the single
  * validator; this replaces the old kb-validator.ts mirror. See
- * docs/plan-kb-schema-deepening.md.
+ * docs/plans/plan-kb-schema-deepening.md.
  */
 
 import { validateKb, KbValidationIssue } from "./tauri-api";
