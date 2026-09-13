@@ -18,8 +18,8 @@ Item IDs continue from Phase 1 for traceability (e.g. P2.2 here is the same item
 
 ### P0.2a — CI/CD pipeline: test gate + unsigned builds
 
-- [ ] GitHub Actions workflow: `cargo test` + `cargo check` + `npm run build` on every PR
-- [ ] Matrix build on tag push: windows-latest, macos-latest, ubuntu-latest → unsigned artifacts for internal / beta distribution
+- [x] GitHub Actions workflow: `cargo test` + `cargo check` + `npm run build` on every PR
+- [x] Matrix build on tag push: windows-latest, macos-latest (aarch64 + x86_64), ubuntu-22.04 → unsigned artifacts for internal / beta distribution
 - [ ] Optional: nightly build from `main`
 
 **Why:** Every release is currently hand-built on one machine. No automated test gate. This half of the pipeline needs no signing — it's pure quality + reproducibility. The signed-artifact-upload half is P0.2b in Phase 2B.
