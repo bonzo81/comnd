@@ -13,7 +13,7 @@ import {
   saveHost,
   deleteHost,
   saveCredential,
-  getCredential,
+  hasCredential,
   getHostGroups,
   agentListIdentities,
   listProviders,
@@ -627,8 +627,7 @@ export class HostScreen {
       this.editingHost = this.hosts.find((h) => h.id === editId) ?? null;
       if (this.editingHost) {
         try {
-          const cred = await getCredential(this.editingHost.id);
-          this.editingHasCredential = cred != null && cred.length > 0;
+          this.editingHasCredential = await hasCredential(this.editingHost.id);
         } catch {
           this.editingHasCredential = false;
         }

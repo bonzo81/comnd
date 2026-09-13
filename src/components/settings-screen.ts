@@ -354,6 +354,7 @@ export class SettingsScreen {
           <span>
             Log SSH session output to file
             <span class="import-hint">Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.</span>
+            <span class="import-hint">Warning: logs capture everything on screen and everything you type, including passwords (enable, sudo). Keep the log directory private.</span>
           </span>
         </label>
         <label class="settings-toggle">

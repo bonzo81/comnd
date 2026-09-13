@@ -24,6 +24,7 @@ export type SessionEvent =
   | { type: "connect-failed"; reason: string }
   | { type: "error"; reason: string }
   | { type: "tofu"; reason: string }
+  | { type: "tofu-pending"; hostKey: string; fingerprint: string; keyType: string }
   | { type: "auth-url"; url: string };
 
 /** Abstraction over the SSH IPC + event stream. Prod = Tauri; tests = in-memory. */
@@ -188,6 +189,14 @@ export class SessionChannel {
         const p = raw as { reason: string; session_id: number };
         if (!shouldAcceptEvent(p.session_id, sid)) return;
         this.emit({ type: "tofu", reason: p.reason });
+      }),
+    );
+
+    this.unlisteners.push(
+      await this.transport.listen("ssh-tofu-pending", (raw) => {
+        const p = raw as { host_key: string; fingerprint: string; key_type: string; session_id: number };
+        if (!shouldAcceptEvent(p.session_id, sid)) return;
+        this.emit({ type: "tofu-pending", hostKey: p.host_key, fingerprint: p.fingerprint, keyType: p.key_type });
       }),
     );
 

@@ -194,10 +194,10 @@ export async function saveCredential(
   return invoke<void>("save_credential", { hostId, password });
 }
 
-export async function getCredential(
+export async function hasCredential(
   hostId: string,
-): Promise<string | null> {
-  return invoke<string | null>("get_credential", { hostId });
+): Promise<boolean> {
+  return invoke<boolean>("has_credential", { hostId });
 }
 
 // ─── Secret Provider Commands (chunks 6–7) ─────────────────────────
@@ -300,6 +300,11 @@ export async function sshDisconnect(sessionId: number): Promise<void> {
 
 export async function sshResize(sessionId: number, cols: number, rows: number): Promise<void> {
   return invoke<void>("ssh_resize", { sessionId, cols, rows });
+}
+
+/** Answer a pending first-seen host-key (TOFU) confirmation dialog. */
+export async function tofuRespond(sessionId: number, accept: boolean): Promise<void> {
+  return invoke<void>("tofu_respond", { sessionId, accept });
 }
 
 export async function openUrl(url: string): Promise<void> {

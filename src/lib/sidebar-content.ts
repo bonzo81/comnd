@@ -61,8 +61,9 @@ export class SidebarContent {
   }
 
   private formatSyntax(syntax: string): string {
-    // Colour-code: <required> in accent, [optional] in muted, keywords in primary
-    return syntax
+    // Escape first — syntax can originate from LLM-imported KB content.
+    // The span-wrapping regexes then match the escaped entities, not raw HTML.
+    return escHtml(syntax)
       .replace(/(<[^>]+>)/g, '<span class="syntax-required">$1</span>')
       .replace(/(\[[^\]]+\])/g, '<span class="syntax-optional">$1</span>');
   }

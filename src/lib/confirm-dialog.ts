@@ -12,9 +12,12 @@ export interface ConfirmOptions {
   /** Red confirm-button styling. */
   destructive?: boolean;
   onConfirm: () => void;
+  /** Called when dismissed without confirming (cancel/Esc/backdrop). */
+  onCancel?: () => void;
 }
 
-export function confirmDialog(opts: ConfirmOptions): void {
+/** Returns a close function for callers that must force-teardown the dialog. */
+export function confirmDialog(opts: ConfirmOptions): () => void {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
@@ -41,18 +44,26 @@ export function confirmDialog(opts: ConfirmOptions): void {
       e.preventDefault();
       e.stopPropagation(); // keep Escape away from xterm cascade
       cleanup();
+      opts.onCancel?.();
     }
   };
   window.addEventListener("keydown", onKey, true);
 
   backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) cleanup();
+    if (e.target === backdrop) {
+      cleanup();
+      opts.onCancel?.();
+    }
   });
-  cancelBtn.addEventListener("click", cleanup);
+  cancelBtn.addEventListener("click", () => {
+    cleanup();
+    opts.onCancel?.();
+  });
   okBtn.addEventListener("click", () => {
     cleanup();
     opts.onConfirm();
   });
 
   okBtn.focus();
+  return cleanup;
 }

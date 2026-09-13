@@ -10,7 +10,8 @@
 
 import { KbViewerDialog } from "./kb-viewer-dialog";
 import { KbImportDialog } from "./kb-import-dialog";
-import { Command, listKbPlatforms } from "../lib/tauri-api";
+  import { Command, listKbPlatforms } from "../lib/tauri-api";
+  import { escAttr, escHtml } from "../lib/format";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export class KbScreen {
     const select = this.container?.querySelector<HTMLSelectElement>("#kb-platform-filter-select");
     if (!select) return;
     select.innerHTML = this.platforms
-      .map((p) => `<option value="${p}" ${p === this.selectedPlatform ? "selected" : ""}>${p}</option>`)
+      .map((p) => `<option value="${escAttr(p)}" ${p === this.selectedPlatform ? "selected" : ""}>${escHtml(p)}</option>`)
       .join("");
     select.addEventListener("change", () => {
       this.selectPlatform(select.value);

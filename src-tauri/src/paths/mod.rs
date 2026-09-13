@@ -308,6 +308,23 @@ pub fn apply_merge(
     temp_dir: &Path,
     resolutions: &std::collections::HashMap<String, ConflictResolution>,
 ) -> Result<String, String> {
+    // temp_dir arrives over IPC — only accept a path that actually sits
+    // inside the OS temp dir (canonicalized, so `..` and symlinks resolve
+    // before the ancestry check). Otherwise a crafted IPC call could merge
+    // data from (or delete via cleanup) any directory it names.
+    let canon = temp_dir
+        .canonicalize()
+        .map_err(|_| "Merge staging directory not found".to_string())?;
+    let temp_base = std::env::temp_dir()
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve temp dir: {}", e))?;
+    if !canon.starts_with(&temp_base) {
+        return Err(format!(
+            "Rejecting merge from outside the temp directory: {}",
+            canon.display()
+        ));
+    }
+
     let data_dir = app_data_dir()?;
 
     // Back up current data first.
@@ -399,6 +416,38 @@ pub fn apply_merge(
 
 // ─── Merge helpers ───────────────────────────────────────────────────
 
+/// Total uncompressed bytes a single import zip may extract. netssh backups
+/// (hosts/config/KB YAML) are a few MB — 512 MB leaves huge headroom while
+/// stopping zip bombs from filling the disk.
+const MAX_IMPORT_UNCOMPRESSED: u64 = 512 * 1024 * 1024;
+
+/// Copy with a hard byte cap. Returns the total written so far; errors when
+/// the running total exceeds `cap` (zip bomb guard).
+fn copy_capped<R: std::io::Read, W: std::io::Write>(
+    mut src: R,
+    mut dest: W,
+    total: &mut u64,
+    cap: u64,
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = src
+            .read(&mut buf)
+            .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+        if n == 0 {
+            return Ok(());
+        }
+        *total += n as u64;
+        if *total > cap {
+            return Err("Import file exceeds the 512 MB extraction limit".to_string());
+        }
+        dest
+            .write_all(&buf[..n])
+            .map_err(|e| format!("Failed to extract zip entry: {}", e))?;
+    }
+}
+
 /// Extract a zip to a temp dir and return the path. Shared by scan and apply.
 fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
     let file = std::fs::File::open(src)
@@ -411,6 +460,7 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
         chrono::Utc::now().format("%Y%m%dT%H%M%S%3f")
     ));
     ensure_data_dir(&temp_dir)?;
+    let mut total: u64 = 0;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
@@ -424,12 +474,14 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
         } else {
             if let Some(parent) = outpath.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+                    .map_err(|e| format!("Failed to create parent dir: {}: {}", parent.display(), e))?;
             }
             let mut outfile = std::fs::File::create(&outpath)
                 .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
-            std::io::copy(&mut entry, &mut outfile)
-                .map_err(|e| format!("Failed to extract {}: {}", outpath.display(), e))?;
+            if let Err(e) = copy_capped(&mut entry, &mut outfile, &mut total, MAX_IMPORT_UNCOMPRESSED) {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return Err(e);
+            }
         }
     }
     Ok(temp_dir)
@@ -705,6 +757,7 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     // Extract to a temp dir first — validate before replacing live data.
     let temp_dir = std::env::temp_dir().join(format!("netssh-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
     ensure_data_dir(&temp_dir)?;
+    let mut total: u64 = 0;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
@@ -718,12 +771,14 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
         } else {
             if let Some(parent) = outpath.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+                    .map_err(|e| format!("Failed to create parent dir: {}: {}", parent.display(), e))?;
             }
             let mut outfile = std::fs::File::create(&outpath)
                 .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
-            std::io::copy(&mut entry, &mut outfile)
-                .map_err(|e| format!("Failed to extract {}: {}", outpath.display(), e))?;
+            if let Err(e) = copy_capped(&mut entry, &mut outfile, &mut total, MAX_IMPORT_UNCOMPRESSED) {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return Err(e);
+            }
         }
     }
 
@@ -903,5 +958,19 @@ mod tests {
         atomic_write(&path, b"v2-longer").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"v2-longer");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_apply_merge_rejects_paths_outside_temp() {
+        let res = apply_merge(std::path::Path::new("/"), &std::collections::HashMap::new());
+        assert!(res.is_err(), "apply_merge must reject staging dirs outside the OS temp dir");
+    }
+
+    #[test]
+    fn test_copy_capped_errors_past_cap() {
+        let mut total = 0u64;
+        let data = vec![0u8; 100];
+        let err = copy_capped(&data[..], std::io::sink(), &mut total, 50).unwrap_err();
+        assert!(err.contains("limit"), "got: {err}");
     }
 }

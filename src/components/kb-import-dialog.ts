@@ -262,7 +262,7 @@ export class KbImportDialog {
           <div class="import-field">
             <label for="import-platform">Platform</label>
             <select class="form-input" id="import-platform" ${isImporting ? 'disabled' : ''}>
-              ${this.platformOptions.map(p => `<option value="${p.value}">${escHtml(p.label)}</option>`).join("")}
+              ${this.platformOptions.map(p => `<option value="${escAttr(p.value)}">${escHtml(p.label)}</option>`).join("")}
               <optgroup label="Custom">
                 <option value="${NEW_PLATFORM}">New platform…</option>
               </optgroup>
@@ -720,7 +720,7 @@ export class KbImportDialog {
     }
     let category = categorySelect?.value ?? "networking";
     if (category === OTHER_CATEGORY) {
-      category = (document.getElementById("import-category-custom") as HTMLInputElement)?.value.trim() ?? "";
+      category = slugify((document.getElementById("import-category-custom") as HTMLInputElement)?.value ?? "");
       if (!category) {
         showToast("Enter a category name", "error");
         return;

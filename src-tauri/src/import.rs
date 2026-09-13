@@ -195,7 +195,7 @@ pub async fn import_from_url(
 
     let result = ImportResult {
         commands_imported: preview.previews.len(),
-        target_file: get_target_yaml_path(user_kb_path, &request.platform, &request.category)
+        target_file: get_target_yaml_path(user_kb_path, &request.platform, &request.category)?
             .display().to_string(),
         platform: request.platform.clone(),
         category: request.category.clone(),
@@ -423,7 +423,7 @@ pub async fn commit_import(
 
     let mut primary_target = None;
     for (cat, cmds) in &by_category {
-        let target_file = get_target_yaml_path(user_kb_path, platform, cat);
+        let target_file = get_target_yaml_path(user_kb_path, platform, cat)?;
         if primary_target.is_none() {
             primary_target = Some(target_file.clone());
         }
@@ -452,9 +452,12 @@ pub async fn commit_import(
 
 // ─── URL Fetching ───────────────────────────────────────────────────
 
-/// Validate a fetch URL: HTTPS only, no private/loopback IP literals.
-/// ponytail: hostnames are not DNS-resolved, so a public name pointing at a
-/// private IP still passes. Add lookup + IP check if SSRF becomes a real vector.
+/// Validate a fetch URL: HTTPS only, no private/loopback IP literals
+/// (v4 and v6, including ULA, link-local, and IPv4-mapped addresses).
+/// ponytail: hostnames are still not DNS-resolved and redirects are followed
+/// by reqwest, so a public name resolving to (or redirecting to) a private
+/// IP passes. Accepted risk: the URL is user-supplied and the response only
+/// feeds the LLM. Add post-redirect IP re-checks if SSRF becomes a real vector.
 fn validate_fetch_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url)
         .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
@@ -462,14 +465,30 @@ fn validate_fetch_url(url: &str) -> Result<(), String> {
         return Err(format!("Only HTTPS URLs are allowed (got '{}')", parsed.scheme()));
     }
     if let Some(host) = parsed.host_str() {
-        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        // IPv6 hosts serialize as "[...]" — strip the brackets before parsing.
+        let bare = host.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
             let disallowed = match ip {
                 std::net::IpAddr::V4(v4) => {
                     v4.is_loopback() || v4.is_private() || v4.is_link_local()
                         || v4.is_unspecified() || v4.is_broadcast()
                 }
-                // ponytail: stdlib has no v6 ULA (fc00::/7) check; add if IPv6 SSRF matters
-                std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+                std::net::IpAddr::V6(v6) => {
+                    // ULA fc00::/7 and link-local fe80::/10 — std has no
+                    // stable predicates for these, so bit-check the segments.
+                    let s = v6.segments();
+                    let ula = (s[0] & 0xfe00) == 0xfc00;
+                    let link_local = (s[0] & 0xffc0) == 0xfe80;
+                    // IPv4-mapped (::ffff:a.b.c.d) must face the same v4 checks.
+                    let mapped_private = v6
+                        .to_ipv4_mapped()
+                        .map(|v4| {
+                            v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                                || v4.is_unspecified() || v4.is_broadcast()
+                        })
+                        .unwrap_or(false);
+                    v6.is_loopback() || v6.is_unspecified() || ula || link_local || mapped_private
+                }
             };
             if disallowed {
                 return Err(format!("URL host '{}' is not a public address", host));
@@ -1180,6 +1199,13 @@ mod tests {
         assert!(validate_fetch_url("https://127.0.0.1/").is_err());
         assert!(validate_fetch_url("https://169.254.1.1/").is_err());
         assert!(validate_fetch_url("https://0.0.0.0/").is_err());
+
+        // IPv6: ULA, link-local, loopback, mapped-v4 rejected; public v6 ok
+        assert!(validate_fetch_url("https://[fd12:3456::1]/").is_err());
+        assert!(validate_fetch_url("https://[fe80::1]/").is_err());
+        assert!(validate_fetch_url("https://[::1]/").is_err());
+        assert!(validate_fetch_url("https://[::ffff:10.0.0.1]/").is_err());
+        assert!(validate_fetch_url("https://[2606:4700::1111]/").is_ok());
         // rejects invalid URLs
         assert!(validate_fetch_url("not a url").is_err());
         assert!(validate_fetch_url("").is_err());

@@ -416,9 +416,11 @@ pub async fn save_credential(host_id: String, password: String) -> Result<(), St
     credentials::save_secret(&credentials::host_key(&host_id), &password)
 }
 
+/// Whether a saved password exists for the host. Never returns the
+/// password itself — secrets must not enter the webview.
 #[tauri::command]
-pub async fn get_credential(host_id: String) -> Result<Option<String>, String> {
-    credentials::get_secret(&credentials::host_key(&host_id))
+pub async fn has_credential(host_id: String) -> Result<bool, String> {
+    Ok(credentials::get_secret(&credentials::host_key(&host_id))?.is_some())
 }
 
 #[tauri::command]

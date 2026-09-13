@@ -3,7 +3,7 @@
 //! One file per session: `<data_dir>/session-logs/<host>_<timestamp>_<session_id>.log`
 //! Format: header line + `[YYYY-MM-DD HH:MM:SS]` per write chunk (optional) + raw bytes.
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
@@ -43,12 +43,20 @@ impl SessionLog {
     pub fn write(&mut self, data: &[u8]) {
         if self.writer.is_none() {
             let dir = self.file_path.parent().unwrap();
-            if fs::create_dir_all(dir).is_err() {
+            if crate::paths::ensure_data_dir(dir).is_err() {
                 log::warn!("session-log: failed to create dir {}", dir.display());
                 return;
             }
             match File::create(&self.file_path) {
                 Ok(f) => {
+                    // Session logs contain typed passwords (enable/sudo prompts) —
+                    // lock perms on unix, mirroring open_log_file in lib.rs.
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(&self.file_path, std::fs::Permissions::from_mode(0o600));
+                        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+                    }
                     let mut w = BufWriter::new(f);
                     use std::io::Write;
                     let header = format!(
@@ -112,6 +120,7 @@ fn sanitize_filename(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_sanitize_filename() {

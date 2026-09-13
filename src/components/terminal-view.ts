@@ -37,6 +37,8 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
+import { confirmDialog } from "../lib/confirm-dialog";
+import { tofuRespond } from "../lib/tauri-api";
 import { icons } from "../lib/icons";
 import {
   getTimestampsEnabled,
@@ -154,6 +156,8 @@ export class TerminalView {
   private autoCopyChangeHandler: (() => void) | null = null;
   private outputHighlighter: OutputHighlighter | null = null;
   private highlightChangeHandler: (() => void) | null = null;
+  /** Teardown for an open first-connect host-key (TOFU) confirm dialog. */
+  private tofuDialogClose: (() => void) | null = null;
 
   // Right-click context menu (terminal area)
   private ctxMenuEl: HTMLDivElement | null = null;
@@ -873,20 +877,44 @@ export class TerminalView {
         break;
       }
 
+      case "tofu-pending": {
+        // First-seen host key — OpenSSH-style verification before the
+        // handshake proceeds. Cancel/Esc/backdrop = reject (safe default).
+        const sid = this.channel.sessionId;
+        if (sid == null) break;
+        const stageEl = this.$(".tv-overlay-stage");
+        if (stageEl) stageEl.textContent = "Verifying host key…";
+        this.tofuDialogClose = confirmDialog({
+          title: "Unknown host key",
+          message: `The server <code>${escHtml(e.hostKey)}</code> is not known yet.<br/>` +
+            `Key type: <code>${escHtml(e.keyType)}</code><br/>` +
+            `Fingerprint: <code>${escHtml(e.fingerprint)}</code><br/><br/>` +
+            `Compare this against the fingerprint you expect (e.g. from <code>ssh-keyscan</code> ` +
+            `or the device admin). Accept only if it matches.`,
+          confirmLabel: "Accept and save",
+          onConfirm: () => { void tofuRespond(sid, true); },
+          onCancel: () => { void tofuRespond(sid, false); },
+        });
+        break;
+      }
+
       case "auth-url": {
         const url = e.url;
-        log.info(LogTag.Terminal, `Auth URL opened in browser: ${url}`);
+        log.info(LogTag.Terminal, `Auth URL surfaced (user opens): ${url}`);
         // Update overlay stage text
         const stageEl = this.$(".tv-overlay-stage");
         if (stageEl) {
-          stageEl.textContent = `Authentication required — opened ${url} in browser`;
+          stageEl.textContent = "Authentication required — open the login URL to continue";
         }
-        // Add "Open again" button next to Cancel
+        // Add an "Open login page" button next to Cancel. The URL comes from
+        // the server, so the browser must launch only on an explicit click
+        // (never auto-open). One button only — the banner and the kbd-int
+        // loop can both report a URL for the same session.
         const actionsEl = this.$(".tv-overlay-actions");
-        if (actionsEl) {
+        if (actionsEl && !actionsEl.querySelector(".tv-open-auth")) {
           const openBtn = document.createElement("button");
-          openBtn.className = "btn-text";
-          openBtn.textContent = "Open again";
+          openBtn.className = "btn-primary tv-open-auth";
+          openBtn.textContent = "Open login page";
           openBtn.addEventListener("click", () => openUrl(url));
           actionsEl.insertBefore(openBtn, actionsEl.firstChild);
         }
@@ -1494,6 +1522,12 @@ export class TerminalView {
 
   private cleanup() {
     this.hideContextMenu();
+    // Close a lingering TOFU dialog if the session was cancelled/torn down
+    // while it was open (its backend wait fails safe on its own anyway).
+    if (this.tofuDialogClose) {
+      this.tofuDialogClose();
+      this.tofuDialogClose = null;
+    }
     this.channel.dispose();
 
     if (this.resizeHandler) {

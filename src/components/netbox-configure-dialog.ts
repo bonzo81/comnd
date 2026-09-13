@@ -13,7 +13,7 @@ import {
   netboxGetDevices,
   netboxSetDeviceOverlay,
   listProviders,
-  getCredential,
+  hasCredential,
 } from "../lib/tauri-api";
 import { showToast } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";
@@ -46,8 +46,7 @@ export class NetBoxConfigureDialog {
     }
     if (this.device.overlay.credential?.type === "password") {
       try {
-        const pw = await getCredential(this.hostId);
-        this.hasPassword = pw != null && pw.length > 0;
+        this.hasPassword = await hasCredential(this.hostId);
       } catch {
         this.hasPassword = false;
       }

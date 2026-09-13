@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -62,6 +61,25 @@ fn key_type_name(key: &PublicKey) -> String {
     key.algorithm().as_str().to_string()
 }
 
+// ─── TOFU Confirmation ──────────────────────────────────────────────
+
+/// Pending TOFU confirmations keyed by session_id. check_server_key parks
+/// on the oneshot receiver; tofu_respond resolves the sender. std Mutex is
+/// safe: guards are dropped before every await point.
+fn pending_tofu() -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>> {
+    static MAP: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+#[derive(Clone, Serialize)]
+pub struct SshTofuPendingPayload {
+    pub host_key: String,
+    pub fingerprint: String,
+    pub key_type: String,
+    pub session_id: u64,
+}
+
 // ─── Auth URL Detection ─────────────────────────────────────────────
 
 // ponytail: first https token wins; upgrade to regex if gateways wrap URLs oddly
@@ -75,31 +93,6 @@ fn extract_https_url(text: &str) -> Option<String> {
 }
 
 // ponytail: global Mutex map; fine at human connect rates, shard per host if throughput ever matters
-/// Browser-auth dedup across reconnect attempts. Tailscale check-mode
-/// gateways mint a fresh URL token per connection, so reconnects must not
-/// re-open the browser — the first open for a given host is enough; the user
-/// either already finished the login or the terminal shows the URL anyway.
-fn recently_opened_hosts() -> &'static std::sync::Mutex<HashMap<String, std::time::Instant>> {
-    use std::sync::Mutex;
-    static MAP: std::sync::OnceLock<Mutex<HashMap<String, std::time::Instant>>> = std::sync::OnceLock::new();
-    MAP.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// True (and records the host) if this host hasn't had an auth URL opened
-/// recently. Re-seen within 5 minutes (reconnect loop) → false.
-fn should_open_auth_url(host_key: &str) -> bool {
-    let mut map = recently_opened_hosts().lock().expect("auth-url map poisoned");
-    let now = std::time::Instant::now();
-    map.retain(|_, t| now.duration_since(*t) < std::time::Duration::from_secs(5 * 60));
-    match map.get(host_key) {
-        Some(_) => false,
-        None => {
-            map.insert(host_key.to_string(), now);
-            true
-        }
-    }
-}
-
 /// Choose keyboard-interactive responses for one round of prompts.
 /// Browser-auth rounds (a URL is present) get empty answers — the real auth
 /// happens in the browser and the server holds the reply until login completes.
@@ -123,35 +116,21 @@ fn select_agent_keys(agent: &crate::hosts::AgentAuth, keys: Vec<PublicKey>) -> V
     }
 }
 
+/// Emit a detected browser-auth URL to the frontend. Never opens the
+/// browser itself — a server-supplied URL must not launch anything without
+/// an explicit user click (phishing surface). The frontend shows an "Open"
+/// button in the connect overlay.
 fn try_open_auth_url(
     app_handle: &tauri::AppHandle,
-    auth_url_opened: &AtomicBool,
-    host_key: &str,
     text: &str,
     session_id: u64,
 ) {
     if let Some(url) = extract_https_url(text) {
-        // Atomic check-and-set: the banner callback and the keyboard-interactive
-        // loop run on separate tasks and can race. Only the first caller that
-        // flips false→true opens the browser; others see true and bail.
-        if auth_url_opened
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
-        }
         log::info!("Auth URL detected: {}", url);
         let _ = app_handle.emit("ssh-auth-url", SshAuthUrlPayload {
-            url: url.clone(),
+            url,
             session_id,
         });
-        // Reconnects mint fresh URLs (fresh AtomicBool per attempt) — the
-        // per-host recent map is what actually stops the browser-tab storm.
-        if should_open_auth_url(host_key) {
-            crate::open_url(&url);
-        } else {
-            log::info!("Auth URL already opened recently for {} — skipping browser open: {}", host_key, url);
-        }
     }
 }
 
@@ -180,7 +159,6 @@ struct ClientHandler {
     app_handle: tauri::AppHandle,
     host_key: String, // "hostname:port"
     session_id: u64,
-    auth_url_opened: Arc<AtomicBool>,
     session_log: Option<crate::session_log::SessionLog>,
 }
 
@@ -214,21 +192,49 @@ impl client::Handler for ClientHandler {
             }
         }
 
-        // First time — TOFU: accept and save
-        log::info!("TOFU: accepting new host key for {} ({})", self.host_key, key_type);
-        // Full SHA-256 fingerprint in standard ssh-keygen format:
-        // SHA256:<base64-no-pad>. Matches `ssh-keygen -lf` output so users
-        // can compare against ssh-keyscan / known_hosts.
+        // First time — ask the user to verify the fingerprint (OpenSSH-style).
+        // The handshake parks on a oneshot until tofu_respond (or timeout).
         let fingerprint = format!(
             "SHA256:{}",
             server_public_key.fingerprint(russh::keys::HashAlg::Sha256)
                 .to_string()
                 .trim_start_matches("SHA256:")
         );
+        log::info!("TOFU: prompting user for new host key for {} ({})", self.host_key, key_type);
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+        {
+            let mut map = pending_tofu().lock().expect("tofu map poisoned");
+            map.insert(self.session_id, tx);
+        }
+        let _ = self.app_handle.emit("ssh-tofu-pending", SshTofuPendingPayload {
+            host_key: self.host_key.clone(),
+            fingerprint: fingerprint.clone(),
+            key_type: key_type.clone(),
+            session_id: self.session_id,
+        });
+        // Fail-safe: never hang forever on a lost/ignored dialog.
+        let accepted = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+            Ok(Ok(true)) => true,
+            _ => {
+                log::warn!("TOFU confirmation not accepted for {} — rejecting", self.host_key);
+                false
+            }
+        };
+        pending_tofu().lock().expect("tofu map poisoned").remove(&self.session_id);
+
+        if !accepted {
+            let _ = self.app_handle.emit("ssh-error", SshEventPayload {
+                reason: format!("Host key for {} was not verified — connection rejected.", self.host_key),
+                session_id: self.session_id,
+            });
+            return Ok(false);
+        }
+
         known.insert(
             self.host_key.clone(),
             KnownHostEntry {
-                key_type,
+                key_type: key_type.clone(),
                 key_base64: key_b64,
                 first_seen: chrono::Utc::now().to_rfc3339(),
             },
@@ -277,7 +283,7 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         if !banner.is_empty() {
-            try_open_auth_url(&self.app_handle, &self.auth_url_opened, &self.host_key, banner, self.session_id);
+            try_open_auth_url(&self.app_handle, banner, self.session_id);
             let encoded = base64::engine::general_purpose::STANDARD.encode(banner.as_bytes());
             let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
         }
@@ -360,7 +366,6 @@ impl SshSession {
         });
 
         let host_key = format!("{}:{}", hostname, port);
-        let auth_url_opened = Arc::new(AtomicBool::new(false));
 
         let session_log = if session_logging {
             match session_log_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -380,7 +385,6 @@ impl SshSession {
             app_handle: app_handle.clone(),
             host_key,
             session_id,
-            auth_url_opened: auth_url_opened.clone(),
             session_log,
         };
 
@@ -402,7 +406,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, &addr, username, password, key_path, agent, session_id, &auth_url_opened),
+            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
@@ -469,13 +473,11 @@ impl SshSession {
     async fn authenticate(
         app_handle: &tauri::AppHandle,
         session: &mut client::Handle<ClientHandler>,
-        host_key_addr: &str,
         username: &str,
         password: Option<&str>,
         key_path: Option<&str>,
         agent: crate::hosts::AgentAuth,
         session_id: u64,
-        auth_url_opened: &Arc<AtomicBool>,
     ) -> Result<bool, String> {
         // Agent publickey auth — first in the chain (chunk 4). The agent socket is
         // opened per connect attempt and dropped when this function returns.
@@ -598,10 +600,10 @@ impl SshSession {
         // Fallback: keyboard-interactive auth, as a bounded multi-round loop.
         // Two server families land here:
         //  - Browser-auth gateways (Tailscale check mode): prompts carry a login URL.
-        //    We open it, reply with EMPTY responses, and the server holds that reply
-        //    open until the user finishes the browser login — then answers Success.
-        //    The respond().await below IS the browser wait (bounded by the 120s
-        //    timeout in connect()).
+        //    We surface it in the connect overlay, reply with EMPTY responses, and
+        //    the server holds that reply open until the user finishes the browser
+        //    login — then answers Success. The respond().await below IS the browser
+        //    wait (bounded by the 120s timeout in connect()).
         //  - Cisco/F5 style: prompts ask for the password → answer with the stored one.
         log::info!("Attempting keyboard-interactive auth");
         let mut current = session
@@ -610,9 +612,9 @@ impl SshSession {
         for round in 1..=5u32 {
             match current {
                 Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
-                    // Open auth URL in browser (first one only) and detect whether
-                    // this round is a browser-auth round.
-                    try_open_auth_url(app_handle, auth_url_opened, host_key_addr, &instructions, session_id);
+                    // Emit any auth URL (browser-auth round detection); the
+                    // user opens it from the connect overlay — never auto-open.
+                    try_open_auth_url(app_handle, &instructions, session_id);
                     let mut url_round = extract_https_url(&instructions).is_some();
                     if !instructions.is_empty() {
                         log::info!("Keyboard-interactive instructions: {}", instructions);
@@ -620,7 +622,7 @@ impl SshSession {
                         let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
                     }
                     for prompt in &prompts {
-                        try_open_auth_url(app_handle, auth_url_opened, host_key_addr, &prompt.prompt, session_id);
+                        try_open_auth_url(app_handle, &prompt.prompt, session_id);
                         url_round |= extract_https_url(&prompt.prompt).is_some();
                         if !prompt.prompt.is_empty() {
                             let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
@@ -923,17 +925,6 @@ mod tests {
         );
         assert_eq!(extract_https_url("Password:"), None);
     }
-
-    #[test]
-    fn test_should_open_auth_url_dedupes_per_host() {
-        // First open for a host → true; immediate reconnect (fresh URL token,
-        // same host) → false; different host → true.
-        let host = "dedupe-test-host:22";
-        let other = "dedupe-test-host:2222";
-        assert!(should_open_auth_url(host));
-        assert!(!should_open_auth_url(host));
-        assert!(should_open_auth_url(other));
-    }
 }
 
 // ─── SSH Commands ───────────────────────────────────────────────────
@@ -1079,4 +1070,16 @@ pub async fn ssh_resize(
     let session = mgr.get_session(session_id)
         .ok_or_else(|| "Session not found".to_string())?;
     session.resize(cols, rows).await
+}
+
+/// Answer a pending first-seen host-key confirmation (TOFU dialog).
+/// Unknown session_id → no-op (dialog raced a timeout/reject).
+#[tauri::command]
+pub async fn tofu_respond(session_id: u64, accept: bool) -> Result<(), String> {
+    let tx = pending_tofu().lock().map_err(|e| e.to_string())?.remove(&session_id);
+    if let Some(tx) = tx {
+        // Send failure just means check_server_key gave up first (timeout).
+        let _ = tx.send(accept);
+    }
+    Ok(())
 }

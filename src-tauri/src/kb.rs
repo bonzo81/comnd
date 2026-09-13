@@ -805,13 +805,27 @@ fn serialize_commands(commands: &[Command]) -> Result<String, String> {
     .map_err(|e| format!("Failed to serialize commands to YAML: {}", e))
 }
 
+/// KB path segment check: platform/category ids reach the filesystem, so
+/// only lowercase slug characters pass. Blocks `../` traversal via IPC.
+pub fn valid_kb_slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
 /// Get the target YAML file path for commands.
 ///
 /// Invariant: this always resolves inside the user (custom) KB path. LLM
 /// import writes ONLY to the custom (user) KB — never the bundled KB; see
 /// docs/10-custom-knowledge-base.md.
-pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> PathBuf {
-    user_kb_path.join(platform).join("commands").join(format!("{}.yaml", category))
+pub fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> Result<PathBuf, String> {
+    if !valid_kb_slug(platform) {
+        return Err(format!("Invalid platform id '{}'", platform));
+    }
+    if !valid_kb_slug(category) {
+        return Err(format!("Invalid category id '{}'", category));
+    }
+    Ok(user_kb_path.join(platform).join("commands").join(format!("{}.yaml", category)))
 }
 
 /// Write commands to a YAML file, merging with existing content if the file already exists.
@@ -919,7 +933,7 @@ pub fn upsert_command(
     category: &str,
     command: &Command,
 ) -> Result<(), String> {
-    let path = get_target_yaml_path(user_kb_path, platform, category);
+    let path = get_target_yaml_path(user_kb_path, platform, category)?;
 
     // Ensure the directory exists
     if let Some(parent) = path.parent() {
@@ -958,7 +972,10 @@ pub fn remove_command(
     command_name: &str,
     overrides: bool,
 ) -> Result<(), String> {
-    let path = get_target_yaml_path(user_kb_path, platform, category);
+    if !valid_kb_slug(platform) {
+        return Err(format!("Invalid platform id '{}'", platform));
+    }
+    let path = get_target_yaml_path(user_kb_path, platform, category)?;
 
     // 1. Remove the user copy from the category file if it exists.
     let mut had_user_copy = false;
@@ -1038,6 +1055,9 @@ pub fn mark_disabled(
     platform: &str,
     command_name: &str,
 ) -> Result<(), String> {
+    if !valid_kb_slug(platform) {
+        return Err(format!("Invalid platform id '{}'", platform));
+    }
     let platform_dir = user_kb_path.join(platform);
     std::fs::create_dir_all(&platform_dir)
         .map_err(|e| format!("Failed to create {}: {}", platform_dir.display(), e))?;
@@ -1057,6 +1077,9 @@ pub fn mark_enabled(
     platform: &str,
     command_name: &str,
 ) -> Result<(), String> {
+    if !valid_kb_slug(platform) {
+        return Err(format!("Invalid platform id '{}'", platform));
+    }
     let platform_dir = user_kb_path.join(platform);
 
     let disabled_path = platform_dir.join("_disabled.yaml");
@@ -1257,8 +1280,17 @@ mod tests {
     #[test]
     fn test_get_target_yaml_path() {
         let kb_path = PathBuf::from("/data/kb");
-        let path = get_target_yaml_path(&kb_path, "cisco-iosxe", "networking");
+        let path = get_target_yaml_path(&kb_path, "cisco-iosxe", "networking").unwrap();
         assert_eq!(path, PathBuf::from("/data/kb/cisco-iosxe/commands/networking.yaml"));
+    }
+
+    #[test]
+    fn test_get_target_yaml_path_rejects_traversal() {
+        let kb_path = PathBuf::from("/data/kb");
+        assert!(get_target_yaml_path(&kb_path, "../hosts", "networking").is_err());
+        assert!(get_target_yaml_path(&kb_path, "cisco-iosxe", "../../etc/passwd").is_err());
+        assert!(get_target_yaml_path(&kb_path, "", "networking").is_err());
+        assert!(get_target_yaml_path(&kb_path, "cisco-iosxe", "Other…").is_err());
     }
 
     #[test]
