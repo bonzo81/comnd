@@ -25,6 +25,8 @@ Read these docs before implementing anything in their domain:
 | Shortcuts, keyboard-first design | `docs/specs/07-keyboard-shortcuts.md` |
 | Post-MVP backlog, decision log | `docs/specs/08-future-open-questions.md` |
 | Command Replay (user-saved commands, variables, playback) | `docs/specs/09-command-replay.md` |
+| Custom KB (user-wins merge, provenance, import) | `docs/specs/10-custom-knowledge-base.md` |
+| Shortcut customization (Planned) | `docs/specs/10-shortcut-customization.md` |
 | Accessibility conformance target (WCAG 2.1 AA) | `docs/accessibility.md` |
 
 Implementation plans live in `docs/plans/`. Read the plan document for a feature before you build it.
@@ -95,9 +97,10 @@ src/                    # TypeScript frontend (strict mode, ES modules)
   components/           # Screens & UI (one class per screen: host-screen,
                         #   terminal-view, kb-screen, settings-screen,
                         #   replay-screen, nav-panel, global-search, dialogs)
-  lib/                  # Utilities (one concern per file: suggestion-engine,
-                        #   shadow-buffer, prompt-detector, ghost-text, tokens,
-                        #   theme, a11y, replay, tauri-api, ...)
+  lib/                  # Utilities (one concern per file: keystroke-router,
+                        #   suggestion-engine, suggestion-controller, dropdown,
+                        #   shadow-buffer, line-tracker, ghost-text, ansi, tokens,
+                        #   theme, a11y, platforms, replay, tauri-api, ...)
   styles/
     tokens.css          # Design tokens (:root custom properties)
     base.css            # Base/reset styles
@@ -108,19 +111,22 @@ src/                    # TypeScript frontend (strict mode, ES modules)
 
 src-tauri/              # Rust backend
   src/
+    main.rs             # Binary entry point
     lib.rs              # Most Tauri command handlers
+    state.rs            # Shared AppState (every handler locks its store here)
     ssh.rs              # SSH session (russh)
     hosts.rs            # Host storage
     credentials.rs      # Credential resolution + keyring helpers
-    secrets/            # Secret providers (e.g. Proton Pass)
+    secrets/            # Secret providers (Proton Pass, SSH agent)
     kb.rs               # Knowledge base queries
     import.rs           # KB import pipeline
     llm.rs              # LLM client (KB import only)
     netbox.rs           # NetBox host source
+    platform.rs         # Platform registry (auto-discovers <platform>/index.yaml)
     config.rs           # App settings
     replay.rs           # Command Replay storage + its own command handlers
     session_log.rs      # Session logging
-    paths.rs            # Data/log directory resolution
+    paths/              # Data/log directory resolution (mod + commands)
     test_server.rs      # Mock SSH server for testing
   Cargo.toml            # Rust dependencies
   tauri.conf.json       # Tauri configuration
