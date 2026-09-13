@@ -56,7 +56,6 @@ Mechanical `netssh`/`netssh` → `netssh` across:
 - Root: `README.md`, `CONTRIBUTING.md`, `agents.md`, `.github/copilot-instructions.md`, `.agents/skills/review-documentation/SKILL.md`
 - `docs/`: 01, 02 (line 135 also has stale dir paths `~/.config/netssh/` → fix to `com.netssh.app`), 03, 04, 08, 12, accessibility, implementation-plan, DEVELOPMENT.md (clone URL → `bonzo81/netssh.git`, `cd netssh` → `cd netssh`), extract_all_commands.py + extract_sample.py (hardcoded `C:\Users\andyt\development\netssh\...` → new folder path)
 - `docs/plans/plan-*` (8 files), `docs/credentials/02-implementation-plan.md`, `docs/user-guide/` (11 files — 01-installation.md installer names get real post-build names, not guessed)
-- `implementation/README.md`, stage-04, stage-06, stage-07.5
 
 Caveat: historical plan docs describe past state; mechanical rename makes some slightly inaccurate (e.g. legacy-migration narrative). Accepted per the "all docs" decision.
 

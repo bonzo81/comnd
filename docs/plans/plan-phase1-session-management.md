@@ -1,6 +1,6 @@
 # Plan: Phase 1 — Session Management
 
-Source: `docs/roadmap.md` Phase 1. Ordered by value; logging first (prerequisite for Phase 3 scripting hooks and Phase 6 agent layer).
+Phase 1 scope. Ordered by value; logging first (prerequisite for Phase 3 scripting hooks and Phase 6 agent layer).
 
 Each item is independently shippable. Verify per AGENTS.md: `npm run build` (frontend), `cargo check` (Rust).
 
@@ -126,4 +126,4 @@ Roadmap already flags this YAGNI candidate. Tabs shipped (`tab-state.ts`); panes
 3. **Item 2** (auto-reconnect) — frontend-only, moderate.
 4. **Item 4** — roadmap note only.
 
-Update `docs/roadmap.md` statuses as each lands (check off + reference this doc).
+Check items off here as each lands.
