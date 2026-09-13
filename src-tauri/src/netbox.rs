@@ -15,8 +15,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::credentials::CredentialSource;
+use crate::credentials::{self, CredentialSource};
 use crate::platform::PlatformRegistry;
+use crate::state::AppState;
 
 // ─── Filters ────────────────────────────────────────────────────────
 
@@ -532,6 +533,61 @@ fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
 /// Keyring keys (plan §8.1/§11 — secrets never live in config.json).
 pub const TOKEN_KEY: &str = "netssh_source_netbox_token";
 pub const DEFAULT_PW_KEY: &str = "netssh_source_netbox_default_pw";
+
+/// Connection parameters resolved for one NetBox-sourced device.
+pub struct ConnectParams {
+    pub hostname: String,
+    pub port: u16,
+    pub username: String,
+    pub credential: Option<CredentialSource>,
+    pub secret_key: String,
+}
+
+/// Resolve connection parameters for a NetBox-sourced device from its overlay
+/// and the source defaults. Overlay wins over source defaults; empty-string
+/// overlays are treated as absent (plan §6). Pure — no locks or I/O, so the
+/// precedence rules are unit-testable in isolation.
+pub fn resolve_connect_params(
+    device: &NetBoxDeviceEntry,
+    cfg: &NetBoxConfig,
+) -> Result<ConnectParams, String> {
+    let username = device
+        .overlay
+        .username
+        .clone()
+        .filter(|u| !u.trim().is_empty())
+        .or_else(|| cfg.default_username.clone())
+        .filter(|u| !u.trim().is_empty())
+        .ok_or_else(|| {
+            "No username configured for this device — set one via Configure or the NetBox source defaults".to_string()
+        })?;
+    let port = device.overlay.port.unwrap_or(cfg.default_port);
+    let credential = device
+        .overlay
+        .credential
+        .clone()
+        .or_else(|| cfg.default_credential.clone());
+    if credential.is_none() {
+        return Err(
+            "No authentication method configured for this device — set one via Configure or the NetBox source defaults"
+                .to_string(),
+        );
+    }
+    // Per-device password secret when the overlay pins its own credential,
+    // otherwise the shared source-default password secret.
+    let secret_key = if device.overlay.credential.is_some() {
+        crate::credentials::host_key(&host_id(device.netbox_id))
+    } else {
+        DEFAULT_PW_KEY.to_string()
+    };
+    Ok(ConnectParams {
+        hostname: device.address.clone(),
+        port,
+        username,
+        credential,
+        secret_key,
+    })
+}
 
 /// Synthetic group ids (plan §8.3): root, region, site, location. Model
 /// slugs are unique within NetBox, so each node is addressable by its own
@@ -1271,6 +1327,245 @@ fn map_status_error(status: reqwest::StatusCode, body: &str, retry_after: Option
     }
 }
 
+// ─── Tauri Commands (plan §8.2) ─────────────────────────────────────
+
+/// Save-or-delete a keyring secret: `None`/empty deletes the entry.
+fn save_optional_secret(key: &str, secret: Option<String>) -> Result<(), String> {
+    match secret {
+        Some(s) if !s.is_empty() => credentials::save_secret(key, &s),
+        _ => credentials::delete_secret(key),
+    }
+}
+
+/// Config + secret state for the NetBox settings form. The token itself is
+/// never serialized to the frontend — only whether one exists.
+#[derive(serde::Serialize)]
+pub struct NetBoxConfigState {
+    pub config: NetBoxConfig,
+    pub has_token: bool,
+}
+
+#[tauri::command]
+pub async fn netbox_get_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<NetBoxConfigState, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    let has_token = credentials::get_secret(TOKEN_KEY)?.is_some();
+    Ok(NetBoxConfigState { config, has_token })
+}
+
+#[tauri::command]
+pub async fn netbox_save_config(
+    config: NetBoxConfig,
+    default_password: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<NetBoxConfig, String> {
+    {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+        config.validate(&platforms)?;
+    }
+    {
+        let mut store = state.config.lock().map_err(|e| e.to_string())?;
+        let json = serde_json::to_value(&config)
+            .map_err(|e| format!("Failed to serialize NetBox config: {}", e))?;
+        store.save_host_source_config("netbox", json)?;
+    }
+    // Source-default password: set when supplied, cleared when the default
+    // credential is no longer Password. Blank = unchanged.
+    match config.default_credential.as_ref() {
+        Some(CredentialSource::Password) => {
+            if default_password.is_some() {
+                save_optional_secret(DEFAULT_PW_KEY, default_password)?;
+            }
+        }
+        _ => credentials::delete_secret(DEFAULT_PW_KEY)?,
+    }
+    log::info!(
+        "NetBox config saved (enabled={} base_url={} default_port={})",
+        config.enabled,
+        config.base_url,
+        config.default_port
+    );
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn netbox_save_token(token: Option<String>) -> Result<(), String> {
+    save_optional_secret(TOKEN_KEY, token.clone())?;
+    log::info!("NetBox API token {}", if token.is_some() { "saved" } else { "cleared" });
+    Ok(())
+}
+
+/// Test a URL + token against the NetBox API without saving anything.
+/// A blank token falls back to the stored one (test-before-save, re-test).
+/// `allow_invalid_certs` must be passed explicitly by the caller so the
+/// toggle state in the form is what gets tested, not the saved config.
+#[tauri::command]
+pub async fn netbox_test_connection(
+    base_url: String,
+    token: Option<String>,
+    allow_invalid_certs: bool,
+) -> Result<serde_json::Value, String> {
+    let token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => credentials::get_secret(TOKEN_KEY)?
+            .ok_or_else(|| "No NetBox API token saved — enter one first".to_string())?,
+    };
+    let client = NetBoxClient::new(&base_url, &token, allow_invalid_certs)?;
+    let (version, device_count) = client.test_connection().await?;
+    Ok(serde_json::json!({ "version": version, "device_count": device_count }))
+}
+
+#[tauri::command]
+pub async fn netbox_sync(
+    state: tauri::State<'_, AppState>,
+) -> Result<SyncReport, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    if !config.enabled {
+        return Err("NetBox integration is disabled — enable it in Settings → NetBox".to_string());
+    }
+    if config.base_url.trim().is_empty() {
+        return Err("No NetBox URL configured — set one in Settings → NetBox".to_string());
+    }
+    let token = credentials::get_secret(TOKEN_KEY)?
+        .ok_or_else(|| "No NetBox API token saved — enter one in Settings → NetBox".to_string())?;
+
+    let policy = {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+        config.platform_policy(&platforms)
+    };
+    let client = NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)?;
+    let fetch = client.fetch_devices(&config.filters).await?;
+    let geo = client.fetch_geo().await; // degrades internally — never fails the sync
+    let (entries, mut report) = build_entries(&fetch.devices, &policy);
+    report.no_primary_ip = fetch.no_primary_ip;
+
+    log::info!(
+        "NetBox sync: {} fetched, {} no primary IP, {} skipped platform (unmatched: {}), {} cached",
+        report.fetched,
+        report.no_primary_ip,
+        report.skipped_platform,
+        if report.unmatched_platforms.is_empty() {
+            "none".to_string()
+        } else {
+            report.unmatched_platforms.join(", ")
+        },
+        entries.len()
+    );
+
+    let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    netbox.apply_sync(report, entries, geo)
+}
+
+#[tauri::command]
+pub async fn netbox_get_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NetBoxDeviceEntry>, String> {
+    let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    Ok(netbox.get().devices.clone())
+}
+
+fn build_netbox_client(state: &AppState) -> Result<NetBoxClient, String> {
+    let config = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        NetBoxConfig::from_json(store.host_source_config("netbox"))
+    };
+    if config.base_url.trim().is_empty() {
+        return Err("No NetBox URL configured — set one in Settings → NetBox".to_string());
+    }
+    let token = credentials::get_secret(TOKEN_KEY)?
+        .ok_or_else(|| "No NetBox API token saved — enter one in Settings → NetBox".to_string())?;
+    NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)
+}
+
+#[tauri::command]
+pub async fn netbox_get_sites(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_sites().await
+}
+
+#[tauri::command]
+pub async fn netbox_get_roles(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_device_roles().await
+}
+
+#[tauri::command]
+pub async fn netbox_get_tags(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NetBoxChoice>, String> {
+    let client = build_netbox_client(&state)?;
+    client.fetch_tags().await
+}
+
+#[tauri::command]
+pub async fn netbox_set_device_enabled(
+    netbox_id: u64,
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+    netbox.set_enabled(netbox_id, enabled)
+}
+
+/// Save a per-device overlay. A supplied `password` is stored in the keyring
+/// under the device's host key; switching the overlay away from Password
+/// clears the stored per-device secret. Blank password = unchanged.
+#[tauri::command]
+pub async fn netbox_set_device_overlay(
+    netbox_id: u64,
+    overlay: DeviceOverlay,
+    password: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let host_key = credentials::host_key(&host_id(netbox_id));
+    {
+        let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        netbox.set_overlay(netbox_id, overlay.clone())?;
+    }
+    match overlay.credential.as_ref() {
+        Some(CredentialSource::Password) => {
+            if password.is_some() {
+                save_optional_secret(&host_key, password)?;
+            }
+        }
+        _ => credentials::delete_secret(&host_key)?,
+    }
+    Ok(())
+}
+
+/// Header-line status for the NetBox settings section.
+#[tauri::command]
+pub async fn netbox_get_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let (enabled, last_synced, device_count) = {
+        let store = state.config.lock().map_err(|e| e.to_string())?;
+        let enabled = store.host_source_enabled("netbox");
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        (enabled, netbox.get().last_synced.clone(), netbox.get().devices.len())
+    };
+    let has_token = credentials::get_secret(TOKEN_KEY)?.is_some();
+    let has_default_pw = credentials::get_secret(DEFAULT_PW_KEY)?.is_some();
+    Ok(serde_json::json!({
+        "enabled": enabled,
+        "has_token": has_token,
+        "has_default_pw": has_default_pw,
+        "last_synced": last_synced,
+        "device_count": device_count,
+    }))
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1795,6 +2090,70 @@ mod tests {
             enabled,
             overlay: DeviceOverlay::default(),
         }
+    }
+
+    // ─── Connect param resolution (plan §6) ────────────────────────
+
+    fn cfg_with(username: Option<&str>, port: u16, cred: Option<CredentialSource>) -> NetBoxConfig {
+        NetBoxConfig {
+            default_username: username.map(str::to_string),
+            default_port: port,
+            default_credential: cred,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_overlay_wins_over_defaults() {
+        let mut d = sample_entry(5, true);
+        d.overlay.username = Some("overlay-user".into());
+        d.overlay.port = Some(2200);
+        d.overlay.credential = Some(CredentialSource::SshKey { key_path: "/k".into() });
+        let cfg = cfg_with(Some("default-user"), 2222, Some(CredentialSource::Password));
+
+        let p = resolve_connect_params(&d, &cfg).unwrap();
+        assert_eq!(p.username, "overlay-user");
+        assert_eq!(p.port, 2200);
+        assert_eq!(p.credential, Some(CredentialSource::SshKey { key_path: "/k".into() }));
+        // Overlay pins its own credential → per-device secret key.
+        assert_eq!(p.secret_key, crate::credentials::host_key(&host_id(5)));
+    }
+
+    #[test]
+    fn test_resolve_falls_back_to_defaults() {
+        let d = sample_entry(7, true); // empty overlay
+        let cfg = cfg_with(Some("default-user"), 2222, Some(CredentialSource::Password));
+
+        let p = resolve_connect_params(&d, &cfg).unwrap();
+        assert_eq!(p.username, "default-user");
+        assert_eq!(p.port, 2222);
+        assert_eq!(p.credential, Some(CredentialSource::Password));
+        // No overlay credential → shared source-default secret key.
+        assert_eq!(p.secret_key, DEFAULT_PW_KEY.to_string());
+    }
+
+    #[test]
+    fn test_resolve_empty_string_username_is_absent() {
+        let mut d = sample_entry(9, true);
+        d.overlay.username = Some("   ".into()); // blank → treated as absent
+        let cfg = cfg_with(Some("default-user"), 22, Some(CredentialSource::Password));
+
+        let p = resolve_connect_params(&d, &cfg).unwrap();
+        assert_eq!(p.username, "default-user");
+    }
+
+    #[test]
+    fn test_resolve_no_username_errors() {
+        let d = sample_entry(1, true);
+        let cfg = cfg_with(None, 22, Some(CredentialSource::Password));
+        assert!(resolve_connect_params(&d, &cfg).is_err());
+    }
+
+    #[test]
+    fn test_resolve_no_credential_errors() {
+        let d = sample_entry(1, true);
+        let cfg = cfg_with(Some("admin"), 22, None);
+        assert!(resolve_connect_params(&d, &cfg).is_err());
     }
 
     #[test]

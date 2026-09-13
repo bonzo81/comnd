@@ -8,6 +8,11 @@ use std::path::PathBuf;
 // plan); re-exported here so existing `hosts::...` paths keep compiling.
 pub use crate::credentials::{AgentAuth, CredentialSource};
 use crate::platform::PlatformRegistry;
+use crate::state::AppState;
+
+// Tauri command handlers (plan: lib.rs domain split) reference the NetBox
+// source and credential stores.
+use crate::{credentials, netbox};
 
 // ─── Host Types ──────────────────────────────────────────────────────
 
@@ -382,6 +387,206 @@ fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
     }
 }
 
+// ─── Tauri Commands (host + group, plan: lib.rs domain split) ───────
+
+#[tauri::command]
+pub async fn get_hosts(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Host>, String> {
+    let mut all = {
+        let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        hosts.get_all()?
+    };
+
+    // NetBox merge (plan §8.3): read-time only — never written to hosts.json.
+    let (enabled, netbox_cfg) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        (
+            config.host_source_enabled("netbox"),
+            netbox::NetBoxConfig::from_json(config.host_source_config("netbox")),
+        )
+    };
+    if enabled {
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        for device in netbox.get().devices.iter().filter(|d| d.enabled) {
+            all.push(netbox::materialize_host(device, &netbox_cfg));
+        }
+    }
+    Ok(all)
+}
+
+#[tauri::command]
+pub async fn save_host(
+    host: Host,
+    state: tauri::State<'_, AppState>,
+) -> Result<Host, String> {
+    if host.source.as_deref() == Some("netbox") || netbox::is_netbox_host_id(&host.id) {
+        log::warn!("Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)", host.id);
+        return Err("Cannot edit NetBox-sourced hosts".to_string());
+    }
+    let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+    if host.id.is_empty() {
+        hosts.create(host, &platforms)
+    } else {
+        hosts.update(host, &platforms)
+    }
+}
+
+#[tauri::command]
+pub async fn delete_host(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    if netbox::is_netbox_host_id(&id) {
+        log::warn!("Rejected delete_host on NetBox-sourced host {} (plan §8.4 guard)", id);
+        return Err(
+            "Cannot delete NetBox-sourced hosts — disable the device in Settings → NetBox or remove it in NetBox"
+                .to_string(),
+        );
+    }
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+    hosts.delete(&id)?;
+    // Also delete credential (new key + legacy bare-id entry)
+    credentials::delete_secret(&credentials::host_key(&id)).ok();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn touch_host(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    if netbox::is_netbox_host_id(&id) {
+        let netbox_id: u64 = id
+            .strip_prefix("netbox:")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| format!("Host not found: {}", id))?;
+        let mut netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        return netbox.touch(netbox_id);
+    }
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+    hosts.touch(&id)
+}
+
+#[tauri::command]
+pub async fn get_host_groups(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<HostGroup>, String> {
+    let mut groups = {
+        let group_store = state.groups.lock().map_err(|e| e.to_string())?;
+        group_store.get_all()?
+    };
+
+    // Synthetic NetBox groups (plan §8.3) — emitted only when enabled and
+    // at least one enabled device is cached.
+    let enabled = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.host_source_enabled("netbox")
+    };
+    if enabled {
+        let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+        groups.extend(netbox::synthetic_groups(&netbox.get().devices, &netbox.get().geo));
+    }
+    Ok(groups)
+}
+
+/// NetBox-owned groups (plan §8.4): mutation handlers reject synthetic ids
+/// before touching the store. Pure so the guard logic is testable without
+/// `State<'_, AppState>`.
+fn reject_synthetic_group(handler: &str, id: &str) -> Result<(), String> {
+    if netbox::is_synthetic_group_id(id) {
+        log::warn!("Rejected {} on synthetic NetBox group {} (plan §8.4 guard)", handler, id);
+        return Err("NetBox groups are managed by the NetBox integration".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_host_group(
+    id: Option<String>,
+    name: String,
+    parent_id: Option<String>,
+    color: Option<String>,
+    icon: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<HostGroup, String> {
+    if let Some(ref group_id) = id {
+        reject_synthetic_group("save_host_group", group_id)?;
+    }
+    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
+
+    if let Some(group_id) = id {
+        // Update existing
+        let existing = groups.get_all()?.into_iter().find(|g| g.id == group_id)
+            .ok_or_else(|| format!("Group not found: {}", group_id))?;
+        groups.update(HostGroup {
+            id: group_id,
+            name,
+            parent_id,
+            sort_order: existing.sort_order,
+            color,
+            icon,
+            created_at: existing.created_at,
+        })
+    } else {
+        // Create new
+        groups.create(HostGroup {
+            id: String::new(),
+            name,
+            parent_id,
+            sort_order: 0,
+            color,
+            icon,
+            created_at: String::new(),
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn move_host_group(
+    id: String,
+    new_parent: Option<String>,
+    sort_order: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<HostGroup, String> {
+    reject_synthetic_group("move_host_group", &id)?;
+    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
+    let existing = groups
+        .get_all()?
+        .into_iter()
+        .find(|g| g.id == id)
+        .ok_or_else(|| format!("Group not found: {}", id))?;
+    groups.update(HostGroup {
+        parent_id: new_parent,
+        sort_order,
+        ..existing
+    })
+}
+
+#[tauri::command]
+pub async fn delete_host_group(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    reject_synthetic_group("delete_host_group", &id)?;
+    // Also un-group any hosts in this group
+    {
+        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+        let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        let all = hosts.get_all()?;
+        for host in all {
+            if host.group_id.as_deref() == Some(&id) {
+                let mut updated = host.clone();
+                updated.group_id = None;
+                let _ = hosts.update(updated, &platforms);
+            }
+        }
+    }
+    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
+    groups.delete(&id)
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -635,5 +840,19 @@ mod tests {
         assert!(validate_host(&host, &platforms).is_ok());
         // Fails against a registry that lacks the custom platform
         assert!(validate_host(&host, &PlatformRegistry::builtin()).is_err());
+    }
+
+    #[test]
+    fn test_synthetic_group_guards_reject_all_mutation_handlers() {
+        // Table-driven (plan §3): every group-mutation handler rejects
+        // synthetic NetBox ids with the same error, and lets user ids pass.
+        for handler in ["save_host_group", "move_host_group", "delete_host_group"] {
+            for id in ["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:rack-1"] {
+                let err = reject_synthetic_group(handler, id).unwrap_err();
+                assert_eq!(err, "NetBox groups are managed by the NetBox integration");
+            }
+            assert!(reject_synthetic_group(handler, "user-group").is_ok());
+            assert!(reject_synthetic_group(handler, "550e8400-e29b-41d4").is_ok());
+        }
     }
 }

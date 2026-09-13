@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tauri::Emitter;
+use crate::state::AppState;
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -414,6 +416,170 @@ fn load_config_from_file(path: &PathBuf) -> AppConfig {
         }),
         Err(_) => AppConfig::default(),
     }
+}
+
+// ─── Tauri Commands (config + logging, plan: lib.rs domain split) ───
+
+#[tauri::command]
+pub async fn get_app_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let mut v = serde_json::to_value(config.get())
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    // API key lives in the OS keychain, not in config.json.
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(
+            "llm_api_key".to_string(),
+            serde_json::Value::from(get_llm_api_key()?),
+        );
+    }
+    Ok(v)
+}
+
+#[tauri::command]
+pub async fn save_llm_settings(
+    api_format: String,
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    context_length: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_llm_settings(api_format, base_url, model, api_key, context_length)
+}
+
+#[tauri::command]
+pub async fn get_log_level(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    Ok(config.get().log_level.clone())
+}
+
+#[tauri::command]
+pub async fn set_log_level(
+    level: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let level = level.to_ascii_lowercase();
+    match level.as_str() {
+        "debug" | "info" | "warn" | "error" => {}
+        _ => return Err(format!("Invalid log level: {}", level)),
+    }
+
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_level(level.clone())?;
+    drop(config);
+
+    // simplelog reads the level filter per-record, so both raising and
+    // lowering take effect live via log::set_max_level.
+    log::set_max_level(parse_log_level_filter(&level));
+    log::info!("Log level set to {}", level);
+
+    let _ = app_handle.emit("log-level-changed", &level);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_log_max_size(
+    max_mb: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_max_size_mb(max_mb)?;
+    log::info!(
+        "Log file size cap set to {}MB (takes effect on next app start)",
+        max_mb
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_max_sessions(
+    max: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_max_sessions(max)?;
+    log::info!("Max sessions set to {}", if max == 0 { "unlimited".into() } else { max.to_string() });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_session_log_dir() -> Result<String, String> {
+    let dir = crate::paths::app_data_dir()?.join("session-logs");
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn set_session_logging(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_logging(enabled)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_session_log_timestamps(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_log_timestamps(enabled)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_session_log_dir(
+    dir: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_session_log_dir(dir)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_log_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let status = state.log_status.lock().map_err(|e| e.to_string())?;
+    Ok(status.clone())
+}
+
+#[tauri::command]
+pub async fn set_log_file_path(
+    path: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_log_file_path(path.clone())?;
+    log::info!(
+        "Log file path set to {} (takes effect on next app start)",
+        path.as_deref().unwrap_or("<default>")
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn log_frontend(level: String, tag: String, msg: String, args: Option<String>) -> Result<(), String> {
+    let line = match args.as_deref() {
+        Some(a) if !a.is_empty() => format!("{} {}", msg, a),
+        _ => msg.clone(),
+    };
+    match level.as_str() {
+        "debug" => log::debug!("[fe:{}] {}", tag, line),
+        "info" => log::info!("[fe:{}] {}", tag, line),
+        "warn" => log::warn!("[fe:{}] {}", tag, line),
+        "error" => log::error!("[fe:{}] {}", tag, line),
+        _ => return Err("invalid level".into()),
+    }
+    Ok(())
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────

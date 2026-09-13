@@ -12,11 +12,14 @@
 use crate::config::AppConfig;
 use crate::kb::{
     get_target_yaml_path, write_commands_to_yaml, validate_command, KbStore,
-    Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
+    KbManager, Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
 };
 use crate::llm::{ExtractedCommand, LlmClient};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+use crate::state::AppState;
+use tauri::Emitter;
 
 /// Progress callback for the import pipeline. The Tauri layer provides an
 /// adapter that emits a frontend event and writes a log line; tests supply
@@ -1271,4 +1274,214 @@ mod tests {
         assert_eq!(preview.errors.len(), 1);
         assert!(preview.errors[0].contains("chunk 2/3"), "unexpected error: {}", preview.errors[0]);
     }
+}
+
+// Tauri Commands (moved from lib.rs)
+
+fn tauri_progress(app_handle: &tauri::AppHandle) -> impl Fn(&ImportProgress) + '_ {
+    move |p: &ImportProgress| {
+        log::info!("import progress: {:?}", p);
+        let _ = app_handle.emit("import-progress", p);
+    }
+}
+
+/// Resolve the platform index and the allowed-category list for an extract
+/// request. When the platform has no KB yet and `platform_name` is set (the
+/// user chose "New platform..." in the import dialog), a placeholder
+/// single-mode index is unlocked; without it the error passes through
+/// (guards against platform-id typos). A platform with no categories yet
+/// falls back to the requested category so validation doesn't reject every
+/// LLM-picked category.
+fn resolve_index_and_categories(
+    kb: &mut KbManager,
+    platform: &str,
+    category: &str,
+    platform_name: Option<&str>,
+) -> Result<(PlatformIndex, Vec<String>), String> {
+    let idx = match kb.get_platform_index(platform) {
+        Ok(idx) => idx,
+        Err(e) => match platform_name {
+            Some(name) => {
+                log::info!("Import: using placeholder single-mode index for new platform '{}'", platform);
+                new_platform_index(platform, name)
+            }
+            None => return Err(e),
+        },
+    };
+    let cats = kb.categories_for_platform(platform);
+    let allowed = if cats.is_empty() {
+        vec![category.to_string()]
+    } else {
+        cats
+    };
+    Ok((idx, allowed))
+}
+
+#[tauri::command]
+pub async fn import_kb_url(
+    url: String,
+    platform: String,
+    category: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ImportResult, String> {
+    let request = ImportRequest {
+        url,
+        platform,
+        category,
+    };
+
+    let (config_ref, user_kb_path) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        (config.get().clone(), config.user_kb_path())
+    };
+
+    // Platform index supplies the valid mode vocabulary + default mode for import
+    let platform_index = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.get_platform_index(&request.platform)?
+    };
+
+    let progress = tauri_progress(&app_handle);
+
+    let result = import_from_url(
+        request,
+        &config_ref,
+        &user_kb_path,
+        &progress,
+        &platform_index,
+    ).await?;
+
+    // Reload KB stores so new commands are immediately available
+    {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.reload_all();
+    }
+    state.platforms.lock().map_err(|e| e.to_string())?.rescan();
+
+    Ok(result)
+}
+
+/// Phase 5.6: Stage 1 of the two-stage import ÔÇö extract + validate without
+/// writing. Returns a preview the user reviews before committing.
+///
+/// `platformName` is supplied only when the user chose "New platformÔÇª" in the
+/// import dialog (docs/10 ┬º Part 5): it unlocks a placeholder single-mode
+/// index for platforms with no bundled/user KB yet. Without it, unknown
+/// platforms still fail extraction (guards against platform-id typos).
+#[tauri::command]
+pub async fn extract_kb_preview(
+    url: String,
+    platform: String,
+    category: String,
+    platform_name: Option<String>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ExtractPreview, String> {
+    let request = ImportRequest { url, platform, category };
+
+    let config_ref = state.config.lock().map_err(|e| e.to_string())?.get().clone();
+
+    let (platform_index, allowed_categories) = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        resolve_index_and_categories(
+            &mut kb,
+            &request.platform,
+            &request.category,
+            platform_name.as_deref(),
+        )?
+    };
+
+    let progress = tauri_progress(&app_handle);
+
+    let preview = extract_from_url(
+        request,
+        &config_ref,
+        &progress,
+        &platform_index,
+        &allowed_categories,
+    ).await?;
+
+    Ok(preview)
+}
+
+/// Paste-text import: same pipeline as `extract_kb_preview` but the source is
+/// user-provided page text (their browser did the fetching ÔÇö sidesteps bot
+/// blocks and JS-rendered pages).
+#[tauri::command]
+pub async fn extract_kb_preview_from_text(
+    text: String,
+    source_url: Option<String>,
+    platform: String,
+    category: String,
+    platform_name: Option<String>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<ExtractPreview, String> {
+    let request = ImportRequest {
+        url: source_url.unwrap_or_default(),
+        platform,
+        category,
+    };
+
+    let config_ref = state.config.lock().map_err(|e| e.to_string())?.get().clone();
+
+    let (platform_index, allowed_categories) = {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        resolve_index_and_categories(
+            &mut kb,
+            &request.platform,
+            &request.category,
+            platform_name.as_deref(),
+        )?
+    };
+
+    let progress = tauri_progress(&app_handle);
+
+    extract_from_text(request, text, &config_ref, &progress, &platform_index, &allowed_categories).await
+}
+
+/// Phase 5.6: Stage 2 of the two-stage import ÔÇö write the user-approved
+/// commands to YAML and reload. Does not re-extract.
+///
+/// The frontend sends ONLY the accepted previews; committing zero commands
+/// is an error. `platformName` names a truly-new platform scaffold (docs/10
+/// ┬º Part 5).
+#[tauri::command]
+pub async fn commit_kb_import(
+    previews: Vec<CommandPreview>,
+    platform: String,
+    category: String,
+    platform_name: Option<String>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
+    let user_kb_path = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.user_kb_path()
+    };
+
+    let commands: Vec<Command> = previews.into_iter().map(|p| p.command).collect();
+    let count = commands.len();
+
+    let progress = tauri_progress(&app_handle);
+
+    commit_import(
+        commands,
+        &default_bundled_kb_path(),
+        &user_kb_path,
+        &platform,
+        &category,
+        &progress,
+        platform_name.as_deref(),
+    ).await?;
+
+    // Reload KB stores so new commands are immediately available
+    {
+        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+        kb.reload_all();
+    }
+    state.platforms.lock().map_err(|e| e.to_string())?.rescan();
+
+    Ok(count)
 }

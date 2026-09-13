@@ -11,6 +11,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Serialize;
 
+use crate::credentials;
+use crate::state::AppState;
+
 // ─── Provider types ────────────────────────────────────────────────
 
 /// Live state of a secret provider. Surfaced to the settings UI (chunk 7)
@@ -404,4 +407,123 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, CliError::Timeout));
     }
+}
+
+// Tauri Commands (moved from lib.rs)
+
+#[tauri::command]
+pub async fn save_credential(host_id: String, password: String) -> Result<(), String> {
+    credentials::save_secret(&credentials::host_key(&host_id), &password)
+}
+
+#[tauri::command]
+pub async fn get_credential(host_id: String) -> Result<Option<String>, String> {
+    credentials::get_secret(&credentials::host_key(&host_id))
+}
+
+#[tauri::command]
+pub async fn agent_list_identities() -> Result<Vec<agent::AgentIdentity>, String> {
+    agent::list_identities().await
+}
+
+#[derive(serde::Serialize)]
+pub struct ProviderInfo {
+    id: &'static str,
+    status: ProviderStatus,
+    can_list: bool,
+}
+
+/// All enabled providers with their live status (settings UI, chunk 7).
+#[tauri::command]
+pub async fn list_providers(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ProviderInfo>, String> {
+    let providers = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.all()
+    };
+    let mut out = Vec::with_capacity(providers.len());
+    for p in providers {
+        out.push(ProviderInfo { id: p.id(), status: p.status().await, can_list: p.can_list() });
+    }
+    Ok(out)
+}
+
+/// Enumerate a provider's credentials for the browse UI (chunk 15).
+#[tauri::command]
+pub async fn list_credentials(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<CredentialItem>, String> {
+    let p = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.get(&provider)
+    }
+    .ok_or_else(|| format!("Unknown or disabled provider: {}", provider))?;
+    p.list().await
+}
+
+/// Validate a provider reference and return its display label without
+/// exposing the secret (host form "Test" button, chunk 9).
+#[tauri::command]
+pub async fn test_ref(
+    provider: String,
+    reference: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let p = {
+        let registry = state.providers.lock().map_err(|e| e.to_string())?;
+        registry.get(&provider)
+    }
+    .ok_or_else(|| format!("Unknown or disabled provider: {}", provider))?;
+    p.test_reference(&reference).await
+}
+
+/// Config + secret state for one provider's settings form (chunk 7).
+#[derive(serde::Serialize)]
+pub struct ProviderState {
+    enabled: bool,
+    has_secret: bool,
+}
+
+#[tauri::command]
+pub async fn get_provider_state(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ProviderState, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let enabled = config
+        .get()
+        .providers
+        .get(&provider)
+        .and_then(|v| v.get("enabled"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let has_secret = crate::config::get_provider_secret(&provider)?.is_some();
+    Ok(ProviderState { enabled, has_secret })
+}
+
+/// Persist a provider's config and rebuild the live registry (chunk 7).
+#[tauri::command]
+pub async fn save_provider_config(
+    provider: String,
+    config: serde_json::Value,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let new_registry = {
+        let mut store = state.config.lock().map_err(|e| e.to_string())?;
+        store.save_provider_config(provider, config)?;
+        ProviderRegistry::from_config(store.get())
+    };
+    *state.providers.lock().map_err(|e| e.to_string())? = new_registry;
+    Ok(())
+}
+
+/// Store or clear a provider's secret in the OS keyring (chunk 7).
+#[tauri::command]
+pub async fn save_provider_secret(
+    provider: String,
+    secret: Option<String>,
+) -> Result<(), String> {
+    crate::config::save_provider_secret(&provider, secret)
 }

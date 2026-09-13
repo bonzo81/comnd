@@ -5,6 +5,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::kb::PlatformIndex;
+use crate::state::AppState;
+
 /// Hardcoded fallback for unit tests that don't have a KB directory to scan.
 #[cfg(test)]
 pub const BUILTIN_PLATFORMS: &[&str] = &["linux-bash", "cisco-iosxe", "cisco-nxos", "f5-tmos"];
@@ -163,4 +166,23 @@ mod tests {
         assert!(reg.is_valid("cisco-nxos"));
         assert!(!reg.is_valid("unknown"));
     }
+}
+
+// Tauri Commands (moved from lib.rs)
+
+#[tauri::command]
+pub async fn load_platform_index(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PlatformIndex, String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.get_platform_index(&platform)
+}
+
+#[tauri::command]
+pub async fn list_kb_platforms(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let kb = state.kb.lock().map_err(|e| e.to_string())?;
+    Ok(kb.list_platforms())
 }

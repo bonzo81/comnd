@@ -5,6 +5,8 @@
 //! profile / Tauri's scoped data dir). Explicit file-ACL tightening needs the
 //! `windows` crate — YAGNI while everything lives under the app data dir.
 
+pub mod commands;
+
 use std::path::{Path, PathBuf};
 
 /// Bundle identifier — must match `identifier` in `tauri.conf.json`.

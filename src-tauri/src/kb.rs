@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use crate::state::AppState;
 
 // ─── Structs ────────────────────────────────────────────────────────
 
@@ -681,7 +682,7 @@ impl KbManager {
             return Ok(Err(errors));
         }
 
-        save_kb_command(&user_kb_path, platform, category, command)?;
+        upsert_command(&user_kb_path, platform, category, command)?;
         self.stores.remove(platform);
         Ok(Ok(()))
     }
@@ -696,7 +697,7 @@ impl KbManager {
     ) -> Result<(), String> {
         let user_kb_path = self.user_path()?;
 
-        delete_kb_command(user_kb_path, platform, category, name, overrides)?;
+        remove_command(user_kb_path, platform, category, name, overrides)?;
         self.stores.remove(platform);
         Ok(())
     }
@@ -705,7 +706,7 @@ impl KbManager {
     pub fn disable_command(&mut self, platform: &str, name: &str) -> Result<(), String> {
         let user_kb_path = self.user_path()?;
 
-        disable_kb_command(user_kb_path, platform, name)?;
+        mark_disabled(user_kb_path, platform, name)?;
         self.stores.remove(platform);
         Ok(())
     }
@@ -714,7 +715,7 @@ impl KbManager {
     pub fn enable_command(&mut self, platform: &str, name: &str) -> Result<(), String> {
         let user_kb_path = self.user_path()?;
 
-        enable_kb_command(user_kb_path, platform, name)?;
+        mark_enabled(user_kb_path, platform, name)?;
         self.stores.remove(platform);
         Ok(())
     }
@@ -723,7 +724,7 @@ impl KbManager {
     pub fn disabled_commands(&self, platform: &str) -> Vec<String> {
         self.user_kb_path
             .as_deref()
-            .map(|p| get_disabled_commands(p, platform))
+            .map(|p| list_disabled(p, platform))
             .unwrap_or_default()
     }
 }
@@ -912,7 +913,7 @@ pub fn parse_tokens(tokens_json: Option<&str>) -> Result<Vec<CommandToken>, Stri
 /// If the category YAML exists, the command is merged (updated by name or added).
 /// If the category YAML doesn't exist, it's created.
 /// Also removes the command from _deleted.yaml if it was previously deleted.
-pub fn save_kb_command(
+pub fn upsert_command(
     user_kb_path: &Path,
     platform: &str,
     category: &str,
@@ -950,7 +951,7 @@ pub fn save_kb_command(
 ///   just remove the user copy — nothing to hide, no tombstone.
 /// - `overrides == false` with no user copy (bundled-only command): record the
 ///   name in `_deleted.yaml` so the loader hides the bundled version.
-pub fn delete_kb_command(
+pub fn remove_command(
     user_kb_path: &Path,
     platform: &str,
     category: &str,
@@ -1032,7 +1033,7 @@ pub fn delete_kb_command(
 
 /// Disable a single command (non-destructive): record its name in
 /// `_disabled.yaml` so the loader hides it without touching the YAML.
-pub fn disable_kb_command(
+pub fn mark_disabled(
     user_kb_path: &Path,
     platform: &str,
     command_name: &str,
@@ -1051,7 +1052,7 @@ pub fn disable_kb_command(
 }
 
 /// Enable a single command: remove its name from `_disabled.yaml` so it reappears.
-pub fn enable_kb_command(
+pub fn mark_enabled(
     user_kb_path: &Path,
     platform: &str,
     command_name: &str,
@@ -1069,11 +1070,141 @@ pub fn enable_kb_command(
 }
 
 /// List the disabled command names for a platform (for the UI's "Ignored" section).
-pub fn get_disabled_commands(user_kb_path: &Path, platform: &str) -> Vec<String> {
+pub fn list_disabled(user_kb_path: &Path, platform: &str) -> Vec<String> {
     let platform_dir = user_kb_path.join(platform);
     let mut names: Vec<String> = read_disabled_list(&platform_dir).into_iter().collect();
     names.sort();
     names
+}
+
+// ─── Tauri Commands (plan: lib.rs domain split) ─────────────────────
+
+#[tauri::command]
+pub async fn query_kb(
+    _prefix: String,
+    platform: String,
+    _mode: Option<String>,
+    version: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Command>, String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.query(
+        &platform,
+        version.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub async fn validate_kb(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<KbValidationIssue>, String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    let commands = kb.get_all_commands(&platform)?;
+    Ok(validate_platform(&commands))
+}
+
+#[tauri::command]
+pub async fn get_all_kb_commands(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Command>, String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.get_all_commands(&platform)
+}
+
+#[tauri::command]
+pub async fn save_kb_command(
+    platform: String,
+    category: String,
+    name: String,
+    syntax: String,
+    description: String,
+    mode: String,
+    aliases: Vec<String>,
+    tags: Vec<String>,
+    // Phase 5.8: optional token fields. `tokens_json` is a JSON array of
+    // CommandToken; absent/blank → no tokens (legacy entry). Malformed JSON is
+    // an outer error — we never silently drop bad input on save.
+    tokens_json: Option<String>,
+    order: Option<String>,
+    negatable: Option<bool>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Result<(), Vec<KbValidationIssue>>, String> {
+    // Malformed token JSON is a hard error (outer Err), not a silent downgrade.
+    let tokens: Vec<CommandToken> = parse_tokens(tokens_json.as_deref())?;
+
+    let order_val = match order.as_deref() {
+        Some("flags-anywhere") => CommandOrder::FlagsAnywhere,
+        Some("free") => CommandOrder::Free,
+        _ => CommandOrder::Fixed,
+    };
+
+    let command = Command {
+        name,
+        syntax,
+        description,
+        category: category.clone(),
+        mode,
+        aliases,
+        examples: vec![],
+        versions: CommandVersions {
+            introduced: None,
+            deprecated: None,
+            notes: None,
+        },
+        tags,
+        tokens,
+        order: order_val,
+        negatable: negatable.unwrap_or(false),
+        source: None,
+        overrides: false,
+    };
+
+    // Validation + write + invalidation live in the manager (policy with model).
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.save_user_command(&platform, &category, &command)
+}
+
+#[tauri::command]
+pub async fn delete_kb_command(
+    platform: String,
+    category: String,
+    command_name: String,
+    overrides: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.delete_user_command(&platform, &category, &command_name, overrides)
+}
+
+#[tauri::command]
+pub async fn disable_kb_command(
+    platform: String,
+    command_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.disable_command(&platform, &command_name)
+}
+
+#[tauri::command]
+pub async fn enable_kb_command(
+    platform: String,
+    command_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
+    kb.enable_command(&platform, &command_name)
+}
+
+#[tauri::command]
+pub async fn get_disabled_commands(
+    platform: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let kb = state.kb.lock().map_err(|e| e.to_string())?;
+    Ok(kb.disabled_commands(&platform))
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -1834,7 +1965,7 @@ mod tests {
         let pre = loaded_cmd(&bundled, &user, "show version").expect("override must load");
         assert!(pre.overrides, "fixture must be an override");
 
-        delete_kb_command(&user, "test-plat", "test", "show version", true).unwrap();
+        remove_command(&user, "test-plat", "test", "show version", true).unwrap();
 
         // Bundled copy reappears with no provenance; no tombstone left behind.
         let post = loaded_cmd(&bundled, &user, "show version").expect("bundled command must reappear");
@@ -1853,7 +1984,7 @@ mod tests {
             Some(&cmd_yaml("my-command", "user only")),
         );
 
-        delete_kb_command(&user, "test-plat", "test", "my-command", false).unwrap();
+        remove_command(&user, "test-plat", "test", "my-command", false).unwrap();
 
         let names = loaded_names(&bundled, &user);
         assert!(!names.contains(&"my-command".to_string()));
@@ -1867,7 +1998,7 @@ mod tests {
     fn test_delete_bundled_only_tombstones() {
         let (bundled, user) = kb_fixture("del-bundled", &cmd_yaml("show version", "bundled"), None);
 
-        delete_kb_command(&user, "test-plat", "test", "show version", false).unwrap();
+        remove_command(&user, "test-plat", "test", "show version", false).unwrap();
 
         assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(read_deleted_list(&user.join("test-plat")).contains("show version"));
@@ -1879,7 +2010,7 @@ mod tests {
     fn test_disable_hides_command() {
         let (bundled, user) = kb_fixture("disable", &cmd_yaml("show version", "bundled"), None);
 
-        disable_kb_command(&user, "test-plat", "show version").unwrap();
+        mark_disabled(&user, "test-plat", "show version").unwrap();
 
         assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(read_disabled_list(&user.join("test-plat")).contains("show version"));
@@ -1891,8 +2022,8 @@ mod tests {
     fn test_enable_after_disable_restores() {
         let (bundled, user) = kb_fixture("enable", &cmd_yaml("show version", "bundled"), None);
 
-        disable_kb_command(&user, "test-plat", "show version").unwrap();
-        enable_kb_command(&user, "test-plat", "show version").unwrap();
+        mark_disabled(&user, "test-plat", "show version").unwrap();
+        mark_enabled(&user, "test-plat", "show version").unwrap();
 
         assert!(loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(!read_disabled_list(&user.join("test-plat")).contains("show version"));

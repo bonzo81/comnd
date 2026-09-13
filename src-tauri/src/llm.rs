@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use crate::state::AppState;
+
 // Reuse the KB token schema so the LLM's JSON output maps directly to the
 // structs `kb.rs` serialises to YAML. Phase 5.1.
 use crate::kb::{CommandToken, CommandOrder};
@@ -1052,4 +1054,28 @@ mod tests {
         assert_eq!(result[0].description.as_deref(), Some("Show IP config"));
         assert!(output_chars.load(std::sync::atomic::Ordering::Relaxed) > 0, "on_output should have been called");
     }
+}
+
+// Tauri Commands (moved from lib.rs)
+
+#[tauri::command]
+pub async fn test_llm_connection(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let (api_format, base_url, model, context_length) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let cfg = config.get();
+        (cfg.llm_api_format.clone(), cfg.llm_base_url.clone(), cfg.llm_model.clone(), cfg.llm_context_length)
+    };
+    let api_key = crate::config::get_llm_api_key()?;
+
+    let llm = LlmClient::new(
+        base_url,
+        model,
+        api_key,
+        context_length,
+        api_format,
+    );
+
+    llm.list_models().await
 }

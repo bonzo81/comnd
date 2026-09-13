@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::platform::PlatformRegistry;
-use crate::AppState;
+use crate::state::AppState;
 use crate::paths::{app_data_dir, preserve_corrupt, secure_write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

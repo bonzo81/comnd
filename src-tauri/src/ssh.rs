@@ -16,6 +16,10 @@ use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
+use crate::state::AppState;
+use crate::credentials::{self, ResolvedCredentials};
+use crate::netbox;
+
 // ─── Known Hosts ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -930,4 +934,149 @@ mod tests {
         assert!(!should_open_auth_url(host));
         assert!(should_open_auth_url(other));
     }
+}
+
+// ─── SSH Commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn ssh_connect(
+    app_handle: tauri::AppHandle,
+    host_id: String,
+    cols: u32,
+    rows: u32,
+    session_id: u64,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // Resolve connection parameters Rust-side — secrets never enter the
+    // webview. HostStore first (fast path), then the NetBox cache for
+    // `netbox:` ids (plan §8.3). All std-Mutex guards are dropped before
+    // any await point.
+    let (hostname, port, username, credential, secret_key) = {
+        let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        match hosts.get_all()?.into_iter().find(|h| h.id == host_id) {
+            Some(host) => (
+                host.hostname,
+                host.port,
+                host.username,
+                host.credential,
+                credentials::host_key(&host_id),
+            ),
+            None if netbox::is_netbox_host_id(&host_id) => {
+                log::info!("Connecting to NetBox-sourced host {}", host_id);
+                // Clone the device out, then read source config separately
+                // (sequential locks — never nested).
+                let device = {
+                    drop(hosts);
+                    let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
+                    netbox
+                        .find_by_host_id(&host_id)
+                        .filter(|d| d.enabled)
+                        .ok_or_else(|| format!("Host not found: {}", host_id))?
+                };
+                let netbox_cfg = {
+                    let config = state.config.lock().map_err(|e| e.to_string())?;
+                    netbox::NetBoxConfig::from_json(config.host_source_config("netbox"))
+                };
+
+                // Overlay wins over source defaults (plan §6)
+                let p = netbox::resolve_connect_params(&device, &netbox_cfg)?;
+                (p.hostname, p.port, p.username, p.credential, p.secret_key)
+            }
+            None => return Err(format!("Host not found: {}", host_id)),
+        }
+    };
+
+    // Enforce max concurrent sessions. 0 = unlimited. Check before connecting
+    // so we don't consume a TCP connection + auth round-trip just to reject.
+    let max_sessions = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        config.get().max_sessions
+    };
+    if max_sessions > 0 {
+        let mgr = state.ssh.lock().await;
+        let current = mgr.session_count();
+        if current >= max_sessions as usize {
+            return Err(format!(
+                "Session limit reached ({} of {}). Disconnect a session or raise the limit in Settings → Terminal.",
+                current, max_sessions
+            ));
+        }
+    }
+
+    // Resolve credentials Rust-side — secrets never enter the webview.
+    // The provider registry is cloned out before the await: `providers` is
+    // a std Mutex and its guard must not be held across an await point.
+    // The resolved secret is transient: dropped when `creds` dies at the
+    // end of this fn, never logged or persisted.
+    let registry = state.providers.lock().map_err(|e| e.to_string())?.clone();
+    let creds = match credential.as_ref() {
+        Some(credential) => credentials::resolve(credential, &secret_key, &registry).await?,
+        None => ResolvedCredentials::default(),
+    };
+
+    let (session_logging, session_log_timestamps, session_log_dir) = {
+        let config = state.config.lock().map_err(|e| e.to_string())?;
+        let c = config.get();
+        (c.session_logging, c.session_log_timestamps, c.session_log_dir.clone())
+    };
+
+    let session = SshSession::connect(
+        app_handle,
+        &hostname,
+        port,
+        &username,
+        creds.password.as_deref(),
+        creds.key_path.as_deref(),
+        creds.agent,
+        cols,
+        rows,
+        session_id,
+        session_logging,
+        session_log_timestamps,
+        session_log_dir,
+    )
+    .await?;
+
+    let mut mgr = state.ssh.lock().await;
+    mgr.insert_session(session);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_send(
+    session_id: u64,
+    data: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mgr = state.ssh.lock().await;
+    mgr.route_send(session_id)?;
+    let session = mgr.get_session(session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    session.send(data.as_bytes()).await
+}
+
+#[tauri::command]
+pub async fn ssh_disconnect(
+    session_id: u64,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut mgr = state.ssh.lock().await;
+    match mgr.take_session(session_id) {
+        Some(session) => session.disconnect().await,
+        None => Ok(()),
+    }
+}
+
+#[tauri::command]
+pub async fn ssh_resize(
+    session_id: u64,
+    cols: u32,
+    rows: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mgr = state.ssh.lock().await;
+    mgr.route_resize(session_id, cols, rows)?;
+    let session = mgr.get_session(session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    session.resize(cols, rows).await
 }
