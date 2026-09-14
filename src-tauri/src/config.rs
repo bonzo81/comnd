@@ -408,14 +408,7 @@ fn migrate_plaintext_api_key(config_path: &std::path::Path) {
 
 /// Load config from JSON file, returning default on any error.
 fn load_config_from_file(path: &PathBuf) -> AppConfig {
-    match std::fs::read_to_string(path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
-            log::error!("Failed to parse config.json: {}. Preserving as .corrupt.", e);
-            crate::paths::preserve_corrupt(path);
-            AppConfig::default()
-        }),
-        Err(_) => AppConfig::default(),
-    }
+    crate::paths::load_json_or_preserve::<AppConfig>(path)
 }
 
 // ─── Tauri Commands (config + logging, plan: lib.rs domain split) ───

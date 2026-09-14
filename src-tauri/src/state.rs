@@ -8,7 +8,7 @@
 use std::sync::Mutex;
 
 use crate::config::ConfigStore;
-use crate::hosts::{HostGroupStore, HostStore};
+use crate::hosts::HostStore;
 use crate::kb::KbManager;
 use crate::netbox::NetBoxCacheStore;
 use crate::platform::PlatformRegistry;
@@ -18,7 +18,6 @@ use crate::ssh::SshManager;
 pub struct AppState {
     pub kb: Mutex<KbManager>,
     pub hosts: Mutex<HostStore>,
-    pub groups: Mutex<HostGroupStore>,
     pub ssh: tokio::sync::Mutex<SshManager>,
     pub config: Mutex<ConfigStore>,
     /// Secret providers enabled in config. Rebuilt when provider settings

@@ -24,7 +24,7 @@ use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::Manager;
 use kb::KbManager;
-use hosts::{HostStore, HostGroupStore};
+use hosts::HostStore;
 use ssh::SshManager;
 use config::{ConfigStore, parse_log_level_filter};
 use platform::PlatformRegistry;
@@ -343,13 +343,6 @@ pub fn run() {
 
             log::info!("Host store initialized");
 
-            let group_store = HostGroupStore::new(&data_dir).unwrap_or_else(|e| {
-                log::warn!("Failed to init group store: {}. Using in-memory fallback.", e);
-                HostGroupStore::in_memory()
-            });
-
-            log::info!("Group store initialized");
-
             let config_store = ConfigStore::new(&data_dir)
                 .or_else(|e| {
                     log::warn!("Failed to init config store: {}. Trying fallback path.", e);
@@ -375,7 +368,6 @@ pub fn run() {
             app.manage(AppState {
                 kb: Mutex::new(KbManager::with_user_path(kb_path, user_kb_path)),
                 hosts: Mutex::new(host_store),
-                groups: Mutex::new(group_store),
                 ssh: tokio::sync::Mutex::new(SshManager::new()),
                 config: Mutex::new(config_store),
                 providers: Mutex::new(provider_registry),

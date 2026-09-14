@@ -130,6 +130,23 @@ pub fn preserve_corrupt(path: &Path) {
     }
 }
 
+/// Load a JSON file into T. Missing file → default. Corrupt file →
+/// preserved as `.corrupt-<ts>`, default returned (the store pattern every
+/// data file already follows).
+pub fn load_json_or_preserve<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+    match std::fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            log::error!(
+                "Failed to parse {}. Preserving as .corrupt: {}",
+                path.display(), e
+            );
+            preserve_corrupt(path);
+            T::default()
+        }),
+        Err(_) => T::default(),
+    }
+}
+
 // ─── Backup / Restore ────────────────────────────────────────────────
 
 /// Files and directories to include in a backup export. Everything else
@@ -957,6 +974,36 @@ mod tests {
         atomic_write(&path, b"v1").unwrap();
         atomic_write(&path, b"v2-longer").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"v2-longer");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_load_json_or_preserve_defaults_on_missing_and_corrupt() {
+        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // missing → default
+        let missing: Vec<String> = load_json_or_preserve(&dir.join("nope.json"));
+        assert!(missing.is_empty());
+
+        // corrupt → preserved + default
+        let bad = dir.join("x.json");
+        std::fs::write(&bad, "{not json").unwrap();
+        let corrupt: Vec<String> = load_json_or_preserve(&bad);
+        assert!(corrupt.is_empty());
+        assert!(!bad.exists(), "corrupt file should be renamed away");
+        let preserved = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with("x.json.corrupt-"));
+        assert!(preserved, "expected a .corrupt-<ts> backup file");
+
+        // clean roundtrip
+        let ok = dir.join("ok.json");
+        std::fs::write(&ok, "[\"a\"]").unwrap();
+        let good: Vec<String> = load_json_or_preserve(&ok);
+        assert_eq!(good, vec!["a".to_string()]);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

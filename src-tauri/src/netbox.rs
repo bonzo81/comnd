@@ -518,14 +518,7 @@ impl NetBoxCacheStore {
 /// Load the cache from disk; corrupt files are preserved as `.corrupt-<ts>`
 /// and an empty cache is returned (mirrors `load_hosts_from_file`).
 fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
-    match std::fs::read_to_string(path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
-            log::error!("Failed to parse netbox-cache.json: {}. Preserving as .corrupt.", e);
-            crate::paths::preserve_corrupt(path);
-            NetBoxCache::default()
-        }),
-        Err(_) => NetBoxCache::default(),
-    }
+    crate::paths::load_json_or_preserve::<NetBoxCache>(path)
 }
 
 // ─── Source config + materialization (plan §8) ──────────────────────

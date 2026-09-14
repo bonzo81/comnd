@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::platform::PlatformRegistry;
 use crate::state::AppState;
-use crate::paths::{app_data_dir, preserve_corrupt, secure_write};
+use crate::paths::{app_data_dir, secure_write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayVariable {
@@ -37,16 +37,7 @@ fn file_path() -> Result<PathBuf, String> {
 
 fn load() -> Result<Vec<ReplayCommand>, String> {
     let path = file_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => {
-            let cmds: Vec<ReplayCommand> = serde_json::from_str(&s).map_err(|e| {
-                preserve_corrupt(&path);
-                format!("Corrupt replay.json: {}", e)
-            })?;
-            Ok(cmds)
-        }
-        Err(_) => Ok(Vec::new()),
-    }
+    Ok(crate::paths::load_json_or_preserve(&path))
 }
 
 fn save(cmds: &[ReplayCommand]) -> Result<(), String> {

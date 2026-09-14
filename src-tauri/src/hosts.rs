@@ -196,7 +196,9 @@ pub struct HostGroup {
 
 pub struct HostStore {
     hosts_path: Option<PathBuf>,
+    groups_path: Option<PathBuf>,
     hosts: Vec<Host>,
+    groups: Vec<HostGroup>,
 }
 
 impl HostStore {
@@ -206,11 +208,13 @@ impl HostStore {
             .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
         let hosts_path = data_dir.join("hosts.json");
-        let hosts = load_hosts_from_file(&hosts_path);
+        let groups_path = data_dir.join("groups.json");
 
         Ok(HostStore {
+            hosts: load_hosts_from_file(&hosts_path),
+            groups: load_groups_from_file(&groups_path),
             hosts_path: Some(hosts_path),
-            hosts,
+            groups_path: Some(groups_path),
         })
     }
 
@@ -218,7 +222,9 @@ impl HostStore {
     pub fn in_memory() -> Self {
         HostStore {
             hosts_path: None,
+            groups_path: None,
             hosts: Vec::new(),
+            groups: Vec::new(),
         }
     }
 
@@ -272,7 +278,8 @@ impl HostStore {
         Ok(())
     }
 
-    /// Persist hosts to disk.
+    /// Persist both hosts and groups to disk. One lock covers both, so a
+    /// crash can't leave them out of sync (e.g. dangling `group_id` refs).
     fn save(&self) -> Result<(), String> {
         if let Some(ref path) = self.hosts_path {
             let json = serde_json::to_string_pretty(&self.hosts)
@@ -280,63 +287,25 @@ impl HostStore {
             crate::paths::secure_write(path, json.as_bytes())
                 .map_err(|e| format!("Failed to write hosts file: {}", e))?;
         }
+        if let Some(ref path) = self.groups_path {
+            let json = serde_json::to_string_pretty(&self.groups)
+                .map_err(|e| format!("Failed to serialize groups: {}", e))?;
+            crate::paths::secure_write(path, json.as_bytes())
+                .map_err(|e| format!("Failed to write groups file: {}", e))?;
+        }
         Ok(())
     }
-}
 
-/// Load hosts from JSON file, returning empty vec on any error.
-fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            let loaded = serde_json::from_str::<Vec<Host>>(&content).unwrap_or_else(|e| {
-                log::error!("Failed to parse hosts.json: {}. Preserving as .corrupt.", e);
-                crate::paths::preserve_corrupt(path);
-                Vec::new()
-            });
-            loaded.into_iter().map(|mut h| {
-                h.normalize_credential();
-                h
-            }).collect()
-        }
-        Err(_) => Vec::new(), // File doesn't exist yet
-    }
-}
+    // ─── Host groups (merged from HostGroupStore) ───────────────────
 
-// ─── Host Group Store ────────────────────────────────────────────────
-
-pub struct HostGroupStore {
-    groups_path: Option<PathBuf>,
-    groups: Vec<HostGroup>,
-}
-
-impl HostGroupStore {
-    pub fn new(data_dir: &std::path::Path) -> Result<Self, String> {
-        crate::paths::ensure_data_dir(data_dir)
-            .map_err(|e| format!("Failed to create data dir: {}", e))?;
-
-        let groups_path = data_dir.join("groups.json");
-        let groups = load_groups_from_file(&groups_path);
-
-        Ok(HostGroupStore {
-            groups_path: Some(groups_path),
-            groups,
-        })
-    }
-
-    pub fn in_memory() -> Self {
-        HostGroupStore {
-            groups_path: None,
-            groups: Vec::new(),
-        }
-    }
-
-    pub fn get_all(&self) -> Result<Vec<HostGroup>, String> {
+    /// Get all groups sorted by sort_order.
+    pub fn get_groups(&self) -> Result<Vec<HostGroup>, String> {
         let mut sorted = self.groups.clone();
         sorted.sort_by_key(|g| g.sort_order);
         Ok(sorted)
     }
 
-    pub fn create(&mut self, mut group: HostGroup) -> Result<HostGroup, String> {
+    pub fn create_group(&mut self, mut group: HostGroup) -> Result<HostGroup, String> {
         group.id = uuid::Uuid::new_v4().to_string();
         group.created_at = chrono::Utc::now().to_rfc3339();
         group.sort_order = self.groups.len() as u32;
@@ -346,7 +315,7 @@ impl HostGroupStore {
         Ok(group)
     }
 
-    pub fn update(&mut self, group: HostGroup) -> Result<HostGroup, String> {
+    pub fn update_group(&mut self, group: HostGroup) -> Result<HostGroup, String> {
         let pos = self.groups.iter().position(|g| g.id == group.id)
             .ok_or_else(|| format!("Host group not found: {}", group.id))?;
         self.groups[pos] = group.clone();
@@ -354,7 +323,7 @@ impl HostGroupStore {
         Ok(group)
     }
 
-    pub fn delete(&mut self, id: &str) -> Result<(), String> {
+    pub fn delete_group(&mut self, id: &str) -> Result<(), String> {
         let pos = self.groups.iter().position(|g| g.id == id)
             .ok_or_else(|| format!("Host group not found: {}", id))?;
         log::info!("Host group deleted: '{}' ({})", self.groups[pos].name, id);
@@ -362,29 +331,19 @@ impl HostGroupStore {
         self.save()?;
         Ok(())
     }
+}
 
-    fn save(&self) -> Result<(), String> {
-        if let Some(ref path) = self.groups_path {
-            let json = serde_json::to_string_pretty(&self.groups)
-                .map_err(|e| format!("Failed to serialize groups: {}", e))?;
-            crate::paths::secure_write(path, json.as_bytes())
-                .map_err(|e| format!("Failed to write groups file: {}", e))?;
-        }
-        Ok(())
+/// Load hosts from JSON file, returning empty vec on any error.
+fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
+    let mut hosts = crate::paths::load_json_or_preserve::<Vec<Host>>(path);
+    for h in &mut hosts {
+        h.normalize_credential();
     }
+    hosts
 }
 
 fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            serde_json::from_str(&content).unwrap_or_else(|e| {
-                log::error!("Failed to parse groups.json: {}. Preserving as .corrupt.", e);
-                crate::paths::preserve_corrupt(path);
-                Vec::new()
-            })
-        }
-        Err(_) => Vec::new(),
-    }
+    crate::paths::load_json_or_preserve::<Vec<HostGroup>>(path)
 }
 
 // ─── Tauri Commands (host + group, plan: lib.rs domain split) ───────
@@ -474,8 +433,8 @@ pub async fn get_host_groups(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<HostGroup>, String> {
     let mut groups = {
-        let group_store = state.groups.lock().map_err(|e| e.to_string())?;
-        group_store.get_all()?
+        let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+        hosts.get_groups()?
     };
 
     // Synthetic NetBox groups (plan §8.3) — emitted only when enabled and
@@ -514,13 +473,13 @@ pub async fn save_host_group(
     if let Some(ref group_id) = id {
         reject_synthetic_group("save_host_group", group_id)?;
     }
-    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
 
     if let Some(group_id) = id {
         // Update existing
-        let existing = groups.get_all()?.into_iter().find(|g| g.id == group_id)
+        let existing = hosts.get_groups()?.into_iter().find(|g| g.id == group_id)
             .ok_or_else(|| format!("Group not found: {}", group_id))?;
-        groups.update(HostGroup {
+        hosts.update_group(HostGroup {
             id: group_id,
             name,
             parent_id,
@@ -531,7 +490,7 @@ pub async fn save_host_group(
         })
     } else {
         // Create new
-        groups.create(HostGroup {
+        hosts.create_group(HostGroup {
             id: String::new(),
             name,
             parent_id,
@@ -551,13 +510,13 @@ pub async fn move_host_group(
     state: tauri::State<'_, AppState>,
 ) -> Result<HostGroup, String> {
     reject_synthetic_group("move_host_group", &id)?;
-    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
-    let existing = groups
-        .get_all()?
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+    let existing = hosts
+        .get_groups()?
         .into_iter()
         .find(|g| g.id == id)
         .ok_or_else(|| format!("Group not found: {}", id))?;
-    groups.update(HostGroup {
+    hosts.update_group(HostGroup {
         parent_id: new_parent,
         sort_order,
         ..existing
@@ -570,21 +529,19 @@ pub async fn delete_host_group(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     reject_synthetic_group("delete_host_group", &id)?;
-    // Also un-group any hosts in this group
-    {
-        let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
-        let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
-        let all = hosts.get_all()?;
-        for host in all {
-            if host.group_id.as_deref() == Some(&id) {
-                let mut updated = host.clone();
-                updated.group_id = None;
-                let _ = hosts.update(updated, &platforms);
-            }
+    // Lock order: platforms → hosts (never nested the other way).
+    let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+    let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
+    // Ungroup any hosts in this group, then delete it. One lock covers both
+    // files, so a crash can't leave dangling `group_id` refs.
+    for host in hosts.get_all()? {
+        if host.group_id.as_deref() == Some(&id) {
+            let mut updated = host.clone();
+            updated.group_id = None;
+            let _ = hosts.update(updated, &platforms);
         }
     }
-    let mut groups = state.groups.lock().map_err(|e| e.to_string())?;
-    groups.delete(&id)
+    hosts.delete_group(&id)
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -854,5 +811,50 @@ mod tests {
             assert!(reject_synthetic_group(handler, "user-group").is_ok());
             assert!(reject_synthetic_group(handler, "550e8400-e29b-41d4").is_ok());
         }
+    }
+
+    #[test]
+    fn test_corrupt_hosts_preserves_valid_groups() {
+        // Part B: one store owns both files. A corrupt hosts.json must reset
+        // hosts to empty WITHOUT clobbering a valid groups.json (and vice
+        // versa), since each file is loaded independently.
+        let dir = std::env::temp_dir().join(format!(
+            "netssh-hosts-btest-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let group = HostGroup {
+            id: "g1".to_string(),
+            name: "Core".to_string(),
+            parent_id: None,
+            sort_order: 0,
+            color: None,
+            icon: None,
+            created_at: "t".to_string(),
+        };
+        std::fs::write(
+            dir.join("groups.json"),
+            serde_json::to_string_pretty(&[group.clone()]).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("hosts.json"), "{ not valid json ").unwrap();
+
+        let store = HostStore::new(&dir).unwrap();
+        assert!(store.get_all().unwrap().is_empty(), "corrupt hosts -> empty");
+        let groups = store.get_groups().unwrap();
+        assert_eq!(groups.len(), 1, "valid groups preserved");
+        assert_eq!(groups[0].id, "g1");
+
+        // A later save must persist the surviving group, not wipe it.
+        store.save().unwrap();
+        let reloaded: Vec<HostGroup> = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(reloaded.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
