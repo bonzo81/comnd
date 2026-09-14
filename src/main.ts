@@ -14,6 +14,7 @@ import { importJob } from "./lib/import-status";
 import { icons } from "./lib/icons";
 import { escHtml } from "./lib/format";
 import { confirmDialog } from "./lib/confirm-dialog";
+import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { getAppTheme, setAppTheme } from "./lib/theme";
 import "@fontsource/inter/400.css";
@@ -65,6 +66,7 @@ class App {
 
   // Global shortcuts modal (lives in app tab bar, visible in all views)
   private showShortcuts = false;
+  private shortcutsModalHandle: ModalHandle | null = null;
   private globalSearch: GlobalSearch | null = null;
 
   // Bottom status bar (VS Code style)
@@ -287,7 +289,7 @@ class App {
   // ─── Import job indicator + modal (title bar) ──────────────────────
 
   private importIndicator: HTMLElement | null = null;
-  private importModalEl: HTMLElement | null = null;
+  private importModalHandle: ModalHandle | null = null;
   private unlistenImportJob: (() => void) | null = null;
   /** Last modal stage label — full modal rebuild only when it changes. */
   private modalStageKey: string = "";
@@ -312,11 +314,6 @@ class App {
     this.importIndicator = indicator;
 
     this.unlistenImportJob = importJob.subscribe(() => this.refreshImportIndicator());
-
-    // Modal lives outside the title bar so it isn't drag-region clamped.
-    this.importModalEl = document.createElement("div");
-    this.importModalEl.id = "import-status-root";
-    document.body.appendChild(this.importModalEl);
   }
 
   private refreshImportIndicator() {
@@ -332,7 +329,7 @@ class App {
     const done = this.importIndicator.querySelector<HTMLElement>(".tii-done");
     if (spinner) spinner.classList.toggle("hidden", !importJob.active);
     if (done) done.classList.toggle("hidden", importJob.active);
-    if (this.importModalEl && this.importModalEl.childElementCount > 0) {
+    if (this.importModalHandle) {
       // Same-stage emits: update text in place. Rebuilding the modal HTML
       // recreates the h3 spinner element and resets its CSS animation
       // (stuttering); rebuild only on stage transitions.
@@ -343,7 +340,7 @@ class App {
 
   /** Text-only modal update while the backend stage is unchanged. */
   private updateImportModalInPlace(): boolean {
-    const modal = this.importModalEl?.querySelector<HTMLElement>(".import-status-modal");
+    const modal = this.importModalHandle?.panel ?? null;
     if (!modal || !importJob.active) return false;
     const prevStage = this.modalStageKey;
     const head = modal.querySelector<HTMLElement>(".import-status-head");
@@ -355,19 +352,34 @@ class App {
   }
 
   private toggleImportModal() {
-    if (!this.importModalEl) return;
-    if (this.importModalEl.childElementCount > 0) {
-      this.importModalEl.innerHTML = "";
+    if (this.importModalHandle) {
+      this.closeImportModal();
       return;
     }
+    const handle = openModal({
+      panelClass: "import-status-modal",
+      content: "",
+      onDismiss: () => this.closeImportModal(),
+    });
+    handle.panel.setAttribute("aria-labelledby", "import-status-title");
+    this.importModalHandle = handle;
     this.renderImportModalContent();
   }
 
+  private closeImportModal() {
+    this.importModalHandle?.close();
+    this.importModalHandle = null;
+    // Job fully acknowledged — retire the indicator tick.
+    importJob.setResult(null);
+    if (this.importIndicator) this.importIndicator.hidden = true;
+  }
+
   private renderImportModalContent() {
-    if (!this.importModalEl) return;
+    const panel = this.importModalHandle?.panel;
+    if (!panel) return;
     this.modalStageKey = importJob.active ? (importJob.stageLabel || "running") : "done";
     // Preserve the collapsible LLM output state across live re-renders.
-    const detailsOpen = this.importModalEl.querySelector<HTMLDetailsElement>("details.import-llm-details")?.open ?? false;
+    const detailsOpen = panel.querySelector<HTMLDetailsElement>("details.import-llm-details")?.open ?? false;
     const done = !importJob.active;
     const last = importJob.lines[importJob.lines.length - 1];
     const headText = done
@@ -388,39 +400,26 @@ class App {
               <span class="import-result-value import-result-path">${escHtml(r.targetFile)}</span>
             </div>
           </div>` : "";
-    this.importModalEl.innerHTML = `
-      <div class="modal-backdrop" id="import-status-backdrop">
-        <div class="modal-panel import-status-modal" role="dialog" aria-modal="true" aria-labelledby="import-status-title">
-          <h3 id="import-status-title">${done ? icons.check : ""} Import Job ${done ? "" : '<span class="tii-spinner tii-spinner-inline"></span>'}</h3>
-          <div class="import-status-head">${escHtml(headText)}</div>
-          ${summary}
-          <div class="import-status-log" id="import-status-log">${lines}</div>
-          ${importJob.llmTail ? `
-          <details class="import-llm-details"${detailsOpen ? " open" : ""}>
-            <summary>LLM output (live)</summary>
-            <pre id="import-status-llm-tail">${escHtml(importJob.llmTail)}</pre>
-          </details>` : ""}
-          <div class="form-actions">
-            ${!done && !importJob.committing ? `<button class="btn-danger" id="import-status-cancel-btn">Cancel</button>` : ""}
-            <button class="btn-text" id="import-status-close-btn">Close</button>
-          </div>
-        </div>
+    panel.innerHTML = `
+      <h3 id="import-status-title">${done ? icons.check : ""} Import Job ${done ? "" : '<span class="tii-spinner tii-spinner-inline"></span>'}</h3>
+      <div class="import-status-head">${escHtml(headText)}</div>
+      ${summary}
+      <div class="import-status-log" id="import-status-log">${lines}</div>
+      ${importJob.llmTail ? `
+      <details class="import-llm-details"${detailsOpen ? " open" : ""}>
+        <summary>LLM output (live)</summary>
+        <pre id="import-status-llm-tail">${escHtml(importJob.llmTail)}</pre>
+      </details>` : ""}
+      <div class="form-actions">
+        ${!done && !importJob.committing ? `<button class="btn-danger" id="import-status-cancel-btn">Cancel</button>` : ""}
+        <button class="btn-text" id="import-status-close-btn">Close</button>
       </div>`;
-    const log2 = this.importModalEl.querySelector("#import-status-log");
+    const log2 = panel.querySelector("#import-status-log");
     if (log2) log2.scrollTop = log2.scrollHeight;
-    const tail = this.importModalEl.querySelector("#import-status-llm-tail");
+    const tail = panel.querySelector("#import-status-llm-tail");
     if (tail && detailsOpen) tail.scrollTop = tail.scrollHeight;
-    const closeImportModal = () => {
-      if (this.importModalEl) this.importModalEl.innerHTML = "";
-      // Job fully acknowledged — retire the indicator tick.
-      importJob.setResult(null);
-      if (this.importIndicator) this.importIndicator.hidden = true;
-    };
-    this.importModalEl.querySelector("#import-status-close-btn")?.addEventListener("click", closeImportModal);
-    this.importModalEl.querySelector("#import-status-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "import-status-backdrop") closeImportModal();
-    });
-    this.importModalEl.querySelector("#import-status-cancel-btn")?.addEventListener("click", () => {
+    panel.querySelector("#import-status-close-btn")?.addEventListener("click", () => this.closeImportModal());
+    panel.querySelector("#import-status-cancel-btn")?.addEventListener("click", () => {
       const ok = importJob.requestCancel();
       if (!ok) showToast("Import is committing — too late to cancel", "error");
       else showToast("Import cancelled — nothing was imported", "info");
@@ -712,7 +711,8 @@ class App {
   }
 
   private renderShortcutsModal() {
-    document.getElementById("app-shortcuts-backdrop")?.remove();
+    this.shortcutsModalHandle?.close();
+    this.shortcutsModalHandle = null;
     if (!this.showShortcuts) return;
 
     const shortcuts = [
@@ -743,23 +743,19 @@ class App {
       })
       .join("");
 
-    const backdrop = document.createElement("div");
-    backdrop.className = "modal-backdrop";
-    backdrop.id = "app-shortcuts-backdrop";
-    backdrop.innerHTML = `
-      <div class="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="app-shortcuts-title">
+    const handle = openModal({
+      panelClass: "shortcuts-modal",
+      content: `
         <h2 id="app-shortcuts-title">Keyboard Shortcuts</h2>
         <div class="shortcuts-grid">${items}</div>
         <div class="form-actions" style="margin-top:calc(var(--spacing) * 5)">
           <button class="btn-primary" id="app-shortcuts-close-btn">Got it</button>
-        </div>
-      </div>`;
-    document.body.appendChild(backdrop);
-
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) this.closeShortcutsModal();
+        </div>`,
+      onDismiss: () => this.closeShortcutsModal(),
     });
-    backdrop.querySelector("#app-shortcuts-close-btn")!.addEventListener("click", () =>
+    handle.panel.setAttribute("aria-labelledby", "app-shortcuts-title");
+    this.shortcutsModalHandle = handle;
+    handle.panel.querySelector("#app-shortcuts-close-btn")!.addEventListener("click", () =>
       this.closeShortcutsModal(),
     );
   }
@@ -837,16 +833,12 @@ class App {
         return;
       }
 
-      // Escape — from KB / settings view, return to connections
+      // Escape — from KB / settings view, return to connections.
+      // Open modals handle Escape themselves (modal shell, capture phase).
       if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (this.currentView === "knowledge-base" || this.currentView === "settings") {
           e.preventDefault();
           this.showView("connections");
-          return;
-        }
-        if (this.showShortcuts) {
-          e.preventDefault();
-          this.closeShortcutsModal();
           return;
         }
       }

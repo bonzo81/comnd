@@ -188,7 +188,7 @@ export class KbScreen {
       panel.innerHTML = "";
     }
 
-    this.viewerDialog = new KbViewerDialog(true); // embedMode=true
+    this.viewerDialog = new KbViewerDialog();
     this.viewerDialog.mount(panel, this.selectedPlatform || undefined).then(() => {
       const pending = this.pendingCommand;
       this.pendingCommand = null;
@@ -210,7 +210,7 @@ export class KbScreen {
       // Import may have added platforms — reload list and refresh the nav panel
       void this.loadPlatforms();
       this.onPlatformsChanged?.();
-    }, true); // embedMode=true
+    });
     this.importDialog.mount(panel);
   }
 

@@ -20,9 +20,10 @@ import { log, LogTag } from "../lib/logger";
 import { escHtml } from "../lib/format";
 import { collectCredential, renderCredentialFieldset, updateCredentialVisibility } from "../lib/credential-fieldset";
 import { platformBadge, platformColorClass } from "../lib/platforms";
+import { openModal, ModalHandle } from "../lib/modal";
 
 export class NetBoxConfigureDialog {
-  private overlay: HTMLDivElement | null = null;
+  private modal: ModalHandle | null = null;
   private device: NetBoxDeviceEntry | null = null;
   private hasPassword = false;
 
@@ -64,74 +65,71 @@ export class NetBoxConfigureDialog {
       .filter((s) => s)
       .join(" · ");
 
-    const overlay = document.createElement("div");
-    overlay.className = "modal-backdrop";
-    overlay.innerHTML = `
-      <div class="modal-panel host-form" role="dialog" aria-modal="true" aria-labelledby="nb-cfg-title">
-        <h2 id="nb-cfg-title">Configure NetBox Device</h2>
-        <div class="netbox-cfg-summary">
-          <span class="hs-host-badge ${platformColorClass(d.platform)}">[${escHtml(platformBadge(d.platform))}]</span>
-          <div>
-            <div class="netbox-cfg-name">${escHtml(d.name)}</div>
-            <div class="netbox-cfg-meta">${escHtml(summaryMeta)}</div>
-          </div>
+    const content = `
+      <h2 id="nb-cfg-title">Configure NetBox Device</h2>
+      <div class="netbox-cfg-summary">
+        <span class="hs-host-badge ${platformColorClass(d.platform)}">[${escHtml(platformBadge(d.platform))}]</span>
+        <div>
+          <div class="netbox-cfg-name">${escHtml(d.name)}</div>
+          <div class="netbox-cfg-meta">${escHtml(summaryMeta)}</div>
         </div>
-        <form id="nb-cfg-form" autocomplete="off">
-          <label>
-            <span>Username</span>
-            <input type="text" class="form-input" name="username" placeholder="Inherit source default"
-                   value="${escHtml(o.username ?? "")}" />
-          </label>
-          <label>
-            <span>Port</span>
-            <input type="number" class="form-input" name="port" min="1" max="65535"
-                   placeholder="Inherit source default" value="${o.port ?? ""}" />
-          </label>
-          ${renderCredentialFieldset({
-            name: "auth_type",
-            credential: cred ?? null,
-            providers: [],
-            idPrefix: "nb-cfg",
-            defaultType: "inherit",
-            extraRadios: [{ value: "inherit", checked: authType === "inherit", label: "Inherit source default" }],
-            passwordBadge: this.hasPassword,
-            passwordPlaceholder: this.hasPassword ? "Leave blank to keep saved password" : "Enter password",
-          })}
-          <label>
-            <span>Notes</span>
-            <textarea class="form-input" name="notes" rows="3" placeholder="Optional notes">${escHtml(o.notes ?? "")}</textarea>
-          </label>
-          <div class="form-actions">
-            <button type="button" class="btn-text" id="nb-cfg-cancel">Cancel</button>
-            <button type="submit" class="btn-primary">Save</button>
-          </div>
-          <div class="form-errors" id="nb-cfg-errors" role="alert"></div>
-        </form>
       </div>
+      <form id="nb-cfg-form" autocomplete="off">
+        <label>
+          <span>Username</span>
+          <input type="text" class="form-input" name="username" placeholder="Inherit source default"
+                 value="${escHtml(o.username ?? "")}" />
+        </label>
+        <label>
+          <span>Port</span>
+          <input type="number" class="form-input" name="port" min="1" max="65535"
+                 placeholder="Inherit source default" value="${o.port ?? ""}" />
+        </label>
+        ${renderCredentialFieldset({
+          name: "auth_type",
+          credential: cred ?? null,
+          providers: [],
+          idPrefix: "nb-cfg",
+          defaultType: "inherit",
+          extraRadios: [{ value: "inherit", checked: authType === "inherit", label: "Inherit source default" }],
+          passwordBadge: this.hasPassword,
+          passwordPlaceholder: this.hasPassword ? "Leave blank to keep saved password" : "Enter password",
+        })}
+        <label>
+          <span>Notes</span>
+          <textarea class="form-input" name="notes" rows="3" placeholder="Optional notes">${escHtml(o.notes ?? "")}</textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn-text" id="nb-cfg-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+        <div class="form-errors" id="nb-cfg-errors" role="alert"></div>
+      </form>
     `;
-    document.body.appendChild(overlay);
-    this.overlay = overlay;
 
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) this.close();
+    this.modal = openModal({
+      panelClass: "host-form",
+      content,
+      initialFocus: 'input[name="username"]',
+      onDismiss: () => this.close(),
     });
-    overlay.querySelector<HTMLButtonElement>("#nb-cfg-cancel")?.addEventListener("click", () => this.close());
-    overlay.querySelectorAll<HTMLInputElement>('input[name="auth_type"]').forEach((radio) => {
+    this.modal.panel.setAttribute("aria-labelledby", "nb-cfg-title");
+
+    const panel = this.modal.panel;
+    panel.querySelector<HTMLButtonElement>("#nb-cfg-cancel")?.addEventListener("click", () => this.close());
+    panel.querySelectorAll<HTMLInputElement>('input[name="auth_type"]').forEach((radio) => {
       radio.addEventListener("change", () => this.updateAuthVisibility());
     });
-    overlay.querySelector<HTMLFormElement>("#nb-cfg-form")?.addEventListener("submit", (e) => {
+    panel.querySelector<HTMLFormElement>("#nb-cfg-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.save();
     });
 
     void this.loadProviders(authType);
-    setTimeout(() => {
-      overlay.querySelector<HTMLInputElement>('input[name="username"]')?.focus();
-    }, 50);
   }
 
   private async loadProviders(selectedType: string): Promise<void> {
-    const select = this.overlay?.querySelector<HTMLSelectElement>('select[name="secret_ref_provider"]');
+    const select = this.modal?.panel.querySelector<HTMLSelectElement>('select[name="secret_ref_provider"]');
     if (!select) return;
     let providers: { id: string }[] = [];
     try {
@@ -157,14 +155,14 @@ export class NetBoxConfigureDialog {
   }
 
   private updateAuthVisibility(): void {
-    if (!this.overlay) return;
-    updateCredentialVisibility(this.overlay, "auth_type", "nb-cfg");
+    if (!this.modal) return;
+    updateCredentialVisibility(this.modal.panel, "auth_type", "nb-cfg");
   }
 
   private async save(): Promise<void> {
-    if (!this.device || !this.overlay) return;
-    const form = this.overlay.querySelector<HTMLFormElement>("#nb-cfg-form");
-    const errEl = this.overlay.querySelector<HTMLElement>("#nb-cfg-errors");
+    if (!this.device || !this.modal) return;
+    const form = this.modal.panel.querySelector<HTMLFormElement>("#nb-cfg-form");
+    const errEl = this.modal.panel.querySelector<HTMLElement>("#nb-cfg-errors");
     if (!form) return;
     const fd = new FormData(form);
     const username = (fd.get("username") as string)?.trim() || null;
@@ -208,7 +206,7 @@ export class NetBoxConfigureDialog {
   }
 
   close(): void {
-    this.overlay?.remove();
-    this.overlay = null;
+    this.modal?.close();
+    this.modal = null;
   }
 }

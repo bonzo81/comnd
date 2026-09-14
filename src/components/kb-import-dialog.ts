@@ -1,5 +1,5 @@
 /**
- * KB Import Dialog — modal for importing commands from a URL via the configured LLM.
+ * KB Import Dialog — embedded wizard for importing commands from a URL via the configured LLM.
  *
  * Steps:
  * 1. Enter URL and select platform/category
@@ -78,7 +78,6 @@ const CATEGORY_OPTIONS = [
 
 export class KbImportDialog {
   private container: HTMLElement | null = null;
-  private overlay: HTMLElement | null = null;
   private onImportComplete: (() => void) | null = null;
   private unlistenProgress: UnlistenFn | null = null;
   private stage: ImportStage = "idle";
@@ -87,7 +86,6 @@ export class KbImportDialog {
   /** Fetch failed with a bot-block (403/429) — offer the paste-text path. */
   private fetchBlocked: boolean = false;
   private config: AppConfig | null = null;
-  private embedMode: boolean;
   /** Phase 5.6: preview stage state */
   private preview: ExtractPreview | null = null;
   private previewUrl: string = "";
@@ -106,9 +104,8 @@ export class KbImportDialog {
   /** Source mode: "url" fetches server-side, "text" imports pasted page text. */
   private sourceMode: "url" | "text" = "url";
 
-  constructor(onImportComplete?: () => void, embedMode: boolean = false) {
+  constructor(onImportComplete?: () => void) {
     this.onImportComplete = onImportComplete ?? null;
-    this.embedMode = embedMode;
   }
 
   async mount(container: HTMLElement) {
@@ -206,21 +203,7 @@ export class KbImportDialog {
       ${this.stage === "idle" || isImporting ? this.renderForm(base_url, model, isImporting) : ""}
     `;
 
-    if (this.embedMode) {
-      this.container.innerHTML = content;
-    } else {
-      this.container.innerHTML = `
-        <div class="modal-backdrop" id="import-overlay" role="dialog" aria-modal="true" aria-labelledby="import-title">
-          <div class="import-dialog">
-            <div class="import-header">
-              <h2 id="import-title">Import Commands from URL</h2>
-              <button class="import-close-btn" id="import-close-btn" aria-label="Close import dialog" ${isImporting ? 'disabled' : ''}>&times;</button>
-            </div>
-            ${content}
-          </div>
-        </div>
-      `;
-    }
+    this.container.innerHTML = content;
 
     this.bindEvents();
   }
@@ -500,12 +483,6 @@ export class KbImportDialog {
   // ─── Event Binding ──────────────────────────────────────────────────
 
   private bindEvents() {
-    // Close button
-    document.getElementById("import-close-btn")?.addEventListener("click", () => this.close());
-    document.getElementById("import-overlay")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "import-overlay") this.close();
-    });
-
     // Try URL
     document.getElementById("import-try-url-btn")?.addEventListener("click", () => this.tryUrl());
 

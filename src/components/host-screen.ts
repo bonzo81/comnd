@@ -27,6 +27,7 @@ import { log, LogTag } from "../lib/logger";
 import { PLATFORM_META, platformBadge, platformColorClass, getPlatformMeta } from "../lib/platforms";
 import { escAttr, escHtml, relativeTime } from "../lib/format";
 import { confirmDialog } from "../lib/confirm-dialog";
+import { openModal, type ModalHandle } from "../lib/modal";
 import { moveListItem } from "../lib/listbox-nav";
 import { renderCredentialFieldset, updateCredentialVisibility, collectCredential } from "../lib/credential-fieldset";
 import { ALL_GROUP_ID, recentHosts, isNetboxHostId } from "../lib/host-filters";
@@ -58,6 +59,7 @@ export class HostScreen {
 
   // UI state
   private formOpen = false;
+  private formModalHandle: ModalHandle | null = null;
   private editingHost: Host | null = null;
   private editingHasCredential = false;
   private agentIdentities: AgentIdentity[] = [];
@@ -135,6 +137,7 @@ export class HostScreen {
   }
 
   unmount() {
+    this.closeForm();
     if (this._keyHandler) {
       document.removeEventListener("keydown", this._keyHandler);
       this._keyHandler = null;
@@ -192,7 +195,6 @@ export class HostScreen {
         </div>
       </div>
 
-      ${this.formOpen ? this.renderForm() : ""}
       ${this.contextMenu ? this.renderContextMenu() : ""}
     `;
 
@@ -258,9 +260,7 @@ export class HostScreen {
     const secretRefReference = cred && cred.type === "secret_ref" ? cred.reference : "";
 
     return `
-      <div class="modal-backdrop" id="hs-form-backdrop">
-        <div class="modal-panel host-form" role="dialog" aria-modal="true" aria-labelledby="hs-form-title">
-          <h2 id="hs-form-title">${title}</h2>
+      <h2 id="hs-form-title">${title}</h2>
           <form id="hs-host-form" autocomplete="off">
             <label>
               <span>Display Name <em>*</em></span>
@@ -356,9 +356,7 @@ export class HostScreen {
               <button type="submit" class="btn-primary" id="hs-form-save-connect">Save & Connect</button>
             </div>
             <div class="form-errors" id="hs-form-errors" role="alert"></div>
-          </form>
-        </div>
-      </div>`;
+          </form>`;
   }
 
   // ─── Context Menu ────────────────────────────────────────────────
@@ -467,27 +465,26 @@ export class HostScreen {
     };
     document.addEventListener("mousedown", this._clickOutsideHandler);
 
-    // Form events
-    this.bindFormEvents();
   }
 
   private bindFormEvents() {
-    if (!this.container) return;
+    const panel = this.formModalHandle?.panel;
+    if (!panel) return;
 
     // Auth type toggle
-    this.container.querySelectorAll('input[name="auth_type"]').forEach((radio) => {
+    panel.querySelectorAll('input[name="auth_type"]').forEach((radio) => {
       radio.addEventListener("change", () => {
-        updateCredentialVisibility(this.container!, "auth_type", "hs-auth");
+        updateCredentialVisibility(panel, "auth_type", "hs-auth");
       });
     });
 
     // Secret manager: reference combobox, invalidate cached label on edit
-    (this.container.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.addEventListener("change", () => {
+    (panel.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.addEventListener("change", () => {
       this.closeCombo();
       this.comboProvider = null; // cached items belong to the old provider
       this.comboSelection = null;
     });
-    const refInput = this.container.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+    const refInput = panel.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
     if (refInput) {
       refInput.addEventListener("focus", () => this.openCombo(refInput));
       refInput.addEventListener("input", () => {
@@ -499,15 +496,12 @@ export class HostScreen {
       refInput.addEventListener("keydown", (e) => this.handleComboKey(e, refInput));
     }
 
-    // Cancel
-    document.getElementById("hs-form-cancel")?.addEventListener("click", () => this.closeForm());
-    document.getElementById("hs-form-backdrop")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "hs-form-backdrop") this.closeForm();
-    });
+    // Cancel (backdrop click is handled by the modal shell)
+    panel.querySelector("#hs-form-cancel")?.addEventListener("click", () => this.closeForm());
 
     // Save
-    document.getElementById("hs-form-save")?.addEventListener("click", () => this.submitForm(false));
-    document.getElementById("hs-host-form")?.addEventListener("submit", (e) => {
+    panel.querySelector("#hs-form-save")?.addEventListener("click", () => this.submitForm(false));
+    panel.querySelector("#hs-host-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.submitForm(true);
     });
@@ -524,14 +518,8 @@ export class HostScreen {
   // ─── Keyboard ───────────────────────────────────────────────────
 
   private handleKey(e: KeyboardEvent) {
-    // Modals have priority
-    if (this.formOpen) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        this.closeForm();
-      }
-      return;
-    }
+    // Form modal is open — the shell owns its keys (incl. Escape)
+    if (this.formOpen) return;
 
     if (this.contextMenu) {
       if (e.key === "Escape") {
@@ -618,11 +606,13 @@ export class HostScreen {
   }
 
   private async openForm(editId?: string) {
+    if (this.formOpen) return;
     if (editId && isNetboxHostId(editId)) {
       log.warn(LogTag.Netbox, `Guard: form open blocked on NetBox host ${editId}`);
       showToast("NetBox hosts are managed by the NetBox integration — use Configure", "info");
       return;
     }
+    this.formOpen = true; // guard against double-open during async load
     if (editId) {
       this.editingHost = this.hosts.find((h) => h.id === editId) ?? null;
       if (this.editingHost) {
@@ -638,16 +628,20 @@ export class HostScreen {
     }
     await Promise.all([this.loadAgentIdentities(), this.loadReadyProviders()]);
     this.secretRefLabel = null;
-    this.formOpen = true;
-    this.render();
-    setTimeout(() => {
-      if (this.pendingGroupId) {
-        const sel = this.container?.querySelector('select[name="group_id"]') as HTMLSelectElement | null;
-        if (sel) sel.value = this.pendingGroupId;
-        this.pendingGroupId = null;
-      }
-      (this.container?.querySelector('input[name="display_name"]') as HTMLInputElement)?.focus();
-    }, 50);
+    const handle = openModal({
+      panelClass: "host-form",
+      content: this.renderForm(),
+      initialFocus: 'input[name="display_name"]',
+      onDismiss: () => this.closeForm(),
+    });
+    handle.panel.setAttribute("aria-labelledby", "hs-form-title");
+    this.formModalHandle = handle;
+    if (this.pendingGroupId) {
+      const sel = handle.panel.querySelector('select[name="group_id"]') as HTMLSelectElement | null;
+      if (sel) sel.value = this.pendingGroupId;
+      this.pendingGroupId = null;
+    }
+    this.bindFormEvents();
   }
 
   private async loadAgentIdentities() {
@@ -664,6 +658,8 @@ export class HostScreen {
   }
 
   private closeForm() {
+    this.formModalHandle?.close();
+    this.formModalHandle = null;
     this.formOpen = false;
     this.editingHost = null;
     this.editingHasCredential = false;
@@ -684,7 +680,7 @@ export class HostScreen {
   }
 
   private async submitForm(andConnect: boolean) {
-    const form = this.container?.querySelector("#hs-host-form") as HTMLFormElement | null;
+    const form = this.formModalHandle?.panel.querySelector("#hs-host-form") as HTMLFormElement | null;
     if (!form) return;
 
     const fd = new FormData(form);
@@ -860,7 +856,7 @@ export class HostScreen {
   }
 
   private currentProvider(): string {
-    return (this.container?.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.value ?? "";
+    return (this.formModalHandle?.panel.querySelector('select[name="secret_ref_provider"]') as HTMLSelectElement | null)?.value ?? "";
   }
 
   /** Open the dropdown under the reference input, loading items lazily. */
@@ -937,7 +933,7 @@ export class HostScreen {
     } finally {
       this.comboLoading = false;
       if (!this.comboOpen || this.comboProvider !== provider) return;
-      const input = this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+      const input = this.formModalHandle?.panel.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
       this.applyComboFilter(input?.value ?? "");
       this.updateComboList();
     }
@@ -986,7 +982,7 @@ export class HostScreen {
     const item = this.comboFiltered[index];
     if (!item) return;
     this.closeCombo();
-    const input = this.container?.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
+    const input = this.formModalHandle?.panel.querySelector('input[name="secret_ref_reference"]') as HTMLInputElement | null;
     if (input) {
       input.value = item.label;
       input.focus();

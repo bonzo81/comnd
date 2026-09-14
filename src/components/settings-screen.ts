@@ -33,7 +33,8 @@ import {
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
-import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
+  import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
+  import { openModal } from "../lib/modal";
 
 const LABELS: Record<string, string> = {
   general: "General",
@@ -1353,37 +1354,37 @@ export class SettingsScreen {
   }
 
   private showImportModeDialog(srcPath: string): void {
-    const overlay = document.createElement("div");
-    overlay.className = "modal-backdrop";
-    overlay.innerHTML = `
-      <div class="modal-panel modal-panel-sm" role="dialog" aria-modal="true" aria-labelledby="restore-mode-title">
-        <h3 id="restore-mode-title">Restore backup</h3>
-        <p class="modal-intro">
-          Choose how to restore from <strong>${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
-        </p>
-        <div class="modal-choice-list">
-          <button class="btn-primary modal-choice" id="import-overwrite">
-            <span>Overwrite everything</span>
-            <span class="import-hint">Replaces all current data with the backup. Files not in the backup are deleted.</span>
-          </button>
-          <button class="btn-secondary modal-choice" id="import-merge">
-            <span>Merge</span>
-            <span class="import-hint">Combines current and backup data. You'll review any conflicts before anything is changed.</span>
-          </button>
-          <button class="btn-text" id="import-cancel">Cancel</button>
-        </div>
+    const content = `
+      <h3 id="restore-mode-title">Restore backup</h3>
+      <p class="modal-intro">
+        Choose how to restore from <strong>${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
+      </p>
+      <div class="modal-choice-list">
+        <button class="btn-primary modal-choice" id="import-overwrite">
+          <span>Overwrite everything</span>
+          <span class="import-hint">Replaces all current data with the backup. Files not in the backup are deleted.</span>
+        </button>
+        <button class="btn-secondary modal-choice" id="import-merge">
+          <span>Merge</span>
+          <span class="import-hint">Combines current and backup data. You'll review any conflicts before anything is changed.</span>
+        </button>
+        <button class="btn-text" id="import-cancel">Cancel</button>
       </div>
     `;
-    document.body.appendChild(overlay);
+    const modal = openModal({
+      panelClass: "modal-panel-sm",
+      content,
+      onDismiss: () => modal.close(),
+    });
+    modal.panel.setAttribute("aria-labelledby", "restore-mode-title");
 
-    const close = () => overlay.remove();
-    overlay.querySelector<HTMLButtonElement>("#import-cancel")?.addEventListener("click", close);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector<HTMLButtonElement>("#import-overwrite")?.addEventListener("click", () => {
+    const close = () => modal.close();
+    modal.panel.querySelector<HTMLButtonElement>("#import-cancel")?.addEventListener("click", close);
+    modal.panel.querySelector<HTMLButtonElement>("#import-overwrite")?.addEventListener("click", () => {
       close();
       void this.doOverwrite(srcPath);
     });
-    overlay.querySelector<HTMLButtonElement>("#import-merge")?.addEventListener("click", () => {
+    modal.panel.querySelector<HTMLButtonElement>("#import-merge")?.addEventListener("click", () => {
       close();
       void this.doMerge(srcPath);
     });
@@ -1437,16 +1438,6 @@ export class SettingsScreen {
   }
 
   private showConflictDialog(tempDir: string, newCount: number, conflicts: MergeConflict[]): void {
-    const overlay = document.createElement("div");
-    overlay.className = "modal-backdrop";
-
-    // Group conflicts by file for readability
-    const byFile = new Map<string, MergeConflict[]>();
-    for (const c of conflicts) {
-      if (!byFile.has(c.file)) byFile.set(c.file, []);
-      byFile.get(c.file)!.push(c);
-    }
-
     const conflictRows = conflicts.map((c, i) => `
       <div class="conflict-row" data-index="${i}" data-key="${escHtml(c.key)}">
         <div class="conflict-info">
@@ -1465,45 +1456,47 @@ export class SettingsScreen {
       </div>
     `).join("");
 
-    overlay.innerHTML = `
-      <div class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="merge-conflicts-title">
-        <h3 id="merge-conflicts-title">Merge conflicts</h3>
-        <p class="modal-intro">
-          ${newCount} new entries will be added. ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} need resolution:
-        </p>
-        <div class="modal-actions modal-actions-header">
-          <button class="btn-text btn-xs" id="conflict-all-keep">Keep all current</button>
-          <button class="btn-text btn-xs" id="conflict-all-backup">Use all backup</button>
-        </div>
-        <div class="conflict-list">
-          ${conflictRows}
-        </div>
-        <div class="modal-actions">
-          <button class="btn-text" id="conflict-cancel">Cancel</button>
-          <button class="btn-primary" id="conflict-apply">Apply merge</button>
-        </div>
+    const content = `
+      <h3 id="merge-conflicts-title">Merge conflicts</h3>
+      <p class="modal-intro">
+        ${newCount} new entries will be added. ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} need resolution:
+      </p>
+      <div class="modal-actions modal-actions-header">
+        <button class="btn-text btn-xs" id="conflict-all-keep">Keep all current</button>
+        <button class="btn-text btn-xs" id="conflict-all-backup">Use all backup</button>
+      </div>
+      <div class="conflict-list">
+        ${conflictRows}
+      </div>
+      <div class="modal-actions">
+        <button class="btn-text" id="conflict-cancel">Cancel</button>
+        <button class="btn-primary" id="conflict-apply">Apply merge</button>
       </div>
     `;
-    document.body.appendChild(overlay);
+    const modal = openModal({
+      panelClass: "modal-panel-wide",
+      content,
+      onDismiss: () => modal.close(),
+    });
+    modal.panel.setAttribute("aria-labelledby", "merge-conflicts-title");
 
-    const close = () => overlay.remove();
+    const close = () => modal.close();
 
-    overlay.querySelector<HTMLButtonElement>("#conflict-cancel")?.addEventListener("click", close);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    modal.panel.querySelector<HTMLButtonElement>("#conflict-cancel")?.addEventListener("click", close);
 
     // "Apply to all" buttons
-    overlay.querySelector<HTMLButtonElement>("#conflict-all-keep")?.addEventListener("click", () => {
-      overlay.querySelectorAll<HTMLInputElement>('input[type="radio"][value="keep_current"]').forEach(r => r.checked = true);
+    modal.panel.querySelector<HTMLButtonElement>("#conflict-all-keep")?.addEventListener("click", () => {
+      modal.panel.querySelectorAll<HTMLInputElement>('input[type="radio"][value="keep_current"]').forEach(r => r.checked = true);
     });
-    overlay.querySelector<HTMLButtonElement>("#conflict-all-backup")?.addEventListener("click", () => {
-      overlay.querySelectorAll<HTMLInputElement>('input[type="radio"][value="use_backup"]').forEach(r => r.checked = true);
+    modal.panel.querySelector<HTMLButtonElement>("#conflict-all-backup")?.addEventListener("click", () => {
+      modal.panel.querySelectorAll<HTMLInputElement>('input[type="radio"][value="use_backup"]').forEach(r => r.checked = true);
     });
 
     // Apply button — collect resolutions and call applyMerge
-    overlay.querySelector<HTMLButtonElement>("#conflict-apply")?.addEventListener("click", () => {
+    modal.panel.querySelector<HTMLButtonElement>("#conflict-apply")?.addEventListener("click", () => {
       const resolutions: Record<string, "keep_current" | "use_backup"> = {};
       conflicts.forEach((c, i) => {
-        const selected = overlay.querySelector<HTMLInputElement>(`input[name="conflict-${i}"]:checked`);
+        const selected = modal.panel.querySelector<HTMLInputElement>(`input[name="conflict-${i}"]:checked`);
         if (selected) {
           resolutions[c.key] = selected.value as "keep_current" | "use_backup";
         }

@@ -36,7 +36,8 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
-import { confirmDialog } from "../lib/confirm-dialog";
+  import { confirmDialog } from "../lib/confirm-dialog";
+  import { openModal } from "../lib/modal";
 import { tofuRespond } from "../lib/tauri-api";
 import { icons } from "../lib/icons";
 import {
@@ -1334,60 +1335,55 @@ export class TerminalView {
   }
 
   private promptReplayVariables(cmd: ReplayCommand) {
-    const overlay = document.createElement("div");
-    overlay.className = "modal-backdrop";
-    overlay.innerHTML = `
-      <div class="modal-panel replay-dialog" role="dialog" aria-modal="true" aria-labelledby="rpv-title">
-        <h2 id="rpv-title">Command Variables</h2>
-        <p class="replay-dialog-hint"><code>${this.esc(cmd.command)}</code></p>
-        ${cmd.variables
-          .map(
-            (v, i) => `
-          <label>
-            <span>${this.esc(v.name)}</span>
-            <input type="text" class="form-input rpv-input" data-name="${this.esc(v.name)}"
-                   ${i === 0 ? "autofocus" : ""} spellcheck="false" autocomplete="off" />
-          </label>`,
-          )
-          .join("")}
-        <div class="form-errors rpv-errors" role="alert"></div>
-        <div class="form-actions">
-          <button type="button" class="btn-text rpv-cancel">Cancel</button>
-          <button type="button" class="btn-primary rpv-play">Play</button>
-        </div>
+    const content = `
+      <h2 id="rpv-title">Command Variables</h2>
+      <p class="replay-dialog-hint"><code>${this.esc(cmd.command)}</code></p>
+      ${cmd.variables
+        .map(
+          (v) => `
+        <label>
+          <span>${this.esc(v.name)}</span>
+          <input type="text" class="form-input rpv-input" data-name="${this.esc(v.name)}"
+                 spellcheck="false" autocomplete="off" />
+        </label>`,
+        )
+        .join("")}
+      <div class="form-errors rpv-errors" role="alert"></div>
+      <div class="form-actions">
+        <button type="button" class="btn-text rpv-cancel">Cancel</button>
+        <button type="button" class="btn-primary rpv-play">Play</button>
       </div>
     `;
-    document.body.appendChild(overlay);
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) overlay.remove();
+    const modal = openModal({
+      panelClass: "replay-dialog",
+      content,
+      initialFocus: ".rpv-input",
+      onDismiss: () => modal.close(),
     });
-    const close = () => overlay.remove();
-    const firstInput = overlay.querySelector<HTMLInputElement>(".rpv-input");
-    if (firstInput) setTimeout(() => firstInput.focus(), 50);
-    overlay.querySelector(".rpv-cancel")?.addEventListener("click", close);
+    modal.panel.setAttribute("aria-labelledby", "rpv-title");
+    const close = () => modal.close();
+    modal.panel.querySelector(".rpv-cancel")?.addEventListener("click", close);
     const play = () => {
       const values: Record<string, string> = {};
-      overlay.querySelectorAll<HTMLInputElement>(".rpv-input").forEach((inp) => {
+      modal.panel.querySelectorAll<HTMLInputElement>(".rpv-input").forEach((inp) => {
         values[inp.dataset.name ?? ""] = inp.value;
       });
       let filled: string;
       try {
         filled = substitute(cmd.command, cmd.variables, values);
       } catch (e) {
-        const errEl = overlay.querySelector<HTMLElement>(".rpv-errors");
+        const errEl = modal.panel.querySelector<HTMLElement>(".rpv-errors");
         if (errEl) errEl.textContent = `Missing value: ${(e as Error).message}`;
         return;
       }
       close();
       this.insertReplayCommand(filled);
     };
-    overlay.querySelector(".rpv-play")?.addEventListener("click", play);
-    overlay.addEventListener("keydown", (e) => {
+    modal.panel.querySelector(".rpv-play")?.addEventListener("click", play);
+    modal.panel.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         play();
-      } else if (e.key === "Escape") {
-        close();
       }
     });
   }

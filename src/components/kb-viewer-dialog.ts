@@ -42,11 +42,6 @@ export class KbViewerDialog {
   private editNegatable = false;
   private saving = false;
   private disabledCommands: string[] = [];
-  private embedMode: boolean;
-
-  constructor(embedMode: boolean = false) {
-    this.embedMode = embedMode;
-  }
 
   async mount(container: HTMLElement, platform?: string) {
     this.container = container;
@@ -129,9 +124,7 @@ export class KbViewerDialog {
         <div class="import-stage">Loading knowledge base…</div>
       </div>
     `;
-    this.container.innerHTML = this.embedMode
-      ? inner
-      : `<div class="modal-backdrop"><div class="import-dialog">${inner}</div></div>`;
+    this.container.innerHTML = inner;
   }
 
   private renderError(message: string) {
@@ -144,56 +137,28 @@ export class KbViewerDialog {
         <button class="btn-secondary" id="kb-viewer-close-error">Close</button>
       </div>
     `;
-    this.container.innerHTML = this.embedMode
-      ? inner
-      : `<div class="modal-backdrop"><div class="import-dialog">${inner}</div></div>`;
+    this.container.innerHTML = inner;
     this.container.querySelector("#kb-viewer-close-error")?.addEventListener("click", () => this.close());
   }
 
   private render() {
     if (!this.container) return;
 
-    if (this.embedMode) {
-      this.container.innerHTML = `
-        <div class="kb-viewer-toolbar">
-          <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${escAttr(this.searchQuery)}" />
-          <span class="kb-count">${this.filteredCommands.length} commands</span>
+    this.container.innerHTML = `
+      <div class="kb-viewer-toolbar">
+        <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${escAttr(this.searchQuery)}" />
+        <span class="kb-count">${this.filteredCommands.length} commands</span>
+      </div>
+      <div class="kb-viewer-body">
+        <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
+          ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
+          ${this.renderIgnoredSection()}
         </div>
-        <div class="kb-viewer-body">
-          <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
-            ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
-            ${this.renderIgnoredSection()}
-          </div>
-          <div class="kb-command-detail" id="kb-command-detail">
-            ${this.renderDetailPanel()}
-          </div>
+        <div class="kb-command-detail" id="kb-command-detail">
+          ${this.renderDetailPanel()}
         </div>
-      `;
-    } else {
-      this.container.innerHTML = `
-        <div class="modal-backdrop" id="kb-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="kb-viewer-title">
-          <div class="import-dialog kb-viewer">
-            <div class="import-header">
-              <h2 id="kb-viewer-title">Knowledge Base</h2>
-              <button class="import-close-btn" id="kb-viewer-close" aria-label="Close knowledge base">&times;</button>
-            </div>
-            <div class="kb-viewer-toolbar">
-              <input type="text" id="kb-search" class="form-input form-input-sm kb-search" placeholder="Search commands…" aria-label="Search commands" value="${escAttr(this.searchQuery)}" />
-              <span class="kb-count">${this.filteredCommands.length} commands</span>
-            </div>
-            <div class="kb-viewer-body">
-              <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
-                ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
-                ${this.renderIgnoredSection()}
-              </div>
-              <div class="kb-command-detail" id="kb-command-detail">
-                ${this.renderDetailPanel()}
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    }
+      </div>
+    `;
 
     this.bindEvents();
   }
@@ -353,16 +318,6 @@ export class KbViewerDialog {
 
   private bindEvents() {
     if (!this.container) return;
-
-    // Close button
-    this.container.querySelector("#kb-viewer-close")?.addEventListener("click", () => this.close());
-
-    // Click outside to close
-    this.container.querySelector("#kb-viewer-overlay")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "kb-viewer-overlay") {
-        this.close();
-      }
-    });
 
     // Search
     this.container.querySelector("#kb-search")?.addEventListener("input", (e) => {

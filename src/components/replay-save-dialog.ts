@@ -13,6 +13,7 @@ import { showToast } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";
 import { escHtml } from "../lib/format";
 import { PLATFORM_META } from "../lib/platforms";
+import { openModal, ModalHandle } from "../lib/modal";
 
 const VALID_PLATFORMS = Object.keys(PLATFORM_META);
 
@@ -25,7 +26,7 @@ interface Segment {
 }
 
 export class ReplaySaveDialog {
-  private overlay: HTMLDivElement | null = null;
+  private modal: ModalHandle | null = null;
   private segments: Segment[] = [];
   private vars: ReplayVariable[] = [];
   /** Pending selection inside the preview, as [startOffset, endOffset] into raw text. */
@@ -66,60 +67,57 @@ export class ReplaySaveDialog {
   }
 
   private render(): void {
-    // Re-renders replace the current overlay — never stack modals.
-    this.overlay?.remove();
-    this.overlay = null;
+    // Re-renders replace the current modal — never stack modals.
+    this.close();
     const platformOptions = VALID_PLATFORMS.map(
       (p) => `<option value="${p}" ${p === this.platform ? "selected" : ""}>${p}</option>`,
     ).join("");
-    const overlay = document.createElement("div");
-    overlay.className = "modal-backdrop";
-    overlay.innerHTML = `
-      <div class="modal-panel replay-dialog" role="dialog" aria-modal="true" aria-labelledby="rsv-title">
-        <h2 id="rsv-title">${this.existing ? "Edit Command Replay" : "Add Command Replay"}</h2>
-        <p class="replay-dialog-hint">Type the command, then highlight part of it in the preview and click <strong>Mark as variable</strong>. Click a highlighted chip to remove it.</p>
-        <textarea class="form-input" id="rsv-text" rows="3" spellcheck="false"
-                  placeholder="e.g. show running-config interface GigabitEthernet0/1">${escHtml(this.commandText)}</textarea>
-        <div class="rsv-preview ${this.commandText ? "" : "rsv-preview-empty"}" id="rsv-preview"
-             title="Select text to mark as a variable">${this.renderPreview()}</div>
-        <div class="rsv-mark-row">
-          <button type="button" class="btn-text" id="rsv-mark" disabled>Mark as variable</button>
-        </div>
-        <div id="rsv-vars">${this.renderVars()}</div>
-        <label>
-          <span>Platform</span>
-          <select class="form-input" id="rsv-platform">${platformOptions}</select>
-        </label>
-        <div class="form-actions">
-          <button type="button" class="btn-text" id="rsv-cancel">Cancel</button>
-          <button type="button" class="btn-primary" id="rsv-save">Save</button>
-        </div>
-        <div class="form-errors" id="rsv-errors" role="alert"></div>
+    const content = `
+      <h2 id="rsv-title">${this.existing ? "Edit Command Replay" : "Add Command Replay"}</h2>
+      <p class="replay-dialog-hint">Type the command, then highlight part of it in the preview and click <strong>Mark as variable</strong>. Click a highlighted chip to remove it.</p>
+      <textarea class="form-input" id="rsv-text" rows="3" spellcheck="false"
+                placeholder="e.g. show running-config interface GigabitEthernet0/1">${escHtml(this.commandText)}</textarea>
+      <div class="rsv-preview ${this.commandText ? "" : "rsv-preview-empty"}" id="rsv-preview"
+           title="Select text to mark as a variable">${this.renderPreview()}</div>
+      <div class="rsv-mark-row">
+        <button type="button" class="btn-text" id="rsv-mark" disabled>Mark as variable</button>
       </div>
+      <div id="rsv-vars">${this.renderVars()}</div>
+      <label>
+        <span>Platform</span>
+        <select class="form-input" id="rsv-platform">${platformOptions}</select>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-text" id="rsv-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="rsv-save">Save</button>
+      </div>
+      <div class="form-errors" id="rsv-errors" role="alert"></div>
     `;
-    document.body.appendChild(overlay);
-    this.overlay = overlay;
 
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) this.close();
+    this.modal = openModal({
+      panelClass: "replay-dialog",
+      content,
+      initialFocus: this.existing ? undefined : "#rsv-text",
+      onDismiss: () => this.close(),
     });
-    this.bind(overlay);
+    this.modal.panel.setAttribute("aria-labelledby", "rsv-title");
 
-    const ta = overlay.querySelector<HTMLTextAreaElement>("#rsv-text");
+    this.bind(this.modal.panel);
+
+    const ta = this.modal.panel.querySelector<HTMLTextAreaElement>("#rsv-text");
     ta?.addEventListener("input", () => {
       if (this.vars.length > 0) return; // locked while variables are marked
       this.commandText = ta.value;
       this.segments = this.commandText ? [{ kind: "text", text: this.commandText }] : [];
       this.updatePreview();
     });
-    if (!this.existing) setTimeout(() => ta?.focus(), 50);
   }
 
-  private bind(overlay: HTMLDivElement): void {
-    const preview = overlay.querySelector<HTMLDivElement>("#rsv-preview")!;
-    const markBtn = overlay.querySelector<HTMLButtonElement>("#rsv-mark")!;
-    const cancelBtn = overlay.querySelector<HTMLButtonElement>("#rsv-cancel")!;
-    const saveBtn = overlay.querySelector<HTMLButtonElement>("#rsv-save")!;
+  private bind(panel: HTMLElement): void {
+    const preview = panel.querySelector<HTMLDivElement>("#rsv-preview")!;
+    const markBtn = panel.querySelector<HTMLButtonElement>("#rsv-mark")!;
+    const cancelBtn = panel.querySelector<HTMLButtonElement>("#rsv-cancel")!;
+    const saveBtn = panel.querySelector<HTMLButtonElement>("#rsv-save")!;
 
     cancelBtn.addEventListener("click", () => this.close());
     saveBtn.addEventListener("click", () => void this.save());
@@ -146,7 +144,7 @@ export class ReplaySaveDialog {
     };
 
     document.addEventListener("selectionchange", (this.selectionHandler = () => {
-      if (!this.overlay) return;
+      if (!this.modal) return;
       this.sel = selectionToOffsets();
       markBtn.disabled = !this.sel;
     }));
@@ -165,13 +163,13 @@ export class ReplaySaveDialog {
       this.unmarkVariable(chip.dataset.var ?? "");
     });
 
-    overlay.addEventListener("input", (e) => {
+    panel.addEventListener("input", (e) => {
       const input = e.target as HTMLInputElement;
       if (input.classList.contains("rsv-var-name")) {
         this.renameVariable(parseInt(input.dataset.idx ?? "-1", 10), input.value);
       }
     });
-    overlay.addEventListener("click", (e) => {
+    panel.addEventListener("click", (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>(".rsv-var-remove");
       if (btn) this.unmarkVariable(this.vars[parseInt(btn.dataset.idx ?? "-1", 10)]?.name ?? "");
     });
@@ -208,8 +206,8 @@ export class ReplaySaveDialog {
 
   /** Update the preview + vars list in place (no modal re-render). */
   private updatePreview(): void {
-    const preview = this.overlay?.querySelector<HTMLDivElement>("#rsv-preview");
-    const vars = this.overlay?.querySelector<HTMLElement>("#rsv-vars");
+    const preview = this.modal?.panel.querySelector<HTMLDivElement>("#rsv-preview");
+    const vars = this.modal?.panel.querySelector<HTMLElement>("#rsv-vars");
     if (preview) {
       preview.innerHTML = this.renderPreview();
       preview.classList.toggle("rsv-preview-empty", this.segments.length === 0);
@@ -218,7 +216,7 @@ export class ReplaySaveDialog {
   }
 
   private setError(msg: string): void {
-    const el = this.overlay?.querySelector<HTMLElement>("#rsv-errors");
+    const el = this.modal?.panel.querySelector<HTMLElement>("#rsv-errors");
     if (el) el.textContent = msg;
   }
 
@@ -256,7 +254,7 @@ export class ReplaySaveDialog {
     this.vars.push({ name });
     // Lock the command box while variables are marked — editing the raw text
     // would silently invalidate the chips.
-    const ta = this.overlay?.querySelector<HTMLTextAreaElement>("#rsv-text");
+    const ta = this.modal?.panel.querySelector<HTMLTextAreaElement>("#rsv-text");
     if (ta) {
       ta.disabled = true;
       ta.value = this.template();
@@ -272,7 +270,7 @@ export class ReplaySaveDialog {
     this.vars = this.vars.filter((v) => v.name !== name);
     if (this.vars.length === 0) {
       // Last chip removed — unlock the command box for editing.
-      const ta = this.overlay?.querySelector<HTMLTextAreaElement>("#rsv-text");
+      const ta = this.modal?.panel.querySelector<HTMLTextAreaElement>("#rsv-text");
       if (ta) {
         ta.disabled = false;
         this.commandText = this.rawText();
@@ -294,7 +292,7 @@ export class ReplaySaveDialog {
     );
     // Update the preview only — re-rendering the vars list would destroy the
     // focused input mid-keystroke.
-    const preview = this.overlay?.querySelector<HTMLDivElement>("#rsv-preview");
+    const preview = this.modal?.panel.querySelector<HTMLDivElement>("#rsv-preview");
     if (preview) preview.innerHTML = this.renderPreview();
   }
 
@@ -306,7 +304,7 @@ export class ReplaySaveDialog {
   // ─── Save ────────────────────────────────────────────────────────
 
   private async save(): Promise<void> {
-    const platform = this.overlay?.querySelector<HTMLSelectElement>("#rsv-platform")?.value ?? this.platform;
+    const platform = this.modal?.panel.querySelector<HTMLSelectElement>("#rsv-platform")?.value ?? this.platform;
     if (!this.rawText().trim()) {
       this.setError("Enter a command first.");
       return;
@@ -337,7 +335,7 @@ export class ReplaySaveDialog {
       document.removeEventListener("selectionchange", this.selectionHandler);
       this.selectionHandler = null;
     }
-    this.overlay?.remove();
-    this.overlay = null;
+    this.modal?.close();
+    this.modal = null;
   }
 }

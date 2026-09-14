@@ -1,8 +1,9 @@
 /**
- * Shared confirm dialog — backdrop + message + cancel/confirm buttons.
- * One imperative overlay used by every delete/close confirmation so
- * escape handling, backdrop-click dismiss, and focus behavior match.
+ * Shared confirm dialog — thin adapter over openModal for the common
+ * message + cancel/confirm pattern.
  */
+
+import { openModal } from "./modal";
 
 export interface ConfirmOptions {
   title: string;
@@ -18,52 +19,32 @@ export interface ConfirmOptions {
 
 /** Returns a close function for callers that must force-teardown the dialog. */
 export function confirmDialog(opts: ConfirmOptions): () => void {
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
-  backdrop.innerHTML = `
-    <div class="modal-panel delete-confirm" role="dialog" aria-modal="true">
+  const handle = openModal({
+    panelClass: "delete-confirm",
+    content: `
       <h3>${opts.title}</h3>
       <p>${opts.message}</p>
       <div class="form-actions">
         <button class="btn-text confirm-cancel">Cancel</button>
         <button class="${opts.destructive ? "btn-danger" : "btn-primary"} confirm-ok">${opts.confirmLabel}</button>
       </div>
-    </div>
-  `;
-  document.body.appendChild(backdrop);
+    `,
+    initialFocus: ".confirm-ok",
+    onDismiss: () => opts.onCancel?.(),
+  });
 
-  const okBtn = backdrop.querySelector<HTMLButtonElement>(".confirm-ok")!;
-  const cancelBtn = backdrop.querySelector<HTMLButtonElement>(".confirm-cancel")!;
-
-  const cleanup = () => {
-    backdrop.remove();
-    window.removeEventListener("keydown", onKey, true);
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation(); // keep Escape away from xterm cascade
-      cleanup();
+  handle.panel
+    .querySelector<HTMLButtonElement>(".confirm-cancel")!
+    .addEventListener("click", () => {
+      handle.close();
       opts.onCancel?.();
-    }
-  };
-  window.addEventListener("keydown", onKey, true);
+    });
+  handle.panel
+    .querySelector<HTMLButtonElement>(".confirm-ok")!
+    .addEventListener("click", () => {
+      handle.close();
+      opts.onConfirm();
+    });
 
-  backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) {
-      cleanup();
-      opts.onCancel?.();
-    }
-  });
-  cancelBtn.addEventListener("click", () => {
-    cleanup();
-    opts.onCancel?.();
-  });
-  okBtn.addEventListener("click", () => {
-    cleanup();
-    opts.onConfirm();
-  });
-
-  okBtn.focus();
-  return cleanup;
+  return handle.close;
 }
