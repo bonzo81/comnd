@@ -300,6 +300,7 @@ impl client::Handler for ClientHandler {
             reason: "channel_closed".to_string(),
             session_id: self.session_id,
         });
+        Self::evict(&self.app_handle, self.session_id).await;
         Ok(())
     }
 
@@ -313,6 +314,7 @@ impl client::Handler for ClientHandler {
             reason: "channel_eof".to_string(),
             session_id: self.session_id,
         });
+        Self::evict(&self.app_handle, self.session_id).await;
         Ok(())
     }
 
@@ -325,9 +327,23 @@ impl client::Handler for ClientHandler {
             reason: "connection_lost".to_string(),
             session_id: self.session_id,
         });
+        Self::evict(&self.app_handle, self.session_id).await;
         match reason {
             DisconnectReason::ReceivedDisconnect(_) => Ok(()),
             DisconnectReason::Error(e) => Err(e),
+        }
+    }
+}
+
+impl ClientHandler {
+    /// Remove a dead session from the map so session_count stays honest.
+    /// Idempotent: close/eof/disconnect can all fire for one session.
+    async fn evict(app_handle: &tauri::AppHandle, session_id: u64) {
+        use tauri::Manager;
+        let state = app_handle.state::<AppState>();
+        let mut mgr = state.ssh.lock().await;
+        if mgr.take_session(session_id).is_some() {
+            log::debug!("Evicted session {} after remote close", session_id);
         }
     }
 }
@@ -669,7 +685,7 @@ impl SshSession {
             .map_err(|e| format!("Failed to resize PTY: {}", e))
     }
 
-    pub async fn disconnect(self) -> Result<(), String> {
+    pub async fn disconnect(&self) -> Result<(), String> {
         log::info!("SSH disconnect requested");
         self.session
             .disconnect(Disconnect::ByApplication, "User disconnect", "en")
@@ -681,10 +697,11 @@ impl SshSession {
 // ─── Session Map (testable core) ────────────────────────────────────
 
 /// Keyed session registry. Generic so unit tests can exercise the
-/// insert/take/get/route logic without constructing a real SshSession
-/// (whose russh handles need a live TCP connection).
+/// insert/take/get logic without constructing a real SshSession (whose
+/// russh handles need a live TCP connection). Stores `Arc<S>` so commands
+/// can clone a shared handle out, drop the manager lock, then await on it.
 pub struct SessionMap<S> {
-    sessions: HashMap<u64, S>,
+    sessions: HashMap<u64, Arc<S>>,
 }
 
 impl<S> SessionMap<S> {
@@ -693,34 +710,21 @@ impl<S> SessionMap<S> {
     }
 
     pub fn insert_with(&mut self, id: u64, s: S) {
-        self.sessions.insert(id, s);
+        self.sessions.insert(id, Arc::new(s));
     }
 
-    pub fn get(&self, id: u64) -> Option<&S> {
-        self.sessions.get(&id)
+    /// Clone the shared handle out so the caller can drop the lock and await.
+    pub fn get(&self, id: u64) -> Option<Arc<S>> {
+        self.sessions.get(&id).cloned()
     }
 
-    pub fn take(&mut self, id: u64) -> Option<S> {
+    pub fn take(&mut self, id: u64) -> Option<Arc<S>> {
         self.sessions.remove(&id)
-    }
-
-    pub fn contains(&self, id: u64) -> bool {
-        self.sessions.contains_key(&id)
     }
 
     /// Number of active sessions.
     pub fn len(&self) -> usize {
         self.sessions.len()
-    }
-
-    /// Routing guard for ssh_send / ssh_resize — the Tauri command locks
-    /// state, calls this, then performs the real send/resize on the session.
-    pub fn route_send(&self, id: u64) -> Result<(), String> {
-        if self.contains(id) { Ok(()) } else { Err("No such session".to_string()) }
-    }
-
-    pub fn route_resize(&self, id: u64, _cols: u32, _rows: u32) -> Result<(), String> {
-        if self.contains(id) { Ok(()) } else { Err("No such session".to_string()) }
     }
 }
 
@@ -750,20 +754,13 @@ impl SshManager {
         self.sessions.len()
     }
 
-    pub fn take_session(&mut self, session_id: u64) -> Option<SshSession> {
+    pub fn take_session(&mut self, session_id: u64) -> Option<Arc<SshSession>> {
         self.sessions.take(session_id)
     }
 
-    pub fn get_session(&self, session_id: u64) -> Option<&SshSession> {
+    /// Clone the shared handle out so the caller can drop the lock and await.
+    pub fn get_session(&self, session_id: u64) -> Option<Arc<SshSession>> {
         self.sessions.get(session_id)
-    }
-
-    pub fn route_send(&self, session_id: u64) -> Result<(), String> {
-        self.sessions.route_send(session_id)
-    }
-
-    pub fn route_resize(&self, session_id: u64, cols: u32, rows: u32) -> Result<(), String> {
-        self.sessions.route_resize(session_id, cols, rows)
     }
 
     #[cfg(debug_assertions)]
@@ -809,6 +806,15 @@ mod tests {
     }
 
     #[test]
+    fn test_take_twice_is_none() {
+        // Pins eviction idempotence: close+eof double-fire both route through
+        // take; the second must be None (no panic, no double-evict).
+        let mut m = map_with(&[1]);
+        assert!(m.take(1).is_some());
+        assert!(m.take(1).is_none());
+    }
+
+    #[test]
     fn test_distinct_ids_coexist() {
         let m = map_with(&[1, 2]);
         assert!(m.get(1).is_some());
@@ -844,18 +850,12 @@ mod tests {
     }
 
     #[test]
-    fn test_route_send_by_session_id() {
-        let m = map_with(&[1, 2]);
-        assert!(m.route_send(1).is_ok());
-        assert!(m.route_send(2).is_ok());
-        assert!(m.route_send(3).is_err());
-    }
-
-    #[test]
-    fn test_route_resize_unknown_id_errors() {
+    fn test_get_returns_shared_handles() {
+        // Pins handle semantics: two lookups yield the same Arc (same session).
         let m = map_with(&[1]);
-        assert!(m.route_resize(1, 80, 24).is_ok());
-        assert!(m.route_resize(99, 80, 24).is_err());
+        let a = m.get(1).unwrap();
+        let b = m.get(1).unwrap();
+        assert!(Arc::ptr_eq(&a, &b));
     }
 
     #[test]
@@ -983,6 +983,7 @@ pub async fn ssh_connect(
         let config = state.config.lock().map_err(|e| e.to_string())?;
         config.get().max_sessions
     };
+    // ponytail: max-sessions check races concurrent connects (over-limit by at most the burst size); reserve a map slot at check time if it ever matters
     if max_sessions > 0 {
         let mgr = state.ssh.lock().await;
         let current = mgr.session_count();
@@ -1039,10 +1040,13 @@ pub async fn ssh_send(
     data: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mgr = state.ssh.lock().await;
-    mgr.route_send(session_id)?;
-    let session = mgr.get_session(session_id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    // Lock only to look the session up, clone the handle, drop the guard,
+    // then await — so one slow send never blocks another terminal.
+    let session = {
+        let mgr = state.ssh.lock().await;
+        mgr.get_session(session_id)
+            .ok_or_else(|| "Session not found".to_string())?
+    };
     session.send(data.as_bytes()).await
 }
 
@@ -1051,8 +1055,13 @@ pub async fn ssh_disconnect(
     session_id: u64,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut mgr = state.ssh.lock().await;
-    match mgr.take_session(session_id) {
+    // Take the handle out under the lock, then disconnect without holding it.
+    // `None` = already gone (remote close evicted it first) — a no-op.
+    let session = {
+        let mut mgr = state.ssh.lock().await;
+        mgr.take_session(session_id)
+    };
+    match session {
         Some(session) => session.disconnect().await,
         None => Ok(()),
     }
@@ -1065,10 +1074,13 @@ pub async fn ssh_resize(
     rows: u32,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mgr = state.ssh.lock().await;
-    mgr.route_resize(session_id, cols, rows)?;
-    let session = mgr.get_session(session_id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    // Lock only to look the session up, clone the handle, drop the guard,
+    // then await — so one slow resize never blocks another terminal.
+    let session = {
+        let mgr = state.ssh.lock().await;
+        mgr.get_session(session_id)
+            .ok_or_else(|| "Session not found".to_string())?
+    };
     session.resize(cols, rows).await
 }
 
