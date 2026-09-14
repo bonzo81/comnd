@@ -652,12 +652,13 @@ mod tests {
         // a credential written by one Entry instance may not be visible from
         // a subsequent Entry instance in the same process. We verify the
         // roundtrip within a single Entry, then clean up.
-        let entry = keyring::Entry::new("netssh", LLM_KEY_ENTRY).unwrap();
+        let id = format!("netssh_test_llm_{}", uuid::Uuid::new_v4());
+        let entry = keyring::Entry::new("netssh", &id).unwrap();
         entry.set_password(test_key).unwrap();
         assert_eq!(entry.get_password().unwrap(), test_key);
         entry.delete_credential().unwrap();
         // After delete, get should return NoEntry
-        let e2 = keyring::Entry::new("netssh", LLM_KEY_ENTRY).unwrap();
+        let e2 = keyring::Entry::new("netssh", &id).unwrap();
         assert!(matches!(e2.get_password(), Err(keyring::Error::NoEntry)));
     }
 
