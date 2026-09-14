@@ -1104,9 +1104,7 @@ pub fn list_disabled(user_kb_path: &Path, platform: &str) -> Vec<String> {
 
 #[tauri::command]
 pub async fn query_kb(
-    _prefix: String,
     platform: String,
-    _mode: Option<String>,
     version: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Command>, String> {

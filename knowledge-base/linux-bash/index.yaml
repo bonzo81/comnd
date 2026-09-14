@@ -12,9 +12,3 @@ prefix_commands:
   sudo:
     unlocks: [shell]
     skip_flag_value: ["-u"]
-command_files:
-  - commands/filesystem.yaml
-  - commands/text.yaml
-  - commands/network.yaml
-  - commands/process.yaml
-  - commands/system.yaml

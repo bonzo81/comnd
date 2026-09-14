@@ -311,28 +311,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             // Resolve KB path ÔÇö in dev, it's relative to project root
-            let kb_path = app.path()
+            let resource_dir = app.path()
                 .resource_dir()
-                .unwrap_or_else(|_| {
-                    std::env::current_dir().unwrap_or_default()
-                })
-                .join("knowledge-base");
-
-            // Fallback: try relative to manifest dir (for dev)
-            let kb_path = if kb_path.exists() {
-                kb_path
-            } else {
-                // In dev mode, try the project root
-                let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .parent()
-                    .unwrap()
-                    .join("knowledge-base");
-                if dev_path.exists() {
-                    dev_path
-                } else {
-                    kb_path // Use original, will error on first query
-                }
-            };
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            let kb_path = crate::paths::bundled_kb_path(&resource_dir);
 
             log::info!("KB path: {}", kb_path.display());
 

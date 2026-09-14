@@ -31,6 +31,25 @@ pub fn log_dir() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("logs"))
 }
 
+/// Bundled (read-only, repo-shipped) knowledge-base root. Primary is
+/// `resource_dir()/knowledge-base` (correct in release builds); the dev-build
+/// fallback is `<repo>/knowledge-base` (`CARGO_MANIFEST_DIR`'s parent). Single
+/// source of truth for both the startup KB load and the import pipeline.
+pub fn bundled_kb_path(resource_dir: &Path) -> PathBuf {
+    let release = resource_dir.join("knowledge-base");
+    if release.exists() {
+        return release;
+    }
+    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("knowledge-base");
+    if dev.exists() {
+        return dev;
+    }
+    release
+}
+
 /// One-shot migration: copy persisted JSON files from the legacy
 /// `dirs::data_dir()/netsh` location to `new_dir` when `new_dir` has no
 /// `hosts.json` yet. Copy, not move — the old dir is left as a backup.

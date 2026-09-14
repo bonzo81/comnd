@@ -1200,7 +1200,7 @@ export class TerminalView {
   ) {
     try {
       log.info(LogTag.Kb, `Loading commands for platform=${platform}, version=${version}`);
-      const commands = await queryKb("", platform, null, version);
+      const commands = await queryKb(platform, version);
       log.info(LogTag.Kb, `queryKb returned ${commands.length} commands`);
       this.controller.loadCommands(commands, platform, negationPrefix ?? null);
       log.info(LogTag.Terminal, `Loaded ${commands.length} commands for ${platform}`);

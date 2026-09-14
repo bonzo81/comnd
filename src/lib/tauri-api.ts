@@ -113,12 +113,10 @@ export interface PipeFilter {
 // ─── KB Commands ────────────────────────────────────────────────────
 
 export async function queryKb(
-  prefix: string,
   platform: string,
-  mode: string | null,
   version: string | null,
 ): Promise<Command[]> {
-  return invoke<Command[]>("query_kb", { prefix, platform, mode, version });
+  return invoke<Command[]>("query_kb", { platform, version });
 }
 
 export async function loadPlatformIndex(
@@ -482,14 +480,12 @@ export async function extractKbPreview(
   platform: string,
   category: string,
   platformName?: string,
-  allowedCategories?: string[],
 ): Promise<ExtractPreview> {
   return invoke<ExtractPreview>("extract_kb_preview", {
     url,
     platform,
     category,
     platformName: platformName ?? null,
-    allowedCategories: allowedCategories ?? null,
   });
 }
 
@@ -500,7 +496,6 @@ export async function extractKbPreviewFromText(
   platform: string,
   category: string,
   platformName?: string,
-  allowedCategories?: string[],
 ): Promise<ExtractPreview> {
   return invoke<ExtractPreview>("extract_kb_preview_from_text", {
     text,
@@ -508,7 +503,6 @@ export async function extractKbPreviewFromText(
     platform,
     category,
     platformName: platformName ?? null,
-    allowedCategories: allowedCategories ?? null,
   });
 }
 

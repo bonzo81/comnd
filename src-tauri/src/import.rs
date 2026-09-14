@@ -16,10 +16,10 @@ use crate::kb::{
 };
 use crate::llm::{ExtractedCommand, LlmClient};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::state::AppState;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 /// Progress callback for the import pipeline. The Tauri layer provides an
 /// adapter that emits a frontend event and writes a log line; tests supply
@@ -149,18 +149,16 @@ fn split_text_chunks(text: &str, max: usize) -> Vec<String> {
     chunks
 }
 
-/// Bundled (read-only, repo-shipped) KB path — single source for index
-/// scaffolds. Resolves like lib.rs setup: resource dir in release,
-/// `knowledge-base/` next to the manifest in dev.
-pub fn default_bundled_kb_path() -> PathBuf {
-    let resource = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("knowledge-base");
-    if resource.exists() {
-        return resource;
-    }
-    std::path::PathBuf::from(".")
+/// Resolve the bundled (read-only, repo-shipped) KB root for this app instance —
+/// release-correct via `resource_dir`, dev fallback preserved. Thin adapter over
+/// [`crate::paths::bundled_kb_path`], which owns the logic so startup and import
+/// share one source of truth.
+fn bundled_kb_root(app_handle: &tauri::AppHandle) -> PathBuf {
+    let resource = app_handle
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+    crate::paths::bundled_kb_path(&resource)
 }
 
 /// Run the full import pipeline (extract + commit). Kept for callers that
@@ -173,6 +171,7 @@ pub async fn import_from_url(
     user_kb_path: &PathBuf,
     progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
+    bundled_kb_path: &Path,
 ) -> Result<ImportResult, String> {
     let preview = extract_from_url(
         request.clone(),
@@ -180,12 +179,12 @@ pub async fn import_from_url(
         progress,
         platform_index,
         &[],
+        bundled_kb_path,
     ).await?;
 
-    let bundled_kb_path = default_bundled_kb_path();
     commit_import(
         preview.previews.iter().map(|p| p.command.clone()).collect::<Vec<_>>(),
-        &bundled_kb_path,
+        &bundled_kb_path.to_path_buf(),
         user_kb_path,
         &request.platform,
         &request.category,
@@ -216,13 +215,14 @@ pub async fn extract_from_url(
     progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
     allowed_categories: &[String],
+    bundled_kb_path: &Path,
 ) -> Result<ExtractPreview, String> {
     progress(&ImportProgress::Fetching { url: request.url.clone() });
     let html_content = real_http_fetch(&request.url).await?;
 
     // Stage 2: Extract text from HTML (Phase 5.2: preserves <pre>/<code> fences)
     let text_content = extract_text_from_html(&html_content);
-    extract_from_text(request, text_content, config, progress, platform_index, allowed_categories).await
+    extract_from_text(request, text_content, config, progress, platform_index, allowed_categories, bundled_kb_path).await
 }
 
 /// Variant of `extract_from_url` for pre-fetched text (paste-text import):
@@ -234,6 +234,7 @@ pub async fn extract_from_text(
     progress: &ProgressFn<'_>,
     platform_index: &PlatformIndex,
     allowed_categories: &[String],
+    bundled_kb_path: &Path,
 ) -> Result<ExtractPreview, String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -373,7 +374,7 @@ pub async fn extract_from_text(
     // merge so the check is against bundled, not the merged store. A missing
     // bundled platform (custom platform) simply means everything is new.
     let mut bundled_by_name: std::collections::HashMap<String, Command> =
-        KbStore::load(&request.platform, &default_bundled_kb_path())
+        KbStore::load(&request.platform, bundled_kb_path)
             .map(|s| {
                 s.commands
                     .into_iter()
@@ -1259,7 +1260,8 @@ mod tests {
         let index = iosxe_index();
         let progress: &ProgressFn<'_> = &|_| {};
 
-        let result = extract_from_text(request, text.to_string(), &config, progress, &index, &[]).await;
+        let bundled = crate::paths::bundled_kb_path(Path::new(""));
+        let result = extract_from_text(request, text.to_string(), &config, progress, &index, &[], &bundled).await;
         assert!(result.is_ok(), "extract failed: {:?}", result.err());
         let preview = result.unwrap();
         assert_eq!(preview.previews.len(), 2);
@@ -1290,7 +1292,8 @@ mod tests {
         let index = iosxe_index();
         let progress: &ProgressFn<'_> = &|_| {};
 
-        let result = extract_from_text(request, text, &config, progress, &index, &[]).await;
+        let bundled = crate::paths::bundled_kb_path(Path::new(""));
+        let result = extract_from_text(request, text, &config, progress, &index, &[], &bundled).await;
         assert!(result.is_ok(), "extract failed: {:?}", result.err());
         let preview = result.unwrap();
         // Commands from chunks 1 and 3 survive; chunk 2 error is surfaced
@@ -1370,12 +1373,14 @@ pub async fn import_kb_url(
 
     let progress = tauri_progress(&app_handle);
 
+    let bundled_kb_path = bundled_kb_root(&app_handle);
     let result = import_from_url(
         request,
         &config_ref,
         &user_kb_path,
         &progress,
         &platform_index,
+        &bundled_kb_path,
     ).await?;
 
     // Reload KB stores so new commands are immediately available
@@ -1420,12 +1425,14 @@ pub async fn extract_kb_preview(
 
     let progress = tauri_progress(&app_handle);
 
+    let bundled_kb_path = bundled_kb_root(&app_handle);
     let preview = extract_from_url(
         request,
         &config_ref,
         &progress,
         &platform_index,
         &allowed_categories,
+        &bundled_kb_path,
     ).await?;
 
     Ok(preview)
@@ -1464,7 +1471,8 @@ pub async fn extract_kb_preview_from_text(
 
     let progress = tauri_progress(&app_handle);
 
-    extract_from_text(request, text, &config_ref, &progress, &platform_index, &allowed_categories).await
+    let bundled_kb_path = bundled_kb_root(&app_handle);
+    extract_from_text(request, text, &config_ref, &progress, &platform_index, &allowed_categories, &bundled_kb_path).await
 }
 
 /// Phase 5.6: Stage 2 of the two-stage import ÔÇö write the user-approved
@@ -1491,10 +1499,11 @@ pub async fn commit_kb_import(
     let count = commands.len();
 
     let progress = tauri_progress(&app_handle);
+    let bundled_kb_path = bundled_kb_root(&app_handle);
 
     commit_import(
         commands,
-        &default_bundled_kb_path(),
+        &bundled_kb_path,
         &user_kb_path,
         &platform,
         &category,

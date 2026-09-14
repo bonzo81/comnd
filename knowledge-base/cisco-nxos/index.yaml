@@ -15,8 +15,3 @@ prompt_patterns:
   vdc-config: '^[\w\-]+\(config-vdc\)#$'
 default_mode: privileged-exec
 negation_prefix: "no "
-command_files:
-  - commands/networking.yaml
-  - commands/routing.yaml
-  - commands/system.yaml
-  - commands/security.yaml

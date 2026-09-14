@@ -34,13 +34,6 @@ interface ImportProgressEvent {
   detail?: string | number;
 }
 
-const FALLBACK_PLATFORM_OPTIONS = [
-  { value: "cisco-iosxe", label: "Cisco IOS-XE" },
-  { value: "cisco-nxos", label: "Cisco NX-OS" },
-  { value: "f5-tmos", label: "F5 TMOS" },
-  { value: "linux-bash", label: "Linux Bash" },
-];
-
 const NEW_PLATFORM = "__new__";
 const OTHER_CATEGORY = "__other__";
 
@@ -97,8 +90,10 @@ export class KbImportDialog {
   private selectedRows: boolean[] = [];
   private rejectedByUser: number = 0;
   private committing: boolean = false;
-  /** Platform list from the backend (bundled + user KBs); falls back to the bundled four. */
-  private platformOptions: { value: string; label: string }[] = FALLBACK_PLATFORM_OPTIONS;
+  /** Platform list from the backend (bundled + user KBs). */
+  private platformOptions: { value: string; label: string }[] = [];
+  /** Load state for the platform dropdown: loading → ready | error. */
+  private platformStatus: "loading" | "ready" | "error" = "loading";
   /** Last ID auto-generated from the platform name (so manual edits win). */
   private lastAutoSlug: string = "";
   /** Source mode: "url" fetches server-side, "text" imports pasted page text. */
@@ -115,14 +110,7 @@ export class KbImportDialog {
     } catch {
       this.config = null;
     }
-    try {
-      const ids = await listKbPlatforms();
-      if (ids.length > 0) {
-        this.platformOptions = ids.map((id) => ({ value: id, label: id }));
-      }
-    } catch {
-      // keep fallback options
-    }
+    await this.loadPlatforms();
     // Rehydrate: a fresh instance mid-job shows the running-job banner, not
     // a bare form (the job singleton outlives the dialog).
     if (importJob.active) {
@@ -131,6 +119,19 @@ export class KbImportDialog {
     }
     this.listenForProgress();
     this.render();
+  }
+
+  /** Load the platform list from the backend. Sets platformStatus; caller re-renders. */
+  private async loadPlatforms(): Promise<void> {
+    this.platformStatus = "loading";
+    try {
+      const ids = await listKbPlatforms();
+      this.platformOptions = ids.map((id) => ({ value: id, label: id }));
+      this.platformStatus = "ready";
+    } catch {
+      this.platformOptions = [];
+      this.platformStatus = "error";
+    }
   }
 
   unmount() {
@@ -244,12 +245,15 @@ export class KbImportDialog {
         <div class="import-row">
           <div class="import-field">
             <label for="import-platform">Platform</label>
-            <select class="form-input" id="import-platform" ${isImporting ? 'disabled' : ''}>
-              ${this.platformOptions.map(p => `<option value="${escAttr(p.value)}">${escHtml(p.label)}</option>`).join("")}
+            <select class="form-input" id="import-platform" ${isImporting || this.platformStatus === "loading" ? 'disabled' : ''}>
+              ${this.platformStatus === "ready"
+                ? this.platformOptions.map(p => `<option value="${escAttr(p.value)}">${escHtml(p.label)}</option>`).join("")
+                : this.platformStatus === "loading" ? `<option>Loading platforms…</option>` : ""}
               <optgroup label="Custom">
                 <option value="${NEW_PLATFORM}">New platform…</option>
               </optgroup>
             </select>
+            ${this.platformStatus === "error" ? `<span class="import-hint">Could not load the platform list — you can still import into a new platform, or <button type="button" class="btn-secondary" id="import-platforms-retry-btn">Retry</button>.</span>` : ''}
           </div>
 
           <div class="import-field">
@@ -538,6 +542,12 @@ export class KbImportDialog {
       this.render();
     });
 
+    // Platform list load failed → retry the fetch
+    document.getElementById("import-platforms-retry-btn")?.addEventListener("click", async () => {
+      await this.loadPlatforms();
+      this.render();
+    });
+
     // Bot-blocked fetch → jump to paste-text mode
     document.getElementById("import-paste-mode-btn")?.addEventListener("click", () => {
       this.stage = "idle";
@@ -719,14 +729,13 @@ export class KbImportDialog {
 
     try {
       let preview: ExtractPreview;
-      const allowedCats = CATEGORY_OPTIONS.map((c) => c.value);
       if (isText) {
         log.info(LogTag.KbImport, `Extracting preview from pasted text (${pasteText!.value.trim().length} chars) for ${platform}/${category}`);
-        preview = await extractKbPreviewFromText(pasteText!.value.trim(), url, platform, category, platformName ?? undefined, allowedCats);
+        preview = await extractKbPreviewFromText(pasteText!.value.trim(), url, platform, category, platformName ?? undefined);
       } else {
         log.info(LogTag.KbImport, `Extracting preview from ${url} for ${platform}/${category}`);
         // Phase 5.6: Stage 1 — extract + validate without writing.
-        preview = await extractKbPreview(url, platform, category, platformName ?? undefined, allowedCats);
+        preview = await extractKbPreview(url, platform, category, platformName ?? undefined);
       }
       // Cancelled while extracting — discard the result.
       if (importJob.consumeCancel()) {
