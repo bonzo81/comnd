@@ -18,13 +18,13 @@ import {
 } from "./suggestion-engine";
 import { GhostText, GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
-import {
-  S_ACCEPT_DROPDOWN,
-  S_ACCEPT_GHOST,
-  S_ACCEPT_NEXTWORD,
-  type RouteResult,
-} from "./keystroke-router";
 import type { Command, PlatformIndex } from "./tauri-api";
+
+export interface ControllerUi {
+  isSidebarOpen: () => boolean;
+  dismissSidebar: () => void;
+  toggleSuggestions: () => void;
+}
 
 export interface ControllerDeps {
   /** Send bytes to the current SSH session. */
@@ -37,6 +37,108 @@ export interface ControllerDeps {
   dropdown: () => Dropdown | null;
   /** Show command detail / placeholder in the side panel. */
   sidebar: { detail: (cmd: Command) => void; placeholder: () => void };
+  ui: ControllerUi;
+}
+
+type ShadowOp =
+  | { op: "append"; ch: string }
+  | { op: "backspace" }
+  | { op: "reset" };
+
+type RouteAction =
+  | { kind: "noop" }
+  | { kind: "send"; data: string }
+  | { kind: "acceptDropdown" }
+  | { kind: "acceptGhost" }
+  | { kind: "acceptNextWord"; fallback: string };
+
+interface RouteDecision {
+  action: RouteAction;
+  shadowOps: ShadowOp[];
+  markCursorMoved?: boolean;
+  hideGhost?: boolean;
+  hideDropdown?: boolean;
+  dismissSidebar?: boolean;
+  toggleSuggestions?: boolean;
+  moveDropdown?: "up" | "down";
+  rebuildGhost?: boolean;
+}
+
+const LINE_EDIT = new Set([
+  "\x1b[D", // left
+  "\x1b[C", // right
+  "\x1b[H", // home
+  "\x1b[F", // end
+  "\x1b[1~", // delete
+  "\x1b[4~", // insert
+  "\x15", // Ctrl+U
+  "\x17", // Ctrl+W
+  "\x04", // Ctrl+D
+]);
+
+const ALT_ARROW_RIGHT = ["\x1b[1;3C", "\x1b\x1b[C", "\x1b\x1b[1;3C"];
+
+function routeKeystroke(
+  data: string,
+  view: { dropdownVisible: boolean; ghostShowing: boolean; sidebarOpen: boolean },
+): RouteDecision {
+  if (data === "\t") {
+    if (view.dropdownVisible) return { action: { kind: "acceptDropdown" }, shadowOps: [] };
+    if (view.ghostShowing) return { action: { kind: "acceptGhost" }, shadowOps: [] };
+    return { action: { kind: "send", data }, shadowOps: [{ op: "reset" }] };
+  }
+
+  if (data === "\x1b") {
+    if (view.dropdownVisible) return { action: { kind: "noop" }, shadowOps: [], hideDropdown: true };
+    if (view.sidebarOpen) return { action: { kind: "noop" }, shadowOps: [], dismissSidebar: true };
+    const r = defaultRoute(data);
+    if (view.ghostShowing) r.hideGhost = true;
+    return r;
+  }
+
+  if (data === "\x00")
+    return { action: { kind: "noop" }, shadowOps: [], toggleSuggestions: true };
+
+  if (view.dropdownVisible && data === "\x1b[A")
+    return { action: { kind: "noop" }, shadowOps: [], moveDropdown: "up", rebuildGhost: true };
+  if (view.dropdownVisible && data === "\x1b[B")
+    return { action: { kind: "noop" }, shadowOps: [], moveDropdown: "down", rebuildGhost: true };
+
+  if (ALT_ARROW_RIGHT.includes(data))
+    return { action: { kind: "acceptNextWord", fallback: data }, shadowOps: [] };
+
+  return defaultRoute(data);
+}
+
+function defaultRoute(data: string): RouteDecision {
+  const r: RouteDecision = { action: { kind: "send", data }, shadowOps: [] };
+
+  if (data === "\r") {
+    r.shadowOps = [{ op: "reset" }];
+    r.hideGhost = true;
+    r.hideDropdown = true;
+  } else if (data === "\x7f" || data === "\b") {
+    r.shadowOps = [{ op: "backspace" }];
+  } else if (data === "\x03") {
+    r.shadowOps = [{ op: "reset" }];
+    r.hideGhost = true;
+    r.hideDropdown = true;
+  } else if (data === "\x1b[A" || data === "\x1b[B") {
+    r.shadowOps = [{ op: "reset" }];
+    r.hideGhost = true;
+  } else if (LINE_EDIT.has(data)) {
+    r.markCursorMoved = true;
+    r.hideGhost = true;
+    r.hideDropdown = true;
+  } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
+    r.shadowOps = [{ op: "append", ch: data }];
+  } else if (data.length > 1 && !data.startsWith("\x1b")) {
+    for (const ch of data) {
+      if (ch.charCodeAt(0) >= 32) r.shadowOps.push({ op: "append", ch });
+    }
+  }
+
+  return r;
 }
 
 export class SuggestionController {
@@ -96,35 +198,44 @@ export class SuggestionController {
 
   // â”€â”€â”€ Keystrokes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /**
-   * Apply a routed keystroke (keystroke-router.ts): resolve accept sentinels
-   * through the live widgets, forward bytes, mutate the shadow buffer. The
-   * view routes first and keeps UI-only flags (sidebar, ghost/dropdown hide,
-   * suggestion persistence).
-   */
-  keyIn(data: string, r: RouteResult): void {
-    for (const s of r.send) {
-      if (s === S_ACCEPT_DROPDOWN) this.acceptDropdownSelection();
-      else if (s === S_ACCEPT_GHOST) {
-        // Tab with a ghost showing: send the remainder, reset, hide.
-        const rem = this.deps.ghost()?.getCurrentRemainder();
+  keyIn(data: string): void {
+    if (!this.connected) return;
+
+    const ghost = this.deps.ghost();
+    const dropdown = this.deps.dropdown();
+    const r = routeKeystroke(data, {
+      dropdownVisible: dropdown?.isVisible() ?? false,
+      ghostShowing: ghost?.isShowing() ?? false,
+      sidebarOpen: this.deps.ui.isSidebarOpen(),
+    });
+
+    switch (r.action.kind) {
+      case "noop":
+        break;
+      case "send":
+        this.deps.send(r.action.data);
+        break;
+      case "acceptDropdown":
+        this.acceptDropdownSelection();
+        break;
+      case "acceptGhost": {
+        const rem = ghost?.getCurrentRemainder();
         if (rem) {
           this.deps.send(rem);
           this.reset();
         }
-        this.deps.ghost()?.hide();
-      } else if (s === S_ACCEPT_NEXTWORD) {
-        // Alt+→: accept the next word of the ghost remainder, else forward raw.
-        const ghost = this.deps.ghost();
+        ghost?.hide();
+        break;
+      }
+      case "acceptNextWord": {
         const word = ghost?.isShowing() ? ghost.acceptNextWord() : null;
         if (word) {
           this.deps.send(word);
           this.shadowBuffer.appendAll(word);
         } else {
-          this.deps.send(data);
+          this.deps.send(r.action.fallback);
         }
-      } else {
-        this.deps.send(s);
+        break;
       }
     }
 
@@ -135,9 +246,13 @@ export class SuggestionController {
     }
 
     if (r.markCursorMoved) this.markCursorMoved();
-    if (r.moveDropdown === "up") this.deps.dropdown()?.moveUp();
-    else if (r.moveDropdown === "down") this.deps.dropdown()?.moveDown();
+    if (r.moveDropdown === "up") dropdown?.moveUp();
+    else if (r.moveDropdown === "down") dropdown?.moveDown();
     if (r.rebuildGhost) this.syncDropdownToGhostText();
+    if (r.hideGhost) ghost?.hide();
+    if (r.hideDropdown) dropdown?.hide();
+    if (r.dismissSidebar) this.deps.ui.dismissSidebar();
+    if (r.toggleSuggestions) this.deps.ui.toggleSuggestions();
   }
 
   /** Clipboard paste: forward the text and mirror it into the shadow buffer. */

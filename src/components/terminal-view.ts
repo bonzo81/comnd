@@ -30,7 +30,6 @@ import { log, LogTag } from "../lib/logger";
 import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
-import { routeKeystroke } from "../lib/keystroke-router";
 import { GhostText } from "../lib/ghost-text";
 import { SidebarContent } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
@@ -196,6 +195,11 @@ export class TerminalView {
         detail: (cmd) => this.updateSidebarDetail(cmd),
         placeholder: () => this.updateSidebarPlaceholder(),
       },
+      ui: {
+        isSidebarOpen: () => this.sidePanelOpen,
+        dismissSidebar: () => this.toggleSidebar(),
+        toggleSuggestions: () => setSuggestionsEnabled(!getSuggestionsEnabled()),
+      },
     });
   }
 
@@ -292,19 +296,7 @@ export class TerminalView {
 
     // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
     this.terminal.onData((data) => {
-      // Pure routing decision (keystroke-router.ts); the controller resolves
-      // accepts and applies shadow ops. The view keeps UI-only flags.
-      const r = routeKeystroke(data, {
-        connected: this.channel.state === "connected",
-        dropdownVisible: this.dropdown?.isVisible() ?? false,
-        ghostShowing: this.ghostText?.isShowing() ?? false,
-        sidebarOpen: this.sidePanelOpen,
-      });
-      this.controller.keyIn(data, r);
-      if (r.hideGhost) this.ghostText?.hide();
-      if (r.hideDropdown) this.dropdown?.hide();
-      if (r.dismissSidebar) this.toggleSidebar();
-      if (r.toggleSuggestions) setSuggestionsEnabled(!getSuggestionsEnabled());
+      this.controller.keyIn(data);
     });
   }
 

@@ -97,10 +97,10 @@ src/                    # TypeScript frontend (strict mode, ES modules)
   components/           # Screens & UI (one class per screen: host-screen,
                         #   terminal-view, kb-screen, settings-screen,
                         #   replay-screen, nav-panel, global-search, dialogs)
-  lib/                  # Utilities (one concern per file: keystroke-router,
-                        #   suggestion-engine, suggestion-controller, dropdown,
-                        #   shadow-buffer, line-tracker, ghost-text, ansi, tokens,
-                        #   theme, a11y, platforms, replay, tauri-api, ...)
+  lib/                  # Utilities (one concern per file: suggestion-engine,
+                        #   suggestion-controller, dropdown, shadow-buffer, line-tracker,
+                        #   ghost-text, ansi, tokens, theme, a11y, platforms, replay,
+                        #   tauri-api, ...)
   styles/
     tokens.css          # Design tokens (:root custom properties)
     base.css            # Base/reset styles
@@ -147,3 +147,13 @@ Before marking a task complete:
 - Frontend logic with test files: run `npm run test` (vitest). It must exit 0.
 - Rust changes: run `cargo check` in `src-tauri/`. It must exit 0.
 - Make sure that agent results match the expected outcomes.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (`bonzo81/netssh`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
