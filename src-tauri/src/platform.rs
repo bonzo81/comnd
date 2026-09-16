@@ -183,6 +183,6 @@ pub async fn load_platform_index(
 pub async fn list_kb_platforms(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let kb = state.kb.lock().map_err(|e| e.to_string())?;
-    Ok(kb.list_platforms())
+    let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
+    Ok(platforms.all())
 }

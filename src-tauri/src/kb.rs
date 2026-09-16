@@ -652,16 +652,6 @@ impl KbManager {
             .unwrap_or_default()
     }
 
-    /// List all available platform IDs from both bundled and user KB paths.
-    pub fn list_platforms(&self) -> Vec<String> {
-        let mut platforms = std::collections::BTreeSet::new();
-        crate::platform::scan_root(&self.kb_path, &mut platforms);
-        if let Some(ref user_path) = self.user_kb_path {
-            crate::platform::scan_root(user_path, &mut platforms);
-        }
-        platforms.into_iter().collect()
-    }
-
     /// Save (create or update-by-name) a user command. Validation is policy that
     /// belongs with the model: error-severity issues block the write and are
     /// returned to the UI as `Ok(Err(issues))`; warnings don't block. The nested
