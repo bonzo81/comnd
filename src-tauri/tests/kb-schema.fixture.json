@@ -1,0 +1,274 @@
+{
+  "description": "Canonical KB Command/CommandToken schema fixture. Asserted from both sides of the IPC seam: src-tauri/src/kb.rs (mod contract, serde wire shape) and src/lib/kb-schema.contract.test.ts (type guards + renderer). A schema change on either side must update this file in the same commit or both suites fail.",
+  "expected_ipc_json": [
+    {
+      "aliases": [
+        "sh ip int b"
+      ],
+      "category": "interfaces",
+      "description": "Show IP interface status and addresses.",
+      "examples": [
+        {
+          "command": "show ip interface brief",
+          "description": "Brief view of all interfaces"
+        }
+      ],
+      "mode": "privileged-exec",
+      "name": "show ip interface brief",
+      "negatable": false,
+      "order": "fixed",
+      "syntax": "show ip interface [brief | detail] [<interface-name>]",
+      "tags": [
+        "interface"
+      ],
+      "tokens": [
+        {
+          "lit": "show ip interface",
+          "optional": false
+        },
+        {
+          "choice": [
+            "brief",
+            "detail"
+          ],
+          "descriptions": {
+            "brief": "One line per interface"
+          },
+          "optional": true,
+          "repeatable": false
+        },
+        {
+          "description": "Interface to inspect",
+          "max": null,
+          "min": null,
+          "optional": true,
+          "source": "device",
+          "type": "enumerable",
+          "values": [],
+          "var": "interface-name"
+        }
+      ],
+      "versions": {
+        "deprecated": null,
+        "introduced": "12.0(0)",
+        "notes": null
+      }
+    },
+    {
+      "aliases": [],
+      "category": "filesystem",
+      "description": "List directory contents.",
+      "examples": [],
+      "mode": "user-exec",
+      "name": "ls",
+      "negatable": false,
+      "order": "flags-anywhere",
+      "syntax": "ls [-l | -a | -h] [<count>] | grep <pattern>",
+      "tags": [],
+      "tokens": [
+        {
+          "lit": "ls",
+          "optional": false
+        },
+        {
+          "choice": [
+            "-l",
+            "-a",
+            "-h"
+          ],
+          "descriptions": {},
+          "optional": true,
+          "repeatable": true
+        },
+        {
+          "description": null,
+          "max": 99,
+          "min": 1,
+          "optional": true,
+          "source": "none",
+          "type": "numeric",
+          "values": [],
+          "var": "count"
+        },
+        {
+          "filters": [
+            {
+              "lit": "grep",
+              "type": "free",
+              "var": "pattern"
+            }
+          ],
+          "optional": true,
+          "pipe": true,
+          "repeatable": false
+        }
+      ],
+      "versions": {
+        "deprecated": null,
+        "introduced": null,
+        "notes": null
+      }
+    },
+    {
+      "aliases": [],
+      "category": "config",
+      "description": "Select the active configuration profile.",
+      "examples": [],
+      "mode": "admin",
+      "name": "set profile",
+      "negatable": true,
+      "order": "free",
+      "syntax": "set [<profile-type>] [commit]",
+      "tags": [],
+      "tokens": [
+        {
+          "lit": "set",
+          "optional": false
+        },
+        {
+          "description": null,
+          "max": null,
+          "min": null,
+          "optional": true,
+          "source": "kb",
+          "type": "choice",
+          "values": [
+            "blue",
+            "green"
+          ],
+          "var": "profile-type"
+        },
+        {
+          "lit": "commit",
+          "optional": true
+        }
+      ],
+      "versions": {
+        "deprecated": null,
+        "introduced": null,
+        "notes": null
+      }
+    },
+    {
+      "aliases": [],
+      "category": "config",
+      "description": "Copy the running configuration to startup.",
+      "examples": [],
+      "mode": "privileged-exec",
+      "name": "copy running-config startup",
+      "negatable": false,
+      "order": "fixed",
+      "overrides": true,
+      "source": "custom",
+      "syntax": "copy <src> <dst> [force]",
+      "tags": [],
+      "tokens": [
+        {
+          "lit": "copy",
+          "optional": false
+        },
+        {
+          "description": null,
+          "max": null,
+          "min": null,
+          "optional": false,
+          "source": "none",
+          "type": "free",
+          "values": [],
+          "var": "src"
+        },
+        {
+          "description": null,
+          "max": null,
+          "min": null,
+          "optional": false,
+          "source": "none",
+          "type": "free",
+          "values": [],
+          "var": "dst"
+        },
+        {
+          "lit": "force",
+          "optional": true
+        }
+      ],
+      "versions": {
+        "deprecated": null,
+        "introduced": null,
+        "notes": null
+      }
+    }
+  ],
+  "expected_renders": [
+    {
+      "commandIndex": 0,
+      "tokenIndex": 0,
+      "expected": "<span class=\"\"><span class=\"token-lit\">show</span> <span class=\"token-lit\">ip</span> <span class=\"token-lit\">interface</span></span>"
+    },
+    {
+      "commandIndex": 0,
+      "tokenIndex": 1,
+      "expected": "<span class=\"token-choice \">[brief | detail]</span>"
+    },
+    {
+      "commandIndex": 0,
+      "tokenIndex": 2,
+      "expected": "<span class=\"token-var \">&lt;interface-name&gt;</span>"
+    },
+    {
+      "commandIndex": 1,
+      "tokenIndex": 0,
+      "expected": "<span class=\"\"><span class=\"token-lit\">ls</span></span>"
+    },
+    {
+      "commandIndex": 1,
+      "tokenIndex": 1,
+      "expected": "<span class=\"token-choice \">[-l | -a | -h]</span>"
+    },
+    {
+      "commandIndex": 1,
+      "tokenIndex": 2,
+      "expected": "<span class=\"token-var \">&lt;count&gt;</span>"
+    },
+    {
+      "commandIndex": 1,
+      "tokenIndex": 3,
+      "expected": "<span class=\"token-pipe \">| grep</span>"
+    },
+    {
+      "commandIndex": 2,
+      "tokenIndex": 0,
+      "expected": "<span class=\"\"><span class=\"token-lit\">set</span></span>"
+    },
+    {
+      "commandIndex": 2,
+      "tokenIndex": 1,
+      "expected": "<span class=\"token-var \">&lt;profile-type&gt;</span>"
+    },
+    {
+      "commandIndex": 2,
+      "tokenIndex": 2,
+      "expected": "<span class=\"\"><span class=\"token-lit\">commit</span></span>"
+    },
+    {
+      "commandIndex": 3,
+      "tokenIndex": 0,
+      "expected": "<span class=\"\"><span class=\"token-lit\">copy</span></span>"
+    },
+    {
+      "commandIndex": 3,
+      "tokenIndex": 1,
+      "expected": "<span class=\"token-var \">&lt;src&gt;</span>"
+    },
+    {
+      "commandIndex": 3,
+      "tokenIndex": 2,
+      "expected": "<span class=\"token-var \">&lt;dst&gt;</span>"
+    },
+    {
+      "commandIndex": 3,
+      "tokenIndex": 3,
+      "expected": "<span class=\"\"><span class=\"token-lit\">force</span></span>"
+    }
+  ]
+}
