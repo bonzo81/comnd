@@ -25,10 +25,14 @@ export function setAppTheme(t: Theme): void {
   window.dispatchEvent(new CustomEvent("netssh:theme", { detail: t }));
 }
 
-export type TerminalTheme = 'dark' | 'light';
+export type TerminalTheme = 'dark' | 'warm-charcoal' | 'cream' | 'light';
+
+// Cycle order for the toolbar theme button (spec 12 §Terminal themes).
+export const TERMINAL_THEME_ORDER: TerminalTheme[] = ["dark", "warm-charcoal", "cream", "light"];
 
 export function getTerminalTheme(): TerminalTheme {
-  return localStorage.getItem(TERMINAL_KEY) === "light" ? "light" : "dark";
+  const stored = localStorage.getItem(TERMINAL_KEY);
+  return TERMINAL_THEME_ORDER.includes(stored as TerminalTheme) ? (stored as TerminalTheme) : "dark";
 }
 
 export function setTerminalTheme(t: TerminalTheme): void {
@@ -38,5 +42,7 @@ export function setTerminalTheme(t: TerminalTheme): void {
 
 export const TERMINAL_THEMES: Record<TerminalTheme, ITheme> = {
   dark: { background: "#0F172A", foreground: "#F8FAFC", cursor: "#22C55E", selectionBackground: "#334155" },
+  "warm-charcoal": { background: "#1A1A1F", foreground: "#EDEDED", cursor: "#22C55E", selectionBackground: "#3A3A42" },
+  cream: { background: "#F7F0DC", foreground: "#1A1A1A", cursor: "#16A34A", selectionBackground: "#D9D0BC" },
   light: { background: "#F8FAFC", foreground: "#0F172A", cursor: "#16A34A", selectionBackground: "#CBD5E1" },
 };

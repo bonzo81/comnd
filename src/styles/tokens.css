@@ -71,13 +71,24 @@
   /* Typography */
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-size-2xs: 10px;
-  --font-size-xs: 11px;
-  --font-size-sm: 12px;
-  --font-size-base: 13px;
-  --font-size-lg: 14px;
-  --font-size-xl: 16px;
-  --font-size-2xl: 20px;
+  /* Scale-aware: Reading Comfort sets --text-scale (1.0–1.5); all themes inherit */
+  --text-scale: 1;
+  --font-size-2xs: calc(10px * var(--text-scale));
+  --font-size-xs:  calc(11px * var(--text-scale));
+  --font-size-sm:  calc(12px * var(--text-scale));
+  --font-size-base: calc(13px * var(--text-scale));
+  --font-size-lg:  calc(14px * var(--text-scale));
+  --font-size-xl:  calc(16px * var(--text-scale));
+  --font-size-2xl: calc(20px * var(--text-scale));
+
+  /* Reading Comfort derived tokens — defaults are the mode-off values; the
+     [data-reading-comfort="on"] block below bumps them. Terminal output is
+     never touched by these (grid constraint). */
+  --ghost-opacity: 0.6;
+  --ghost-variable-opacity: 0.45;
+  --prose-word-spacing: normal;
+  --prose-line-height: 1.5;
+  --prose-max-width: none;
 
   /* Overlays & tints (theme-aware) */
   --overlay-backdrop: rgba(0, 0, 0, 0.6);
@@ -88,6 +99,17 @@
   --color-on-accent: #FFFFFF;
   /* Custom-KB provenance badge (docs/10) */
   --accent-custom: #38BDF8;
+}
+
+/* ─── Reading Comfort fixed bumps (non-slider; spec 12 §Preset values) ───
+   Set via document.documentElement.dataset.readingComfort = "on". Not a theme
+   layer — only the ghost/prose derived tokens flip here. */
+[data-reading-comfort="on"] {
+  --ghost-opacity: 0.85;
+  --ghost-variable-opacity: 0.7;
+  --prose-word-spacing: 0.1em;
+  --prose-line-height: 1.6;
+  --prose-max-width: 68ch;
 }
 
 /* ─── Light theme ─── */

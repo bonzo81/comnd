@@ -35,11 +35,17 @@ import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
   import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
   import { openModal } from "../lib/modal";
+import {
+  enable as rcEnable, disable as rcDisable, update as rcUpdate,
+  resetToPreset as rcReset, getReadingComfortState, isReadingComfortEnabled, RC_PRESET,
+} from "../lib/reading-comfort";
+import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX } from "../lib/terminal-prefs";
 
 const LABELS: Record<string, string> = {
   general: "General",
   logging: "Logging",
   theme: "Theme",
+  "reading-comfort": "Reading Comfort",
   llm: "LLM API / KB Import",
   auth: "Auth Integrations",
   netbox: "NetBox",
@@ -125,6 +131,17 @@ export class SettingsScreen {
       this.config = null;
     }
     this.render();
+
+    // Re-render when the mode is toggled elsewhere (status bar) while open.
+    // Slider drags dispatch the same event — only re-render on state flips.
+    let rcLastEnabled = isReadingComfortEnabled();
+    window.addEventListener("netssh:reading-comfort", () => {
+      const now = isReadingComfortEnabled();
+      if (now !== rcLastEnabled) {
+        rcLastEnabled = now;
+        this.render();
+      }
+    });
   }
 
   unmount() {
@@ -145,6 +162,7 @@ export class SettingsScreen {
       : this.itemId === "general" ? this.renderGeneral()
       : this.itemId === "logging" ? this.renderLogging()
       : this.itemId === "theme" ? this.renderTheme()
+      : this.itemId === "reading-comfort" ? this.renderReadingComfort()
       : this.itemId === "auth" ? this.renderAuth()
       : this.itemId === "netbox" ? this.renderNetBox()
       : this.renderPlaceholder(label);
@@ -396,6 +414,53 @@ export class SettingsScreen {
           </select>
           <span class="import-hint">Applies to the netssh window chrome, nav panel, and settings</span>
         </div>
+      </div>
+    `;
+  }
+
+  private renderReadingComfort(): string {
+    const on = isReadingComfortEnabled();
+    const s = getReadingComfortState();
+    const fontSize = getTerminalFontSize();
+    const uiScale = s?.uiScale ?? RC_PRESET.uiScale;
+    const lineHeight = s?.lineHeight ?? RC_PRESET.lineHeight;
+    const letterSpacing = s?.letterSpacing ?? RC_PRESET.letterSpacing;
+    return `
+      <div class="settings-form">
+        <h3 class="settings-section-title">Reading Comfort</h3>
+        <label class="settings-toggle">
+          <input type="checkbox" id="rc-enabled" ${on ? "checked" : ""} />
+          <span>
+            Enable Reading Comfort
+            <span class="import-hint">Recommended settings for dyslexic readers and anyone who finds text hard to read. Applies readability defaults as a starting point; every value below stays adjustable via its slider. Turning off restores your previous font size; your theme choice is kept.</span>
+          </span>
+        </label>
+        ${on ? `
+        <div class="log-file-row">
+          <button type="button" id="rc-reset" class="btn-text">Reset to preset</button>
+        </div>
+        <h3 class="settings-section-title">Adjustments</h3>
+        <div class="import-field">
+          <label for="rc-font-size">Terminal font size</label>
+          <input type="range" class="form-input" id="rc-font-size" min="${TERMINAL_FONT_MIN}" max="${TERMINAL_FONT_MAX}" step="1" value="${fontSize}" />
+          <span class="import-hint">${fontSize}px — shared with the terminal zoom shortcuts (Ctrl+= / Ctrl+-)</span>
+        </div>
+        <div class="import-field">
+          <label for="rc-ui-scale">UI text scale</label>
+          <input type="range" class="form-input" id="rc-ui-scale" min="1.0" max="1.5" step="0.05" value="${uiScale}" />
+          <span class="import-hint">${uiScale.toFixed(2)}× — scales all interface text (not terminal output)</span>
+        </div>
+        <div class="import-field">
+          <label for="rc-line-height">Terminal line height</label>
+          <input type="range" class="form-input" id="rc-line-height" min="1.0" max="1.8" step="0.05" value="${lineHeight}" />
+          <span class="import-hint">${lineHeight.toFixed(2)} — vertical spacing between terminal lines</span>
+        </div>
+        <div class="import-field">
+          <label for="rc-letter-spacing">Terminal letter spacing</label>
+          <input type="range" class="form-input" id="rc-letter-spacing" min="0" max="6" step="0.5" value="${letterSpacing}" />
+          <span class="import-hint">${letterSpacing}px — horizontal gap between characters</span>
+        </div>
+        ` : `<p class="import-hint">Enable Reading Comfort to reveal the adjustment sliders.</p>`}
       </div>
     `;
   }
@@ -870,6 +935,33 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLSelectElement>("#theme-app")?.addEventListener("change", (e) => {
       setAppTheme((e.target as HTMLSelectElement).value as Theme);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#rc-enabled")?.addEventListener("change", (e) => {
+      if ((e.target as HTMLInputElement).checked) rcEnable();
+      else rcDisable();
+      this.render();
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#rc-font-size")?.addEventListener("input", (e) => {
+      setTerminalFontSize(parseInt((e.target as HTMLInputElement).value, 10));
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#rc-ui-scale")?.addEventListener("input", (e) => {
+      rcUpdate({ uiScale: parseFloat((e.target as HTMLInputElement).value) });
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#rc-line-height")?.addEventListener("input", (e) => {
+      rcUpdate({ lineHeight: parseFloat((e.target as HTMLInputElement).value) });
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#rc-letter-spacing")?.addEventListener("input", (e) => {
+      rcUpdate({ letterSpacing: parseFloat((e.target as HTMLInputElement).value) });
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#rc-reset")?.addEventListener("click", () => {
+      rcReset();
+      this.render();
     });
 
     this.container?.querySelector<HTMLElement>("#providers-refresh")?.addEventListener("click", () => {

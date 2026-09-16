@@ -31,6 +31,21 @@ Switch to the **Appearance** section to override:
 
 The change takes effect immediately. No restart needed.
 
+### Reading Comfort
+
+Reading Comfort is a one-click preset for more readable typography. Turn it on from the **Reading Comfort** button in the status bar (bottom of the window) or from this settings pane.
+
+When you turn it on, the app applies comfortable defaults: a larger terminal font, wider line spacing, added letter spacing, and a slightly larger interface. It also picks an easier-on-the-eyes color scheme for the terminal (warm charcoal on dark, cream on light).
+
+You can adjust the values from any screen without opening Settings: click the small cog next to the **Reading Comfort** button in the status bar and drag the sliders in the pop-out panel. The sliders stay disabled until Reading Comfort is on.
+
+It is a starting point, not a lock. Once enabled, sliders appear in this pane so you can fine-tune each value to your taste:
+
+- **Terminal font size** — shared with the `Ctrl++` / `Ctrl+-` zoom shortcuts.
+- **Line height**, **Letter spacing**, and **Interface scale**.
+
+Turn it off and the typography reverts to what it was before you turned it on. Your theme choice is kept either way. Everything you set persists across sessions.
+
 ### Knowledge base update channel
 
 This setting controls how command-suggestion data is updated. It is currently a placeholder and not yet implemented.

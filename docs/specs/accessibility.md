@@ -60,6 +60,15 @@ conformance in release notes.
 3. Dialogs announce "dialog" on open; verify with the host form and the
    delete-confirmation modal.
 
+## Reading Comfort mode
+
+Reading Comfort (spec 12) is the dyslexia-support preset: persisted toggle in
+the status bar (`aria-pressed`) + Settings pane, stamps typography defaults,
+individual sliders underneath, OFF reverts typography only. It is a
+presentation-layer feature — verify it works with `prefers-reduced-motion`
+users too (no animation is introduced). The status bar toggle button joins the
+ARIA inventory above.
+
 ## Known gaps
 
 - **Terminal content** — the terminal is an xterm.js canvas. Screen readers

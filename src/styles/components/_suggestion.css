@@ -5,7 +5,7 @@
 .ghost-text {
   position: absolute;
   color: var(--color-text-secondary);
-  opacity: 0.6;
+  opacity: var(--ghost-opacity);
   pointer-events: none;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
@@ -18,21 +18,16 @@
   border-radius: 0;
 }
 
-/* Phase 3: variable placeholder — italic + dashed underline. Not completable. */
+/* Phase 3: variable placeholder — italic + dashed underline. Not completable.
+   Reading Comfort strips the italic (spec 12 §Preset values). */
 .ghost-text.ghost-text--variable {
   font-style: italic;
-  opacity: 0.45;
+  opacity: var(--ghost-variable-opacity);
   border-bottom: 1px dashed var(--color-border-strong, var(--color-border));
 }
 
-/* Phase 3: choice token — faint tint only, no left border (would shift text). */
-.ghost-text.ghost-text--choice {
-  opacity: 0.55;
-}
-
-/* Phase 3: literal completion — same as base. */
-.ghost-text.ghost-text--literal {
-  opacity: 0.6;
+[data-reading-comfort="on"] .ghost-text--variable {
+  font-style: normal;
 }
 
 .match-count-badge {
@@ -61,6 +56,11 @@
   z-index: 20;
   box-shadow: var(--shadow-lg);
   display: none;
+}
+
+/* Reading Comfort: cap visible choices at 5 (COGA ≤5, spec 12 §Preset values). */
+[data-reading-comfort="on"] .suggestion-dropdown {
+  max-height: calc(5 * var(--space-8) + var(--space-1));
 }
 
 .suggestion-item {

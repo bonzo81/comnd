@@ -5,7 +5,9 @@
  */
 
 import { Terminal } from "@xterm/xterm";
-import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
+import { TERMINAL_THEMES, TERMINAL_THEME_ORDER, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
+import { getTerminalFontSize } from "../lib/terminal-prefs";
+import { getReadingComfortState } from "../lib/reading-comfort";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon, ISearchDecorationOptions } from "@xterm/addon-search";
@@ -143,11 +145,13 @@ export class TerminalView {
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
   private outputBuffer: string[] = [];
-  private fontSize = 14;
+  private fontSize = getTerminalFontSize();
 
   private resizeHandler: (() => void) | null = null;
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
   private themeChangeHandler: (() => void) | null = null;
+  private fontChangeHandler: (() => void) | null = null;
+  private readingComfortHandler: (() => void) | null = null;
   private timestampsChangeHandler: (() => void) | null = null;
   private timestampsFormatHandler: (() => void) | null = null;
   private timestampGutter: TimestampGutter | null = null;
@@ -238,7 +242,13 @@ export class TerminalView {
     this.syncTerminalChrome();
     this.syncTimestamps();
     this.syncSuggestions();
+    this.syncReadingComfort();
     this.fitAddon.fit();
+
+    this.fontChangeHandler = () => this.applyFontSize(getTerminalFontSize());
+    window.addEventListener("netssh:terminal-font-size", this.fontChangeHandler);
+    this.readingComfortHandler = () => this.syncReadingComfort();
+    window.addEventListener("netssh:reading-comfort", this.readingComfortHandler);
 
     // Ghost text is anchored to the cursor — reposition on buffer scroll.
     // Dropdown is transient: hide it on scroll (PSReadLine ListView model).
@@ -533,15 +543,24 @@ export class TerminalView {
       this.showContextMenu(e.clientX, e.clientY);
     });
 
-    // Terminal theme toggle
+    // Terminal theme toggle — cycles dark → warm-charcoal → cream → light
     const themeBtn = this.$(".tv-theme-btn")!;
+    const THEME_ICON: Record<TerminalTheme, string> = {
+      dark: icons.moon,
+      "warm-charcoal": icons.moonStar,
+      cream: icons.sunDim,
+      light: icons.sun,
+    };
     const syncThemeIcon = () => {
-      const dark = getTerminalTheme() === "dark";
-      themeBtn.innerHTML = dark ? icons.sun : icons.moon;
-      setToggleState(themeBtn, !dark, dark ? "Switch terminal to light theme" : "Switch terminal to dark theme");
+      const t = getTerminalTheme();
+      const next = TERMINAL_THEME_ORDER[(TERMINAL_THEME_ORDER.indexOf(t) + 1) % TERMINAL_THEME_ORDER.length];
+      themeBtn.innerHTML = THEME_ICON[t];
+      const name = (id: TerminalTheme) => id === "warm-charcoal" ? "Warm charcoal" : id[0].toUpperCase() + id.slice(1);
+      setToggleState(themeBtn, t !== "dark", `Terminal theme: ${name(t)} — click for ${name(next)}`);
     };
     themeBtn.addEventListener("click", () => {
-      setTerminalTheme(getTerminalTheme() === "dark" ? "light" : "dark");
+      const i = TERMINAL_THEME_ORDER.indexOf(getTerminalTheme());
+      setTerminalTheme(TERMINAL_THEME_ORDER[(i + 1) % TERMINAL_THEME_ORDER.length]);
     });
     // Event applies theme to THIS terminal — keeps every session tab in sync
     this.themeChangeHandler = () => {
@@ -1482,27 +1501,19 @@ export class TerminalView {
     this.terminal?.focus();
   }
 
-  zoomIn() {
-    if (!this.terminal) return;
-    this.fontSize = Math.min(this.fontSize + 2, 32);
-    this.terminal.options.fontSize = this.fontSize;
+  applyFontSize(px: number) {
+    this.fontSize = px;
+    if (this.terminal) this.terminal.options.fontSize = px;
     this.syncTerminalChrome();
     this.fitAddon?.fit();
   }
 
-  zoomOut() {
+  // Reading Comfort: apply xterm line-height (em) + letter-spacing (px).
+  syncReadingComfort() {
     if (!this.terminal) return;
-    this.fontSize = Math.max(this.fontSize - 2, 8);
-    this.terminal.options.fontSize = this.fontSize;
-    this.syncTerminalChrome();
-    this.fitAddon?.fit();
-  }
-
-  zoomReset() {
-    if (!this.terminal) return;
-    this.fontSize = 14;
-    this.terminal.options.fontSize = this.fontSize;
-    this.syncTerminalChrome();
+    const rc = getReadingComfortState();
+    this.terminal.options.lineHeight = rc ? rc.lineHeight : 1;
+    this.terminal.options.letterSpacing = rc ? rc.letterSpacing : 0;
     this.fitAddon?.fit();
   }
 
@@ -1529,6 +1540,14 @@ export class TerminalView {
     if (this.themeChangeHandler) {
       window.removeEventListener("netssh:terminal-theme", this.themeChangeHandler);
       this.themeChangeHandler = null;
+    }
+    if (this.fontChangeHandler) {
+      window.removeEventListener("netssh:terminal-font-size", this.fontChangeHandler);
+      this.fontChangeHandler = null;
+    }
+    if (this.readingComfortHandler) {
+      window.removeEventListener("netssh:reading-comfort", this.readingComfortHandler);
+      this.readingComfortHandler = null;
     }
     if (this.timestampsChangeHandler) {
       window.removeEventListener("netssh:timestamps", this.timestampsChangeHandler);

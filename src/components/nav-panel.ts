@@ -50,6 +50,7 @@ const SETTINGS_ITEMS = [
   { id: "general", label: "General", ready: true },
   { id: "logging", label: "Logging", ready: true },
   { id: "theme", label: "Theme", ready: true },
+  { id: "reading-comfort", label: "Reading Comfort", ready: true },
   { id: "llm", label: "LLM API / KB Import", ready: true },
   { id: "auth", label: "Auth Integrations", ready: true },
   { id: "netbox", label: "NetBox", ready: true },

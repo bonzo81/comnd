@@ -228,7 +228,9 @@ body.tv-resizing * {
 
 .cmd-detail {
   font-size: var(--font-size-base);
-  line-height: 1.6;
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
+  max-width: var(--prose-max-width);
 }
 
 .cmd-name {
@@ -278,6 +280,8 @@ body.tv-resizing * {
   color: var(--color-text-primary);
   margin-bottom: var(--space-3);
   white-space: pre-wrap;
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
 }
 
 .cmd-examples {
