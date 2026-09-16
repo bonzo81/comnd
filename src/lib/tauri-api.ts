@@ -430,28 +430,6 @@ export async function saveLlmSettings(
 
 // ─── KB Import Commands ─────────────────────────────────────────────
 
-export interface ImportResult {
-  commands_imported: number;
-  target_file: string;
-  platform: string;
-  category: string;
-  source_url: string;
-  errors: string[];
-}
-
-export interface ImportProgress {
-  stage: string;
-  detail?: string | number;
-}
-
-export async function importKbUrl(
-  url: string,
-  platform: string,
-  category: string,
-): Promise<ImportResult> {
-  return invoke<ImportResult>("import_kb_url", { url, platform, category });
-}
-
 // ─── Two-stage import (Phase 5.6) ────────────────────────────────────
 
 export interface CommandPreview {

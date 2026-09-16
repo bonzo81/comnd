@@ -55,17 +55,6 @@ pub enum ImportProgress {
     Error { message: String },
 }
 
-/// Result of a completed import.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImportResult {
-    pub commands_imported: usize,
-    pub target_file: String,
-    pub platform: String,
-    pub category: String,
-    pub source_url: String,
-    pub errors: Vec<String>,
-}
-
 /// Preview of an extracted command before it is written to YAML (Phase 5.6).
 /// Mirrors the fields a reviewer needs: name, mode badge, tokenized syntax.
 /// The full `Command` is sent so the same UI code can render the tokenized
@@ -159,51 +148,6 @@ fn bundled_kb_root(app_handle: &tauri::AppHandle) -> PathBuf {
         .resource_dir()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
     crate::paths::bundled_kb_path(&resource)
-}
-
-/// Run the full import pipeline (extract + commit). Kept for callers that
-/// don't want the preview step (e.g. power users / scripted imports).
-/// Reads the bundled KB path from the KB manager's location convention:
-/// sibling `knowledge-base/` next to the app manifest (dev) or resource dir.
-pub async fn import_from_url(
-    request: ImportRequest,
-    config: &AppConfig,
-    user_kb_path: &PathBuf,
-    progress: &ProgressFn<'_>,
-    platform_index: &PlatformIndex,
-    bundled_kb_path: &Path,
-) -> Result<ImportResult, String> {
-    let preview = extract_from_url(
-        request.clone(),
-        config,
-        progress,
-        platform_index,
-        &[],
-        bundled_kb_path,
-    ).await?;
-
-    commit_import(
-        preview.previews.iter().map(|p| p.command.clone()).collect::<Vec<_>>(),
-        &bundled_kb_path.to_path_buf(),
-        user_kb_path,
-        &request.platform,
-        &request.category,
-        progress,
-        None,
-    ).await?;
-
-    let result = ImportResult {
-        commands_imported: preview.previews.len(),
-        target_file: get_target_yaml_path(user_kb_path, &request.platform, &request.category)?
-            .display().to_string(),
-        platform: request.platform.clone(),
-        category: request.category.clone(),
-        source_url: request.url.clone(),
-        errors: preview.errors,
-    };
-
-    // Complete is emitted by commit_import.
-    Ok(result)
 }
 
 /// Stage 1 of the two-stage import (Phase 5.6): fetch + extract + validate
@@ -1344,53 +1288,6 @@ fn resolve_index_and_categories(
         cats
     };
     Ok((idx, allowed))
-}
-
-#[tauri::command]
-pub async fn import_kb_url(
-    url: String,
-    platform: String,
-    category: String,
-    app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<ImportResult, String> {
-    let request = ImportRequest {
-        url,
-        platform,
-        category,
-    };
-
-    let (config_ref, user_kb_path) = {
-        let config = state.config.lock().map_err(|e| e.to_string())?;
-        (config.get().clone(), config.user_kb_path())
-    };
-
-    // Platform index supplies the valid mode vocabulary + default mode for import
-    let platform_index = {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.get_platform_index(&request.platform)?
-    };
-
-    let progress = tauri_progress(&app_handle);
-
-    let bundled_kb_path = bundled_kb_root(&app_handle);
-    let result = import_from_url(
-        request,
-        &config_ref,
-        &user_kb_path,
-        &progress,
-        &platform_index,
-        &bundled_kb_path,
-    ).await?;
-
-    // Reload KB stores so new commands are immediately available
-    {
-        let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-        kb.reload_all();
-    }
-    state.platforms.lock().map_err(|e| e.to_string())?.rescan();
-
-    Ok(result)
 }
 
 /// Phase 5.6: Stage 1 of the two-stage import ÔÇö extract + validate without

@@ -408,7 +408,6 @@ pub fn run() {
                 netbox::netbox_set_device_enabled,
                 netbox::netbox_set_device_overlay,
                 netbox::netbox_get_status,
-                import::import_kb_url,
                 import::extract_kb_preview,
                 import::extract_kb_preview_from_text,
                 import::commit_kb_import,
