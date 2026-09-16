@@ -1039,4 +1039,14 @@ mod tests {
         let err = copy_capped(&data[..], std::io::sink(), &mut total, 50).unwrap_err();
         assert!(err.contains("limit"), "got: {err}");
     }
+
+    #[test]
+    fn test_bundled_kb_path_prefers_resource_dir_over_dev() {
+        // The real repo KB (CARGO_MANIFEST_DIR/../knowledge-base) exists at test
+        // time, so returning the temp resource_dir proves release is checked first.
+        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
+        assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
+        let _ = std::fs::remove_dir_all(&resource_dir);
+    }
 }
