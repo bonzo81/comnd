@@ -8,7 +8,6 @@
  * LLM connection settings live in the Settings view (LLM API / KB Import).
  */
 
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { escAttr, escHtml } from "../lib/format";
 import {
   extractKbPreview,
@@ -23,16 +22,11 @@ import {
 import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { showToast } from "../lib/toast";
-import { importJob, formatProgress } from "../lib/import-status";
+import { importJob, type ProgressStage } from "../lib/import-status";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type ImportStage = "idle" | "fetching" | "extracting" | "sending" | "validating" | "writing" | "reloading" | "preview" | "complete" | "error";
-
-interface ImportProgressEvent {
-  stage: ImportStage;
-  detail?: string | number;
-}
+type ImportStage = ProgressStage | "preview";
 
 const NEW_PLATFORM = "__new__";
 const OTHER_CATEGORY = "__other__";
@@ -72,9 +66,11 @@ const CATEGORY_OPTIONS = [
 export class KbImportDialog {
   private container: HTMLElement | null = null;
   private onImportComplete: (() => void) | null = null;
-  private unlistenProgress: UnlistenFn | null = null;
+  /** Unsubscribe from the import job singleton (progress banner driver). */
+  private unsubscribe: (() => void) | null = null;
+  /** Last stage key rendered — dedups same-stage ticks (LLM stream, heartbeat). */
+  private lastStageKey: string = "";
   private stage: ImportStage = "idle";
-  private progressDetail: string = "";
   private errorMessage: string = "";
   /** Fetch failed with a bot-block (403/429) — offer the paste-text path. */
   private fetchBlocked: boolean = false;
@@ -115,9 +111,9 @@ export class KbImportDialog {
     // a bare form (the job singleton outlives the dialog).
     if (importJob.active) {
       this.stage = "extracting";
-      this.progressDetail = importJob.stageLabel;
     }
-    this.listenForProgress();
+    this.lastStageKey = importJob.stageKey;
+    this.unsubscribe = importJob.subscribe(() => this.onJobChange());
     this.render();
   }
 
@@ -135,56 +131,28 @@ export class KbImportDialog {
   }
 
   unmount() {
-    if (this.unlistenProgress) {
-      this.unlistenProgress();
-      this.unlistenProgress = null;
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
     }
   }
 
-  // ─── Progress Listening ──────────────────────────────────────────────
+  // ─── Progress (subscribes to the import job singleton) ──────────────
 
-  private async listenForProgress() {
-    try {
-      this.unlistenProgress = await listen<{ stage: string; detail?: unknown }>("import-progress", (event) => {
-        // The backend has no cancellation token — after the user cancels, the
-        // Rust pipeline still runs to completion and keeps emitting events.
-        // Ignore everything until a new job starts, or late events resurrect
-        // the progress banner on the "idle" form.
-        if (!importJob.active && !this.stageActive()) return;
-        // Rust ImportProgress tags are PascalCase variant names; formatProgress
-        // normalizes them to dialog stage keys + human labels.
-        const info = formatProgress(event.payload.stage, event.payload.detail);
-        const prevStage = this.stage;
-        this.stage = info.key as ImportStage;
-        this.progressDetail = info.label;
-        if (info.key === "error" && !this.errorMessage) this.errorMessage = info.label;
-        if (this.stage === prevStage) return; // same-stage tick — no render churn
-        this.render();
-      });
-    } catch (e) {
-      log.warn(LogTag.KbImport, `Import progress listener unavailable (Tauri not running): ${e}`);
-    }
-  }
-
-  /** Is the dialog itself driving a live job? (stage in flight, not cancelled) */
-  private stageActive(): boolean {
-    return this.stage !== "idle" && this.stage !== "complete" && this.stage !== "error" && this.stage !== "preview";
-  }
-
-  private stageLabel(stage: ImportStage): string {
-    const labels: Record<ImportStage, string> = {
-      idle: "Ready",
-      fetching: "Fetching URL…",
-      extracting: "Extracting content…",
-      sending: "Sending to LLM…",
-      validating: "Validating commands…",
-      writing: "Writing to knowledge base…",
-      reloading: "Reloading knowledge base…",
-      preview: "Review extracted commands",
-      complete: "Import complete!",
-      error: "Import failed",
-    };
-    return labels[stage] ?? stage;
+  /**
+   * Re-render the banner when the shared job state changes. The singleton owns
+   * the single Tauri listener + stale-event filter; this is a pure subscriber.
+   * When the job ends (active=false) we bail: the dialog's own await-resolve
+   * renders the final state, and re-rendering here would flash an empty banner
+   * for a frame before that runs. Same-stage ticks (LLM stream, heartbeat) are
+   * deduped by stage key so they don't churn the DOM.
+   */
+  private onJobChange() {
+    if (!importJob.active) return;
+    const key = importJob.stageKey;
+    if (key === this.lastStageKey) return;
+    this.lastStageKey = key;
+    this.render();
   }
 
   // ─── Render ─────────────────────────────────────────────────────────
@@ -303,7 +271,7 @@ export class KbImportDialog {
       <div class="import-progress-banner" role="status" aria-live="polite">
         <div class="import-spinner" aria-hidden="true"></div>
         <div class="import-banner-text">
-          <div class="import-stage">${escHtml(this.progressDetail || this.stageLabel(this.stage))}</div>
+          <div class="import-stage">${escHtml(importJob.stageLabel || "Import running…")}</div>
           <div class="import-elapsed">Import running — live progress in the title-bar indicator</div>
         </div>
       </div>

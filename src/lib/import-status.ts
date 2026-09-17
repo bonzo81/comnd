@@ -31,12 +31,27 @@ export interface ImportResultSummary {
   targetFile: string;
 }
 
+/** Canonical stage keys emitted by {@link formatProgress}. */
+export type ProgressStage =
+  | "idle"
+  | "fetching"
+  | "extracting"
+  | "sending"
+  | "validating"
+  | "writing"
+  | "reloading"
+  | "complete"
+  | "error";
+
+/** Shape of a raw `import-progress` Tauri event payload. */
+export type ImportProgressPayload = { stage: string; detail?: unknown };
+
 /**
  * Normalize a backend ImportProgress event (serde tags are the PascalCase
  * Rust variant names; `detail` is the variant's field object) into a dialog
  * stage key + human label.
  */
-export function formatProgress(stage: string, detail: unknown): { key: string; label: string; tail?: string } {
+export function formatProgress(stage: string, detail: unknown): { key: ProgressStage; label: string; tail?: string } {
   const d = (detail ?? {}) as Record<string, unknown>;
   const s = (v: unknown) => (v === undefined || v === null || v === "" ? "" : String(v));
   switch (stage) {
@@ -69,11 +84,13 @@ export function formatProgress(stage: string, detail: unknown): { key: string; l
 
 type Listener = () => void;
 
-class ImportJobStatus {
+export class ImportJobStatus {
   active = false;
   /** Backend stage in a committing phase — cancel disabled. */
   committing = false;
   stageLabel = "";
+  /** Canonical kebab stage key (formatProgress output) for the current event. */
+  stageKey: ProgressStage = "idle";
   startedAt: Date | null = null;
   lines: ImportJobLine[] = [];
   /** Rolling tail of raw LLM stream output (live view in the job modal). */
@@ -157,38 +174,55 @@ class ImportJobStatus {
     if (this.listening) return;
     this.listening = true;
     try {
-      await listen<{ stage: string; detail?: unknown }>("import-progress", (event) => {
-        const { stage, detail } = event.payload;
-        const info = formatProgress(stage, detail);
-        if (stage === "Complete") {
-          this.finish(true, info.label);
-        } else if (stage === "Error") {
-          this.flushLlmChars();
-          this.finish(false, info.label);
-        } else if (stage === "LlmOutput") {
-          // Streaming tick — update header/tooltip/live box only; logging a
-          // line per tick spams the stream (one line per 250 chars).
-          this.stopWaiting();
-          this.committing = false;
-          this.stageLabel = info.label;
-          this.llmTail = info.tail ?? "";
-          this.llmChars = this.parseChars(info.label);
-          this.emit();
-        } else {
-          this.flushLlmChars();
-          this.stopWaiting();
-          this.committing = stage === "WritingYaml" || stage === "ReloadingKb";
-          this.stageLabel = info.label;
-          if (info.tail !== undefined) this.llmTail = info.tail;
-          this.addLine(info.label, "stage");
-          if (stage === "SendingToLlm") this.startWaiting();
-          this.emit();
-        }
+      await listen<ImportProgressPayload>("import-progress", (event) => {
+        this.handleProgressEvent(event.payload);
       });
     } catch (e) {
       // Tauri not running (browser dev / tests)
       log.warn(LogTag.KbImport, `Import progress listener unavailable: ${e}`);
       this.listening = false;
+    }
+  }
+
+  /**
+   * Handle one backend ImportProgress event. Public so tests can drive the
+   * state machine without a live Tauri event bus.
+   *
+   * Stale-event filter (moved from the import dialog): the backend has no
+   * cancellation token — after cancel/finish the Rust pipeline still runs to
+   * completion and keeps emitting. Drop any event that arrives while no job is
+   * active, so late events can't resurrect progress state on a finished or
+   * cancelled job. The dialog's former `stageActive()` disjunct was dropped with
+   * it — with a single state owner here, `active` alone is sufficient.
+   */
+  handleProgressEvent(payload: ImportProgressPayload) {
+    if (!this.active) return;
+    const { stage, detail } = payload;
+    const info = formatProgress(stage, detail);
+    this.stageKey = info.key;
+    if (stage === "Complete") {
+      this.finish(true, info.label);
+    } else if (stage === "Error") {
+      this.flushLlmChars();
+      this.finish(false, info.label);
+    } else if (stage === "LlmOutput") {
+      // Streaming tick — update header/tooltip/live box only; logging a
+      // line per tick spams the stream (one line per 250 chars).
+      this.stopWaiting();
+      this.committing = false;
+      this.stageLabel = info.label;
+      this.llmTail = info.tail ?? "";
+      this.llmChars = this.parseChars(info.label);
+      this.emit();
+    } else {
+      this.flushLlmChars();
+      this.stopWaiting();
+      this.committing = stage === "WritingYaml" || stage === "ReloadingKb";
+      this.stageLabel = info.label;
+      if (info.tail !== undefined) this.llmTail = info.tail;
+      this.addLine(info.label, "stage");
+      if (stage === "SendingToLlm") this.startWaiting();
+      this.emit();
     }
   }
 
@@ -203,6 +237,7 @@ class ImportJobStatus {
     this.llmTail = "";
     this.llmChars = 0;
     this.result = null;
+    this.stageKey = "fetching";
     this.stageLabel = "Starting import…";
     this.addLine(`Import started — ${platform}/${category}`, "info");
     this.addLine(`Source: ${url}`, "info");
@@ -228,6 +263,7 @@ class ImportJobStatus {
     if (!this.active && this.lines.length === 0) return;
     this.active = false;
     this.committing = false;
+    this.stageKey = "idle";
     this.stageLabel = "";
     this.stopWaiting();
     this.flushLlmChars();
@@ -241,6 +277,7 @@ class ImportJobStatus {
     if (this.committing) return false;
     this.cancelRequested = true;
     this.active = false;
+    this.stageKey = "idle";
     this.stageLabel = "";
     this.stopWaiting();
     this.addLine("Cancelled by user — nothing was written to the knowledge base", "error");
