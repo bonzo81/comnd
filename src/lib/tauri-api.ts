@@ -112,11 +112,8 @@ export interface PipeFilter {
 
 // ─── KB Commands ────────────────────────────────────────────────────
 
-export async function queryKb(
-  platform: string,
-  version: string | null,
-): Promise<Command[]> {
-  return invoke<Command[]>("query_kb", { platform, version });
+export async function queryKb(platform: string): Promise<Command[]> {
+  return invoke<Command[]>("query_kb", { platform });
 }
 
 export async function loadPlatformIndex(

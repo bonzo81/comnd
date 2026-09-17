@@ -4,7 +4,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { SuggestionEngine, matchTokens, ghostPayloadFor } from "./suggestion-engine";
+import {
+  SuggestionEngine,
+  matchTokens,
+  ghostPayloadFor,
+  parseMajorVersion,
+  versionEligible,
+} from "./suggestion-engine";
 import { ghostPayloadAcceptText } from "./ghost-text";
 import type { Command } from "./tauri-api";
 
@@ -571,5 +577,87 @@ describe("effectiveInputAfterPrefix — direct", () => {
 
   it("leaves a non-skip flag in place", () => {
     expect(e.effectiveInputAfterPrefix("sudo -H systemctl", "sudo")).toBe("-H systemctl");
+  });
+});
+
+describe("parseMajorVersion (ported from Rust parse_major_version)", () => {
+  it("parses the leading digits of the first dot-segment", () => {
+    expect(parseMajorVersion("17.6")).toBe(17);
+    expect(parseMajorVersion("16.12.4a")).toBe(16);
+    expect(parseMajorVersion("12.0")).toBe(12);
+  });
+
+  it("returns null for empty or non-numeric input", () => {
+    expect(parseMajorVersion("")).toBeNull();
+    expect(parseMajorVersion("abc")).toBeNull();
+    expect(parseMajorVersion("v17.6")).toBeNull();
+  });
+});
+
+describe("versionEligible (ported from Rust KbStore::query filter)", () => {
+  const v = (introduced: string | null, deprecated: string | null): Command =>
+    mkCmd({ versions: { introduced, deprecated, notes: null } });
+
+  it("no host version → everything eligible", () => {
+    expect(versionEligible(v("18.0", "16.0"), null)).toBe(true);
+    expect(versionEligible(v("18.0", "16.0"), "")).toBe(true);
+  });
+
+  it("introduced below or equal to host major → eligible", () => {
+    expect(versionEligible(v("16.0", null), "17.6")).toBe(true);
+    expect(versionEligible(v("17.0", null), "17.6")).toBe(true);
+  });
+
+  it("introduced above host major → excluded", () => {
+    expect(versionEligible(v("18.0", null), "17.6")).toBe(false);
+  });
+
+  it("deprecated above host major → eligible; equal or below → excluded", () => {
+    expect(versionEligible(v(null, "18.0"), "17.6")).toBe(true);
+    expect(versionEligible(v(null, "17.0"), "17.6")).toBe(false);
+    expect(versionEligible(v(null, "16.0"), "17.6")).toBe(false);
+  });
+
+  it("unparseable introduced/deprecated → skipped (eligible)", () => {
+    expect(versionEligible(v("abc", null), "17.6")).toBe(true);
+    expect(versionEligible(v(null, "xyz"), "17.6")).toBe(true);
+  });
+
+  it("both missing → eligible", () => {
+    expect(versionEligible(v(null, null), "17.6")).toBe(true);
+  });
+});
+
+describe("loadCommands hostVersion filter (integration)", () => {
+  const legacy: Command = mkCmd({
+    name: "show legacy",
+    tokens: [{ lit: "show legacy" }],
+    versions: { introduced: null, deprecated: "17.0", notes: null },
+  });
+  const current: Command = mkCmd({
+    name: "show modern",
+    tokens: [{ lit: "show modern" }],
+    versions: { introduced: "16.0", deprecated: null, notes: null },
+  });
+  const future: Command = mkCmd({
+    name: "show future",
+    tokens: [{ lit: "show future" }],
+    versions: { introduced: "18.0", deprecated: null, notes: null },
+  });
+
+  it("excluded commands never appear in query or ghost text", () => {
+    const e = new SuggestionEngine();
+    e.loadCommands([legacy, current, future], "cisco-iosxe", null, "17.6");
+    const names = e.query("show").map((r) => r.command.name);
+    expect(names).toContain("show modern");
+    expect(names).not.toContain("show legacy");
+    expect(names).not.toContain("show future");
+    expect(e.topMatch("show mo")?.command.name).toBe("show modern");
+  });
+
+  it("no hostVersion → all commands loaded", () => {
+    const e = new SuggestionEngine();
+    e.loadCommands([legacy, current, future], "cisco-iosxe", null);
+    expect(e.query("").length).toBe(3);
   });
 });

@@ -721,21 +721,61 @@ function stripPrefix(input: string, prefixes: Map<string, PrefixCommandDef>): St
   return null;
 }
 
+/** Parse major version from a version string ("17.6" → 17). Null when unparseable. */
+export function parseMajorVersion(version: string): number | null {
+  const cleaned = version.trim();
+  if (!cleaned) return null;
+  let numeric = "";
+  for (const ch of cleaned.split(".")[0]) {
+    if (ch >= "0" && ch <= "9") numeric += ch;
+    else break;
+  }
+  return numeric ? Number(numeric) : null;
+}
+
+// ponytail: unfiltered command set ships per connect so this filter runs in the
+// frontend. If a KB grows into thousands of entries, pass version at connect and
+// filter in Rust instead (seam stays honest either way).
+/**
+ * Version eligibility (docs/specs/06 "Version Filtering Logic"). Mirrors the
+ * former Rust KbStore::query predicate exactly: missing host version = all
+ * eligible; introduced major > host major = excluded; deprecated major <= host
+ * major = excluded; unparseable introduced/deprecated = skipped (eligible).
+ */
+export function versionEligible(cmd: Command, hostVersion: string | null): boolean {
+  const hostMaj = hostVersion ? parseMajorVersion(hostVersion) : null;
+  if (hostMaj === null) return true;
+  const intro = cmd.versions.introduced;
+  if (intro != null) {
+    const introMaj = parseMajorVersion(intro);
+    if (introMaj !== null && introMaj > hostMaj) return false;
+  }
+  const depr = cmd.versions.deprecated;
+  if (depr != null) {
+    const deprMaj = parseMajorVersion(depr);
+    if (deprMaj !== null && deprMaj <= hostMaj) return false;
+  }
+  return true;
+}
+
 export class SuggestionEngine {
   private commands: Command[] = [];
   private _platform: string = "";
-  private _version: string = "";
   private mode: string = "";
   private negationPrefix: string | null = null;
   private prefixCommands: Map<string, PrefixCommandDef> = new Map();
 
-  /** Load commands for a platform (called on connect) */
+  /** Load commands for a platform (called on connect). hostVersion drops
+   *  version-ineligible commands once here, not per keystroke. */
   loadCommands(
     commands: Command[],
     platform: string,
     negationPrefix?: string | null,
+    hostVersion?: string | null,
   ) {
-    this.commands = commands;
+    this.commands = hostVersion
+      ? commands.filter((c) => versionEligible(c, hostVersion))
+      : commands;
     this._platform = platform;
     this.negationPrefix = negationPrefix ?? null;
   }
@@ -753,11 +793,6 @@ export class SuggestionEngine {
   effectiveInputAfterPrefix(input: string, prefix: string): string {
     const stripped = stripPrefix(input, this.prefixCommands);
     return stripped?.remainder ?? input.substring(prefix.length).trimStart();
-  }
-
-  /** Set current version filter */
-  setVersion(version: string) {
-    this._version = version;
   }
 
   /** Update current mode (from prompt detection) */

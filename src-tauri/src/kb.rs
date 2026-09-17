@@ -450,48 +450,6 @@ impl KbStore {
             .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     }
 
-    /// Query commands by version. Frontend always sends prefix="" and mode=None;
-    /// it needs the full command set because matching happens in the frontend.
-    pub fn query(&self, version: Option<&str>) -> Vec<&Command> {
-        let host_major = version.and_then(|v| parse_major_version(v));
-
-        let results: Vec<&Command> = self.commands.iter().filter(|cmd| {
-            // Version filter
-            if let Some(host_maj) = host_major {
-                if let Some(ref intro) = cmd.versions.introduced {
-                    if let Some(intro_maj) = parse_major_version(intro) {
-                        if intro_maj > host_maj {
-                            return false;
-                        }
-                    }
-                }
-                if let Some(ref depr) = cmd.versions.deprecated {
-                    if let Some(depr_maj) = parse_major_version(depr) {
-                        if depr_maj <= host_maj {
-                            return false;
-                        }
-                    }
-                }
-            }
-            true
-        }).collect();
-
-        results
-    }
-}
-
-/// Parse major version from a version string ("17.6" → 17)
-fn parse_major_version(version: &str) -> Option<u32> {
-    let cleaned = version.trim();
-    if cleaned.is_empty() {
-        return None;
-    }
-    let first_segment = cleaned.split('.').next()?;
-    let numeric: String = first_segment
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    numeric.parse().ok()
 }
 
 // ─── Global KB Manager ─────────────────────────────────────────────
@@ -608,24 +566,8 @@ impl KbManager {
         log::info!("KB stores cleared — will reload on next query");
     }
 
-    /// Query a platform's KB.
-    pub fn query(
-        &mut self,
-        platform_id: &str,
-        version: Option<&str>,
-    ) -> Result<Vec<Command>, String> {
-        let store = self.get_or_load(platform_id)?;
-        let results = store.query(version);
-        log::debug!(
-            "KB query: platform='{}' version={:?} → {} results",
-            platform_id,
-            version,
-            results.len()
-        );
-        Ok(results.into_iter().cloned().collect())
-    }
-
-    /// Get all commands for a platform (no filtering, for KB viewer).
+    /// Get all commands for a platform (no filtering — version eligibility
+    /// is filtered in the frontend suggestion engine).
     pub fn get_all_commands(&mut self, platform_id: &str) -> Result<Vec<Command>, String> {
         let store = self.get_or_load(platform_id)?;
         Ok(store.commands.clone())
@@ -1092,17 +1034,15 @@ pub fn list_disabled(user_kb_path: &Path, platform: &str) -> Vec<String> {
 
 // ─── Tauri Commands (plan: lib.rs domain split) ─────────────────────
 
+/// Commands for the suggestion pipeline: full merged set, unfiltered.
+/// Version eligibility is applied in the frontend (suggestion-engine.ts).
 #[tauri::command]
 pub async fn query_kb(
     platform: String,
-    version: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Command>, String> {
     let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-    kb.query(
-        &platform,
-        version.as_deref(),
-    )
+    kb.get_all_commands(&platform)
 }
 
 #[tauri::command]
@@ -1240,32 +1180,6 @@ mod tests {
     }
 
     #[test]
-    fn test_prefix_match_show_ip() {
-        let kb_path = get_kb_path();
-        let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        // Query with no version filter returns all commands (prefix/mode matching removed)
-        let results = store.query(None);
-        assert!(!results.is_empty());
-    }
-
-    #[test]
-    fn test_empty_prefix_returns_all() {
-        let kb_path = get_kb_path();
-        let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let all = store.query(None);
-        assert_eq!(all.len(), store.commands.len());
-    }
-
-    #[test]
-    fn test_case_insensitive() {
-        let kb_path = get_kb_path();
-        let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let upper = store.query(None);
-        let lower = store.query(None);
-        assert_eq!(upper.len(), lower.len());
-    }
-
-    #[test]
     fn test_get_target_yaml_path() {
         let kb_path = PathBuf::from("/data/kb");
         let path = get_target_yaml_path(&kb_path, "cisco-iosxe", "networking").unwrap();
@@ -1279,32 +1193,6 @@ mod tests {
         assert!(get_target_yaml_path(&kb_path, "cisco-iosxe", "../../etc/passwd").is_err());
         assert!(get_target_yaml_path(&kb_path, "", "networking").is_err());
         assert!(get_target_yaml_path(&kb_path, "cisco-iosxe", "Other…").is_err());
-    }
-
-    #[test]
-    fn test_parse_major_version() {
-        assert_eq!(parse_major_version("17.6"), Some(17));
-        assert_eq!(parse_major_version("16.12.4a"), Some(16));
-        assert_eq!(parse_major_version("12.0"), Some(12));
-        assert_eq!(parse_major_version(""), None);
-    }
-
-    #[test]
-    fn test_version_filter() {
-        let kb_path = get_kb_path();
-        let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        // Version 17.6 should filter out commands introduced after 17
-        let filtered = store.query(Some("17.6"));
-        let all = store.query(None);
-        assert!(filtered.len() <= all.len());
-        // All filtered results should have valid version ranges
-        for cmd in &filtered {
-            if let Some(ref intro) = cmd.versions.introduced {
-                if let Some(intro_maj) = parse_major_version(intro) {
-                    assert!(intro_maj <= 17, "Command '{}' introduced {} > 17", cmd.name, intro);
-                }
-            }
-        }
     }
 
     // ─── Validator tests (Phase 1.5) ───────────────────────────────────

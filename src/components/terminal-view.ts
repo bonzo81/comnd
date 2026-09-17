@@ -1219,9 +1219,9 @@ export class TerminalView {
   ) {
     try {
       log.info(LogTag.Kb, `Loading commands for platform=${platform}, version=${version}`);
-      const commands = await queryKb(platform, version);
+      const commands = await queryKb(platform);
       log.info(LogTag.Kb, `queryKb returned ${commands.length} commands`);
-      this.controller.loadCommands(commands, platform, negationPrefix ?? null);
+      this.controller.loadCommands(commands, platform, negationPrefix ?? null, version);
       log.info(LogTag.Terminal, `Loaded ${commands.length} commands for ${platform}`);
     } catch (e) {
       log.warn(LogTag.Terminal, `Failed to load KB commands: ${e}`);

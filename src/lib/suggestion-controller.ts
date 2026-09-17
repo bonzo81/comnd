@@ -162,8 +162,13 @@ export class SuggestionController {
 
   // â”€â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  loadCommands(commands: Command[], platform: string, negationPrefix: string | null): void {
-    this.engine.loadCommands(commands, platform, negationPrefix);
+  loadCommands(
+    commands: Command[],
+    platform: string,
+    negationPrefix: string | null,
+    hostVersion?: string | null,
+  ): void {
+    this.engine.loadCommands(commands, platform, negationPrefix, hostVersion);
   }
 
   setPlatformIndex(idx: PlatformIndex | null): void {
