@@ -119,7 +119,8 @@ src-tauri/              # Rust backend
     hosts.rs            # Host storage
     credentials.rs      # Credential resolution + keyring helpers
     secrets/            # Secret providers (Proton Pass, SSH agent)
-    kb.rs               # Knowledge base queries
+    kb/                 # Knowledge base (mod.rs + schema, validate, store,
+                        #   user_files, commands modules)
     import.rs           # KB import pipeline
     llm.rs              # LLM client (KB import only)
     netbox.rs           # NetBox host source
