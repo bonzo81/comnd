@@ -106,7 +106,7 @@ netssh/
 │   └── src/
 │       ├── lib.rs           # Tauri commands (entry point)
 │       ├── ssh.rs           # SSH connection manager (russh)
-│       └── kb.rs            # Knowledge base loader
+│       └── kb/              # Knowledge base (schema, validate, store, user_files, commands)
 ├── index.html               # App shell
 ├── package.json             # Frontend dependencies
 ├── vite.config.ts           # Vite configuration

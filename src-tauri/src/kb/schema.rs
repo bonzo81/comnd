@@ -192,8 +192,6 @@ mod contract {
     //! same commit or both suites fail.
 
     use super::*;
-    use crate::kb::store::CommandFile;
-    use crate::kb::user_files::serialize_commands;
     use crate::kb::validate::validate_command;
 
     /// Canonical fixture commands — one per schema corner case. These literals are

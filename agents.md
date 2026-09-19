@@ -120,7 +120,7 @@ src-tauri/              # Rust backend
     credentials.rs      # Credential resolution + keyring helpers
     secrets/            # Secret providers (Proton Pass, SSH agent)
     kb/                 # Knowledge base (mod.rs + schema, validate, store,
-                        #   user_files, commands modules)
+                        #   user_files, commands, test_util modules)
     import.rs           # KB import pipeline
     llm.rs              # LLM client (KB import only)
     netbox.rs           # NetBox host source
@@ -147,7 +147,7 @@ knowledge-base/         # YAML knowledge bases per platform
 Before marking a task complete:
 - Frontend changes: run `npm run build`. It runs `tsc`. The command must exit 0.
 - Frontend logic with test files: run `npm run test` (vitest). It must exit 0.
-- Rust changes: run `cargo check` in `src-tauri/`. It must exit 0.
+- Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Make sure that agent results match the expected outcomes.
 
 ## Agent skills

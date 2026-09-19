@@ -15,7 +15,7 @@ use std::time::Duration;
 use crate::state::AppState;
 
 // Reuse the KB token schema so the LLM's JSON output maps directly to the
-// structs `kb.rs` serialises to YAML. Phase 5.1.
+// structs `kb/schema.rs` serialises to YAML. Phase 5.1.
 use crate::kb::{CommandToken, CommandOrder};
 
 // ─── Types ──────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 /**
  * Validation Cache — KbValidationIssue[] for the current platform, fetched
- * via the `validate_kb` IPC once at KB load. Rust kb.rs is the single
+ * via the `validate_kb` IPC once at KB load. Rust kb/validate.rs is the single
  * validator; this replaces the old kb-validator.ts mirror. See
  * docs/plans/plan-kb-schema-deepening.md.
  */

@@ -448,10 +448,7 @@ mod tests {
         std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
         std::fs::create_dir_all(user.join("test-plat")).unwrap();
 
-        std::fs::write(
-            bundled.join("test-plat/index.yaml"),
-            "id: test-plat\nname: Test\ndescription: \"\"\nreference_url: \"\"\nversions: []\nprompt_patterns: {}\ndefault_mode: default\n",
-        ).unwrap();
+        std::fs::write(bundled.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
         std::fs::write(
             bundled.join("test-plat/commands/test.yaml"),
             "commands:\n  - name: show version\n    syntax: show version\n    description: bundled\n    category: test\n    mode: default\n",

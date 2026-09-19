@@ -5,7 +5,7 @@ import fixtureRaw from "../../src-tauri/tests/kb-schema.fixture.json";
 
 /**
  * KB schema contract (docs/plans/plan-kb-contract-test.md). Pairs with the Rust
- * `mod contract` in src-tauri/src/kb.rs: both sides assert the same fixture,
+ * `mod contract` in src-tauri/src/kb/schema.rs: both sides assert the same fixture,
  * so a Command/CommandToken schema change on either side of the IPC seam fails
  * here until tauri-api.ts and tests/kb-schema.fixture.json are updated in the
  * same commit.

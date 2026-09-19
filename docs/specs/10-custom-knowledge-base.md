@@ -24,19 +24,19 @@ The LLM import feature writes **only** to the custom (user) KB. It is never a co
 
 ## Schema Changes
 
-`Command` (`kb.rs:39`) gains two optional, serde-defaulted fields:
+`Command` (`kb/schema.rs`) gains two optional, serde-defaulted fields:
 
 ```yaml
 source: custom        # "custom" (user layer) | absent/"bundled" (core). Not authored in YAML; set by the merge.
 overrides: true       # true when a custom command replaced a core command with the same name. Merge-generated.
 ```
 
-* Neither field is authored by users or the LLM; both are set during merge (`KbManager::get_or_load`, `kb.rs:544-593`).
+* Neither field is authored by users or the LLM; both are set during merge (`KbManager::get_or_load`, `kb/store.rs`).
 * Frontend `Command` / `SuggestionResult` types gain the same optional fields.
 
 ## Merge Semantics Change (the one real code change)
 
-Today `merge_from` (`kb.rs:427-444`) and `write_commands_to_yaml` (`kb.rs:752-786`) use **fill-if-empty** semantics — a user command cannot actually override a bundled one. Change to **user-wins**:
+Today `merge_from` (`kb/store.rs`) and `write_commands_to_yaml` (`kb/user_files.rs`) use **fill-if-empty** semantics — a user command cannot actually override a bundled one. Change to **user-wins**:
 
 * Custom (user-layer) command with the same `name` fully replaces the bundled command; merged entry gets `source: custom`, `overrides: true`.
 * Custom command with a new `name` is added as-is, `source: custom`.

@@ -1,5 +1,5 @@
 {
-  "description": "Canonical KB Command/CommandToken schema fixture. Asserted from both sides of the IPC seam: src-tauri/src/kb.rs (mod contract, serde wire shape) and src/lib/kb-schema.contract.test.ts (type guards + renderer). A schema change on either side must update this file in the same commit or both suites fail.",
+  "description": "Canonical KB Command/CommandToken schema fixture. Asserted from both sides of the IPC seam: src-tauri/src/kb/schema.rs (mod contract, serde wire shape) and src/lib/kb-schema.contract.test.ts (type guards + renderer). A schema change on either side must update this file in the same commit or both suites fail.",
   "expected_ipc_json": [
     {
       "aliases": [
