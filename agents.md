@@ -128,6 +128,7 @@ src-tauri/              # Rust backend
     config.rs           # App settings
     replay.rs           # Command Replay storage + its own command handlers
     session_log.rs      # Session logging
+    transcript.rs       # Terminal output seam: session log + ssh-output fan-out
     paths/              # Data/log directory resolution (mod + commands)
     test_server.rs      # Mock SSH server for testing
   Cargo.toml            # Rust dependencies

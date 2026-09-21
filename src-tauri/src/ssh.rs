@@ -138,12 +138,6 @@ fn try_open_auth_url(
 
 /// Tauri event payloads
 #[derive(Clone, Serialize)]
-pub struct SshOutputPayload {
-    pub data: String, // base64 encoded bytes
-    pub session_id: u64,
-}
-
-#[derive(Clone, Serialize)]
 pub struct SshEventPayload {
     pub reason: String,
     pub session_id: u64,
@@ -159,7 +153,7 @@ struct ClientHandler {
     app_handle: tauri::AppHandle,
     host_key: String, // "hostname:port"
     session_id: u64,
-    session_log: Option<crate::session_log::SessionLog>,
+    transcript: crate::transcript::SharedTranscript,
 }
 
 #[async_trait]
@@ -253,11 +247,7 @@ impl client::Handler for ClientHandler {
         data: &[u8],
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        if let Some(ref mut log) = self.session_log {
-            log.write(data);
-        }
-        let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
+        crate::transcript::write_output(&self.transcript, data);
         Ok(())
     }
 
@@ -269,11 +259,7 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         // stderr output — forward the same way
-        if let Some(ref mut log) = self.session_log {
-            log.write(data);
-        }
-        let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-        let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
+        crate::transcript::write_output(&self.transcript, data);
         Ok(())
     }
 
@@ -284,8 +270,9 @@ impl client::Handler for ClientHandler {
     ) -> Result<(), Self::Error> {
         if !banner.is_empty() {
             try_open_auth_url(&self.app_handle, banner, self.session_id);
-            let encoded = base64::engine::general_purpose::STANDARD.encode(banner.as_bytes());
-            let _ = self.app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id: self.session_id });
+            // Banners are terminal output — they now reach the session log
+            // too, instead of only the screen.
+            crate::transcript::write_output(&self.transcript, banner.as_bytes());
         }
         Ok(())
     }
@@ -396,12 +383,17 @@ impl SshSession {
         } else {
             None
         };
+        let transcript = crate::transcript::Transcript::new(
+            session_log,
+            Box::new(crate::transcript::TauriOutputSink::new(app_handle.clone(), session_id)),
+        )
+        .shared();
 
         let handler = ClientHandler {
             app_handle: app_handle.clone(),
             host_key,
             session_id,
-            session_log,
+            transcript: transcript.clone(),
         };
 
         // Connect
@@ -422,7 +414,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id),
+            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id, &transcript),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
@@ -494,6 +486,7 @@ impl SshSession {
         key_path: Option<&str>,
         agent: crate::hosts::AgentAuth,
         session_id: u64,
+        transcript: &crate::transcript::SharedTranscript,
     ) -> Result<bool, String> {
         // Agent publickey auth — first in the chain (chunk 4). The agent socket is
         // opened per connect attempt and dropped when this function returns.
@@ -634,15 +627,14 @@ impl SshSession {
                     let mut url_round = extract_https_url(&instructions).is_some();
                     if !instructions.is_empty() {
                         log::info!("Keyboard-interactive instructions: {}", instructions);
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(instructions.as_bytes());
-                        let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                        // Auth-phase prompts now reach the session log.
+                        crate::transcript::write_output(transcript, instructions.as_bytes());
                     }
                     for prompt in &prompts {
                         try_open_auth_url(app_handle, &prompt.prompt, session_id);
                         url_round |= extract_https_url(&prompt.prompt).is_some();
                         if !prompt.prompt.is_empty() {
-                            let encoded = base64::engine::general_purpose::STANDARD.encode(prompt.prompt.as_bytes());
-                            let _ = app_handle.emit("ssh-output", SshOutputPayload { data: encoded, session_id });
+                            crate::transcript::write_output(transcript, prompt.prompt.as_bytes());
                         }
                     }
                     let responses = responses_for_round(url_round, stored_password.as_deref(), prompts.len());

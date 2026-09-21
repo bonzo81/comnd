@@ -15,6 +15,7 @@ mod llm;
 mod import;
 mod paths;
 mod session_log;
+mod transcript;
 mod replay;
 mod secrets;
 mod platform;
