@@ -1,47 +1,37 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-const statusValue = "Log file could not be opened at the custom path; using the default location.";
-
-vi.mock("../src/lib/tauri-api", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/tauri-api")>("../src/lib/tauri-api");
-  return {
-    ...actual,
-    getLogStatus: vi.fn(async () => statusValue),
-  };
-});
-
+import { describe, it, expect, afterEach } from "vitest";
+import { createHarness, Harness } from "./harness";
 import { showToast } from "../src/lib/toast";
 import { listen } from "@tauri-apps/api/event";
 import { getLogStatus } from "../src/lib/tauri-api";
 
+const statusValue = "Log file could not be opened at the custom path; using the default location.";
+
 // Mirror of App.syncLogStatus() in src/main.ts — the private method is not
 // exported, so we exercise the same getLogStatus → showToast wiring here.
+// (The screen lifecycle interface — review candidate 4 — will retire this copy.)
 async function syncLogStatus() {
   const status = await getLogStatus().catch(() => null);
   if (status) {
     showToast(status, "error", 8000);
   }
-  try {
-    await listen<string>("log-location-warning", (event) => {
-      showToast(event.payload, "error", 8000);
-    });
-  } catch {
-    // Tauri not running (unit test) — ignore
-  }
+  await listen<string>("log-location-warning", (event) => {
+    showToast(event.payload, "error", 8000);
+  });
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+function makeHarness(logStatus: string | null): Harness {
+  const h = createHarness();
+  h.ipc.mock("get_log_status", logStatus);
+  return h;
+}
 
 afterEach(() => {
   document.body.innerHTML = "";
-  vi.restoreAllMocks();
 });
 
 describe("syncLogStatus — toast on unreachable custom path", () => {
   it("shows an error toast when getLogStatus returns a message", async () => {
-    vi.mocked(getLogStatus).mockResolvedValueOnce(statusValue);
+    makeHarness(statusValue);
     await syncLogStatus();
     const toast = document.querySelector<HTMLElement>(".toast-error");
     expect(toast).not.toBeNull();
@@ -49,8 +39,17 @@ describe("syncLogStatus — toast on unreachable custom path", () => {
   });
 
   it("shows no toast when getLogStatus returns null", async () => {
-    vi.mocked(getLogStatus).mockResolvedValueOnce(null);
+    makeHarness(null);
     await syncLogStatus();
     expect(document.querySelector<HTMLElement>(".toast-error")).toBeNull();
+  });
+
+  it("shows an error toast when the backend emits log-location-warning", async () => {
+    const h = makeHarness(null);
+    await syncLogStatus();
+    h.emit("log-location-warning", "Log moved: /var/log/netssh/netssh.log is in use");
+    const toast = document.querySelector<HTMLElement>(".toast-error");
+    expect(toast).not.toBeNull();
+    expect(toast!.textContent).toContain("Log moved");
   });
 });

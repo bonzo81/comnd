@@ -1,40 +1,35 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NavPanel, NavCallbacks } from "../src/components/nav-panel";
-
-function makeHost(id: string, name: string) {
-  return { id, display_name: name, group_id: null, last_connected: null } as never;
-}
+import { createHarness, Harness } from "./harness";
 
 describe("nav panel context menu", () => {
   let container: HTMLElement;
   let panel: NavPanel;
   const cb = {} as Record<string, ReturnType<typeof vi.fn>>;
 
-  let originalInvoke: unknown;
-
   beforeEach(() => {
-    const internals = (window as any).__TAURI_INTERNALS__;
-    originalInvoke = internals.invoke;
-    const hosts = [makeHost("h1", "alpha"), makeHost("h2", "beta")];
-    internals.invoke = async (cmd: string) => {
-      if (cmd === "get_hosts") return hosts;
-      if (cmd === "get_host_groups") return [];
-      throw new Error(`unexpected command ${cmd}`);
-    };
-    for (const k of ["onSelectHost", "onConnectHost", "onEditHost", "onKbTab", "onNewConnection", "onAddHostToGroup", "onSelectSettings", "onTreeChanged"]) {
+    const h = createHarness();
+    h.ipc.mock("get_hosts", [
+      h.fixtures.host({ id: "h1", display_name: "alpha" }),
+      h.fixtures.host({ id: "h2", display_name: "beta" }),
+    ]);
+    h.ipc.mock("get_host_groups", []);
+    for (const k of [
+      "onSelectHost",
+      "onConnectHost",
+      "onEditHost",
+      "onKbTab",
+      "onNewConnection",
+      "onAddHostToGroup",
+      "onSelectSettings",
+      "onTreeChanged",
+    ]) {
       cb[k] = vi.fn();
     }
-    cb.getActiveSessions = () => new Set<string>();
+    cb.getActiveSessions = vi.fn(() => new Set<string>());
 
-    container = document.createElement("div");
-    document.body.appendChild(container);
+    container = h.mount();
     panel = new NavPanel(container, cb as unknown as NavCallbacks);
-  });
-
-  afterEach(() => {
-    (window as any).__TAURI_INTERNALS__.invoke = originalInvoke;
-    container?.remove();
-    vi.restoreAllMocks();
   });
 
   function row(id: string): HTMLElement {

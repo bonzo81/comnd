@@ -42,3 +42,11 @@ terms; keep them current as concepts crystallize.
   `true`. Opt-outs must be visible at the call site (e.g. import in progress).
 - **Confirm adapter** — `confirmDialog()` is a thin variant over the modal
   shell; it is not the shell itself.
+
+## Testing
+
+- **Test harness** — the single test-owned module that stands in for everything
+  the app talks to — the Tauri IPC seam, shared wire fixtures, and DOM
+  scaffolding — behind one narrow interface (`tests/harness.ts`,
+  `docs/plans/plan-test-harness.md`). Strict by default: an unmocked IPC
+  command throws. Not "test utils", "testkit", or a "fake backend".
