@@ -12,6 +12,7 @@ import { KbViewerDialog } from "./kb-viewer-dialog";
 import { KbImportDialog } from "./kb-import-dialog";
   import { Command, listKbPlatforms } from "../lib/tauri-api";
   import { escAttr, escHtml } from "../lib/format";
+  import { log, LogTag } from "../lib/logger";
 
 // ─── Main Class ────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export class KbScreen {
         this.selectedPlatform = this.platforms[0] ?? "";
       }
     } catch (err) {
-      console.error("Failed to load KB platforms:", err);
+      log.error(LogTag.Kb, "Failed to load KB platforms:", err);
     }
   }
 

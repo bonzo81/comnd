@@ -11,6 +11,7 @@ import { escHtml } from "../lib/format";
 import { moveListItem } from "../lib/listbox-nav";
 import { icons } from "../lib/icons";
 import { getSearchIncludeTags } from "../lib/search-prefs";
+import { log, LogTag } from "../lib/logger";
 
 type Mode = "hosts" | "commands";
 
@@ -150,7 +151,7 @@ export class GlobalSearch {
       );
       this.allCommands = hits.flat();
     } catch (err) {
-      console.error("global-search: failed to load commands:", err);
+      log.error(LogTag.Kb, "global-search: failed to load commands:", err);
       this.allCommands = [];
     } finally {
       this.commandsLoading = false;

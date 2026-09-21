@@ -273,7 +273,7 @@ class App {
         try {
           action();
         } catch (err) {
-          console.error("title-bar action failed:", err);
+          log.error(LogTag.App, "title-bar action failed:", err);
         }
       });
       controls.appendChild(b);
@@ -700,7 +700,10 @@ class App {
     this.showView("terminal");
 
     view.connect(host).catch((err) => {
-      console.error("Connect failed:", err);
+      // Safety net: TerminalView.connect logs its primary failure path
+      // (terminal-view.ts "Connection failed: …"). This fires only if it
+      // throws before that — LogTag.Ssh marks the connection lifecycle.
+      log.error(LogTag.Ssh, "Connect failed:", err);
     });
   }
 

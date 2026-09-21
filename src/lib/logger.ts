@@ -1,23 +1,27 @@
 /// <reference types="vite/client" />
 /**
- * Logger — structured frontend logging for netssh
+ * Logger — one record, N sinks.
  *
  * Usage:
- *   import { log, LogTag } from '../lib/logger';
- *   log.info(LogTag.Ssh, 'Connected to host');
- *   log.error(LogTag.Ssh, 'Connection failed', err);
+ *   import { log, LogTag } from "../lib/logger";
+ *   log.info(LogTag.Ssh, "Connected to host");
+ *   log.error(LogTag.Ssh, "Connection failed", err);
  *
- * Redaction: `msg` is scanned for credential patterns (password/api key) and
- * redacted. `...args` objects are NOT scanned — callers must not pass secret
- * objects in args.
+ * Every call builds one LogRecord — redaction happens ONCE, at record
+ * construction — then the record fans out to the registered sinks. Default
+ * sinks: console (always) and forward-to-Rust (production only, persists to
+ * netssh.log via the `log_frontend` command, fire-and-forget). Tests swap
+ * in a capture sink via setSinks() and restore with resetSinks().
  *
- * Sinks: console always; in production, `msg` plus a JSON-serialized `...args`
- * summary is forwarded to the Rust logger via the `log_frontend` Tauri command
- * (fire-and-forget). Dev stays console-only to avoid IPC latency in the hot
- * path.
+ * Redaction: `msg` and the serialized `args` summary are scanned for
+ * credential patterns (password / api key, plus the JSON-quoted form they
+ * take after serialization) BEFORE any sink sees the record — the console
+ * line and the persisted netssh.log line are both covered. `rawArgs` are
+ * for devtools only and never persisted; callers must still not log secret
+ * objects (devtools shows them raw).
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { logFrontend } from "./tauri-api";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -53,20 +57,18 @@ function shouldLog(level: LogLevel): boolean {
   return LEVEL_ORDER[level] >= LEVEL_ORDER[minLevel];
 }
 
-// ponytail: regex on msg string only, not recursive over args.
+// ponytail: regex on msg + serialized args, not recursive over raw objects.
 // Upgrade path: structured fields with explicit secret flag.
-const SECRET_PATTERNS = [
-  /(password\s*[:=]\s*)\S+/i,
-  /(api[_-]?key\s*[:=]\s*)\S+/i,
+const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(password\s*[:=]\s*)\S+/gi, "$1[REDACTED]"],
+  [/(api[_-]?key\s*[:=]\s*)\S+/gi, "$1[REDACTED]"],
+  // JSON-quoted form after serializeArgs: {"password":"hunter2"}
+  [/("password"\s*:\s*")[^"]*"/gi, '$1[REDACTED]"'],
+  [/("api[_-]?key"\s*:\s*")[^"]*"/gi, '$1[REDACTED]"'],
 ];
 
 function redact(s: string): string {
-  return SECRET_PATTERNS.reduce((acc, p) => acc.replace(p, "$1[REDACTED]"), s);
-}
-
-function format(level: LogLevel, tag: LogTag, msg: string): string {
-  const ts = new Date().toISOString();
-  return `[netssh:${tag}] ${ts} ${level.toUpperCase()} ${redact(msg)}`;
+  return SECRET_PATTERNS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), s);
 }
 
 // ponytail: JSON.stringify + Error name/message only. Circular refs → "[Circular]".
@@ -89,34 +91,81 @@ function serializeArgs(args: unknown[]): string {
   }
 }
 
-function forward(level: LogLevel, tag: LogTag, msg: string, args: unknown[]): void {
-  if (isDev) return;
-  invoke("log_frontend", { level, tag, msg, args: serializeArgs(args) }).catch(() => {});
+/** One log entry, built once per call. Both string fields are redacted. */
+export interface LogRecord {
+  level: LogLevel;
+  tag: LogTag;
+  /** Redacted message — safe for every sink. */
+  msg: string;
+  /** Original args — console/devtools only, never persisted. */
+  rawArgs: unknown[];
+  /** Serialized + redacted args summary — safe for every sink ("" if none). */
+  args: string;
+}
+
+export type LogSink = (record: LogRecord) => void;
+
+function format(record: LogRecord): string {
+  const ts = new Date().toISOString();
+  return `[netssh:${record.tag}] ${ts} ${record.level.toUpperCase()} ${record.msg}`;
+}
+
+export const consoleSink: LogSink = (record) => {
+  const line = format(record);
+  switch (record.level) {
+    case "debug": console.debug(line, ...record.rawArgs); break;
+    case "info": console.log(line, ...record.rawArgs); break;
+    case "warn": console.warn(line, ...record.rawArgs); break;
+    case "error": console.error(line, ...record.rawArgs); break;
+  }
+};
+
+export const forwardSink: LogSink = (record) => {
+  // Fire-and-forget: logging must never break the caller.
+  logFrontend(record.level, record.tag, record.msg, record.args).catch(() => {});
+};
+
+function defaultSinks(): LogSink[] {
+  return isDev ? [consoleSink] : [consoleSink, forwardSink];
+}
+
+let sinks: LogSink[] = defaultSinks();
+
+/** Test-only: replace the sink list (e.g. a capture sink). Pair with resetSinks(). */
+export function setSinks(next: LogSink[]): void {
+  sinks = next;
+}
+
+/** Test-only: restore the default sink list. */
+export function resetSinks(): void {
+  sinks = defaultSinks();
+}
+
+function emit(level: LogLevel, tag: LogTag, msg: string, args: unknown[]): void {
+  if (!shouldLog(level)) return;
+  const record: LogRecord = {
+    level,
+    tag,
+    msg: redact(msg),
+    rawArgs: args,
+    args: redact(serializeArgs(args)),
+  };
+  for (const sink of sinks) {
+    sink(record);
+  }
 }
 
 export const log = {
   debug(tag: LogTag, msg: string, ...args: unknown[]) {
-    if (shouldLog("debug")) {
-      console.debug(format("debug", tag, msg), ...args);
-      forward("debug", tag, msg, args);
-    }
+    emit("debug", tag, msg, args);
   },
   info(tag: LogTag, msg: string, ...args: unknown[]) {
-    if (shouldLog("info")) {
-      console.log(format("info", tag, msg), ...args);
-      forward("info", tag, msg, args);
-    }
+    emit("info", tag, msg, args);
   },
   warn(tag: LogTag, msg: string, ...args: unknown[]) {
-    if (shouldLog("warn")) {
-      console.warn(format("warn", tag, msg), ...args);
-      forward("warn", tag, msg, args);
-    }
+    emit("warn", tag, msg, args);
   },
   error(tag: LogTag, msg: string, ...args: unknown[]) {
-    if (shouldLog("error")) {
-      console.error(format("error", tag, msg), ...args);
-      forward("error", tag, msg, args);
-    }
+    emit("error", tag, msg, args);
   },
 };
