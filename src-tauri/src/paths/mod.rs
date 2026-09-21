@@ -465,7 +465,6 @@ fn copy_capped<R: std::io::Read, W: std::io::Write>(
     total: &mut u64,
     cap: u64,
 ) -> Result<(), String> {
-    use std::io::{Read, Write};
     let mut buf = [0u8; 65536];
     loop {
         let n = src

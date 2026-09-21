@@ -99,10 +99,9 @@ impl MockHandler {
     /// home/end, ins/del via CSI or SS3) repaint the current line; anything
     /// else is consumed silently.
     fn on_escape_sequence(&mut self, seq: &[u8], out: &mut Vec<u8>) {
-        let e = Self::ESC;
         let is_line_edit = matches!(
             seq,
-            [e, _, b'A'..=b'D' | b'H' | b'F'] | [e, b'[', b'1'..=b'4', b'~'] | [e, b'O', b'A'..=b'D']
+            [Self::ESC, _, b'A'..=b'D' | b'H' | b'F'] | [Self::ESC, b'[', b'1'..=b'4', b'~']
         );
         if is_line_edit && !self.state.in_top {
             self.redraw(out);
