@@ -31,13 +31,15 @@ netssh includes built-in command knowledge for:
 
 The suggestion engine runs locally on your machine — no cloud or network dependency. Suggestions are matched against a per-device command knowledge base and never leave your computer.
 
-## Getting started
+## Getting Started
 
-Prebuilt binaries for Windows, macOS, and Linux are published as [GitHub Releases](https://github.com/bonzo81/netssh/releases). Download the latest release for your platform.
+Prebuilt binaries for Windows, macOS, and Linux are published as [GitHub Releases](https://github.com/bonzo81/netssh/releases). Download the latest release for your platform. The [installation guide](docs/user-guide/01-installation.md) has per-platform steps.
 
 > **Note:** Builds are currently **unsigned drafts** — expect SmartScreen (Windows) or Gatekeeper (macOS) warnings on first launch. See [CI/CD install notes](docs/plans/plan-ci-cd.md) for how to proceed safely.
 
-Building from source is a developer task. See [Development setup](docs/DEVELOPMENT.md).
+Want to build from source instead? See [Development setup](docs/DEVELOPMENT.md).
+
+Once you're up and running, the [user guide](docs/user-guide/02-getting-started.md) walks you through your first session.
 
 ## Technology
 
@@ -54,6 +56,8 @@ For detailed specifications and implementation plans:
 - [Overview & Goals](docs/specs/01-overview-goals.md) — What netssh aims to achieve
 - [Technical Architecture](docs/specs/02-technical-architecture.md) — How SSH connections and suggestions work
 - [Knowledge Base](docs/specs/06-knowledge-base.md) — Command definition format and structure
+
+To contribute — for example, by adding commands to the knowledge base — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
