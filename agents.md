@@ -34,13 +34,13 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 
 ## Non-Negotiable Architecture Rules
 
-1. **Shadow buffer model** — No local echo. All keystrokes go to the remote device in real time. The frontend maintains a shadow buffer that *observes* input for suggestion matching only.
+1. **Shadow buffer model** — No local echo; keystrokes reach the remote in real time, and the frontend keeps an observe-only shadow buffer. See ADR-001.
 
-2. **Input handling in frontend** — Keystrokes are handled in the xterm.js `onKey` handler. KB queries go async to Rust via Tauri IPC. Never route keystrokes through Rust, because IPC latency is perceptible.
+2. **Input handling in frontend** — Keystrokes are handled in the xterm.js handler; never routed through Rust. See ADR-002.
 
 3. **Prompt detection** — State machine in frontend: ANSI strip → idle detection (200ms) → regex match against platform `prompt_patterns`. This powers mode awareness and shadow buffer reset.
 
-4. **Sidebar pushes terminal** — Side panel resizes the terminal; it does NOT overlay it. Terminal gets a PTY resize when sidebar opens/closes.
+4. **Sidebar pushes terminal** — The side panel resizes (never overlays) the terminal; PTY resize on open/close. See ADR-003.
 
 5. **Tab is context-sensitive** — Accepts ghost suggestion when one is showing; passes through to remote when no suggestion is visible.
 
@@ -84,7 +84,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 
 ## What NOT To Do
 
-- No LLM in the suggestion/keystroke path. The LLM is used ONLY for KB import (`import.rs`), because latency-critical paths must stay deterministic.
+- No LLM in the suggestion/keystroke path; LLM only for KB import (`import.rs`). See ADR-004.
 - No `serde_yaml` — use `serde_yml`
 - No sidebar overlay on terminal
 - No `Ctrl+W` interception — must pass through to remote

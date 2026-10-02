@@ -6,7 +6,7 @@ terms; keep them current as concepts crystallize.
 ## Suggestion pipeline
 
 - **Shadow buffer** — frontend's observed mirror of the input line. Never echoed;
-  exists only for suggestion matching. No local echo (AGENTS.md rule 1).
+  exists only for suggestion matching. No local echo (docs/adr/001).
 - **Ghost text** — inline completion overlay at the xterm cursor. Payload is
   token-aware (`text` | `literal` | `choice` | `variable`); `variable` is a
   hint, not completable.
