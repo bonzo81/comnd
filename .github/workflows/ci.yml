@@ -57,6 +57,7 @@ jobs:
         working-directory: src-tauri
 
   commitlint:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
