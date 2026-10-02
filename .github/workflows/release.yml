@@ -1,13 +1,12 @@
 name: Release
 
 on:
+  create:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
 
 jobs:
   build:
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     strategy:
@@ -58,8 +57,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: 'netssh v__VERSION__'
-          releaseBody: 'Unsigned build — SmartScreen/Gatekeeper warnings are expected. See docs/plans/plan-ci-cd.md for install notes.'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}

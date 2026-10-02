@@ -24,6 +24,8 @@
     "@xterm/xterm": "^5.5.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@tauri-apps/cli": "^2.0.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.5.0",

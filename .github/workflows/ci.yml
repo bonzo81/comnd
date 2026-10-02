@@ -55,3 +55,17 @@ jobs:
       - name: cargo test
         run: cargo test
         working-directory: src-tauri
+
+  commitlint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: git fetch origin ${{ github.event.pull_request.base.ref }}
+      - run: npx commitlint --from origin/${{ github.event.pull_request.base.ref }} --to ${{ github.event.pull_request.head.sha }}
