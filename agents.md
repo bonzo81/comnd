@@ -90,6 +90,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 - No `Ctrl+W` interception — must pass through to remote
 - No local echo — shadow buffer observes only
 - No heavy logic in Rust that could run in the frontend. IPC latency harms the terminal.
+- No manual git tags or GitHub releases — release-please creates both; a human only publishes the draft
 
 ## File Locations
 
@@ -155,6 +156,27 @@ Before marking a task complete:
 - Frontend unit tests are co-located with source as `*.test.ts` files in the same directory (e.g., `src/lib/suggestion-engine.test.ts` tests `src/lib/suggestion-engine.ts`). Do not create a separate `tests/` directory for unit tests — the top-level `tests/` holds harness-based integration tests.
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Make sure that agent results match the expected outcomes.
+
+## Commit Messages
+
+Conventional Commits are enforced in CI on pull requests (the `commitlint` job in `ci.yml`). Format: `type(scope)!: subject`, then body, then footer.
+
+- Subject: imperative mood, lowercase, no trailing period, 72 characters max
+- Body: wrapped at 100 characters, explain what and why
+- Breaking change: `!` after the type, or a `BREAKING CHANGE: reason` footer
+- One logical change per commit
+- Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`; scope is optional and free-form
+
+Version bump rules (release-please): `feat` → minor, `fix` → patch, breaking change → minor while pre-1.0.0 (major after). `docs`/`chore`/`refactor`/`test`/`perf` do not bump the version; they are grouped in the changelog "Miscellaneous" section.
+
+## Release Flow
+
+1. A conventional commit lands on main → release-please opens or updates a `chore(main): release X.Y.Z` PR that bumps `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, and updates `CHANGELOG.md`.
+2. Merging the release PR creates the `vX.Y.Z` git tag and a draft GitHub release.
+3. The tag fires `release.yml`, which attaches per-platform installers to the draft.
+4. A human smoke-tests the draft, then publishes it.
+
+Never bump versions or edit `CHANGELOG.md` by hand — write conventional commits and let the release PR do the rest.
 
 ## Agent skills
 
