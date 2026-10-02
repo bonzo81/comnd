@@ -97,11 +97,14 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 src/                    # TypeScript frontend (strict mode, ES modules)
   components/           # Screens & UI (one class per screen: host-screen,
                         #   terminal-view, kb-screen, settings-screen,
-                        #   replay-screen, nav-panel, global-search, dialogs)
+                        #   replay-screen, nav-panel, global-search,
+                        #   kb-import-dialog, kb-viewer-dialog,
+                        #   netbox-configure-dialog, replay-save-dialog)
   lib/                  # Utilities (one concern per file: suggestion-engine,
                         #   suggestion-controller, dropdown, shadow-buffer, line-tracker,
                         #   ghost-text, ansi, tokens, theme, a11y, platforms, replay,
-                        #   tauri-api, ...)
+                        #   tauri-api, modal, logger, toast, reading-comfort,
+                        #   output-highlighter, ...)
   styles/
     tokens.css          # Design tokens (:root custom properties)
     base.css            # Base/reset styles
@@ -118,7 +121,8 @@ src-tauri/              # Rust backend
     ssh.rs              # SSH session (russh)
     hosts.rs            # Host storage
     credentials.rs      # Credential resolution + keyring helpers
-    secrets/            # Secret providers (Proton Pass, SSH agent)
+    secrets/            # Secret providers (mod.rs + agent.rs for SSH agent;
+                        #   providers/mod.rs + providers/proton.rs for Proton Pass)
     kb/                 # Knowledge base (mod.rs + schema, validate, store,
                         #   user_files, commands, test_util modules)
     import.rs           # KB import pipeline
@@ -148,6 +152,7 @@ knowledge-base/         # YAML knowledge bases per platform
 Before marking a task complete:
 - Frontend changes: run `npm run build`. It runs `tsc`. The command must exit 0.
 - Frontend logic with test files: run `npm run test` (vitest). It must exit 0.
+- Frontend unit tests are co-located with source as `*.test.ts` files in the same directory (e.g., `src/lib/suggestion-engine.test.ts` tests `src/lib/suggestion-engine.ts`). Do not create a separate `tests/` directory for unit tests — the top-level `tests/` holds harness-based integration tests.
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Make sure that agent results match the expected outcomes.
 
@@ -160,3 +165,5 @@ Issues are tracked in GitHub Issues (`bonzo81/netssh`) via the `gh` CLI. See `do
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+Reviewed: 2026-10-02
