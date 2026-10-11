@@ -38,6 +38,12 @@ export interface ControllerDeps {
   /** Show command detail / placeholder in the side panel. */
   sidebar: { detail: (cmd: Command) => void; placeholder: () => void };
   ui: ControllerUi;
+  /** Control byte that toggles auto-suggestions — the view supplies the
+   *  registry-resolved byte (toggle-suggestions default Ctrl+Space →
+   *  "\x00"). Null = the binding was rebound to a combo with no control
+   *  byte; nothing toggles and the raw key passes through to the remote.
+   *  Absent dep keeps the historical "\x00" (plan 058 phase 4). */
+  suggestionsToggleByte?: () => string | null;
 }
 
 type ShadowOp =
@@ -80,7 +86,15 @@ const ALT_ARROW_RIGHT = ["\x1b[1;3C", "\x1b\x1b[C", "\x1b\x1b[1;3C"];
 
 function routeKeystroke(
   data: string,
-  view: { dropdownVisible: boolean; ghostShowing: boolean; sidebarOpen: boolean },
+  view: {
+    dropdownVisible: boolean;
+    ghostShowing: boolean;
+    sidebarOpen: boolean;
+    /** Registry-resolved suggestions toggle byte. Null = the binding is
+     *  inert (rebound to a combo with no control byte): the raw key
+     *  falls through to the remote like any other byte. */
+    toggleByte: string | null;
+  },
 ): RouteDecision {
   if (data === "\t") {
     if (view.dropdownVisible) return { action: { kind: "acceptDropdown" }, shadowOps: [] };
@@ -96,7 +110,7 @@ function routeKeystroke(
     return r;
   }
 
-  if (data === "\x00")
+  if (view.toggleByte !== null && data === view.toggleByte)
     return { action: { kind: "noop" }, shadowOps: [], toggleSuggestions: true };
 
   if (view.dropdownVisible && data === "\x1b[A")
@@ -208,10 +222,17 @@ export class SuggestionController {
 
     const ghost = this.deps.ghost();
     const dropdown = this.deps.dropdown();
+    // Registry-resolved toggle byte (plan 058 phase 4): an absent dep keeps
+    // the historical Ctrl+Space byte; a dep returning null means the
+    // binding is inert — the raw byte passes through to the remote.
+    const toggleByte = this.deps.suggestionsToggleByte
+      ? this.deps.suggestionsToggleByte()
+      : "\x00";
     const r = routeKeystroke(data, {
       dropdownVisible: dropdown?.isVisible() ?? false,
       ghostShowing: ghost?.isShowing() ?? false,
       sidebarOpen: this.deps.ui.isSidebarOpen(),
+      toggleByte,
     });
 
     switch (r.action.kind) {
