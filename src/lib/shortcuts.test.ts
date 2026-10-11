@@ -3,8 +3,9 @@
  *
  * Covers: registry structure (sections), parseCombo canonicalization,
  * platformMod, matches on defaults and overrides, the bareKeyOnly
- * input-focus gate, modLocked, formatCombo, ctrlByteForCombo, and the
- * netssh:shortcuts dispatch from setOverrides.
+ * input-focus gate, modLocked, the reserved-keystroke guard in matches(),
+ * formatCombo, ctrlByteForCombo, and the netssh:shortcuts dispatch from
+ * setOverrides.
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -165,10 +166,16 @@ describe("matches on defaults", () => {
     expect(matches(key("K", { ctrl: true, shift: true }), "terminal")).toBeNull();
   });
 
+  it("shift-delivery case does not fork the combo", () => {
+    expect(matches(key("K", { ctrl: true, shift: true }), "global")).toBe("toggle-kb");
+    expect(matches(key("k", { ctrl: true, shift: true }), "global")).toBe("toggle-kb");
+  });
+
   it("does not match unbound or partial combos", () => {
     expect(matches(key("K", { ctrl: true }), "global")).toBeNull(); // Ctrl+K belongs to the shell
     expect(matches(key("x", { ctrl: true }), "global")).toBeNull();
     expect(matches(key("Control", { ctrl: true }), "global")).toBeNull();
+    expect(matches(key(","), "global")).toBeNull(); // bare unbound key
   });
 
   it("zoom-in accepts = and + like the old inline handler", () => {
@@ -200,6 +207,66 @@ describe("matches with overrides", () => {
     expect(matches(key("K", { ctrl: true, shift: true }), "global")).toBe("toggle-kb");
     setOverrides({ "toggle-kb": "Mod" }); // modifier-only string
     expect(matches(key("K", { ctrl: true, shift: true }), "global")).toBe("toggle-kb");
+  });
+
+  it("honors an Alt-modifier override", () => {
+    setOverrides({ "open-settings": "Mod+Alt+S" });
+    expect(matches(key("S", { ctrl: true, alt: true }), "global")).toBe("open-settings");
+  });
+});
+
+describe("matches on macOS", () => {
+  it("resolves Cmd-delivered defaults and keeps literal Ctrl distinct", () => {
+    const restore = MAC();
+    expect(matches(key(",", { meta: true }), "global")).toBe("open-settings");
+    expect(matches(key("W", { meta: true, shift: true }), "global")).toBe("close-session-tab");
+    // Literal Ctrl is not the Mac Mod — ⌃, matches nothing.
+    expect(matches(key(",", { ctrl: true }), "global")).toBeNull();
+    restore();
+  });
+});
+
+describe("reserved keystrokes never resolve (hand-edited overrides)", () => {
+  // The capture UI rejects these combos (reservedComboReason), but a
+  // hand-edited config.json can still name them. matches() must keep the
+  // physical keystroke on its fixed path — the terminal attach handler
+  // consults matches() with no other guard in front of it (AGENTS.md
+  // rule 6: Ctrl+W is remote delete-word, never a registry action).
+  it("literal Ctrl+W stays pass-through for a hand-edited Mod+W (global scope)", () => {
+    setOverrides({ "new-connection": "Mod+W" });
+    expect(matches(key("w", { ctrl: true }), "global")).toBeNull();
+    // Caps-lock delivery: uppercase W without Shift is still Ctrl+W.
+    expect(matches(key("W", { ctrl: true }), "global")).toBeNull();
+  });
+
+  it("literal Ctrl+W stays pass-through for a hand-edited Mod+W (terminal scope)", () => {
+    setOverrides({ "scrollback-search": "Mod+W" });
+    expect(matches(key("w", { ctrl: true }), "terminal")).toBeNull();
+  });
+
+  it("literal Ctrl+C / Ctrl+V never resolve — clipboard stays fixed", () => {
+    setOverrides({ "open-settings": "Mod+C", "toggle-kb": "Mod+V" });
+    expect(matches(key("c", { ctrl: true }), "global")).toBeNull();
+    expect(matches(key("v", { ctrl: true }), "global")).toBeNull();
+  });
+
+  it("bare Tab never resolves — Tab stays context-sensitive terminal input", () => {
+    setOverrides({ "scrollback-search": "Tab" });
+    expect(matches(key("Tab"), "terminal")).toBeNull();
+  });
+
+  it("macOS: Cmd+W is deliberately not reserved — literal Ctrl+W is", () => {
+    const restore = MAC();
+    setOverrides({ "scrollback-search": "Mod+W" });
+    // Mod+W is Cmd+W on macOS; the spec's reserved list names Ctrl+W only.
+    expect(matches(key("w", { meta: true }), "terminal")).toBe("scrollback-search");
+    expect(matches(key("w", { ctrl: true }), "terminal")).toBeNull();
+    restore();
+  });
+
+  it("shifted variants stay free — Ctrl+Shift+W is a registry default", () => {
+    setOverrides({ "open-settings": "Mod+Shift+P" });
+    expect(matches(key("P", { ctrl: true, shift: true }), "global")).toBe("open-settings");
   });
 });
 
@@ -290,6 +357,18 @@ describe("ctrlByteForCombo", () => {
     expect(ctrlByteForCombo("Mod+O")).toBeNull();
     expect(ctrlByteForCombo("Ctrl+O")).toBe("\x0F");
     restore();
+  });
+
+  it("no other action's resolved combo maps to \\x00", () => {
+    for (const def of SHORTCUT_DEFS) {
+      if (def.id === "toggle-suggestions") continue;
+      expect(ctrlByteForCombo(resolvedCombo(def.id)), `default combo of ${def.id}`).not.toBe("\x00");
+    }
+    setOverrides({ "open-settings": "Mod+Alt+S" });
+    for (const def of SHORTCUT_DEFS) {
+      if (def.id === "toggle-suggestions") continue;
+      expect(ctrlByteForCombo(resolvedCombo(def.id)), `resolved combo of ${def.id}`).not.toBe("\x00");
+    }
   });
 });
 

@@ -188,12 +188,30 @@ function focusInInput(): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 }
 
+/** Reserved physical keystrokes (spec 11 Fixed table): literal Ctrl+W
+ *  (remote delete-word pass-through, AGENTS.md rule 6), literal Ctrl+C /
+ *  Ctrl+V (clipboard muscle memory), bare Tab (context-sensitive terminal
+ *  input / widget navigation). These events never resolve to a registry
+ *  action, whatever a hand-edited override map contains — the terminal
+ *  attach handler consults matches() with no other guard in front of it.
+ *  Guard the EVENT, not the combo string: "Mod+" resolves per platform,
+ *  so a string-level guard would also swallow Cmd+W on macOS, which the
+ *  spec's reserved list deliberately does not name. Mirrors the hardcoded
+ *  first check in main.ts registerGlobalShortcuts(). Shifted variants
+ *  stay free — Ctrl+Shift+W is the close-session-tab default. */
+function reservedEvent(e: KeyboardEvent): boolean {
+  const k = keyToken(e.key);
+  if (e.ctrlKey && !e.shiftKey && (k === "W" || k === "C" || k === "V")) return true;
+  return k === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+}
+
 /** Resolve an event to a registry action within `scope`, or null.
  *  Overrides win over defaults; unknown ids in the map are ignored and
  *  unparseable combos fall back to the def default. */
 export function matches(e: KeyboardEvent, scope: ShortcutScope): ShortcutAction | null {
   const key = e.key;
   if (!key || MODIFIER_KEYS.has(key)) return null;
+  if (reservedEvent(e)) return null;
   const mod = platformMod();
   const ev: ParsedCombo = {
     mod: mod === "Cmd" ? e.metaKey : e.ctrlKey,
