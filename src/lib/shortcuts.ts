@@ -28,8 +28,9 @@ export type ShortcutAction =
   | "toggle-suggestions" // terminal scope
   | "scrollback-search" // terminal scope
   | "focus-search" // bare key
-  | "shortcuts-modal"; // bare key
-// Phase 5 adds: "new-connection" | "disconnect".
+  | "shortcuts-modal" // bare key
+  | "new-connection"
+  | "disconnect";
 
 export type ShortcutScope = "global" | "terminal";
 
@@ -65,6 +66,7 @@ export const SECTION_TITLES: Record<ShortcutSection, string> = {
 /** The registry. Handlers, the help modal, and Settings all read this. */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
   // Navigation
+  { id: "new-connection", label: "New connection", defaultKey: "Mod+N", scope: "global", section: "navigation" },
   { id: "open-settings", label: "Open settings", defaultKey: "Mod+,", scope: "global", section: "navigation" },
   { id: "focus-search", label: "Focus global search", defaultKey: "/", scope: "global", section: "navigation", bareKeyOnly: true },
   // View
@@ -75,6 +77,7 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "font-zoom-reset", label: "Reset terminal font size", defaultKey: "Mod+0", scope: "global", section: "view" },
   // Terminal
   { id: "close-session-tab", label: "Close session tab", defaultKey: "Mod+Shift+W", scope: "global", section: "terminal" },
+  { id: "disconnect", label: "Disconnect", defaultKey: "Mod+Shift+Q", scope: "global", section: "terminal" },
   { id: "scrollback-search", label: "Scrollback search", defaultKey: "Mod+Shift+F", scope: "terminal", section: "terminal" },
   { id: "toggle-suggestions", label: "Toggle suggestions", defaultKey: "Ctrl+Space", scope: "terminal", section: "terminal", modLocked: true },
 ];

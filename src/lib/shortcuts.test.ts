@@ -147,6 +147,8 @@ describe("matches on defaults", () => {
     expect(matches(key("K", { ctrl: true, shift: true }), "global")).toBe("toggle-kb");
     expect(matches(key(",", { ctrl: true }), "global")).toBe("open-settings");
     expect(matches(key("W", { ctrl: true, shift: true }), "global")).toBe("close-session-tab");
+    expect(matches(key("n", { ctrl: true }), "global")).toBe("new-connection");
+    expect(matches(key("Q", { ctrl: true, shift: true }), "global")).toBe("disconnect");
     expect(matches(key("=", { ctrl: true }), "global")).toBe("font-zoom-in");
     expect(matches(key("-", { ctrl: true }), "global")).toBe("font-zoom-out");
     expect(matches(key("0", { ctrl: true }), "global")).toBe("font-zoom-reset");
@@ -396,12 +398,17 @@ describe("initShortcuts", () => {
 
 describe("SHORTCUT_DEFS", () => {
   it("defaults match the spec table and are unique per id", () => {
-    expect(SHORTCUT_DEFS.length).toBe(10);
+    expect(SHORTCUT_DEFS.length).toBe(12);
     const ids = new Set(SHORTCUT_DEFS.map((d) => d.id));
     expect(ids.size).toBe(SHORTCUT_DEFS.length);
     for (const def of SHORTCUT_DEFS) {
       // Every default must at least parse.
       expect(resolvedCombo(def.id)).not.toBe("");
     }
+  });
+
+  it("new-connection and disconnect resolve to their spec-table defaults", () => {
+    expect(resolvedCombo("new-connection")).toBe("Mod+N");
+    expect(resolvedCombo("disconnect")).toBe("Mod+Shift+Q");
   });
 });

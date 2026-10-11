@@ -981,14 +981,25 @@ class App {
           return;
         }
 
+        // Ctrl+N — new connection, the same seam as the nav panel's
+        // New Connection button (spec 11 "Also decided").
+        case "new-connection":
+          e.preventDefault();
+          this.showView("connections");
+          this.hostScreen.openNewConnection();
+          return;
+
         // Ctrl+, — open Settings
         case "open-settings":
           e.preventDefault();
           this.showView("settings");
           return;
 
-        // Ctrl+Shift+W — close active tab with confirm
+        // Ctrl+Shift+W / Ctrl+Shift+Q — close active tab with confirm.
+        // Two registry ids, one behaviour: both were promised by the old
+        // help modal and stay separately mappable (spec 11 "Also decided").
         case "close-session-tab":
+        case "disconnect":
           if (this.currentView === "terminal" && this.activeTabId) {
             e.preventDefault();
             this.closeTab(this.activeTabId);
