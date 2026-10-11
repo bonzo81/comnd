@@ -110,7 +110,7 @@ Press **Ctrl+Space** to open a dropdown listing every command that matches what 
 
 ### Side Panel
 
-Press **Ctrl+`** (backtick) to open the side panel. It shows detailed syntax, parameter descriptions, and examples for the command currently highlighted in the dropdown or at your cursor.
+Click the **≡** (panel) button at the right end of the top bar to open the side panel; press `Escape` to close it. It shows detailed syntax, parameter descriptions, and examples for the command currently highlighted in the dropdown or at your cursor.
 
 Full details on the suggestion system are in [Terminal & Suggestions](04-terminal-and-suggestions.md).
 

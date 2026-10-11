@@ -120,7 +120,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 
 * **← Back** — returns to connection manager (keyboard: `Escape` when no dropdown/panel open)
 * **Host name + platform** — always visible context
-* **≡ Panel button** — toggles side panel (keyboard: Ctrl+Shift+S)
+* **≡ Panel button** — toggles side panel
 
 ## Status Bar
 
@@ -133,10 +133,11 @@ Thin bar at the bottom of the terminal view. Always visible. Monospace. Shows at
 | Platform + version | What OS is this? |
 | Current mode | Updated in real time by prompt detection — confirms the app is tracking correctly |
 | Latency (optional) | Round-trip time if measurable. Helps diagnose slow sessions. |
+| Shortcuts help button | Keyboard glyph at the right end. Opens the shortcuts help modal (same as pressing `?`). Tooltip: "Keyboard shortcuts (?)". Registry-driven — see docs/specs/11-shortcut-customization.md. |
 
 ## Side Panel
 
-Hidden by default. Toggled via `Ctrl+Shift+S` or the panel button. Pushes terminal (does not overlay). Resizable by dragging the divider. Default 320px, minimum 240px.
+Hidden by default. Opened via the `≡` panel button; closed with the button again or `Escape` (after any open dropdown). Pushes terminal (does not overlay). Resizable by dragging the divider. Default 320px, minimum 240px.
 
 **Visual hierarchy (top to bottom):**
 
