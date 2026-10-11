@@ -22,6 +22,7 @@ import {
   update as rcUpdate, resetToPreset as rcReset, getReadingComfortState, RC_PRESET,
 } from "./lib/reading-comfort";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
+import { initShortcuts, matches } from "./lib/shortcuts";
 import { setToggleState } from "./lib/a11y";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
@@ -217,6 +218,9 @@ class App {
     log.info(LogTag.App, "Initialized");
     this.syncLogLevel();
     this.syncLogStatus();
+    // Registry overrides load async from config; matches() runs on
+    // defaults until then — no race (docs/plans/058 phase 1).
+    void initShortcuts();
     this.registerGlobalShortcuts();
     this.renderTitleBar();
     this.renderStatusBar();
@@ -930,29 +934,10 @@ class App {
 
   private registerGlobalShortcuts() {
     window.addEventListener("keydown", (e: KeyboardEvent) => {
-      // Ctrl+Shift+K — toggle Knowledge Base view
-      if (e.ctrlKey && e.shiftKey && e.key === "K") {
-        e.preventDefault();
-        if (this.currentView === "knowledge-base") {
-          this.showView("connections");
-        } else {
-          // Detach terminal if needed (keep session alive)
-          if (this.currentView === "terminal" && this.activeTabId) {
-            this.onDetach(this.activeTabId);
-          }
-          this.showView("knowledge-base");
-        }
-        return;
-      }
-
-      // Ctrl+, — open Settings (placeholder)
-      if (e.ctrlKey && !e.shiftKey && e.key === ",") {
-        e.preventDefault();
-        this.showView("settings");
-        return;
-      }
-
       // Ctrl+W — MUST pass through to remote. Prevent browser/app close.
+      // Never a registry action (AGENTS.md rule 6; spec 11 Fixed table) —
+      // the guard stays hardcoded and first so no override can ever
+      // swallow the delete-word byte.
       if (e.ctrlKey && !e.shiftKey && e.key === "w") {
         if (this.currentView === "terminal") {
           e.preventDefault();
@@ -960,68 +945,85 @@ class App {
         return;
       }
 
-      // Ctrl+Shift+W — close active tab with confirm
-      if (e.ctrlKey && e.shiftKey && e.key === "W") {
-        if (this.currentView === "terminal" && this.activeTabId) {
+      // Registry-driven actions (docs/specs/11). The cases call the exact
+      // code paths the old per-combo if-chains had, preventDefault at the
+      // same points included.
+      switch (matches(e, "global")) {
+        case "toggle-kb": {
           e.preventDefault();
-          this.closeTab(this.activeTabId);
+          if (this.currentView === "knowledge-base") {
+            this.showView("connections");
+          } else {
+            // Detach terminal if needed (keep session alive)
+            if (this.currentView === "terminal" && this.activeTabId) {
+              this.onDetach(this.activeTabId);
+            }
+            this.showView("knowledge-base");
+          }
+          return;
         }
-        return;
-      }
 
-      // Ctrl+= or Ctrl++ — zoom in
-      if (e.ctrlKey && (e.key === "=" || e.key === "+")) {
-        if (this.currentView === "terminal" && this.activeTabId) {
+        // Ctrl+, — open Settings
+        case "open-settings":
           e.preventDefault();
-          setTerminalFontSize(getTerminalFontSize() + 2);
-        }
-        return;
-      }
+          this.showView("settings");
+          return;
 
-      // Ctrl+- — zoom out
-      if (e.ctrlKey && e.key === "-") {
-        if (this.currentView === "terminal" && this.activeTabId) {
-          e.preventDefault();
-          setTerminalFontSize(getTerminalFontSize() - 2);
-        }
-        return;
-      }
+        // Ctrl+Shift+W — close active tab with confirm
+        case "close-session-tab":
+          if (this.currentView === "terminal" && this.activeTabId) {
+            e.preventDefault();
+            this.closeTab(this.activeTabId);
+          }
+          return;
 
-      // Ctrl+0 — zoom reset
-      if (e.ctrlKey && e.key === "0") {
-        if (this.currentView === "terminal" && this.activeTabId) {
+        // Ctrl+= / Ctrl++ — zoom in
+        case "font-zoom-in":
+          if (this.currentView === "terminal" && this.activeTabId) {
+            e.preventDefault();
+            setTerminalFontSize(getTerminalFontSize() + 2);
+          }
+          return;
+
+        // Ctrl+- — zoom out
+        case "font-zoom-out":
+          if (this.currentView === "terminal" && this.activeTabId) {
+            e.preventDefault();
+            setTerminalFontSize(getTerminalFontSize() - 2);
+          }
+          return;
+
+        // Ctrl+0 — zoom reset
+        case "font-zoom-reset":
+          if (this.currentView === "terminal" && this.activeTabId) {
+            e.preventDefault();
+            setTerminalFontSize(TERMINAL_FONT_DEFAULT);
+          }
+          return;
+
+        // / — focus global search (bareKeyOnly gate lives in the matcher)
+        case "focus-search":
           e.preventDefault();
-          setTerminalFontSize(TERMINAL_FONT_DEFAULT);
-        }
-        return;
+          this.globalSearch?.focus();
+          return;
+
+        // ? — toggle shortcuts modal (bareKeyOnly gate lives in the matcher)
+        case "shortcuts-modal":
+          e.preventDefault();
+          this.showShortcuts = !this.showShortcuts;
+          this.renderShortcutsModal();
+          return;
       }
 
       // Escape — from KB / settings view, return to connections.
       // Open modals handle Escape themselves (modal shell, capture phase).
+      // Not a registry action: fixed cascade semantics (spec 11 Fixed table).
       if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (this.currentView === "knowledge-base" || this.currentView === "settings") {
           e.preventDefault();
           this.showView("connections");
           return;
         }
-      }
-
-      // ? — toggle shortcuts modal (not while typing in an input)
-      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        const t = document.activeElement;
-        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
-        e.preventDefault();
-        this.showShortcuts = !this.showShortcuts;
-        this.renderShortcutsModal();
-        return;
-      }
-
-      // / — focus global search (not while typing in another input)
-      if (e.key === "/" && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        const t = document.activeElement;
-        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
-        e.preventDefault();
-        this.globalSearch?.focus();
       }
     });
   }

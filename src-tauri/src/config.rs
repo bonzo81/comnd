@@ -55,6 +55,11 @@ pub struct AppConfig {
     /// here — they go in the OS keyring (`netssh_source_<id>_*`).
     #[serde(default)]
     pub host_sources: std::collections::HashMap<String, serde_json::Value>,
+    /// User keyboard shortcut overrides (docs/specs/11). Key = shortcut
+    /// action id, value = platform-agnostic canonical combo,
+    /// e.g. "toggle-kb" -> "Mod+Shift+K".
+    #[serde(default)]
+    pub shortcuts: std::collections::HashMap<String, String>,
 }
 
 impl Default for AppConfig {
@@ -74,6 +79,7 @@ impl Default for AppConfig {
             session_log_dir: None,
             providers: Default::default(),
             host_sources: Default::default(),
+            shortcuts: Default::default(),
         }
     }
 }
@@ -276,6 +282,16 @@ impl ConfigStore {
     /// Update the max concurrent SSH sessions and persist.
     pub fn save_max_sessions(&mut self, max: u32) -> Result<(), String> {
         self.config.max_sessions = max;
+        self.persist()
+    }
+
+    /// Replace the user shortcut overrides and persist (docs/specs/11).
+    /// An empty map means "restore all defaults".
+    pub fn save_shortcuts(
+        &mut self,
+        overrides: std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        self.config.shortcuts = overrides;
         self.persist()
     }
 
@@ -498,6 +514,18 @@ pub async fn set_max_sessions(
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.save_max_sessions(max)?;
     log::info!("Max sessions set to {}", if max == 0 { "unlimited".into() } else { max.to_string() });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_shortcuts(
+    overrides: std::collections::HashMap<String, String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let count = overrides.len();
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_shortcuts(overrides)?;
+    log::info!("Saved {} keyboard shortcut override(s)", count);
     Ok(())
 }
 
@@ -740,6 +768,42 @@ mod tests {
         assert_eq!(v.llm_base_url, "http://localhost:11434");
         assert_eq!(v.llm_model, "gemma4:26b");
         assert_eq!(v.llm_api_format, "openai");
+    }
+
+    #[test]
+    fn test_shortcuts_override_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("netssh_test_{}", uuid::Uuid::new_v4()));
+        let config_path = dir.join("config.json");
+        let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
+
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("toggle-kb".to_string(), "Mod+Shift+T".to_string());
+        store.save_shortcuts(overrides).unwrap();
+
+        // Reload from disk: the shortcuts map survives.
+        let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        assert_eq!(
+            fresh.get().shortcuts.get("toggle-kb").map(String::as_str),
+            Some("Mod+Shift+T")
+        );
+
+        // Restore-all-defaults: an empty map replaces the overrides.
+        store.save_shortcuts(std::collections::HashMap::new()).unwrap();
+        let fresh = ConfigStore::new_with_path(config_path).unwrap();
+        assert!(fresh.get().shortcuts.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_legacy_config_without_shortcuts_key() {
+        // Configs written before the shortcut registry have no `shortcuts`
+        // field — must load with an empty map.
+        let v: AppConfig = serde_json::from_str(
+            r#"{"ollama_base_url":"http://localhost:11434","log_level":"info","log_max_size_mb":10}"#,
+        )
+        .unwrap();
+        assert!(v.shortcuts.is_empty());
     }
 
     #[test]

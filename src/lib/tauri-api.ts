@@ -321,6 +321,8 @@ export interface AppConfig {
   session_logging: boolean;
   session_log_timestamps: boolean;
   session_log_dir: string | null;
+  /** User shortcut overrides (docs/specs/11): action id -> canonical combo. */
+  shortcuts?: Record<string, string>;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -341,6 +343,11 @@ export async function setLogMaxSize(maxMb: number): Promise<void> {
 
 export async function setMaxSessions(max: number): Promise<void> {
   return invoke<void>("set_max_sessions", { max });
+}
+
+/** Replace all user shortcut overrides (docs/specs/11). Empty map = defaults. */
+export async function setShortcutOverrides(overrides: Record<string, string>): Promise<void> {
+  return invoke<void>("set_shortcuts", { overrides });
 }
 
 export async function getSessionLogDir(): Promise<string> {
