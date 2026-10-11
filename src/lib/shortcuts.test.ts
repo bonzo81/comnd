@@ -13,11 +13,14 @@ import {
   SHORTCUT_DEFS,
   SHORTCUT_SECTIONS,
   ctrlByteForCombo,
+  findMapConflict,
   formatCombo,
+  getOverrides,
   initShortcuts,
   matches,
   parseCombo,
   platformMod,
+  reservedComboReason,
   resolvedCombo,
   setOverrides,
 } from "./shortcuts";
@@ -285,6 +288,74 @@ describe("ctrlByteForCombo", () => {
     expect(ctrlByteForCombo("Mod+O")).toBeNull();
     expect(ctrlByteForCombo("Ctrl+O")).toBe("\x0F");
     restore();
+  });
+});
+
+// ─── validation (settings pane) ──────────────────────────────────────
+
+describe("getOverrides", () => {
+  it("returns a copy of the current overrides, not a live reference", () => {
+    setOverrides({ "toggle-kb": "Mod+Shift+T" });
+    const map = getOverrides();
+    expect(map).toEqual({ "toggle-kb": "Mod+Shift+T" });
+    map["toggle-kb"] = "Mod+K";
+    expect(getOverrides()["toggle-kb"]).toBe("Mod+Shift+T");
+  });
+});
+
+describe("reservedComboReason", () => {
+  it("reserves pass-through, clipboard, Tab and Escape semantics", () => {
+    expect(reservedComboReason("Mod+W")).toBeTruthy();
+    expect(reservedComboReason("Ctrl+W")).toBeTruthy();
+    expect(reservedComboReason("Mod+C")).toBeTruthy();
+    expect(reservedComboReason("Ctrl+C")).toBeTruthy();
+    expect(reservedComboReason("Mod+V")).toBeTruthy();
+    expect(reservedComboReason("Ctrl+V")).toBeTruthy();
+    expect(reservedComboReason("Tab")).toBeTruthy();
+    expect(reservedComboReason("Escape")).toBeTruthy();
+  });
+
+  it("macOS: Cmd+W and literal Ctrl+W are both reserved", () => {
+    const restore = MAC();
+    expect(reservedComboReason("Mod+W")).toBeTruthy();
+    expect(reservedComboReason("Ctrl+W")).toBeTruthy();
+    restore();
+  });
+
+  it("allows shifted variants, registry defaults, and free combos", () => {
+    expect(reservedComboReason("Mod+Shift+W")).toBeNull(); // close-tab default
+    expect(reservedComboReason("Mod+Shift+C")).toBeNull();
+    expect(reservedComboReason("Ctrl+Space")).toBeNull(); // toggle-suggestions default
+    expect(reservedComboReason("Mod+Shift+K")).toBeNull();
+    expect(reservedComboReason("/")).toBeNull();
+    expect(reservedComboReason("?")).toBeNull();
+    expect(reservedComboReason("Mod+Shift+Tab")).toBeNull(); // only bare Tab is fixed
+  });
+});
+
+describe("findMapConflict", () => {
+  it("the defaults map is conflict-free", () => {
+    expect(findMapConflict({})).toBeNull();
+  });
+
+  it("detects an override colliding with another def, across scopes", () => {
+    // open-settings (global) rebinds onto scrollback-search's default (terminal)
+    const c = findMapConflict({ "open-settings": "Mod+Shift+F" });
+    expect(c).toBeTruthy();
+    expect([c!.a, c!.b].sort()).toEqual(["open-settings", "scrollback-search"].sort());
+  });
+
+  it("detects two overrides colliding with each other", () => {
+    const c = findMapConflict({ "focus-search": "Mod+Shift+T", "toggle-kb": "Mod+Shift+T" });
+    expect(c).toBeTruthy();
+  });
+
+  it("an override equal to its own default is not a conflict", () => {
+    expect(findMapConflict({ "toggle-kb": "Mod+Shift+K" })).toBeNull();
+  });
+
+  it("an unparseable override falls back to the def default", () => {
+    expect(findMapConflict({ "toggle-kb": "not+a+combo++" })).toBeNull();
   });
 });
 

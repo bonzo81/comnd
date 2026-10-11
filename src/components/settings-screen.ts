@@ -7,7 +7,7 @@
 
 import {
   getAppConfig, saveLlmSettings, testLlmConnection, setLogLevel,
-  setLogMaxSize, setLogFilePath, setMaxSessions, exportData, importData,
+  setLogMaxSize, setLogFilePath, setMaxSessions, setShortcutOverrides, exportData, importData,
   setSessionLogging, setSessionLogTimestamps, setSessionLogDir, getSessionLogDir,
   scanMerge, applyMerge, restartApp, MergeConflict,
   AppConfig, listProviders, getProviderState,
@@ -40,6 +40,11 @@ import {
   resetToPreset as rcReset, getReadingComfortState, isReadingComfortEnabled, RC_PRESET,
 } from "../lib/reading-comfort";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX } from "../lib/terminal-prefs";
+import {
+  findMapConflict, formatCombo, getOverrides, parseCombo, reservedComboReason,
+  resolvedCombo, setOverrides, SECTION_TITLES, SHORTCUT_DEFS, SHORTCUT_SECTIONS,
+  ShortcutAction, ShortcutDef,
+} from "../lib/shortcuts";
 
 const LABELS: Record<string, string> = {
   general: "General",
@@ -107,6 +112,19 @@ export class SettingsScreen {
   /** True only after a successful Test using the *current* URL+token field
    *  values — drives the Save Token button highlight. Reset on any input. */
   private netboxTestOk = false;
+  // ── Shortcuts pane state (docs/specs/11 §Settings UI) ──
+  /** Row currently capturing a new combo, or null. */
+  private scCapturing: ShortcutAction | null = null;
+  /** Live candidate for the capturing row — parseCombo output, exactly
+   *  what matches() will resolve once saved. */
+  private scCandidate: string | null = null;
+  /** Validation message for the aria-live region (reserved-key rejection
+   *  or conflict explanation). */
+  private scNotice: string | null = null;
+  /** Conflict pair painted in warning colour on both rows, if any. */
+  private scConflict: { a: ShortcutAction; b: ShortcutAction; combo: string } | null = null;
+  /** Document capture-phase keydown listener, active only mid-capture. */
+  private scKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   /** Called when a NetBox action changes the merged host tree (sync, enable
    *  toggle, device toggle) so the nav panel can re-fetch. */
   onTreeChanged: () => void = () => {};
@@ -142,10 +160,23 @@ export class SettingsScreen {
         this.render();
       }
     });
+
+    // A shortcut save re-emits "netssh:shortcuts": keep the rows in sync
+    // with the registry. Mid-capture the live chip keeps its state —
+    // only restore focus.
+    window.addEventListener("netssh:shortcuts", () => {
+      if (!this.container || this.itemId !== "shortcuts") return;
+      if (this.scCapturing) {
+        this.focusCaptureChip();
+        return;
+      }
+      this.render();
+    });
   }
 
   unmount() {
     this.container = null;
+    this.clearCaptureState();
   }
 
   private render() {
@@ -165,6 +196,7 @@ export class SettingsScreen {
       : this.itemId === "reading-comfort" ? this.renderReadingComfort()
       : this.itemId === "auth" ? this.renderAuth()
       : this.itemId === "netbox" ? this.renderNetBox()
+      : this.itemId === "shortcuts" ? this.renderShortcuts()
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
@@ -830,6 +862,227 @@ export class SettingsScreen {
     return `<p class="settings-placeholder">Coming soon — ${escHtml(label)} settings are not implemented yet.</p>`;
   }
 
+  // ─── Shortcuts pane (docs/specs/11 §Settings UI) ──────────────────
+
+  private renderShortcuts(): string {
+    const hasOverrides = Object.keys(getOverrides()).length > 0;
+    const sections = SHORTCUT_SECTIONS.map((section) => {
+      const rows = SHORTCUT_DEFS.filter((d) => d.section === section)
+        .map((d) => this.renderShortcutRow(d))
+        .join("");
+      return `<h3 class="settings-section-title">${escHtml(SECTION_TITLES[section])}</h3>${rows}`;
+    }).join("");
+    return `
+      <div class="settings-form">
+        <div class="sc-toolbar">
+          <span class="import-hint">Click Change, press the new keys, then press Enter — Esc cancels. Rebindings apply immediately and survive a restart.</span>
+          <button type="button" class="btn-text" id="sc-restore" ${hasOverrides ? "" : "disabled"}>Restore all defaults</button>
+        </div>
+        <p class="sc-live" id="sc-live" aria-live="polite">${this.scNotice ? escHtml(this.scNotice) : ""}</p>
+        ${sections}
+      </div>
+    `;
+  }
+
+  private renderShortcutRow(def: ShortcutDef): string {
+    const warned = this.scWarnIds().has(def.id);
+    const describedBy = warned ? ` aria-describedby="sc-live"` : "";
+    if (def.modLocked) {
+      // Ctrl+Space: pinned to literal Ctrl on every platform — the remote
+      // shell understands the byte, and Cmd+Space collides with Spotlight.
+      // Locked: non-editable with an explanatory tooltip (spec §macOS).
+      const why = "Pinned to Ctrl on every platform: the remote shell understands the Ctrl+Space byte, and Cmd+Space collides with macOS Spotlight.";
+      return `
+        <div class="shortcut-row"${describedBy}>
+          <div class="shortcut-row-main">
+            <span class="shortcut-row-label">${escHtml(def.label)}
+              <span class="sc-lock" role="img" aria-label="${escAttr(why)}" title="${escAttr(why)}">${icons.lock}</span>
+            </span>
+            <span class="kbd-chip">${escHtml(formatCombo(resolvedCombo(def.id)))}</span>
+          </div>
+          <div class="shortcut-row-actions">
+            <button type="button" class="btn-text" disabled title="${escAttr(why)}">Change</button>
+          </div>
+        </div>`;
+    }
+    if (this.scCapturing === def.id) {
+      const candidate = this.scCandidate ? formatCombo(this.scCandidate) : "Press keys…";
+      return `
+        <div class="shortcut-row shortcut-row-capturing${warned ? " shortcut-row-warning" : ""}"${describedBy}>
+          <div class="shortcut-row-main">
+            <span class="shortcut-row-label">${escHtml(def.label)}</span>
+            <span class="kbd-chip shortcut-capture" id="sc-capture" tabindex="-1">${escHtml(candidate)}</span>
+          </div>
+          <div class="shortcut-row-actions">
+            <span class="sc-capture-hint">Enter saves · Esc cancels</span>
+          </div>
+        </div>`;
+    }
+    const override = getOverrides()[def.id];
+    return `
+      <div class="shortcut-row${warned ? " shortcut-row-warning" : ""}"${describedBy}>
+        <div class="shortcut-row-main">
+          <span class="shortcut-row-label">${escHtml(def.label)}</span>
+          <span class="kbd-chip">${escHtml(formatCombo(resolvedCombo(def.id)))}</span>
+        </div>
+        <div class="shortcut-row-actions">
+          <button type="button" class="btn-text" data-sc-change="${def.id}">Change</button>
+          ${override ? `<button type="button" class="btn-text" data-sc-reset="${def.id}">Reset</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  /** Rows to paint in warning colour: both sides of the current conflict,
+   *  or the capturing row when its candidate is reserved. */
+  private scWarnIds(): Set<ShortcutAction> {
+    const warn = new Set<ShortcutAction>();
+    if (this.scConflict) {
+      warn.add(this.scConflict.a);
+      warn.add(this.scConflict.b);
+    } else if (this.scNotice && this.scCapturing) {
+      warn.add(this.scCapturing);
+    }
+    return warn;
+  }
+
+  /** Enter capture mode for one row. The document capture-phase listener
+   *  owns every key while it runs — nothing reaches the app global
+   *  handler, xterm, or any widget (spec §Capture flow). */
+  private startCapture(id: ShortcutAction) {
+    this.clearCaptureState();
+    this.scCapturing = id;
+    this.attachCaptureKeys();
+    this.render();
+    this.focusCaptureChip();
+  }
+
+  private endCapture() {
+    this.clearCaptureState();
+    this.render();
+  }
+
+  /** Detach the capture listener and drop all capture/validation state. */
+  private clearCaptureState() {
+    this.scCapturing = null;
+    this.scCandidate = null;
+    this.scNotice = null;
+    this.scConflict = null;
+    this.detachCaptureKeys();
+  }
+
+  private attachCaptureKeys() {
+    this.detachCaptureKeys();
+    this.scKeyHandler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        this.endCapture();
+        return;
+      }
+      if (e.key === "Enter") {
+        this.confirmCapture();
+        return;
+      }
+      const combo = parseCombo(e);
+      if (!combo) return; // modifier-only press — keep waiting
+      this.scCandidate = combo;
+      const reserved = reservedComboReason(combo);
+      if (reserved) {
+        this.scNotice = reserved;
+        this.scConflict = null;
+      } else {
+        const c = findMapConflict({ ...getOverrides(), [this.scCapturing!]: combo });
+        this.scConflict = c;
+        this.scNotice = c ? this.scConflictText(c) : null;
+      }
+      this.render();
+      this.focusCaptureChip();
+    };
+    document.addEventListener("keydown", this.scKeyHandler, true);
+  }
+
+  private detachCaptureKeys() {
+    if (this.scKeyHandler) {
+      document.removeEventListener("keydown", this.scKeyHandler, true);
+      this.scKeyHandler = null;
+    }
+  }
+
+  private focusCaptureChip() {
+    this.container?.querySelector<HTMLElement>("#sc-capture")?.focus();
+  }
+
+  private confirmCapture() {
+    const id = this.scCapturing;
+    const combo = this.scCandidate;
+    if (!id || !combo) return; // nothing captured yet — keep listening
+    const reserved = reservedComboReason(combo);
+    if (reserved) {
+      this.scNotice = reserved;
+      this.scConflict = null;
+      this.render();
+      this.focusCaptureChip();
+      return; // stay in capture — pick different keys
+    }
+    const map = { ...getOverrides(), [id]: combo };
+    const c = findMapConflict(map);
+    if (c) {
+      // Save is blocked while a conflict stands (spec §Settings UI).
+      this.scNotice = this.scConflictText(c);
+      this.scConflict = c;
+      this.render();
+      this.focusCaptureChip();
+      return;
+    }
+    this.saveShortcutOverrides(map);
+  }
+
+  private scConflictText(c: { a: ShortcutAction; b: ShortcutAction; combo: string }): string {
+    const label = (id: ShortcutAction) => SHORTCUT_DEFS.find((d) => d.id === id)?.label ?? id;
+    return `“${label(c.a)}” and “${label(c.b)}” would both use ${formatCombo(c.combo)} — pick a different combination.`;
+  }
+
+  /** Reset one row to its default. Blocked when the resulting map would
+   *  leave a conflict standing (e.g. another action was rebound onto this
+   *  row's default); the message names the two actions that clash. */
+  private resetShortcut(id: ShortcutAction) {
+    this.clearCaptureState();
+    const map = { ...getOverrides() };
+    if (!(id in map)) {
+      this.render();
+      return;
+    }
+    delete map[id];
+    const c = findMapConflict(map);
+    if (c) {
+      this.scNotice = this.scConflictText(c);
+      this.scConflict = c;
+      this.render();
+      return;
+    }
+    this.saveShortcutOverrides(map);
+  }
+
+  /** Restore all defaults: an empty override map. Defaults are pairwise
+   *  unique, so this can never leave a conflict standing. */
+  private restoreShortcuts() {
+    this.clearCaptureState();
+    this.saveShortcutOverrides({});
+  }
+
+  /** Persist `map`, re-read it into the registry, and let the
+   *  netssh:shortcuts event re-render this pane and any open help modal —
+   *  bindings apply immediately, no restart (spec §Settings UI). */
+  private saveShortcutOverrides(map: Record<string, string>) {
+    this.clearCaptureState();
+    void setShortcutOverrides(map)
+      .then(() => setOverrides(map))
+      .catch((e) => {
+        showToast(`Failed to save shortcuts: ${e}`, "error");
+        this.render();
+      });
+  }
+
   private bindEvents() {
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
@@ -963,6 +1216,17 @@ export class SettingsScreen {
       rcReset();
       this.render();
     });
+
+    // ─── Shortcuts pane (docs/specs/11 §Settings UI) ────────────────
+    this.container?.querySelectorAll<HTMLButtonElement>("[data-sc-change]").forEach((btn) => {
+      btn.addEventListener("click", () => this.startCapture(btn.dataset.scChange as ShortcutAction));
+    });
+
+    this.container?.querySelectorAll<HTMLButtonElement>("[data-sc-reset]").forEach((btn) => {
+      btn.addEventListener("click", () => this.resetShortcut(btn.dataset.scReset as ShortcutAction));
+    });
+
+    this.container?.querySelector<HTMLButtonElement>("#sc-restore")?.addEventListener("click", () => this.restoreShortcuts());
 
     this.container?.querySelector<HTMLElement>("#providers-refresh")?.addEventListener("click", () => {
       void this.loadProviders().then(() => this.render());

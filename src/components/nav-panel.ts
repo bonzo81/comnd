@@ -54,7 +54,7 @@ const SETTINGS_ITEMS = [
   { id: "llm", label: "LLM API / KB Import", ready: true },
   { id: "auth", label: "Auth Integrations", ready: true },
   { id: "netbox", label: "NetBox", ready: true },
-  { id: "shortcuts", label: "Shortcuts", ready: false },
+  { id: "shortcuts", label: "Shortcuts", ready: true },
 ];
 
 type DragPayload = { kind: "host" | "group"; id: string };

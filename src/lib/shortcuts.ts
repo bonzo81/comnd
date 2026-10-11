@@ -239,6 +239,12 @@ export function setOverrides(map: Record<string, string>): void {
   }
 }
 
+/** Copy of the current overrides map — the settings pane edits a copy,
+ *  then saves it back through setOverrides. */
+export function getOverrides(): Record<string, string> {
+  return Object.fromEntries(overrides);
+}
+
 /** Seed overrides from app config. Called once at boot, before the global
  *  shortcut handler registers; until it resolves, matches() runs on
  *  defaults — no race. */
@@ -289,4 +295,62 @@ export function ctrlByteForCombo(combo: string): string | null {
   const code = p.key === "Space" ? 32 : p.key.length === 1 ? p.key.charCodeAt(0) : -1;
   if (code < 0) return null;
   return String.fromCharCode(code & 0x1f);
+}
+
+// ─── Validation (settings pane) ─────────────────────────────────────
+
+/** Combos that can never be assigned (spec 11 fixed table + §Settings
+ *  UI): they are interaction semantics, not shortcuts. Returns the
+ *  explanation shown in the capture row, or null when the combo is free.
+ *  Only the unshifted forms are reserved — Ctrl+Shift+W is a registry
+ *  default, and the copy/paste handlers match the unshifted key. */
+export function reservedComboReason(combo: string): string | null {
+  const p = parseComboString(combo);
+  if (!p) return null;
+  const n = normalizeForPlatform(p);
+  const modLike = n.mod || n.ctrl;
+  if (n.key === "W" && modLike && !n.shift) {
+    return "Ctrl+W always passes through to the remote shell as delete-word — it can never be rebound.";
+  }
+  if (n.key === "C" && modLike && !n.shift) {
+    return "Ctrl+C is copy-with-selection and shell interrupt — clipboard muscle memory keeps it fixed.";
+  }
+  if (n.key === "V" && modLike && !n.shift) {
+    return "Ctrl+V is paste — clipboard muscle memory keeps it fixed.";
+  }
+  const bare = !modLike && !n.cmd && !n.alt && !n.shift;
+  if (n.key === "Tab" && bare) {
+    return "Tab is context-sensitive terminal input (accept suggestion or pass through) — it stays fixed.";
+  }
+  if (n.key === "Escape" && bare) {
+    return "Escape dismisses modals and clears suggestions — it stays fixed.";
+  }
+  return null;
+}
+
+/** First pair of actions whose combos collide under `overrides` —
+ *  defaults fill any gap, and comparison uses the same platform aliasing
+ *  matches() applies, so a conflict here means one binding would be
+ *  unreachable at match time. Crosses scopes on purpose (spec 11:
+ *  a combo must be unique across the whole registry). Null when the map
+ *  is conflict-free. */
+export function findMapConflict(overrides: Record<string, string>):
+  { a: ShortcutAction; b: ShortcutAction; combo: string } | null {
+  const entries = SHORTCUT_DEFS.flatMap((def) => {
+    const o = overrides[def.id];
+    // Same fallback as resolvedCombo: an unparseable override (hand-edited
+    // config) never shadows the default.
+    const parsedOverride = o ? parseComboString(o) : null;
+    const combo = parsedOverride ? o! : def.defaultKey;
+    const parsed = parseComboString(combo);
+    return parsed ? [{ id: def.id, combo, norm: normalizeForPlatform(parsed) }] : [];
+  });
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      if (combosEqual(entries[i].norm, entries[j].norm)) {
+        return { a: entries[i].id, b: entries[j].id, combo: entries[i].combo };
+      }
+    }
+  }
+  return null;
 }
