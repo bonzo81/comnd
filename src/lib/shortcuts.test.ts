@@ -1,14 +1,17 @@
 /**
  * Shortcut registry unit tests (docs/plans/058 phase 1).
  *
- * Covers: parseCombo canonicalization, platformMod, matches on defaults
- * and overrides, the bareKeyOnly input-focus gate, modLocked, formatCombo,
- * ctrlByteForCombo, and the netssh:shortcuts dispatch from setOverrides.
+ * Covers: registry structure (sections), parseCombo canonicalization,
+ * platformMod, matches on defaults and overrides, the bareKeyOnly
+ * input-focus gate, modLocked, formatCombo, ctrlByteForCombo, and the
+ * netssh:shortcuts dispatch from setOverrides.
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
+  SECTION_TITLES,
   SHORTCUT_DEFS,
+  SHORTCUT_SECTIONS,
   ctrlByteForCombo,
   formatCombo,
   initShortcuts,
@@ -59,6 +62,23 @@ beforeEach(() => {
 
 afterEach(() => {
   restorePlatform();
+});
+
+// ─── registry structure ─────────────────────────────────────────────
+
+describe("registry structure", () => {
+  it("every def belongs to a declared section that has a title", () => {
+    for (const def of SHORTCUT_DEFS) {
+      expect(SHORTCUT_SECTIONS).toContain(def.section);
+      expect(SECTION_TITLES[def.section]).toBeTruthy();
+    }
+  });
+
+  it("every declared section has at least one def", () => {
+    for (const section of SHORTCUT_SECTIONS) {
+      expect(SHORTCUT_DEFS.some((d) => d.section === section)).toBe(true);
+    }
+  });
 });
 
 // ─── platformMod ─────────────────────────────────────────────────────

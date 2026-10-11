@@ -55,6 +55,13 @@ export interface ShortcutDef {
 /** Section order for the help modal and the settings pane. */
 export const SHORTCUT_SECTIONS: ShortcutSection[] = ["navigation", "view", "terminal"];
 
+/** Display titles per section — help modal headers and settings groups. */
+export const SECTION_TITLES: Record<ShortcutSection, string> = {
+  navigation: "Navigation",
+  view: "View",
+  terminal: "Terminal",
+};
+
 /** The registry. Handlers, the help modal, and Settings all read this. */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
   // Navigation
