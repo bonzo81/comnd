@@ -69,6 +69,35 @@ presentation-layer feature — verify it works with `prefers-reduced-motion`
 users too (no animation is introduced). The status bar toggle button joins the
 ARIA inventory above.
 
+## Shortcut customization (spec 11)
+
+The status bar keyboard button (icon-only, `aria-label` "Keyboard
+shortcuts (?)") opens the registry-driven help modal; its "Customize…"
+link opens Settings → Shortcuts. The shortcuts pane joins the ARIA
+inventory:
+
+- **Live announcements.** The pane owns one polite live region
+  (`#sc-live`): it announces the captured combination as the user
+  presses keys, the reserved-key rejection text, and the conflict
+  message ("<action>" and "<action>" would both use <combo> — pick a
+  different combination). Rows currently under a warning set
+  `aria-describedby="sc-live"`, so the reason is programmatically
+  tied to the affected row.
+- **Capture flow.** Clicking (or keying) **Change** enters capture; the
+  live chip takes focus and is the only thing receiving keys — the
+  capture listener runs at the document capture phase with
+  `preventDefault` + `stopPropagation`, so no keystroke leaks to the
+  global handler, xterm, or any widget. `Enter` confirms, `Escape`
+  cancels; both are announced via the live region on the next render.
+- **Locked row.** The pinned `Ctrl+Space` row carries its explanation
+  twice: a `role="img"` lock with `aria-label`, and the same text as
+  the `title` of a real `disabled` Change button (skipped by assistive
+  tech, consistent with the roving-tabindex behavior above).
+- **Keyboard-only walk.** Change / capture / Enter / Escape, per-row
+  Reset, and Restore all defaults are all reachable and operable
+  without a mouse; the modal opens from the status bar button and
+  closes with Escape like every other dialog.
+
 ## Known gaps
 
 - **Terminal content** — the terminal is an xterm.js canvas. Screen readers

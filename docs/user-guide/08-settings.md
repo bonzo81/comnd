@@ -14,7 +14,7 @@ The settings screen is deliberately minimal. Here is what you can configure:
 
 Default is `14px`. You can adjust it two ways:
 
-- **In-session:** `Ctrl++` to increase, `Ctrl+-` to decrease. The change applies immediately.
+- **In-session:** `Ctrl++` to increase, `Ctrl+-` to decrease, `Ctrl+0` to reset. The change applies immediately.
 - **In settings:** type a value or use the stepper control.
 
 Your chosen size persists across sessions. The app saves the size to the settings file and restores it on the next launch.
@@ -55,9 +55,28 @@ This setting controls how command-suggestion data is updated. It is currently a 
 
 When this feature ships, you will find it in the settings panel. For now, the knowledge base is distributed with the app and updated through normal app releases.
 
+### Keyboard shortcuts
+
+The **Shortcuts** section — the last item in the settings list — is where you rebind keyboard shortcuts. Each row shows an action, its current keys as chips, and buttons to change or reset it.
+
+To rebind a shortcut:
+
+1. Click **Change** next to the action.
+2. Press the new key combination. The chip shows what you pressed as you press it.
+3. Press `Enter` to save, or `Escape` to cancel.
+
+The new binding takes effect immediately — no restart — and persists across sessions.
+
+The pane stops you from breaking things:
+
+- **Conflicts are blocked.** If the combination is already used by another action, both rows highlight and you are asked to pick different keys. Nothing is saved while a conflict stands.
+- **Reserved keys are rejected with the reason.** `Ctrl+W` must keep passing through to the remote device (it deletes the previous word in most shells), `Ctrl+C` and `Ctrl+V` keep their clipboard behavior, and bare `Tab` / `Escape` are navigation semantics that never move.
+- **`Ctrl+Space` is locked.** The remote shell expects that exact key, and on macOS `Cmd+Space` belongs to Spotlight. The lock icon on the row explains this, and its Change button is disabled.
+- **Reset at will.** Rebound rows get a **Reset** button that restores the default, and **Restore all defaults** clears every rebind at once.
+
 ## Keyboard Shortcuts Reference
 
-For the full shortcut table, see [Keyboard Shortcuts](07-keyboard-shortcuts.md) — including the ones that work inside an active terminal session.
+For the full default shortcut table, see [Keyboard Shortcuts](07-keyboard-shortcuts.md) — including the ones that work inside an active terminal session.
 
 ## Next Steps
 

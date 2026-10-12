@@ -26,9 +26,9 @@ Read these docs before implementing anything in their domain:
 | Post-MVP backlog, decision log | `docs/specs/08-future-open-questions.md` |
 | Command Replay (user-saved commands, variables, playback) | `docs/specs/09-command-replay.md` |
 | Custom KB (user-wins merge, provenance, import) | `docs/specs/10-custom-knowledge-base.md` |
-| Shortcut customization (Planned) | `docs/specs/11-shortcut-customization.md` |
+| Shortcut customization | `docs/specs/11-shortcut-customization.md` |
 | Reading Comfort mode (dyslexia) | `docs/specs/12-dyslexia-mode.md` |
-| Accessibility conformance target (WCAG 2.1 AA) | `docs/accessibility.md` |
+| Accessibility conformance target (WCAG 2.1 AA) | `docs/specs/accessibility.md` |
 
 Implementation plans live in `docs/plans/`. Read the plan document for a feature before you build it.
 

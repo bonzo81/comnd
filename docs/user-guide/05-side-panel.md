@@ -2,13 +2,12 @@
 
 ## Opening and Closing
 
-The side panel starts hidden. You open it only when you want to inspect a command in detail. There are three ways to toggle it:
+The side panel starts hidden. You open it only when you want to inspect a command in detail:
 
-- Press **Ctrl+`** (backtick) from anywhere inside the terminal view.
-- Click the **≡** button on the right side of the top bar.
-- Press **Escape** — the behavior depends on what is open. If a suggestion dropdown is open, the first Escape closes the dropdown. A second Escape closes the panel. If no dropdown is showing, Escape closes the panel immediately.
+- Click the **≡** button on the right side of the top bar to open it. Click the button again to close it.
+- Press **Escape** to close it — the behavior depends on what is open. If a suggestion dropdown is open, the first Escape closes the dropdown. A second Escape closes the panel. If no dropdown is showing, Escape closes the panel immediately.
 
-To reopen, use Ctrl+` or the ≡ button again. The panel remembers whether it was open or closed for the current session.
+The panel remembers whether it was open or closed for the current session.
 
 ## Layout and Resizing
 
@@ -86,4 +85,4 @@ The panel stays open and in sync the entire time. Nothing to manage.
 
 - [Terminal & Suggestions](04-terminal-and-suggestions.md) — how ghost text and the dropdown work together.
 - [Knowledge Base Overview](06-knowledge-base-overview.md) — where panel content comes from and how it stays up to date.
-- [Keyboard Shortcuts](07-keyboard-shortcuts.md) — full shortcut reference including panel toggle and Escape behavior.
+- [Keyboard Shortcuts](07-keyboard-shortcuts.md) — full shortcut reference including the Escape cascade.

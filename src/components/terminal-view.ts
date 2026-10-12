@@ -38,6 +38,7 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
+import { ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
   import { confirmDialog } from "../lib/confirm-dialog";
   import { openModal } from "../lib/modal";
 import { tofuRespond } from "../lib/tauri-api";
@@ -205,6 +206,10 @@ export class TerminalView {
         dismissSidebar: () => this.toggleSidebar(),
         toggleSuggestions: () => setSuggestionsEnabled(!getSuggestionsEnabled()),
       },
+      // Registry-resolved Ctrl+Space byte (plan 058 phase 4): a rebind to
+      // another single-Ctrl combo changes the byte the routing layer
+      // claims; a combo with no control byte makes the binding inert.
+      suggestionsToggleByte: () => ctrlByteForCombo(resolvedCombo("toggle-suggestions")),
     });
   }
 
@@ -295,8 +300,11 @@ export class TerminalView {
         return false; // block xterm from also processing this key
       }
 
-      // Ctrl+Shift+F → open scrollback search (local UI shortcut, never remote)
-      if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === "F" && e.type === "keydown") {
+      // Scrollback search — resolved through the shortcut registry
+      // (terminal scope, default Ctrl+Shift+F). Ctrl+C/Ctrl+V above stay
+      // hardcoded: fixed semantics (spec 11). Scope filtering means global
+      // actions never fire from this handler.
+      if (e.type === "keydown" && matches(e, "terminal") === "scrollback-search") {
         e.preventDefault();
         this.openSearch();
         return false;

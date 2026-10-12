@@ -102,7 +102,7 @@ If `Ctrl+Shift+V` is not pasting, another application or your window manager can
 
 ### Side panel will not open
 
-Press `` Ctrl+` `` (backtick) to toggle the side panel. `Escape` closes it if already open and returns focus to the terminal. If the shortcut is not responding, another application or your window manager can be intercepting it. Use the side panel toggle button in the toolbar as a fallback.
+Click the **≡** button at the right end of the top bar to open the side panel — there is no keyboard shortcut for opening it. `Escape` closes it if already open and returns focus to the terminal. If the panel is open but shows no command details, nothing is highlighted yet — type in the terminal or open the dropdown with `Ctrl+Space` to pick a command first.
 
 ### App will not launch
 

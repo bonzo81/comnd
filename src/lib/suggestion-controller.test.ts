@@ -24,7 +24,7 @@ function terminalStub(): Terminal {
 
 const cleanups: Array<() => void> = [];
 
-function makeController() {
+function makeController(opts: { suggestionsToggleByte?: () => string | null } = {}) {
   const sent: string[] = [];
   const inputAtSend: string[] = [];
   const container = document.createElement("div");
@@ -51,6 +51,9 @@ function makeController() {
     dropdown: () => dropdown,
     sidebar: { detail, placeholder },
     ui,
+    // Only pass the dep when a test provides it — an absent dep must keep
+    // the historical "\x00" default (plan 058 phase 4).
+    ...(opts.suggestionsToggleByte ? { suggestionsToggleByte: opts.suggestionsToggleByte } : {}),
   });
   c.setConnected(true);
   cleanups.push(() => {
@@ -379,6 +382,29 @@ describe("SuggestionController — keyIn routing", () => {
     ctx.c.keyIn("\x00");
     expect(ctx.sent.length).toBe(before);
     expect(ctx.ui.toggleSuggestions).toHaveBeenCalled();
+  });
+
+  it("custom toggle byte via the dep claims the new byte and frees \x00", () => {
+    // toggle-suggestions rebound to Ctrl+O (registry supplies \x0F)
+    const ctx = makeController({ suggestionsToggleByte: () => "\x0F" });
+    const before = ctx.sent.length;
+    ctx.c.keyIn("\x0F");
+    expect(ctx.sent.length).toBe(before); // claimed by the toggle, not sent
+    expect(ctx.ui.toggleSuggestions).toHaveBeenCalledTimes(1);
+    // The old byte is no longer claimed — it passes through to the remote.
+    ctx.c.keyIn("\x00");
+    expect(ctx.sent).toContain("\x00");
+    expect(ctx.ui.toggleSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it("null toggle byte (inert override) — \x00 passes through, nothing toggles", () => {
+    // Hand-edited config: rebound to a combo with no control byte
+    const ctx = makeController({ suggestionsToggleByte: () => null });
+    const before = ctx.sent.length;
+    ctx.c.keyIn("\x00");
+    expect(ctx.sent.length).toBe(before + 1);
+    expect(ctx.sent[ctx.sent.length - 1]).toBe("\x00");
+    expect(ctx.ui.toggleSuggestions).not.toHaveBeenCalled();
   });
 });
 

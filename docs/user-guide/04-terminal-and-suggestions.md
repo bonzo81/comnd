@@ -49,7 +49,7 @@ Each item in the dropdown shows the **matched prefix in bold**, the full command
 
 ## Side Panel Integration
 
-Open the side panel with `Ctrl+\`` to see full details of the highlighted suggestion. The highlight can be the ghost text or a selected dropdown item. The panel updates in real time as you type and as your selection changes.
+Open the side panel with the **≡** button in the top bar to see full details of the highlighted suggestion. The highlight can be the ghost text or a selected dropdown item. The panel updates in real time as you type and as your selection changes.
 
 See [Side Panel](05-side-panel.md) for the full panel layout and what it shows.
 
