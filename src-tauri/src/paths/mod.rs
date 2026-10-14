@@ -31,23 +31,43 @@ pub fn log_dir() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("logs"))
 }
 
-/// Bundled (read-only, repo-shipped) knowledge-base root. Primary is
-/// `resource_dir()/knowledge-base` (correct in release builds); the dev-build
-/// fallback is `<repo>/knowledge-base` (`CARGO_MANIFEST_DIR`'s parent). Single
-/// source of truth for both the startup KB load and the import pipeline.
+/// Bundled (read-only, repo-shipped) knowledge-base root. Single source of
+/// truth for both the startup KB load and the import pipeline.
+///
+/// Tauri places bundled resources under `resource_dir()`, but the on-disk
+/// layout depends on how the `resources` entry is written in
+/// `tauri.conf.json`:
+///   * map form `{ "../knowledge-base/": "knowledge-base/" }` (current) →
+///     `resource_dir()/knowledge-base`
+///   * list form `"../knowledge-base/**/*"` (pre-0.2.x) → Tauri rewrites the
+///     `..` to `_up_`, so files land under `resource_dir()/_up_/knowledge-base`
+///
+/// Both layouts have shipped, so check both before falling back to the dev
+/// location (`<repo>/knowledge-base`, `CARGO_MANIFEST_DIR`'s parent). If none
+/// exist, log an error and return the canonical path — callers treat a missing
+/// root as "no bundled KB" rather than panicking.
 pub fn bundled_kb_path(resource_dir: &Path) -> PathBuf {
-    let release = resource_dir.join("knowledge-base");
-    if release.exists() {
-        return release;
+    let candidates = [
+        resource_dir.join("knowledge-base"),
+        resource_dir.join("_up_").join("knowledge-base"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("knowledge-base"),
+    ];
+    for candidate in &candidates {
+        if candidate.exists() {
+            return candidate.clone();
+        }
     }
-    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("knowledge-base");
-    if dev.exists() {
-        return dev;
-    }
-    release
+    log::error!(
+        "Bundled knowledge base not found; checked {} (release), {} (_up_ fallback) and {} (dev). \
+         The KB was likely not bundled into this build.",
+        candidates[0].display(),
+        candidates[1].display(),
+        candidates[2].display()
+    );
+    candidates[0].clone()
 }
 
 /// One-shot migration: copy persisted JSON files from the legacy
@@ -1045,6 +1065,32 @@ mod tests {
         // time, so returning the temp resource_dir proves release is checked first.
         let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
+        assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
+        let _ = std::fs::remove_dir_all(&resource_dir);
+    }
+
+    #[test]
+    fn test_bundled_kb_path_falls_back_to_up_dir() {
+        // Simulates a list-form bundle where Tauri rewrote `..` to `_up_`, so the
+        // KB lands under resource_dir/_up_/knowledge-base. Only that layout exists
+        // here (the dev fallback also exists at test time), so returning the _up_
+        // path proves it is checked before the dev location.
+        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
+        assert_eq!(
+            bundled_kb_path(&resource_dir),
+            resource_dir.join("_up_").join("knowledge-base")
+        );
+        let _ = std::fs::remove_dir_all(&resource_dir);
+    }
+
+    #[test]
+    fn test_bundled_kb_path_prefers_release_over_up_dir() {
+        // Both layouts present (a rebuild that changed the form, or a partial
+        // install): the canonical release path must win over the _up_ fallback.
+        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
+        std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
         let _ = std::fs::remove_dir_all(&resource_dir);
     }

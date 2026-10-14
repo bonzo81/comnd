@@ -49,14 +49,21 @@ export class KbViewerDialog {
 
     try {
       this.platforms = await listKbPlatforms();
+      if (this.platforms.length === 0) {
+        // An empty registry means the bundled KB was not found at startup.
+        // Without this branch, both load paths below are skipped and the
+        // spinner from renderLoading() spins forever.
+        this.renderError(
+          "No knowledge base platforms found. The bundled knowledge base may be missing from this installation."
+        );
+        return;
+      }
       if (platform && this.platforms.includes(platform)) {
         this.selectedPlatform = platform;
-      } else if (!this.selectedPlatform && this.platforms.length > 0) {
+      } else {
         this.selectedPlatform = this.platforms[0];
       }
-      if (this.platforms.length > 0) {
-        await this.loadPlatform();
-      }
+      await this.loadPlatform();
     } catch (err) {
       this.renderError(`Failed to load platforms: ${err}`);
     }
