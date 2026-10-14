@@ -37,6 +37,13 @@ import "@fontsource/jetbrains-mono/700.css";
 import "./styles/tokens.css";
 import "./styles/main.css";
 
+// Kick off the JetBrains Mono download at startup. xterm measures char size
+// synchronously when a terminal opens; if JBM isn't loaded yet, rows are sized
+// to fallback metrics and clip glyphs (see the document.fonts.ready gate in
+// terminal-view.ts). Queuing the load here guarantees that gate waits for it.
+// No-op where the FontFaceSet API is absent (e.g. jsdom test environment).
+document.fonts?.load("14px 'JetBrains Mono'", "W")?.catch(() => {});
+
 // App state
 type AppView = "connections" | "terminal" | "knowledge-base" | "replay" | "settings";
 
