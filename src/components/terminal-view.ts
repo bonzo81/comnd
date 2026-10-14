@@ -58,12 +58,12 @@ import { getPlatformMeta } from "../lib/platforms";
 /**
  * Minimal private-API seam into xterm v5 internals. There is no public API to
  * force a char-size re-measure after the web font loads (xterm only re-measures
- * on resize / option change / DPR change). `_core.charSizeService` is stable
+ * on resize / option change / DPR change). `_core._charSizeService` is stable
  * across xterm 5.x and FitAddon itself reaches into `_core`; optional chaining
  * degrades to today's behavior if a future version moves it.
  */
 interface XtermCoreSeam {
-  _core?: { charSizeService?: { measure(): void } };
+  _core?: { _charSizeService?: { measure(): void } };
 }
 
 // Secret provider display names (connect progress, chunk 10)
@@ -275,7 +275,7 @@ export class TerminalView {
     // web-font race to guard against there.
     document.fonts?.ready.then(() => {
       if (!this.terminal || !this.fitAddon) return; // disposed before fonts resolved
-      (this.terminal as unknown as XtermCoreSeam)?._core?.charSizeService?.measure();
+      (this.terminal as unknown as XtermCoreSeam)?._core?._charSizeService?.measure();
       this.fitAddon.fit();
     });
 
@@ -762,6 +762,18 @@ export class TerminalView {
 
       // Mint session ID, register listeners, open the SSH connection.
       await this.channel.connect(host.id, { cols, rows });
+
+      // Reconcile PTY dimensions: a font-driven remeasure (fonts.ready gate)
+      // can resize the terminal after cols/rows were captured above but before
+      // the SSH connection completes. onResize discards updates while state is
+      // "connecting", so send the latest dimensions explicitly once the session
+      // is registered (it is — insert_session runs before the IPC resolves).
+      const curCols = this.terminal?.cols ?? 0;
+      const curRows = this.terminal?.rows ?? 0;
+      if (curCols !== cols || curRows !== rows) {
+        log.info(LogTag.Terminal, `Post-connect resize: ${cols}x${rows} → ${curCols}x${curRows}`);
+        sshResize(this.channel.sessionId!, curCols, curRows).catch(() => {});
+      }
 
       log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.channel.sessionId})`);
     } catch (err) {
