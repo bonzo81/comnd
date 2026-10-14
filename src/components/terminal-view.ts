@@ -55,6 +55,17 @@ import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/out
 import { initContextMenu, setToggleState } from "../lib/a11y";
 import { getPlatformMeta } from "../lib/platforms";
 
+/**
+ * Minimal private-API seam into xterm v5 internals. There is no public API to
+ * force a char-size re-measure after the web font loads (xterm only re-measures
+ * on resize / option change / DPR change). `_core._charSizeService` is stable
+ * across xterm 5.x and FitAddon itself reaches into `_core`; optional chaining
+ * degrades to today's behavior if a future version moves it.
+ */
+interface XtermCoreSeam {
+  _core?: { _charSizeService?: { measure(): void } };
+}
+
 // Secret provider display names (connect progress, chunk 10)
 const PROVIDER_NAMES: Record<string, string> = { proton: "Proton Pass" };
 
@@ -249,6 +260,24 @@ export class TerminalView {
     this.syncSuggestions();
     this.syncReadingComfort();
     this.fitAddon.fit();
+
+    // xterm measures char size synchronously at open() (above). On the first
+    // session per app launch that can land before the JetBrains Mono web font
+    // is loaded, so rows are sized to fallback-metric heights and clip JBM's
+    // taller glyphs (each row div is overflow:hidden). xterm never re-measures
+    // on font load, and a plain fit() here would be a no-op — proposeDimensions()
+    // divides by the stale css.cell.height and proposes identical rows. Force a
+    // re-measure once fonts are ready: measure() fires onCharSizeChange → the
+    // renderer rewrites row boxes + cell dimensions, then fit() rightsizes rows
+    // (and the PTY via onResize). The startup document.fonts.load() in main.ts
+    // guarantees this gate actually waits for the JBM download. Skipped where
+    // the FontFaceSet API is absent (e.g. jsdom test environment) — there is no
+    // web-font race to guard against there.
+    document.fonts?.ready.then(() => {
+      if (!this.terminal || !this.fitAddon) return; // disposed before fonts resolved
+      (this.terminal as unknown as XtermCoreSeam)?._core?._charSizeService?.measure();
+      this.fitAddon.fit();
+    });
 
     this.fontChangeHandler = () => this.applyFontSize(getTerminalFontSize());
     window.addEventListener("netssh:terminal-font-size", this.fontChangeHandler);
@@ -733,6 +762,18 @@ export class TerminalView {
 
       // Mint session ID, register listeners, open the SSH connection.
       await this.channel.connect(host.id, { cols, rows });
+
+      // Reconcile PTY dimensions: a font-driven remeasure (fonts.ready gate)
+      // can resize the terminal after cols/rows were captured above but before
+      // the SSH connection completes. onResize discards updates while state is
+      // "connecting", so send the latest dimensions explicitly once the session
+      // is registered (it is — insert_session runs before the IPC resolves).
+      const curCols = this.terminal?.cols ?? 0;
+      const curRows = this.terminal?.rows ?? 0;
+      if (curCols !== cols || curRows !== rows) {
+        log.info(LogTag.Terminal, `Post-connect resize: ${cols}x${rows} → ${curCols}x${curRows}`);
+        sshResize(this.channel.sessionId!, curCols, curRows).catch(() => {});
+      }
 
       log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.channel.sessionId})`);
     } catch (err) {
