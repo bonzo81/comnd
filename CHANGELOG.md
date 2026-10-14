@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2](https://github.com/bonzo81/netssh/compare/v0.2.1...v0.2.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* **terminal:** re-measure char size after web font loads ([ed89676](https://github.com/bonzo81/netssh/commit/ed89676c87ca72a58de721efb390ed41de5ed495))
+* **terminal:** re-measure char size after web font loads ([f6b313a](https://github.com/bonzo81/netssh/commit/f6b313adc5b16c290d6fd9fa87ff30170e76858c))
+* **terminal:** use _charSizeService and reconcile PTY after connect ([a210765](https://github.com/bonzo81/netssh/commit/a210765e5fcf18e40f38e83fb438900f6eb32841))
+
 ## [0.2.1](https://github.com/bonzo81/netssh/compare/v0.2.0...v0.2.1) (2026-10-14)
 
 
