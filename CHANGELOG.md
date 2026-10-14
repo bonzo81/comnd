@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/bonzo81/netssh/compare/v0.2.0...v0.2.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **kb-viewer:** show error instead of infinite spinner when no platforms exist ([2231f93](https://github.com/bonzo81/netssh/commit/2231f931713adb13f8e3648aeef1f8604e4f0a78))
+* **kb:** bundle knowledge-base at canonical resource path ([1ec9f1c](https://github.com/bonzo81/netssh/commit/1ec9f1c0368f270feb101aa3cfb032c58289d100))
+* **kb:** bundle knowledge-base at canonical resource path and tolerate _up_ layout ([50a53c1](https://github.com/bonzo81/netssh/commit/50a53c150c3625eb860e22e7204610ac133b2f1f))
+
 ## [0.2.0](https://github.com/bonzo81/netssh/compare/v0.1.0...v0.2.0) (2026-10-12)
 
 
