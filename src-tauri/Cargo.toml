@@ -1,6 +1,6 @@
 [package]
 name = "netssh"
-    version = "0.2.2"
+    version = "0.3.0"
 description = "Cross-platform SSH client with context-aware command suggestions"
 authors = ["Andy Norwood"]
 edition = "2021"
