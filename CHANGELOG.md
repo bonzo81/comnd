@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/bonzo81/netssh/compare/v0.2.2...v0.3.0) (2026-10-15)
+
+
+### Features
+
+* **updater:** add minisign-signed in-app updates with macOS fallback ([d17d5dd](https://github.com/bonzo81/netssh/commit/d17d5dd2285c03235db52e1a7b59d34d96355b53))
+
+
+### Bug Fixes
+
+* **updater:** guard applyAvailableUpdate against concurrent installs ([94200d3](https://github.com/bonzo81/netssh/commit/94200d334ecfcfd773466201bcded8017ed2ed0b))
+
 ## [0.2.2](https://github.com/bonzo81/netssh/compare/v0.2.1...v0.2.2) (2026-10-14)
 
 
