@@ -34,4 +34,9 @@ The app opens directly to the Connection Manager with an empty host list. You ca
 
 ## Updates
 
-netssh is distributed through GitHub Releases. For now, download the latest package from GitHub Releases and install it over the existing version. Your saved hosts and settings remain after the upgrade.
+netssh checks for updates automatically when the app starts. When a newer version is available, a download icon appears in the title bar (top-right, next to the window controls). You can also check manually at any time: open **Settings → General** and click **Check for updates**. The status line below the button shows the result ("You're up to date.", an available version, or an error).
+
+- **Windows and Linux** — click the title bar icon and netssh downloads the update, installs it, and restarts itself. Your saved hosts, groups, settings, and knowledge base are kept across the upgrade.
+- **macOS** — clicking the icon opens the latest release on GitHub instead. Download the `.dmg` from there and drag netssh over the existing app. macOS does not allow the app to replace itself silently until the build is notarized, so manual updates remain for now.
+
+Until code signing ships (see the roadmap), each new version still triggers Windows SmartScreen or macOS Gatekeeper on first launch after an update — approve it once and the warning stops.

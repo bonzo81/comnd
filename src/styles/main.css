@@ -233,6 +233,29 @@
 .title-import-indicator[hidden] { display: none; }
 .title-import-indicator:hover { background: var(--color-surface-hover); }
 
+/* ─── Update indicator (title bar, P1.4) ─── */
+/* Same slot mechanics as the import indicator; shown only while an update
+   is available (warning color so it reads as "action needed"). */
+.title-update-indicator {
+  height: 44px;
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-warning);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.title-update-indicator[hidden] { display: none; }
+.title-update-indicator:hover { background: var(--color-surface-hover); }
+.title-update-indicator svg {
+  width: 18px;
+  height: 18px;
+}
+
 .tii-spinner {
   width: 12px;
   height: 12px;
