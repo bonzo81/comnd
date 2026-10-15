@@ -12,6 +12,9 @@ import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
 import { listen } from "@tauri-apps/api/event";
 import { importJob } from "./lib/import-status";
 import { icons } from "./lib/icons";
+import {
+  applyAvailableUpdate, checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction,
+} from "./lib/updater";
 import { escHtml } from "./lib/format";
 import { confirmDialog } from "./lib/confirm-dialog";
 import { openModal, ModalHandle } from "./lib/modal";
@@ -240,6 +243,8 @@ class App {
     this.registerGlobalShortcuts();
     this.renderTitleBar();
     this.renderStatusBar();
+    // P1.4 — check for updates on startup (silent; indicator shows only if one exists).
+    void checkForUpdatesNow();
   }
 
   private async syncLogLevel() {
@@ -299,10 +304,6 @@ class App {
       controls.appendChild(b);
       return b;
     };
-    makeBtn("?", () => {
-      this.showShortcuts = !this.showShortcuts;
-      this.renderShortcutsModal();
-    }, "Keyboard shortcuts");
     makeBtn("–", () => void getCurrentWindow().minimize(), "Minimize");
     makeBtn("□", () => void getCurrentWindow().toggleMaximize(), "Maximize");
     makeBtn("×", () => void getCurrentWindow().close(), "Close");
@@ -327,6 +328,7 @@ class App {
     bar.appendChild(controls);
     this.container.insertBefore(bar, this.container.firstChild);
     this.initImportIndicator(bar);
+    this.initUpdateIndicator(bar);
   }
 
   // ─── Import job indicator + modal (title bar) ──────────────────────
@@ -467,6 +469,56 @@ class App {
       if (!ok) showToast("Import is committing — too late to cancel", "error");
       else showToast("Import cancelled — nothing was imported", "info");
     });
+  }
+
+  // ─── Update indicator (title bar, P1.4) ────────────────────────────
+
+  private updateIndicator: HTMLElement | null = null;
+  private unsubUpdates: (() => void) | null = null;
+
+  private initUpdateIndicator(bar: HTMLElement) {
+    const indicator = document.createElement("button");
+    indicator.className = "title-update-indicator";
+    indicator.id = "title-update-indicator";
+    indicator.hidden = true;
+    indicator.innerHTML = icons.download;
+    indicator.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.installUpdateFromIndicator();
+    });
+
+    // Insert left of the window controls (right of the import indicator).
+    bar.insertBefore(indicator, bar.querySelector(".title-bar-controls"));
+    this.updateIndicator = indicator;
+
+    this.unsubUpdates = subscribeUpdates(() => this.refreshUpdateIndicator());
+    this.refreshUpdateIndicator();
+  }
+
+  private refreshUpdateIndicator() {
+    if (!this.updateIndicator) return;
+    const s = getUpdateStatus();
+    const show = s.state === "update-available";
+    this.updateIndicator.hidden = !show;
+    if (!show) return;
+    const verb = updateAction(s.platform) === "open-release-page" ? "open the latest release" : "install";
+    const label = `Update ${s.version ?? ""} available — click to ${verb}`;
+    this.updateIndicator.setAttribute("aria-label", label);
+    this.updateIndicator.title = label;
+  }
+
+  private async installUpdateFromIndicator() {
+    try {
+      const result = await applyAvailableUpdate();
+      if (result === "opened-release-page") {
+        showToast("Opened the latest release page — download and install from there", "info");
+      } else {
+        showToast("Installing update — netssh is restarting…", "info");
+      }
+    } catch (err) {
+      log.error(LogTag.App, "Update install failed:", err);
+      showToast(err instanceof Error ? err.message : String(err), "error");
+    }
   }
 
   private renderStatusBar() {

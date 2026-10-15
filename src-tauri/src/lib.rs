@@ -310,6 +310,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // P1.4 — in-app updater (minisign-signed; ADR-005) + relaunch after install.
+        // The updater plugin has no `init()`; it is configured via tauri.conf.json and
+        // registered through its Builder.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             // Resolve KB path ÔÇö in dev, it's relative to project root
             let resource_dir = app.path()

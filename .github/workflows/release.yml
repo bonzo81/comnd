@@ -115,7 +115,13 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # P1.4 — signs updater artifacts (latest.json + .sig) during `tauri build`.
+          # Stored as a repo secret; the key itself is never checked in.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           releaseDraft: true
           args: ${{ matrix.args }}
+          # Windows updater entry should be the NSIS setup.exe (passive install),
+          # not the MSI (which prompts UAC mid-update).
+          updaterJsonPreferNsis: true

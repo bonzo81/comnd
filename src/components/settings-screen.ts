@@ -30,6 +30,7 @@ import {
   setTimestampFormat,
   TimestampFormat,
 } from "../lib/timestamps";
+import { checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction } from "../lib/updater";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
@@ -350,6 +351,13 @@ export class SettingsScreen {
             <button type="button" id="data-import" class="btn-secondary">Restore from backup...</button>
           </div>
           <span class="import-hint">Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.</span>
+        </div>
+        <h3 class="settings-section-title">Updates</h3>
+        <div class="import-field">
+          <div class="log-file-row">
+            <button type="button" id="check-updates" class="btn-secondary">Check for updates</button>
+          </div>
+          <span class="import-hint" id="update-status">netssh checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>
         </div>
       </div>
     `;
@@ -1083,6 +1091,38 @@ export class SettingsScreen {
       });
   }
 
+  /** Reflects the updater state in the "Check for updates" status line. */
+  private refreshUpdateStatus() {
+    const el = this.container?.querySelector<HTMLElement>("#update-status");
+    if (!el) return;
+    const s = getUpdateStatus();
+    switch (s.state) {
+      case "checking":
+        el.textContent = "Checking for updates…";
+        break;
+      case "no-update":
+        el.textContent = "You're up to date.";
+        break;
+      case "update-available": {
+        const verb = updateAction(s.platform) === "open-release-page" ? "open the latest release" : "install";
+        el.textContent = `Update ${s.version ?? ""} available — click the icon in the title bar to ${verb}.`;
+        break;
+      }
+      case "downloading":
+        el.textContent = "Downloading update…";
+        break;
+      case "installed":
+        el.textContent = "Update installed — netssh is restarting.";
+        break;
+      case "error":
+        el.textContent = `Update check failed: ${s.error ?? "unknown error"}`;
+        break;
+      default:
+        // idle — keep the default hint text.
+        break;
+    }
+  }
+
   private bindEvents() {
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
@@ -1143,6 +1183,14 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLButtonElement>("#data-export")?.addEventListener("click", () => void this.exportData());
     this.container?.querySelector<HTMLButtonElement>("#data-import")?.addEventListener("click", () => void this.importData());
+
+    // P1.4 — update check (Settings → General). SettingsScreen is persistent
+    // (never destroyed), so the subscription needs no cleanup.
+    this.container?.querySelector<HTMLButtonElement>("#check-updates")?.addEventListener("click", async () => {
+      await checkForUpdatesNow();
+      this.refreshUpdateStatus();
+    });
+    subscribeUpdates(() => this.refreshUpdateStatus());
 
     this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("change", (e) => {
       const v = (e.target as HTMLInputElement).value.trim();
