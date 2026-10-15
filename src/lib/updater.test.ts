@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyAvailableUpdate,
   checkForUpdatesNow,
   detectPlatform,
   getUpdateStatus,
@@ -15,6 +16,10 @@ import {
 
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { check } from "@tauri-apps/plugin-updater";
@@ -122,5 +127,41 @@ describe("checkForUpdatesNow (observable flow)", () => {
     mockedCheck.mockResolvedValue(null);
     await checkForUpdatesNow();
     expect(getUpdateStatus().state).toBe("no-update");
+  });
+});
+
+describe("applyAvailableUpdate (re-entry guard)", () => {
+  it("rejects a second install while one is already downloading", async () => {
+    // Hold the first download open so we can observe the in-flight window.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const update = {
+      version: "0.2.0",
+      body: "notes",
+      downloadAndInstall: vi.fn().mockImplementation(() => gate),
+    } as unknown as Update;
+
+    mockedCheck.mockResolvedValue(update);
+    await checkForUpdatesNow();
+    expect(getUpdateStatus().state).toBe("update-available");
+
+    // First click runs synchronously up to its first await, so by the time this
+    // returns the state is already "downloading" and one download has started.
+    const first = applyAvailableUpdate();
+    expect(getUpdateStatus().state).toBe("downloading");
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+
+    // A repeated click while in flight must be rejected and must NOT start a
+    // second download (the plugin does not serialize concurrent installs).
+    await expect(applyAvailableUpdate()).rejects.toThrow("already being applied");
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(getUpdateStatus().state).toBe("downloading");
+
+    // Let the first install finish; it should still complete cleanly.
+    release();
+    await first;
+    expect(getUpdateStatus().state).toBe("installed");
   });
 });

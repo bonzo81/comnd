@@ -166,9 +166,19 @@ export async function applyAvailableUpdate(): Promise<"installed" | "opened-rele
 
   if (updateAction(status.platform) === "open-release-page") {
     // macOS: never replace silently — open the latest release page (ADR-005).
+    // Idempotent, so a repeated click just opens the page again.
     const { openUrl } = await import("./tauri-api");
     await openUrl(RELEASE_PAGE_URL);
     return "opened-release-page";
+  }
+
+  // Re-entry guard for the destructive install path (windows/linux). The
+  // title-bar indicator hides itself on the "downloading" transition, which in
+  // practice already blocks a second click; this keeps the function safe by
+  // construction against rapid double-clicks or any future call site. The Tauri
+  // plugin does not serialize concurrent downloadAndInstall() calls.
+  if (status.state === "downloading") {
+    throw new Error("An update is already being applied");
   }
 
   apply({ type: "download-started" });
