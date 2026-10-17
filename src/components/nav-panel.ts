@@ -22,6 +22,7 @@ import {
 } from "../lib/tauri-api";
 import { ALL_GROUP_ID, hostMatches, sortByRecent, isNetboxHostId, isNetboxGroup } from "../lib/host-filters";
 import { escHtml } from "../lib/format";
+import { HostTooltip } from "../lib/host-tooltip";
 import { confirmDialog } from "../lib/confirm-dialog";
 import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
@@ -45,6 +46,14 @@ export interface NavCallbacks {
    *  host-row dot green in the nav panel, matching the content area. */
   getActiveSessions: () => Set<string>;
 }
+
+/** Pointer must dwell on a row this long before the tooltip shows, so
+ *  sweeping the pointer across the tree doesn't flash a tooltip on every
+ *  row it crosses. Keyboard focus bypasses the delay entirely. */
+const TIP_HOVER_DELAY_MS = 700;
+/** Grace period before hiding once every trigger is gone, so the pointer
+ *  can cross the gap between row and tooltip without a flicker. */
+const TIP_HIDE_GRACE_MS = 150;
 
 const SETTINGS_ITEMS = [
   { id: "general", label: "General", ready: true },
@@ -85,6 +94,17 @@ export class NavPanel {
   private renaming: { type: "host" | "group"; id: string } | null = null;
   private dragPayload: DragPayload | null = null;
   private dropIndicator: HTMLElement | null = null;
+  /** Shared host-row tooltip (issue #14): hostname/IP, port, platform, and
+   *  OS version when set — shown on hover AND keyboard focus. */
+  private tooltip = new HostTooltip();
+  /** Host row under the pointer / holding focus / with the pointer resting
+   *  on the tooltip itself. The tooltip stays up while any holds. */
+  private tipHoverRow: HTMLElement | null = null;
+  private tipFocusRow: HTMLElement | null = null;
+  private tipOverTooltip = false;
+  /** Pending hover-dwell show / grace-period hide (null = nothing pending). */
+  private tipHoverTimer: number | null = null;
+  private tipHideTimer: number | null = null;
 
   private static STORAGE_KEY = "netssh.nav.expandedGroups";
 
@@ -130,6 +150,15 @@ export class NavPanel {
   constructor(container: HTMLElement, callbacks: NavCallbacks) {
     this.container = container;
     this.cb = callbacks;
+    // WCAG 1.4.13 "hoverable": the pointer can move from a row onto the
+    // tooltip without dismissing it.
+    this.tooltip.onPointerEnterTooltip = () => {
+      this.tipOverTooltip = true;
+    };
+    this.tooltip.onPointerLeaveTooltip = () => {
+      this.tipOverTooltip = false;
+      this.syncTooltip();
+    };
   }
 
   async mount() {
@@ -152,6 +181,114 @@ export class NavPanel {
       dot.classList.toggle("dot-ok", isActive);
       dot.title = isActive ? "Session active" : "Previously connected";
     });
+  }
+
+  // ─── Host-row tooltip (issue #14) ─────────────────────────────────
+
+  /**
+   * Resolve hover/focus into tooltip visibility. Two trigger policies:
+   *
+   * - Focus shows immediately — a keyboard user lands on a row and
+   *   expects the info now.
+   * - Hover shows only after a dwell delay (TIP_HOVER_DELAY_MS), so
+   *   sweeping the pointer across the tree doesn't flash a tooltip on
+   *   every row it crosses.
+   *
+   * "Pointer resting on the tooltip" keeps it up (WCAG 1.4.13 hoverable),
+   * and losing every trigger hides after a short grace (TIP_HIDE_GRACE_MS)
+   * so the pointer can cross the gap between row and tooltip — or move
+   * straight to a neighbouring row — without a flicker.
+   */
+  private syncTooltip() {
+    // Never show while a context menu is open or a drag is in progress;
+    // the next hover/focus re-syncs once it ends.
+    if (this.contextMenu || this.dragStart || this.dragPayload) {
+      this.hideTooltip();
+      return;
+    }
+    // Pointer resting on the tooltip itself: keep whatever is showing.
+    if (this.tipOverTooltip && this.tooltip.visible) {
+      this.cancelTipTimers();
+      return;
+    }
+    if (this.tipFocusRow) {
+      this.cancelTipTimers();
+      this.showTooltipFor(this.tipFocusRow);
+      return;
+    }
+    if (this.tipHoverRow) {
+      // Hover on the row the tooltip already describes: nothing to do.
+      if (this.tooltip.visible && this.tooltip.anchorRow === this.tipHoverRow) {
+        this.cancelTipTimers();
+        return;
+      }
+      this.cancelTipHide();
+      this.armTipShow(this.tipHoverRow);
+      return;
+    }
+    this.armTipHide();
+  }
+
+  /** Show the tooltip for `row` now — committed triggers only. */
+  private showTooltipFor(row: HTMLElement) {
+    const host = this.hosts.find((h) => h.id === row.dataset.hostId);
+    if (host) {
+      this.tooltip.show(host, row);
+    } else {
+      this.tooltip.hide();
+    }
+  }
+
+  /** Arm (or re-arm) the delayed hover show for `row`. */
+  private armTipShow(row: HTMLElement) {
+    this.cancelTipShow();
+    this.tipHoverTimer = window.setTimeout(() => {
+      this.tipHoverTimer = null;
+      // The dwell only counts if the pointer never left the row.
+      if (this.tipHoverRow === row) this.showTooltipFor(row);
+    }, TIP_HOVER_DELAY_MS);
+  }
+
+  /** Arm the grace hide; any new trigger cancels it via syncTooltip. */
+  private armTipHide() {
+    this.cancelTipShow();
+    if (!this.tooltip.visible) return;
+    if (this.tipHideTimer !== null) return;
+    this.tipHideTimer = window.setTimeout(() => {
+      this.tipHideTimer = null;
+      if (!this.tipHoverRow && !this.tipFocusRow && !this.tipOverTooltip) {
+        this.tooltip.hide();
+      }
+    }, TIP_HIDE_GRACE_MS);
+  }
+
+  private cancelTipShow() {
+    if (this.tipHoverTimer !== null) {
+      window.clearTimeout(this.tipHoverTimer);
+      this.tipHoverTimer = null;
+    }
+  }
+
+  private cancelTipHide() {
+    if (this.tipHideTimer !== null) {
+      window.clearTimeout(this.tipHideTimer);
+      this.tipHideTimer = null;
+    }
+  }
+
+  private cancelTipTimers() {
+    this.cancelTipShow();
+    this.cancelTipHide();
+  }
+
+  /** Clear every tooltip trigger and pending timer, and hide it
+   *  (re-render, drag, Escape). */
+  private hideTooltip() {
+    this.tipHoverRow = null;
+    this.tipFocusRow = null;
+    this.tipOverTooltip = false;
+    this.cancelTipTimers();
+    this.tooltip.hide();
   }
 
   /** Re-render (e.g., after groups/hosts change). */
@@ -294,6 +431,10 @@ export class NavPanel {
   // ─── Render ──────────────────────────────────────────────────────
 
   private render() {
+    // Tooltip anchor rows die with the innerHTML rebuild below — drop the
+    // state first. Focus is restored at the end of render(), which
+    // re-shows the tooltip when the focused host row survives the rebuild.
+    this.hideTooltip();
     // Preserve focused element across the innerHTML rebuild
     const ae = document.activeElement;
     const prevFocus = ae instanceof HTMLElement && this.container.contains(ae)
@@ -1082,6 +1223,26 @@ export class NavPanel {
         if (this.dragMoved) return;
         this.cb.onConnectHost(id);
       });
+      // Detail tooltip (issue #14). Two independent triggers — hover and
+      // focus — so the tooltip stays up while either holds (e.g. pointer
+      // rests on the row while focus is elsewhere, or the row keeps focus
+      // and the pointer moves away).
+      el.addEventListener("pointerenter", () => {
+        this.tipHoverRow = el;
+        this.syncTooltip();
+      });
+      el.addEventListener("pointerleave", () => {
+        if (this.tipHoverRow === el) this.tipHoverRow = null;
+        this.syncTooltip();
+      });
+      el.addEventListener("focusin", () => {
+        this.tipFocusRow = el;
+        this.syncTooltip();
+      });
+      el.addEventListener("focusout", () => {
+        if (this.tipFocusRow === el) this.tipFocusRow = null;
+        this.syncTooltip();
+      });
       return;
     }
 
@@ -1119,6 +1280,10 @@ export class NavPanel {
   private onDragStart(e: PointerEvent, el: HTMLElement) {
     if (e.button !== 0) return;
     e.preventDefault();
+    // A drag gesture may be starting — clear the tooltip so it can't
+    // linger over drop targets mid-drag (and the row clone below stays
+    // free of a stale aria-describedby).
+    this.hideTooltip();
     this.dragStart = { x: e.clientX, y: e.clientY, el };
     this.dragPayload = null;
     this.dragMoved = false;
@@ -1475,6 +1640,14 @@ export class NavPanel {
           this.contextMenu = null;
           this.render();
         }
+        return;
+      }
+      // Escape dismisses a visible host tooltip without moving focus
+      // (WCAG 1.4.13); the next press falls through to global handling.
+      if (e.key === "Escape" && this.tooltip.visible) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hideTooltip();
         return;
       }
       switch (e.key) {
