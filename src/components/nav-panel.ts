@@ -105,6 +105,12 @@ export class NavPanel {
   /** Pending hover-dwell show / grace-period hide (null = nothing pending). */
   private tipHoverTimer: number | null = null;
   private tipHideTimer: number | null = null;
+  /** Document-level tooltip dismissal handlers (Escape outside the nav,
+   *  scroll, resize) — installed once in mount(), see
+   *  bindDocTooltipDismissals(). */
+  private docEscapeHandler: ((e: KeyboardEvent) => void) | null = null;
+  private docScrollHandler: ((e: Event) => void) | null = null;
+  private docResizeHandler: (() => void) | null = null;
 
   private static STORAGE_KEY = "netssh.nav.expandedGroups";
 
@@ -165,6 +171,7 @@ export class NavPanel {
     await this.loadData();
     this.render();
     this.bindKeys();
+    this.bindDocTooltipDismissals();
   }
 
   /** Update the host-row dots to reflect the current active-session set,
@@ -289,6 +296,60 @@ export class NavPanel {
     this.tipOverTooltip = false;
     this.cancelTipTimers();
     this.tooltip.hide();
+  }
+
+  /**
+   * Document-level dismissal paths the nav-scoped keyHandler can't reach
+   * (WCAG 1.4.13):
+   *
+   * - Escape while keyboard focus is outside the nav panel (e.g. in the
+   *   terminal) must still dismiss a hover-triggered tooltip. Passive by
+   *   design: when focus is in the terminal, the Escape byte belongs to
+   *   the remote device (shadow-buffer rule, ADR-002) — never
+   *   preventDefault or stopPropagation here.
+   * - The tooltip is fixed to the viewport: any scroll that moves its
+   *   anchor row, or a window resize, leaves it misplaced. Wheel
+   *   scrolling never fires pointerenter/leave, so nothing else would
+   *   re-anchor or dismiss it.
+   */
+  private bindDocTooltipDismissals() {
+    if (this.docEscapeHandler) {
+      document.removeEventListener("keydown", this.docEscapeHandler, true);
+    }
+    this.docEscapeHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !this.tooltip.visible) return;
+      if (this.contextMenu) return; // closing the menu owns this press
+      // Focus inside the nav: the container keyHandler owns the press
+      // (first Escape dismisses only the tooltip there).
+      if (this.container.contains(document.activeElement)) return;
+      this.hideTooltip();
+    };
+    document.addEventListener("keydown", this.docEscapeHandler, true);
+
+    // Scroll doesn't bubble — listen on capture to see every scroller.
+    if (this.docScrollHandler) {
+      document.removeEventListener("scroll", this.docScrollHandler, true);
+    }
+    this.docScrollHandler = (e: Event) => {
+      if (!this.tooltip.visible) return;
+      const anchor = this.tooltip.anchorRow;
+      if (!anchor) return;
+      const t = e.target;
+      // Only scrolls that actually move the anchor row invalidate it
+      // (terminal scrollback, modal content, etc. don't).
+      if (t instanceof Element ? t.contains(anchor) : t === document) {
+        this.hideTooltip();
+      }
+    };
+    document.addEventListener("scroll", this.docScrollHandler, true);
+
+    if (this.docResizeHandler) {
+      window.removeEventListener("resize", this.docResizeHandler);
+    }
+    this.docResizeHandler = () => {
+      if (this.tooltip.visible) this.hideTooltip();
+    };
+    window.addEventListener("resize", this.docResizeHandler);
   }
 
   /** Re-render (e.g., after groups/hosts change). */
@@ -730,6 +791,13 @@ export class NavPanel {
       if (n === lastInserted) break;
     }
     inserted.forEach((r) => {
+      // querySelectorAll matches descendants only — the inserted row
+      // itself never matches ".nav-host-row", so click, dblclick, and the
+      // tooltip listeners were silently missing on hosts revealed by an
+      // in-place expand (a pre-existing click gap the tooltip inherited).
+      // Bind the row root first, then its descendants (the button drag
+      // source and per-row action buttons).
+      if (r.matches(".nav-host-row")) this.bindRowEvents(r);
       r.querySelectorAll<HTMLElement>(".nav-item.nav-sub[data-group-id], .nav-host-row, .nav-group-row > .nav-item[data-group-id], .nav-host-row > .nav-item[data-host-id], .nav-row-btn").forEach((el) => {
         this.bindRowEvents(el);
       });
