@@ -155,7 +155,21 @@ Before marking a task complete:
 - Frontend logic with test files: run `npm run test` (vitest). It must exit 0.
 - Frontend unit tests are co-located with source as `*.test.ts` files in the same directory (e.g., `src/lib/suggestion-engine.test.ts` tests `src/lib/suggestion-engine.ts`). Do not create a separate `tests/` directory for unit tests — the top-level `tests/` holds harness-based integration tests.
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
+- Rust tests: run `cargo test` in `src-tauri/`. It must exit 0 (CI runs this on every PR).
 - Make sure that agent results match the expected outcomes.
+
+## Git Hygiene
+
+### Before starting work
+- Sync your branch with `origin` before you begin. Your working branch is usually `main` but may be a feature or release branch — whichever it is, fetch and confirm it already contains the latest commits from `origin`. Don't start work on a stale branch:
+  - `git fetch origin`, then read `git status -sb` for ahead/behind of upstream.
+  - If behind, merge or rebase your branch onto its upstream before making changes.
+
+### Before opening a PR
+- Re-run the Verification Requirements checks and confirm each exits 0: `npm run build`, `npm run test`, and `cargo check --all-targets`. "Task complete" is not the same as "ready to ship."
+- Run commitlint locally on your new commits before pushing, so you don't wait on CI to catch a malformed message. This mirrors the `commitlint` job in `ci.yml`:
+  - `npx commitlint --from origin/<target-branch>` (e.g. `origin/main`), or a specific range with `--from <base> --to <head>`.
+  - It checks the Conventional Commit rules in the Commit Messages section using `commitlint.config.cjs`.
 
 ## Commit Messages
 
