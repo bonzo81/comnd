@@ -91,4 +91,67 @@ describe("AuthInputCollector", () => {
     // Trailing input after the newline is dropped, not queued.
     expect(c.feed("extra\r")).toEqual({ kind: "none" });
   });
+
+  it("ignores Enter before the first round — no phantom empty answer", () => {
+    const c = new AuthInputCollector();
+    // The terminal is armed (ssh-auth-interactive) but no prompt has
+    // arrived yet — an impatient Enter must not queue an empty response
+    // that later answers the real round.
+    expect(c.feed("pw\r")).toEqual({ kind: "none" });
+    c.setRound(PW);
+    expect(c.feed("secret\r")).toEqual({ kind: "submit", responses: ["secret"] });
+  });
+
+  it("still cancels with Ctrl+C before the first round", () => {
+    const c = new AuthInputCollector();
+    expect(c.feed("\x03")).toEqual({ kind: "cancel" });
+  });
+
+  it("cancels with Ctrl+C after submitting, while the server processes", () => {
+    const c = new AuthInputCollector();
+    c.setRound(PW);
+    c.feed("pw\r");
+    expect(c.feed("\x03")).toEqual({ kind: "cancel" });
+    // …including later in a chunk, after other stale keys.
+    expect(c.feed("xy\x03")).toEqual({ kind: "cancel" });
+  });
+
+  it("treats a pasted CRLF as one Enter, not two", () => {
+    const c = new AuthInputCollector();
+    c.setRound([
+      { prompt: "Username: ", echo: true },
+      { prompt: "Password: ", echo: false },
+    ]);
+    // Windows clipboard text must not turn the second answer empty.
+    expect(c.feed("user\r\npassword\r\n")).toEqual({
+      kind: "submit",
+      responses: ["user", "password"],
+    });
+  });
+
+  it("lone CR and lone LF each count as one Enter", () => {
+    const c = new AuthInputCollector();
+    c.setRound(PW);
+    expect(c.feed("a\r")).toEqual({ kind: "submit", responses: ["a"] });
+    c.setRound(PW);
+    expect(c.feed("b\n")).toEqual({ kind: "submit", responses: ["b"] });
+  });
+
+  it("backspace removes a full code point (emoji span two UTF-16 units)", () => {
+    const c = new AuthInputCollector();
+    c.setRound(PW);
+    c.feed("a😀");
+    expect(c.feed("\x7f")).toEqual({ kind: "none" }); // drop just the emoji
+    expect(c.feed("\r")).toEqual({ kind: "submit", responses: ["a"] });
+  });
+
+  it("reset() deactivates the collector until the next round", () => {
+    const c = new AuthInputCollector();
+    c.setRound(PW);
+    c.feed("stale\r");
+    c.reset();
+    expect(c.feed("x\r")).toEqual({ kind: "none" });
+    c.setRound(PW);
+    expect(c.feed("fresh\r")).toEqual({ kind: "submit", responses: ["fresh"] });
+  });
 });

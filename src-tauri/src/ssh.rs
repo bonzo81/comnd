@@ -159,6 +159,39 @@ fn pending_auth() -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::U
     MAP.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
+/// Session ids whose connect the user cancelled while it was still
+/// pending. The `AuthControl::Cancel` channel only interrupts a *parked*
+/// auth round — the user can also close the view while the server is
+/// processing a submitted answer or during channel setup, when nobody
+/// is parked to read it. `ssh_disconnect` marks the id under the
+/// SSH-manager lock; `ssh_connect` re-checks the mark under the same
+/// lock before registering, so a cancelled attempt can never leave a
+/// live session behind a torn-down frontend.
+fn cancelled_auth() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Consume the cancel mark for a pending connect. `Ok(true)` = the user
+/// cancelled while auth was in flight — the session must not register.
+fn take_cancel_mark(session_id: u64) -> Result<bool, String> {
+    cancelled_auth()
+        .lock()
+        .map(|mut marks| marks.remove(&session_id))
+        .map_err(|e| e.to_string())
+}
+
+/// Drop a dead cancel mark — the connect failed, nothing will register.
+fn discard_cancel_mark(session_id: u64) -> Result<(), String> {
+    cancelled_auth()
+        .lock()
+        .map(|mut marks| {
+            marks.remove(&session_id);
+        })
+        .map_err(|e| e.to_string())
+}
+
 /// True when the host is saved as password auth but has no stored password
 /// (issue #12): nothing can answer the device's prompt automatically, so
 /// the user must type it in the terminal during connect. The gate is on the
@@ -714,9 +747,13 @@ impl SshSession {
                     // Interactive credential round (issue #12): password-auth
                     // host with no stored password. Surface the prompts in
                     // the terminal and park until the user answers — never
-                    // answer empty, never log the answers.
+                    // answer empty, never log the answers. Empty prompt
+                    // lists (informational rounds) are excluded: nothing
+                    // can be answered, so the automatic arm below replies
+                    // with an empty vector instead of stalling on a user
+                    // who was never asked anything.
                     let responses = match auth_rx.as_mut() {
-                        Some(rx) if !url_round && stored_password.is_none() => {
+                        Some(rx) if !url_round && stored_password.is_none() && !prompts.is_empty() => {
                             let _ = app_handle.emit("ssh-auth-round", SshAuthRoundPayload {
                                 session_id,
                                 prompts: prompts
@@ -1134,6 +1171,18 @@ mod tests {
         drop(tx);
         assert!(await_auth_responses(&mut rx).await.is_err());
     }
+
+    #[test]
+    fn test_cancel_mark_consumed_once() {
+        // ssh_disconnect marks a pending connect…
+        cancelled_auth().lock().unwrap().insert(0xC0FFEE);
+        // …the registration guard consumes the mark exactly once…
+        assert!(take_cancel_mark(0xC0FFEE).unwrap());
+        assert!(!take_cancel_mark(0xC0FFEE).unwrap());
+        // …and a failed connect discards a dead mark without inventing one.
+        discard_cancel_mark(0xC0FFEE).unwrap();
+        assert!(!take_cancel_mark(0xC0FFEE).unwrap());
+    }
 }
 
 // ─── SSH Commands ───────────────────────────────────────────────────
@@ -1261,9 +1310,31 @@ pub async fn ssh_connect(
     // 120s auth timeout dropping the round wait mid-flight. Late
     // ssh_auth_respond calls become no-ops.
     pending_auth().lock().map_err(|e| e.to_string())?.remove(&session_id);
-    let session = session?;
 
+    let session = match session {
+        Ok(session) => session,
+        Err(e) => {
+            // No session will register — the cancel mark, if any, is dead.
+            discard_cancel_mark(session_id)?;
+            return Err(e);
+        }
+    };
+
+    // Registration guard (issue #12 review): the user can cancel while auth
+    // is in flight — after submitting an answer, during the browser-auth
+    // URL wait, or while the channel opens, when no parked round reads the
+    // Cancel message. `ssh_disconnect` marks the session under this same
+    // lock, so checking the mark under the lock makes cancellation and
+    // registration mutually exclusive: a cancelled connect drops the
+    // session instead of leaving a live zombie behind a torn-down view.
     let mut mgr = state.ssh.lock().await;
+    let cancelled = take_cancel_mark(session_id)?;
+    if cancelled {
+        drop(mgr);
+        log::info!("Session {} cancelled mid-connect — dropping before registration", session_id);
+        let _ = session.disconnect().await;
+        return Err("Connection cancelled during authentication".to_string());
+    }
     mgr.insert_session(session);
     Ok(())
 }
@@ -1290,12 +1361,21 @@ pub async fn ssh_disconnect(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // Take the handle out under the lock, then disconnect without holding it.
-    // `None` = already gone (remote close evicted it first) — a no-op,
-    // unless an interactive auth round is still waiting for input (issue #12):
-    // then the cancel aborts the auth loop so no zombie connect lingers.
+    // `None` = already gone (remote close evicted it first) — or the connect
+    // is still pending (issue #12). Then: cancel any parked interactive auth
+    // round AND mark the session (under this same lock) so `ssh_connect`'s
+    // registration guard can never register a live session the frontend
+    // has already torn down.
     let session = {
         let mut mgr = state.ssh.lock().await;
-        mgr.take_session(session_id)
+        let session = mgr.take_session(session_id);
+        if session.is_none() {
+            cancelled_auth()
+                .lock()
+                .map_err(|e| e.to_string())?
+                .insert(session_id);
+        }
+        session
     };
     match session {
         Some(session) => session.disconnect().await,

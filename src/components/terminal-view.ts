@@ -1002,6 +1002,10 @@ export class TerminalView {
         // answers it. The connect overlay's read-only pane is bypassed.
         log.info(LogTag.Terminal, "Interactive auth mode armed — showing terminal");
         this.authInteractive = true;
+        // Fresh connect attempt: the collector stays inactive until the
+        // first round arrives, so an early Enter cannot queue a phantom
+        // empty answer for a round that has not been asked yet.
+        this.authInput.reset();
         this.hideOverlay();
         this.terminal?.focus();
         break;
@@ -1012,6 +1016,11 @@ export class TerminalView {
         // prompts (a wrong password re-prompt arrives as a fresh round).
         log.info(LogTag.Terminal, `Interactive auth round (${e.prompts.length} prompt(s))`);
         this.authInteractive = true;
+        // A URL banner earlier routed this round's prompt text to the
+        // overlay buffer (the backend writes it before emitting this
+        // event) — replay it into the terminal so the question the user
+        // must answer is actually visible.
+        this.flushOutputBufferToTerminal();
         this.authInput.setRound(e.prompts);
         this.hideOverlay();
         this.terminal?.focus();
@@ -1699,6 +1708,19 @@ export class TerminalView {
     if (outputEl) {
       outputEl.classList.add("hidden");
     }
+  }
+
+  /**
+   * Replay overlay-buffered connect output into the terminal and drop
+   * the pane copy — used when a browser-auth URL round restored the
+   * overlay and the next auth round brings interactive mode back: the
+   * prompt text arrived while the overlay was up and must be visible
+   * before the user answers.
+   */
+  private flushOutputBufferToTerminal(): void {
+    if (this.outputBuffer.length === 0) return;
+    this.terminal?.write(this.outputBuffer.join(""));
+    this.clearOutputBuffer();
   }
 
 }
