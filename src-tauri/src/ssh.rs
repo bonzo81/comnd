@@ -134,6 +134,56 @@ fn try_open_auth_url(
     }
 }
 
+// ─── Interactive Auth (issue #12) ───────────────────────────────────
+
+/// Frontend→backend control for an in-flight interactive auth round.
+/// Answers are handed straight to the auth loop — never logged, never
+/// written to the transcript, never persisted.
+#[derive(Debug)]
+pub enum AuthControl {
+    /// User-typed answers for the current credential round.
+    Respond(Vec<String>),
+    /// User cancelled the connect — abort the auth loop.
+    Cancel,
+}
+
+/// Pending interactive-auth senders keyed by session_id, mirroring
+/// `pending_tofu`. The auth loop parks on the receiving end
+/// (`await_auth_responses`); `ssh_auth_respond` delivers answers and
+/// `ssh_disconnect` cancels. std Mutex is safe: guards are dropped before
+/// every await point.
+fn pending_auth() -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::UnboundedSender<AuthControl>>> {
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::UnboundedSender<AuthControl>>>,
+    > = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// True when the host is saved as password auth but has no stored password
+/// (issue #12): nothing can answer the device's prompt automatically, so
+/// the user must type it in the terminal during connect. The gate is on the
+/// host record + resolved secret, so it covers HostStore and NetBox hosts
+/// alike. Stored-password, key, agent, and secret-ref hosts are excluded;
+/// credential-less hosts (browser-auth gateways) stay on the overlay flow.
+fn needs_interactive_auth(
+    credential: Option<&credentials::CredentialSource>,
+    creds: &ResolvedCredentials,
+) -> bool {
+    matches!(credential, Some(credentials::CredentialSource::Password)) && creds.password.is_none()
+}
+
+/// Park one credential round until the user's answers arrive. Err = the
+/// user cancelled (or the frontend went away) — the connect must abort.
+async fn await_auth_responses(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<AuthControl>,
+) -> Result<Vec<String>, String> {
+    match rx.recv().await {
+        Some(AuthControl::Respond(responses)) => Ok(responses),
+        Some(AuthControl::Cancel) => Err("cancelled".to_string()),
+        None => Err("cancelled".to_string()),
+    }
+}
+
 // ─── Client Handler ─────────────────────────────────────────────────
 
 /// Tauri event payloads
@@ -147,6 +197,20 @@ pub struct SshEventPayload {
 pub struct SshAuthUrlPayload {
     pub url: String,
     pub session_id: u64,
+}
+
+/// One keyboard-interactive prompt surfaced to the terminal (issue #12).
+#[derive(Clone, Serialize)]
+pub struct SshAuthPromptPayload {
+    pub prompt: String,
+    pub echo: bool,
+}
+
+/// A credential round the user must answer in the terminal.
+#[derive(Clone, Serialize)]
+pub struct SshAuthRoundPayload {
+    pub session_id: u64,
+    pub prompts: Vec<SshAuthPromptPayload>,
 }
 
 struct ClientHandler {
@@ -358,6 +422,7 @@ impl SshSession {
         session_logging: bool,
         session_log_timestamps: bool,
         session_log_dir: Option<String>,
+        mut auth_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<Self, String> {
         log::info!("SSH connecting to {}:{} as '{}' ({}x{})", hostname, port, username, cols, rows);
 
@@ -414,7 +479,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, username, password, key_path, agent, session_id, &transcript),
+            Self::authenticate(&app_handle, &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
@@ -482,11 +547,13 @@ impl SshSession {
         app_handle: &tauri::AppHandle,
         session: &mut client::Handle<ClientHandler>,
         username: &str,
+        hostname: &str,
         password: Option<&str>,
         key_path: Option<&str>,
         agent: crate::hosts::AgentAuth,
         session_id: u64,
         transcript: &crate::transcript::SharedTranscript,
+        auth_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<bool, String> {
         // Agent publickey auth — first in the chain (chunk 4). The agent socket is
         // opened per connect attempt and dropped when this function returns.
@@ -607,20 +674,27 @@ impl SshSession {
         }
 
         // Fallback: keyboard-interactive auth, as a bounded multi-round loop.
-        // Two server families land here:
+        // Three server families land here:
         //  - Browser-auth gateways (Tailscale check mode): prompts carry a login URL.
         //    We surface it in the connect overlay, reply with EMPTY responses, and
         //    the server holds that reply open until the user finishes the browser
         //    login — then answers Success. The respond().await below IS the browser
         //    wait (bounded by the 120s timeout in connect()).
         //  - Cisco/F5 style: prompts ask for the password → answer with the stored one.
+        //  - Password-method-only servers (issue #12): the method is refused with
+        //    no round at all → fall back to a client-side password prompt.
         log::info!("Attempting keyboard-interactive auth");
         let mut current = session
             .authenticate_keyboard_interactive_start(username, None::<String>)
             .await;
+        // Whether the server ever showed a round. No round + Failure/Err means
+        // the method itself is unavailable (e.g. Linux with
+        // `KbdInteractiveAuthentication no`) — the issue #12 fallback applies.
+        let mut saw_round = false;
         for round in 1..=5u32 {
             match current {
                 Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
+                    saw_round = true;
                     // Emit any auth URL (browser-auth round detection); the
                     // user opens it from the connect overlay — never auto-open.
                     try_open_auth_url(app_handle, &instructions, session_id);
@@ -637,11 +711,40 @@ impl SshSession {
                             crate::transcript::write_output(transcript, prompt.prompt.as_bytes());
                         }
                     }
-                    let responses = responses_for_round(url_round, stored_password.as_deref(), prompts.len());
-                    log::info!(
-                        "Keyboard-interactive round {} ({} prompt(s), {} round) — responding",
-                        round, prompts.len(), if url_round { "browser-auth" } else { "credential" }
-                    );
+                    // Interactive credential round (issue #12): password-auth
+                    // host with no stored password. Surface the prompts in
+                    // the terminal and park until the user answers — never
+                    // answer empty, never log the answers.
+                    let responses = match auth_rx.as_mut() {
+                        Some(rx) if !url_round && stored_password.is_none() => {
+                            let _ = app_handle.emit("ssh-auth-round", SshAuthRoundPayload {
+                                session_id,
+                                prompts: prompts
+                                    .iter()
+                                    .map(|p| SshAuthPromptPayload { prompt: p.prompt.clone(), echo: p.echo })
+                                    .collect(),
+                            });
+                            log::info!(
+                                "Keyboard-interactive round {} ({} prompt(s), interactive) — waiting for user",
+                                round,
+                                prompts.len(),
+                            );
+                            match await_auth_responses(rx).await {
+                                Ok(responses) => responses,
+                                Err(_) => {
+                                    log::info!("Interactive auth cancelled during round {}", round);
+                                    return Err("Connection cancelled during authentication".to_string());
+                                }
+                            }
+                        }
+                        _ => {
+                            log::info!(
+                                "Keyboard-interactive round {} ({} prompt(s), {} round) — responding",
+                                round, prompts.len(), if url_round { "browser-auth" } else { "credential" }
+                            );
+                            responses_for_round(url_round, stored_password.as_deref(), prompts.len())
+                        }
+                    };
                     current = session.authenticate_keyboard_interactive_respond(responses).await;
                 }
                 Ok(KeyboardInteractiveAuthResponse::Success) => {
@@ -650,15 +753,86 @@ impl SshSession {
                 }
                 Ok(KeyboardInteractiveAuthResponse::Failure) => {
                     log::info!("Keyboard-interactive auth rejected (server refused method or credentials)");
+                    // Refused without a single round → the method is
+                    // unavailable. Issue #12: prompt for the password
+                    // client-side, like the OpenSSH CLI does.
+                    if !saw_round {
+                        return Self::password_prompt_fallback(
+                            app_handle, session, username, hostname, session_id, transcript, auth_rx,
+                        )
+                        .await;
+                    }
                     return Ok(false);
                 }
                 Err(e) => {
                     log::info!("Keyboard-interactive auth not available: {}", e);
+                    if !saw_round {
+                        return Self::password_prompt_fallback(
+                            app_handle, session, username, hostname, session_id, transcript, auth_rx,
+                        )
+                        .await;
+                    }
                     return Ok(false);
                 }
             }
         }
         log::warn!("Keyboard-interactive auth exceeded 5 rounds without resolution");
+        Ok(false)
+    }
+
+    /// Issue #12 fallback for servers that offer no keyboard-interactive
+    /// method (e.g. Linux with `KbdInteractiveAuthentication no`, password
+    /// method only). The `password` method is single-shot — the server
+    /// never prompts — so the CLIENT prompts, exactly like the OpenSSH
+    /// CLI, and each typed answer is one password attempt (three, like
+    /// `ssh`). Not armed (any other flow) → today's unchanged failure.
+    /// The typed answer goes straight to russh — never logged, never
+    /// written to the transcript.
+    #[allow(clippy::too_many_arguments)]
+    async fn password_prompt_fallback(
+        app_handle: &tauri::AppHandle,
+        session: &mut client::Handle<ClientHandler>,
+        username: &str,
+        hostname: &str,
+        session_id: u64,
+        transcript: &crate::transcript::SharedTranscript,
+        auth_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
+    ) -> Result<bool, String> {
+        let Some(rx) = auth_rx.as_mut() else {
+            return Ok(false);
+        };
+        log::info!("Interactive auth: keyboard-interactive unavailable — prompting for password client-side");
+        let prompt = format!("{}@{}'s password: ", username, hostname);
+        for attempt in 1..=3u32 {
+            // Prompt text reaches the terminal via the transcript exactly like
+            // device prompts (and the session log); a fresh line per retry.
+            if attempt > 1 {
+                crate::transcript::write_output(transcript, b"\r\n");
+            }
+            crate::transcript::write_output(transcript, prompt.as_bytes());
+            let _ = app_handle.emit("ssh-auth-round", SshAuthRoundPayload {
+                session_id,
+                prompts: vec![SshAuthPromptPayload { prompt: prompt.clone(), echo: false }],
+            });
+            let answers = match await_auth_responses(rx).await {
+                Ok(answers) => answers,
+                Err(_) => {
+                    log::info!("Interactive password prompt cancelled (attempt {})", attempt);
+                    return Err("Connection cancelled during authentication".to_string());
+                }
+            };
+            // Counts only — the answer itself is never logged.
+            let answer = answers.into_iter().next().unwrap_or_default();
+            log::info!("Attempting password auth with typed password (attempt {})", attempt);
+            match session.authenticate_password(username, &answer).await {
+                Ok(true) => {
+                    log::info!("Password auth succeeded (attempt {})", attempt);
+                    return Ok(true);
+                }
+                Ok(false) => log::info!("Typed password rejected (attempt {})", attempt),
+                Err(e) => return Err(format!("Password auth error: {}", e)),
+            }
+        }
         Ok(false)
     }
 
@@ -917,6 +1091,49 @@ mod tests {
         );
         assert_eq!(extract_https_url("Password:"), None);
     }
+
+    #[test]
+    fn test_needs_interactive_auth_gate() {
+        use crate::credentials::CredentialSource;
+        let password = Some(CredentialSource::Password);
+        let key = Some(CredentialSource::SshKey { key_path: "k".into() });
+        let none: Option<CredentialSource> = None;
+        let with_pw = ResolvedCredentials {
+            password: Some("x".into()),
+            ..Default::default()
+        };
+        let without = ResolvedCredentials::default();
+
+        // The only arming combination: password auth AND no stored password.
+        assert!(needs_interactive_auth(password.as_ref(), &without));
+        // Stored password answers automatically — not interactive.
+        assert!(!needs_interactive_auth(password.as_ref(), &with_pw));
+        // Key, agent/secret-ref, and credential-less (browser-auth) hosts.
+        assert!(!needs_interactive_auth(key.as_ref(), &without));
+        assert!(!needs_interactive_auth(none.as_ref(), &without));
+    }
+
+    #[tokio::test]
+    async fn test_await_auth_responses_receives_respond() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(AuthControl::Respond(vec!["pw".into()])).unwrap();
+        assert_eq!(
+            await_auth_responses(&mut rx).await.unwrap(),
+            vec!["pw".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_await_auth_responses_cancel_and_close() {
+        // Explicit cancel aborts the round…
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(AuthControl::Cancel).unwrap();
+        assert!(await_auth_responses(&mut rx).await.is_err());
+        // …and so does a dropped frontend (channel closed).
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        assert!(await_auth_responses(&mut rx).await.is_err());
+    }
 }
 
 // ─── SSH Commands ───────────────────────────────────────────────────
@@ -1004,6 +1221,25 @@ pub async fn ssh_connect(
         (c.session_logging, c.session_log_timestamps, c.session_log_dir.clone())
     };
 
+    // Issue #12: password-auth host with no stored password. Arm interactive
+    // auth — the device's prompt (e.g. `Password: `) becomes visible in the
+    // terminal and the user's typed answers complete the handshake. All
+    // other flows stay exactly as before.
+    let mut auth_rx = None;
+    if needs_interactive_auth(credential.as_ref(), &creds) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        pending_auth().lock().map_err(|e| e.to_string())?.insert(session_id, tx);
+        auth_rx = Some(rx);
+        log::info!(
+            "Interactive auth armed for session {} (password auth, no stored password)",
+            session_id
+        );
+        let _ = app_handle.emit("ssh-auth-interactive", SshEventPayload {
+            reason: "password_prompt".to_string(),
+            session_id,
+        });
+    }
+
     let session = SshSession::connect(
         app_handle,
         &hostname,
@@ -1018,8 +1254,14 @@ pub async fn ssh_connect(
         session_logging,
         session_log_timestamps,
         session_log_dir,
+        auth_rx,
     )
-    .await?;
+    .await;
+    // Always drop the pending-auth entry — covers success, failure, and the
+    // 120s auth timeout dropping the round wait mid-flight. Late
+    // ssh_auth_respond calls become no-ops.
+    pending_auth().lock().map_err(|e| e.to_string())?.remove(&session_id);
+    let session = session?;
 
     let mut mgr = state.ssh.lock().await;
     mgr.insert_session(session);
@@ -1048,14 +1290,22 @@ pub async fn ssh_disconnect(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // Take the handle out under the lock, then disconnect without holding it.
-    // `None` = already gone (remote close evicted it first) — a no-op.
+    // `None` = already gone (remote close evicted it first) — a no-op,
+    // unless an interactive auth round is still waiting for input (issue #12):
+    // then the cancel aborts the auth loop so no zombie connect lingers.
     let session = {
         let mut mgr = state.ssh.lock().await;
         mgr.take_session(session_id)
     };
     match session {
         Some(session) => session.disconnect().await,
-        None => Ok(()),
+        None => {
+            let tx = pending_auth().lock().map_err(|e| e.to_string())?.remove(&session_id);
+            if let Some(tx) = tx {
+                let _ = tx.send(AuthControl::Cancel);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -1084,6 +1334,23 @@ pub async fn tofu_respond(session_id: u64, accept: bool) -> Result<(), String> {
     if let Some(tx) = tx {
         // Send failure just means check_server_key gave up first (timeout).
         let _ = tx.send(accept);
+    }
+    Ok(())
+}
+
+/// Submit the user's answers for the pending interactive auth round
+/// (issue #12). Unknown session_id → no-op (round raced a timeout/cancel).
+/// Answers go straight to the auth loop — never logged or persisted.
+#[tauri::command]
+pub async fn ssh_auth_respond(session_id: u64, responses: Vec<String>) -> Result<(), String> {
+    let tx = pending_auth()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&session_id)
+        .cloned();
+    if let Some(tx) = tx {
+        tx.send(AuthControl::Respond(responses))
+            .map_err(|_| "Auth round already resolved".to_string())?;
     }
     Ok(())
 }

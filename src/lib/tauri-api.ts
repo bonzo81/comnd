@@ -293,6 +293,12 @@ export async function sshDisconnect(sessionId: number): Promise<void> {
   return invoke<void>("ssh_disconnect", { sessionId });
 }
 
+/** Answer a pending interactive auth round (issue #12). Answers go
+ * straight to the backend auth loop — never logged or persisted. */
+export async function sshAuthRespond(sessionId: number, responses: string[]): Promise<void> {
+  return invoke<void>("ssh_auth_respond", { sessionId, responses });
+}
+
 export async function sshResize(sessionId: number, cols: number, rows: number): Promise<void> {
   return invoke<void>("ssh_resize", { sessionId, cols, rows });
 }
