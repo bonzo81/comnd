@@ -1,7 +1,7 @@
 # 005. Auth-phase prompt responses travel via Rust IPC (bounded exception to 002)
 
 Date: 2026-10-17
-Status: Proposed
+Status: Accepted
 
 ## Context
 Issue 12: connecting to a host saved with password auth and no stored password shows a non-interactive connect overlay — the user never sees the device's `Password:` prompt and cannot complete the connection. The decided fix (issue 12) is to show the real terminal interactively during connect so the user types the answer directly, with native SSH output visible.
