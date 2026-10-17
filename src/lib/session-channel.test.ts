@@ -133,4 +133,29 @@ describe("SessionChannel", () => {
     expect(channel.state).toBe("error");
     expect(events).toContainEqual({ type: "connect-failed", reason: "channel_eof" });
   });
+
+  it("maps ssh-auth-interactive and ssh-auth-round to normalized events (issue #12)", async () => {
+    const { transport, channel, events } = mk();
+    await channel.connect("h1", { cols: 80, rows: 24 });
+
+    transport.emit("ssh-auth-interactive", { reason: "password_prompt", session_id: channel.sessionId });
+    expect(events).toContainEqual({ type: "auth-interactive" });
+
+    const prompts = [{ prompt: "Password: ", echo: false }];
+    transport.emit("ssh-auth-round", { session_id: channel.sessionId, prompts });
+    expect(events).toContainEqual({ type: "auth-round", prompts });
+  });
+
+  it("ignores interactive-auth events with a stale session_id", async () => {
+    const { transport, channel, events } = mk();
+    await channel.connect("h1", { cols: 80, rows: 24 });
+
+    const stale = (channel.sessionId ?? 0) - 1;
+    transport.emit("ssh-auth-interactive", { reason: "password_prompt", session_id: stale });
+    transport.emit("ssh-auth-round", { session_id: stale, prompts: [] });
+
+    expect(
+      events.filter((e) => e.type === "auth-interactive" || e.type === "auth-round"),
+    ).toEqual([]);
+  });
 });

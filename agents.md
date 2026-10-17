@@ -36,7 +36,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 
 1. **Shadow buffer model** — No local echo; keystrokes reach the remote in real time, and the frontend keeps an observe-only shadow buffer. See ADR-001.
 
-2. **Input handling in frontend** — Keystrokes are handled in the xterm.js handler; never routed through Rust. See ADR-002.
+2. **Input handling in frontend** — Keystrokes are handled in the xterm.js handler; never routed through Rust. Bounded exception: pre-channel auth-phase prompt responses cross via one dedicated IPC command during connect only. See ADR-002, ADR-005.
 
 3. **Prompt detection** — State machine in frontend: ANSI strip → idle detection (200ms) → regex match against platform `prompt_patterns`. This powers mode awareness and shadow buffer reset.
 

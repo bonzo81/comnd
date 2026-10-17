@@ -25,7 +25,9 @@ export type SessionEvent =
   | { type: "error"; reason: string }
   | { type: "tofu"; reason: string }
   | { type: "tofu-pending"; hostKey: string; fingerprint: string; keyType: string }
-  | { type: "auth-url"; url: string };
+  | { type: "auth-url"; url: string }
+  | { type: "auth-interactive" }
+  | { type: "auth-round"; prompts: { prompt: string; echo: boolean }[] };
 
 /** Abstraction over the SSH IPC + event stream. Prod = Tauri; tests = in-memory. */
 export interface SessionTransport {
@@ -205,6 +207,22 @@ export class SessionChannel {
         const p = raw as { url: string; session_id: number };
         if (!shouldAcceptEvent(p.session_id, sid)) return;
         this.emit({ type: "auth-url", url: p.url });
+      }),
+    );
+
+    this.unlisteners.push(
+      await this.transport.listen("ssh-auth-interactive", (raw) => {
+        const p = raw as { session_id: number };
+        if (!shouldAcceptEvent(p.session_id, sid)) return;
+        this.emit({ type: "auth-interactive" });
+      }),
+    );
+
+    this.unlisteners.push(
+      await this.transport.listen("ssh-auth-round", (raw) => {
+        const p = raw as { session_id: number; prompts: { prompt: string; echo: boolean }[] };
+        if (!shouldAcceptEvent(p.session_id, sid)) return;
+        this.emit({ type: "auth-round", prompts: p.prompts });
       }),
     );
   }

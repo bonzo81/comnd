@@ -13,6 +13,8 @@ The keystroke path is latency-critical — a round-trip per key is perceptible (
 ## Decision
 Keystrokes are handled in the xterm.js handler in the frontend. KB queries go async to Rust via Tauri IPC. Keystrokes are never routed through Rust.
 
+Bounded exception: see ADR 005 (auth-phase prompt responses) — typed answers to pre-channel auth prompts cross via one dedicated IPC command during connect only.
+
 ## Consequences
 - Easier: zero IPC on the keystroke path → responsive typing; deterministic and testable in the browser.
 - Harder: input logic concentrates in the frontend (`SuggestionController`); can't lean on the backend for routing.

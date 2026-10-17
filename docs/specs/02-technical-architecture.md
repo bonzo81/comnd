@@ -19,6 +19,8 @@ Communication between frontend and backend via Tauri v2's IPC command system (ty
   * Uses the method configured per saved host (password or SSH key). Hosts store a `credential` source enum: `Password` (OS keychain entry keyed by host id) or `SshKey` (local key file path); `Agent` and `SecretRef` variants are planned. Legacy `auth_type`/`ssh_key_path` fields in hosts.json are read-compat only — synthesized into `credential` on load, never re-serialized.
   * **Credential resolution is Rust-side.** `ssh_connect(host_id, cols, rows, session_id)` loads the host from the store and resolves the secret inside Rust before authenticating — passwords never enter the webview or IPC payloads. The frontend sends only the host id.
   * **Keyboard-interactive auth** supported — many network devices (Cisco, F5) use this instead of simple password auth. The app handles challenge/response prompts and passes the stored password.
+  * **Interactive auth (issue #12):** a host saved with password auth but no stored password (regular or NetBox-imported alike) authenticates in the terminal, not the overlay. `ssh_connect` computes the gate backend-side (`needs_interactive_auth`) and emits `ssh-auth-interactive`; auth-phase output (banner, prompts) streams into the real xterm.js terminal. The user answers by typing: keystrokes are assembled in the frontend (`AuthInputCollector`) and submitted once per round via `ssh_auth_respond` — the bounded ADR-002 auth-phase exception. Enter submits the round, Ctrl+C cancels the connect, and the 120s auth timeout keeps running. Typed answers go straight to russh — never logged, transcribed, or persisted; only prompt text reaches the session log. A URL round (browser-auth gateway) restores the overlay with its "Open login page" button.
+  * **Client-side password fallback:** the `password` method is single-shot — the server never prompts. When an armed session meets a server that refuses keyboard-interactive without any round (Linux with `KbdInteractiveAuthentication no`), the client synthesizes `user@host's password: ` in the terminal — exactly like the OpenSSH CLI — and fires the typed answer as one password attempt, up to three (mirroring `ssh`).
   * **Key formats:** OpenSSH and PEM (via `russh`). PKCS#8 support post-MVP if needed.
   * **Passphrase-protected keys:** user prompted at connect time. Passphrase optionally stored in OS keychain.
 * **Connection lifecycle:**
@@ -38,6 +40,7 @@ Communication between frontend and backend via Tauri v2's IPC command system (ty
 | Host key changed (potential MITM) | **Blocking warning** — "Host key has changed. This could indicate a man-in-the-middle attack." User must explicitly accept the new key or abort. Old key shown for comparison. |
 | Connection drops mid-session | "Disconnected" overlay with reconnect button. Terminal frozen (no input accepted). Last output preserved. |
 | Keyboard-interactive challenge unrecognised | Fall back to prompting user for input in a dialog box. |
+| Auth-phase prompt cancelled (Ctrl+C) or auth timeout (120s) | Connect aborts cleanly; no half-open session. |
 
 ## Keystroke Flow & Input Interception
 

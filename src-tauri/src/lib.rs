@@ -382,6 +382,7 @@ pub fn run() {
                 ssh::ssh_send,
                 ssh::ssh_disconnect,
                 ssh::ssh_resize,
+                ssh::ssh_auth_respond,
                 ssh::tofu_respond,
                 config::get_app_config,
                 config::save_llm_settings,

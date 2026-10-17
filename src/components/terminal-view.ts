@@ -16,6 +16,7 @@ import {
   Host,
   sshSend,
   sshResize,
+  sshAuthRespond,
   touchHost,
   loadPlatformIndex,
   queryKb,
@@ -38,6 +39,7 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
+import { AuthInputCollector } from "../lib/auth-input";
 import { ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
   import { confirmDialog } from "../lib/confirm-dialog";
   import { openModal } from "../lib/modal";
@@ -147,6 +149,13 @@ export class TerminalView {
   private host: Host | null = null;
   private channel: SessionChannel;
   private progress: ConnectProgress = { stage: "" };
+  /** Interactive auth (issue #12): password-auth host with no stored
+   * password — the device's prompt is answered in the real terminal. */
+  private authInteractive = false;
+  private authInput = new AuthInputCollector();
+  /** Set on user cancel/teardown so a late backend rejection doesn't
+   * flash an error overlay on an already-abandoned view. */
+  private connectCancelled = false;
 
   // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
   private tracker: LineTracker;
@@ -342,9 +351,12 @@ export class TerminalView {
       return true; // let all other keys through
     });
 
-    // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no local echo)
+    // Wire keystroke input → SSH + shadow buffer (shadow buffer model: no
+    // local echo). During interactive auth (issue #12) keystrokes answer the
+    // device's prompt instead — no shadow buffer, no suggestions, no echo.
     this.terminal.onData((data) => {
-      this.controller.keyIn(data);
+      if (this.authInteractive) this.authKeyIn(data);
+      else this.controller.keyIn(data);
     });
   }
 
@@ -352,6 +364,23 @@ export class TerminalView {
   private sendData(data: string) {
     if (this.channel.state === "connected" && this.channel.sessionId) {
       sshSend(this.channel.sessionId, data).catch(() => {});
+    }
+  }
+
+  /**
+   * Keystroke during interactive auth (issue #12): no SSH channel exists
+   * yet, so input assembles locally and crosses IPC once per prompt
+   * (Enter) via ssh_auth_respond. Nothing is echoed, logged, or fed to
+   * the shadow buffer — the backend hands answers straight to the auth
+   * loop. The normal post-connect keystroke path (keyIn) is untouched.
+   */
+  private authKeyIn(data: string) {
+    const r = this.authInput.feed(data);
+    if (r.kind === "submit") {
+      const sid = this.channel.sessionId;
+      if (sid != null) sshAuthRespond(sid, r.responses).catch(() => {});
+    } else if (r.kind === "cancel") {
+      void this.cancelConnect();
     }
   }
 
@@ -378,8 +407,12 @@ export class TerminalView {
   /** Read clipboard and send it to the remote session + shadow buffer. */
   private pasteClipboard() {
     navigator.clipboard.readText().then((text) => {
-      if (text && this.channel.state === "connected" && this.channel.sessionId) {
+      if (!text) return;
+      if (this.channel.state === "connected" && this.channel.sessionId) {
         this.controller.paste(text);
+      } else if (this.authInteractive) {
+        // Pasting into the auth prompt — a trailing Enter submits, like typing.
+        this.authKeyIn(text);
       }
     });
   }
@@ -722,6 +755,8 @@ export class TerminalView {
 
     this.host = host;
     log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
+    this.connectCancelled = false;
+    this.authInteractive = false;
 
     // Update top bar
     this.updateHostInfo();
@@ -777,6 +812,10 @@ export class TerminalView {
 
       log.info(LogTag.Terminal, `sshConnect resolved successfully (session_id=${this.channel.sessionId})`);
     } catch (err) {
+      // User cancelled (overlay Cancel / Ctrl+C at the auth prompt): the
+      // view is already torn down — a late backend rejection must not
+      // flash an error overlay on the abandoned connect (issue #12).
+      if (this.connectCancelled) return;
       log.error(LogTag.Terminal, `Connection failed: ${err}`);
       this.showError(String(err));
     }
@@ -825,6 +864,14 @@ export class TerminalView {
           // Feeds the line tracker (original untransformed text — injected ANSI
           // would corrupt prompt matching), then echo re-sync + burst timer.
           this.controller.onOutput(text);
+        } else if (this.authInteractive) {
+          // Interactive auth phase (issue #12): the device's output — the
+          // `Password: ` prompt, banners, instructions — goes straight into
+          // the real terminal. Observe-only: nothing here reaches the line
+          // tracker or shadow buffer, so an auth prompt cannot corrupt
+          // mode detection; the first connected-phase output initializes
+          // the tracker cleanly.
+          this.terminal?.write(bytes);
         } else {
           // Connection phase — capture output for the output pane
           const cleanText = stripAnsi(text);
@@ -837,6 +884,7 @@ export class TerminalView {
 
       case "connected": {
         log.info(LogTag.Terminal, `SSH connected event received (session_id=${this.channel.sessionId})`);
+        this.authInteractive = false;
         // Update last_connected timestamp
         if (this.host) {
           touchHost(this.host.id).catch(() => {});
@@ -962,6 +1010,13 @@ export class TerminalView {
       case "auth-url": {
         const url = e.url;
         log.info(LogTag.Terminal, `Auth URL surfaced (user opens): ${url}`);
+        if (this.authInteractive) {
+          // Browser-auth round on an interactive connect (e.g. a Tailscale
+          // host saved as password-auth): restore today's overlay flow —
+          // URL button + read-only pane — exactly as web-auth hosts behave.
+          this.authInteractive = false;
+          this.setProgress("Waiting for browser authentication…", 25);
+        }
         // Update overlay stage text
         const stageEl = this.$(".tv-overlay-stage");
         if (stageEl) {
@@ -979,6 +1034,37 @@ export class TerminalView {
           openBtn.addEventListener("click", () => openUrl(url));
           actionsEl.insertBefore(openBtn, actionsEl.firstChild);
         }
+        break;
+      }
+
+      case "auth-interactive": {
+        // Password-auth host with no stored password (issue #12): show the
+        // real terminal so the device's prompt is visible and typed input
+        // answers it. The connect overlay's read-only pane is bypassed.
+        log.info(LogTag.Terminal, "Interactive auth mode armed — showing terminal");
+        this.authInteractive = true;
+        // Fresh connect attempt: the collector stays inactive until the
+        // first round arrives, so an early Enter cannot queue a phantom
+        // empty answer for a round that has not been asked yet.
+        this.authInput.reset();
+        this.hideOverlay();
+        this.terminal?.focus();
+        break;
+      }
+
+      case "auth-round": {
+        // One credential round to answer: prime the collector with these
+        // prompts (a wrong password re-prompt arrives as a fresh round).
+        log.info(LogTag.Terminal, `Interactive auth round (${e.prompts.length} prompt(s))`);
+        this.authInteractive = true;
+        // A URL banner earlier routed this round's prompt text to the
+        // overlay buffer (the backend writes it before emitting this
+        // event) — replay it into the terminal so the question the user
+        // must answer is actually visible.
+        this.flushOutputBufferToTerminal();
+        this.authInput.setRound(e.prompts);
+        this.hideOverlay();
+        this.terminal?.focus();
         break;
       }
     }
@@ -1009,6 +1095,7 @@ export class TerminalView {
   }
 
   private showError(message: string) {
+    this.authInteractive = false;
     const overlay = this.$(".tv-overlay");
     const stageEl = this.$(".tv-overlay-stage");
     const fillEl = this.$(".tv-progress-fill");
@@ -1112,6 +1199,7 @@ export class TerminalView {
    */
   async disconnect() {
     log.info(LogTag.Terminal, "Full disconnect requested");
+    this.connectCancelled = true;
     const hostId = this.host?.id ?? "";
     await this.channel.disconnect();
     this.cleanup();
@@ -1119,6 +1207,7 @@ export class TerminalView {
   }
 
   private async cancelConnect() {
+    this.connectCancelled = true;
     this.clearOutputBuffer();
     const hostId = this.host?.id ?? "";
     await this.channel.disconnect();
@@ -1570,6 +1659,7 @@ export class TerminalView {
 
   private cleanup() {
     this.hideContextMenu();
+    this.authInteractive = false;
     // Close a lingering TOFU dialog if the session was cancelled/torn down
     // while it was open (its backend wait fails safe on its own anyway).
     if (this.tofuDialogClose) {
@@ -1659,6 +1749,19 @@ export class TerminalView {
     if (outputEl) {
       outputEl.classList.add("hidden");
     }
+  }
+
+  /**
+   * Replay overlay-buffered connect output into the terminal and drop
+   * the pane copy — used when a browser-auth URL round restored the
+   * overlay and the next auth round brings interactive mode back: the
+   * prompt text arrived while the overlay was up and must be visible
+   * before the user answers.
+   */
+  private flushOutputBufferToTerminal(): void {
+    if (this.outputBuffer.length === 0) return;
+    this.terminal?.write(this.outputBuffer.join(""));
+    this.clearOutputBuffer();
   }
 
 }

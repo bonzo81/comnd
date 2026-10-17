@@ -6,8 +6,20 @@
 //! The server sends a known `authentication_banner` with a test URL,
 //! accepts any password, and opens a shell session with a welcome message.
 //!
-//! Keyboard-interactive mirrors Tailscale check mode: one InfoRequest round
-//! carrying the URL, then Accept on the (empty) response.
+//! Four keyboard-interactive personas (per server instance):
+//! - Browser auth mirrors Tailscale check mode: one InfoRequest round
+//!   carrying the URL, then Accept on the (empty) response.
+//! - Password prompt (issue #12) mirrors a Cisco-style device: one
+//!   `Password:` round; only the expected password accepts, and publickey
+//!   and password methods are rejected so keyboard-interactive is the
+//!   only way in.
+//! - Password-only (issue #12) mirrors a Linux box with
+//!   `KbdInteractiveAuthentication no`: the keyboard-interactive method is
+//!   refused outright and only the `password` method accepts — pins the
+//!   client-side password prompt fallback.
+//! - Informational round (issue #12 review): a zero-prompt round precedes
+//!   the `Password:` round — pins that empty rounds are auto-answered
+//!   instead of stalling auth until the 120s timeout.
 
 use std::sync::Arc;
 
@@ -40,6 +52,7 @@ struct ConnState {
 /// Per-connection handler: auth (captures username) + interactive shell.
 struct MockHandler {
     state: ConnState,
+    kbd_int: KbdIntPersona,
 }
 
 impl MockHandler {
@@ -201,15 +214,42 @@ impl MockHandler {
     }
 }
 
-/// The SSH server (unit type). One handler is created per connection.
+/// The keyboard-interactive persona one server instance plays.
 #[derive(Clone)]
-struct MockServer;
+enum KbdIntPersona {
+    /// Tailscale check mode: one URL round; any (empty) response accepts,
+    /// and any publickey is accepted too (check-mode semantics).
+    BrowserAuth,
+    /// Cisco-style password round (issue #12): one `Password:` prompt;
+    /// only `expected` accepts. Publickey and password methods are
+    /// rejected so keyboard-interactive is the only way in.
+    Password { expected: String },
+    /// Linux-style password-only server (issue #12): the
+    /// keyboard-interactive method is refused outright; only the
+    /// `password` method accepts, and only with `expected`. Pins the
+    /// client-side password prompt fallback.
+    PasswordOnly { expected: String },
+    /// Informational round before the password round (issue #12 review):
+    /// the first keyboard-interactive round carries instructions but
+    /// zero prompts. Pins that empty rounds are auto-answered with an
+    /// empty response — auth proceeds instead of stalling on the user.
+    PasswordInfoRound { expected: String },
+}
+
+/// The SSH server. One handler is created per connection.
+#[derive(Clone)]
+struct MockServer {
+    kbd_int: KbdIntPersona,
+}
 
 impl server::Server for MockServer {
     type Handler = MockHandler;
 
     fn new_client(&mut self, _peer_addr: Option<std::net::SocketAddr>) -> Self::Handler {
-        MockHandler { state: ConnState::default() }
+        MockHandler {
+            state: ConnState::default(),
+            kbd_int: self.kbd_int.clone(),
+        }
     }
 }
 
@@ -217,29 +257,53 @@ impl server::Server for MockServer {
 impl server::Handler for MockHandler {
     type Error = russh::Error;
 
-    /// Accept any username/password combination.
+    /// Auth method acceptance per persona: browser-auth servers accept any
+    /// password and any publickey (check mode); the password-round persona
+    /// forces keyboard-interactive; the password-only persona (Linux-style,
+    /// issue #12) accepts only the right password via the `password` method.
     async fn auth_password(
         &mut self,
         user: &str,
-        _password: &str,
+        password: &str,
     ) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
-        Ok(Auth::Accept)
+        match &self.kbd_int {
+            KbdIntPersona::BrowserAuth => Ok(Auth::Accept),
+            KbdIntPersona::PasswordOnly { expected } => {
+                if password == expected.as_str() {
+                    Ok(Auth::Accept)
+                } else {
+                    Ok(Auth::Reject { proceed_with_methods: None })
+                }
+            }
+            KbdIntPersona::Password { .. } | KbdIntPersona::PasswordInfoRound { .. } => {
+                Ok(Auth::Reject { proceed_with_methods: None })
+            }
+        }
     }
 
     /// Check-mode semantics (Tailscale): accept ANY publickey. Russh verifies
     /// the signature; acceptance means the session opens pending browser auth.
+    /// Device personas reject unknown keys, like real gear.
     async fn auth_publickey(
         &mut self,
         user: &str,
         _public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
-        Ok(Auth::Accept)
+        match self.kbd_int {
+            KbdIntPersona::BrowserAuth => Ok(Auth::Accept),
+            KbdIntPersona::Password { .. }
+            | KbdIntPersona::PasswordOnly { .. }
+            | KbdIntPersona::PasswordInfoRound { .. } => {
+                Ok(Auth::Reject { proceed_with_methods: None })
+            }
+        }
     }
 
-    /// Tailscale-style browser auth: first round sends the URL prompt,
-    /// any response (empty = browser login done) is accepted.
+    /// Keyboard-interactive per persona: Tailscale-style browser auth (first
+    /// round sends the URL prompt, any response accepts) or a Cisco-style
+    /// `Password:` round where only the expected password accepts.
     async fn auth_keyboard_interactive(
         &mut self,
         user: &str,
@@ -247,18 +311,74 @@ impl server::Handler for MockHandler {
         response: Option<server::Response<'async_trait>>,
     ) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
-        if response.is_none() {
-            Ok(Auth::Partial {
-                name: "Tailscale SSH authentication".into(),
-                instructions: "To authenticate, visit:\nhttps://login.tailscale.com/a/test123\n".into(),
-                prompts: vec![(
-                    "Visit https://login.tailscale.com/a/test123 and press enter".into(),
-                    true,
-                )]
-                .into(),
-            })
-        } else {
-            Ok(Auth::Accept)
+        match &self.kbd_int {
+            KbdIntPersona::BrowserAuth => {
+                if response.is_none() {
+                    Ok(Auth::Partial {
+                        name: "Tailscale SSH authentication".into(),
+                        instructions: "To authenticate, visit:\nhttps://login.tailscale.com/a/test123\n".into(),
+                        prompts: vec![(
+                            "Visit https://login.tailscale.com/a/test123 and press enter".into(),
+                            true,
+                        )]
+                        .into(),
+                    })
+                } else {
+                    Ok(Auth::Accept)
+                }
+            }
+            KbdIntPersona::Password { expected } => match response {
+                None => Ok(Auth::Partial {
+                    name: "Password authentication".into(),
+                    instructions: "".into(),
+                    prompts: vec![("Password: ".into(), false)].into(),
+                }),
+                Some(mut responses) => {
+                    let got = responses
+                        .next()
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default();
+                    if got == *expected {
+                        Ok(Auth::Accept)
+                    } else {
+                        Ok(Auth::Reject { proceed_with_methods: None })
+                    }
+                }
+            },
+            KbdIntPersona::PasswordOnly { .. } => {
+                // No keyboard-interactive on this server — refuse the method
+                // outright, before any round (mirrors Linux with
+                // `KbdInteractiveAuthentication no`).
+                Ok(Auth::Reject { proceed_with_methods: None })
+            }
+            KbdIntPersona::PasswordInfoRound { expected } => match response {
+                None => Ok(Auth::Partial {
+                    name: "Informational".into(),
+                    instructions: "Authorized users only.".into(),
+                    prompts: vec![].into(),
+                }),
+                Some(mut responses) => {
+                    let first = responses
+                        .next()
+                        .map(|b| String::from_utf8_lossy(&b).into_owned());
+                    match first {
+                        // The empty answer to the informational round —
+                        // issue the real password challenge.
+                        None => Ok(Auth::Partial {
+                            name: "Password authentication".into(),
+                            instructions: "".into(),
+                            prompts: vec![("Password: ".into(), false)].into(),
+                        }),
+                        Some(got) => {
+                            if got == *expected {
+                                Ok(Auth::Accept)
+                            } else {
+                                Ok(Auth::Reject { proceed_with_methods: None })
+                            }
+                        }
+                    }
+                }
+            },
         }
     }
 
@@ -335,6 +455,35 @@ impl server::Handler for MockHandler {
 /// - `u16` — the assigned port number
 /// - `JoinHandle<()>` — handle to the server task; abort to stop the server
 pub async fn start_mock_server() -> (u16, tokio::task::JoinHandle<()>) {
+    start_mock_server_with(KbdIntPersona::BrowserAuth).await
+}
+
+/// Start a mock SSH server whose keyboard-interactive is a Cisco-style
+/// `Password:` round (issue #12). `expected` is the accepting password;
+/// publickey and password methods are rejected so keyboard-interactive is
+/// the only route in — mirroring a device the user must log into manually.
+pub async fn start_credential_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
+    start_mock_server_with(KbdIntPersona::Password { expected: expected.to_string() }).await
+}
+
+/// Start a mock SSH server with no keyboard-interactive at all — only the
+/// `password` method accepts, with `expected` (issue #12). Mirrors a Linux
+/// box with `KbdInteractiveAuthentication no`; pins the client-side
+/// password prompt fallback.
+pub async fn start_password_only_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
+    start_mock_server_with(KbdIntPersona::PasswordOnly { expected: expected.to_string() }).await
+}
+
+/// Start a mock SSH server whose first keyboard-interactive round is
+/// informational (zero prompts), followed by a `Password:` round
+/// (issue #12 review). Pins that empty rounds never stall auth: the
+/// client answers them automatically with an empty response vector.
+pub async fn start_info_round_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
+    start_mock_server_with(KbdIntPersona::PasswordInfoRound { expected: expected.to_string() }).await
+}
+
+/// Persona-driven server bootstrap shared by both public constructors.
+async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
     let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519)
         .expect("Failed to generate mock server key");
@@ -359,7 +508,7 @@ pub async fn start_mock_server() -> (u16, tokio::task::JoinHandle<()>) {
 
     // Move socket and server into a spawned task so they outlive this function
     let handle = tokio::spawn(async move {
-        let mut server = MockServer;
+        let mut server = MockServer { kbd_int };
         let running = server.run_on_socket(config, &socket);
         running.await.expect("Mock server encountered an error");
     });
@@ -425,6 +574,165 @@ mod tests {
         server.abort();
     }
 
+    /// Pins the Cisco-style credential round-trip issue #12 relies on:
+    /// start(None) → InfoRequest with a `Password:` prompt (no URL, no
+    /// echo) → respond with the user's password → Success. A wrong answer
+    /// resolves the round to Failure. Mirrors the browser-auth roundtrip
+    /// test above, on the password persona.
+    #[tokio::test]
+    async fn test_keyboard_interactive_credential_roundtrip() {
+        let (port, server) = start_credential_mock_server("secret-pw").await;
+
+        // Connection 1: the device surfaces the prompt…
+        let config = Arc::new(client::Config::default());
+        let mut session = client::connect(
+            config,
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("connect");
+
+        let first = session
+            .authenticate_keyboard_interactive_start("andy", None::<String>)
+            .await
+            .expect("kbd-int start");
+        match first {
+            KeyboardInteractiveAuthResponse::InfoRequest { ref instructions, ref prompts, .. } => {
+                // Credential round: no URL (that would be browser-auth),
+                // one password prompt, echo off.
+                assert!(!instructions.contains("https://"));
+                assert_eq!(prompts.len(), 1);
+                assert!(prompts[0].prompt.contains("Password"));
+                assert!(!prompts[0].prompt.contains("https://"));
+                assert!(!prompts[0].echo, "password prompts must not echo");
+            }
+            other => panic!("expected InfoRequest, got {:?}", other),
+        }
+
+        // …a wrong answer fails the round (server rejects the method)…
+        let wrong = session
+            .authenticate_keyboard_interactive_respond(vec!["not-the-password".to_string()])
+            .await
+            .expect("kbd-int respond (wrong password)");
+        assert!(matches!(wrong, KeyboardInteractiveAuthResponse::Failure));
+
+        // …and the right answer on a fresh connection completes auth.
+        let mut session = client::connect(
+            Arc::new(client::Config::default()),
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("reconnect");
+
+        session
+            .authenticate_keyboard_interactive_start("andy", None::<String>)
+            .await
+            .expect("kbd-int start (2)");
+        let second = session
+            .authenticate_keyboard_interactive_respond(vec!["secret-pw".to_string()])
+            .await
+            .expect("kbd-int respond (right password)");
+        assert!(matches!(second, KeyboardInteractiveAuthResponse::Success));
+
+        server.abort();
+    }
+
+    /// Pins the client-side password prompt fallback (issue #12) for
+    /// servers with no keyboard-interactive: the method is refused with
+    /// Failure before any round, and the `password` method — fed the
+    /// user's typed password — completes auth on the same session.
+    /// A wrong typed password is rejected (client re-prompts).
+    #[tokio::test]
+    async fn test_password_method_fallback_roundtrip() {
+        let (port, server) = start_password_only_mock_server("secret-pw").await;
+
+        let config = Arc::new(client::Config::default());
+        let mut session = client::connect(
+            config,
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("connect");
+
+        // The server refuses keyboard-interactive outright — no round.
+        let kbd = session
+            .authenticate_keyboard_interactive_start("andy", None::<String>)
+            .await
+            .expect("kbd-int start (refused)");
+        assert!(matches!(kbd, KeyboardInteractiveAuthResponse::Failure));
+
+        // …so the client prompts locally and the typed answer completes
+        // auth via the single-shot password method.
+        let ok = session
+            .authenticate_password("andy", "secret-pw")
+            .await
+            .expect("password auth after kbd-int refusal");
+        assert!(ok);
+
+        // A wrong typed password is rejected — the client re-prompts rather
+        // than failing the whole connect.
+        let mut session = client::connect(
+            Arc::new(client::Config::default()),
+            format!("127.0.0.1:{}", port),
+            NoopHandler,
+        )
+        .await
+        .expect("reconnect");
+        let wrong = session
+            .authenticate_password("andy", "not-the-password")
+            .await
+            .expect("password auth (wrong password)");
+        assert!(!wrong);
+
+        server.abort();
+    }
+
+    /// Pins zero-prompt round handling (issue #12 review): an
+    /// informational keyboard-interactive round carries no prompts, so it
+    /// must be answered with an empty vector — auth proceeds to the real
+    /// password round instead of stalling until the 120s timeout.
+    #[tokio::test]
+    async fn test_zero_prompt_round_auto_answered() {
+        let (port, server) = start_info_round_mock_server("secret-pw").await;
+
+        let config = Arc::new(client::Config::default());
+        let mut session = client::connect(config, format!("127.0.0.1:{}", port), NoopHandler)
+            .await
+            .expect("connect");
+
+        // Round 1: informational — instructions, zero prompts.
+        let first = session
+            .authenticate_keyboard_interactive_start("andy", None::<String>)
+            .await
+            .expect("kbd-int start (informational)");
+        match first {
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                assert!(prompts.is_empty());
+            }
+            _ => panic!("expected an informational InfoRequest round"),
+        }
+
+        // The empty round is answered with an empty vector (what the
+        // ssh.rs guard now does automatically, without a user round)…
+        let second = session
+            .authenticate_keyboard_interactive_respond(vec![])
+            .await
+            .expect("kbd-int respond (empty answer)");
+        assert!(matches!(second, KeyboardInteractiveAuthResponse::InfoRequest { .. }));
+
+        // …and the real password round answers normally.
+        let third = session
+            .authenticate_keyboard_interactive_respond(vec!["secret-pw".to_string()])
+            .await
+            .expect("kbd-int respond (password)");
+        assert!(matches!(third, KeyboardInteractiveAuthResponse::Success));
+
+        server.abort();
+    }
+
     /// Pins the ephemeral-key path SshSession::authenticate uses for
     /// credential-less browser-auth gateways: check-mode server accepts
     /// an ephemeral (unknown) publickey.
@@ -459,6 +767,7 @@ mod tests {
     fn mock_shell_line_editing_redraws() {
         let mut h = MockHandler {
             state: ConnState { user: "cisco".into(), prompt: "Router>".into(), ..Default::default() },
+            kbd_int: KbdIntPersona::BrowserAuth,
         };
         let e = MockHandler::ESC;
 
@@ -491,6 +800,7 @@ mod tests {
     fn mock_shell_top_burst_and_quit() {
         let mut h = MockHandler {
             state: ConnState { user: "root".into(), prompt: "user@host:~$ ".into(), ..Default::default() },
+            kbd_int: KbdIntPersona::BrowserAuth,
         };
 
         let mut out = Vec::new();
