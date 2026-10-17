@@ -141,3 +141,4 @@ If no pattern matches after an idle gap, mode remains unchanged (assumed same co
 | Known hosts | App data directory | JSON   |
 | Knowledge base | Bundled with app in install directory, user-editable copy in app data directory | YAML   |
 | User preferences | App data directory | JSON   |
+| Session logs (opt-in; off by default) | `<data_dir>/session-logs/` by default, or the configured session-log directory | One `.log` file per session; header, optional per-chunk timestamps, and raw remote output. Raw output can contain secrets, so logs are not created unless the user enables session logging. |

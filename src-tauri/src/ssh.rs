@@ -440,6 +440,30 @@ pub struct SshSession {
     pub session_id: u64,
 }
 
+fn create_session_log(
+    enabled: bool,
+    session_log_dir: Option<&str>,
+    host_key: &str,
+    session_id: u64,
+    timestamps: bool,
+) -> Option<crate::session_log::SessionLog> {
+    if !enabled {
+        return None;
+    }
+
+    match session_log_dir.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => Some(crate::session_log::SessionLog::new_in(
+            std::path::Path::new(dir),
+            host_key,
+            session_id,
+            timestamps,
+        )),
+        None => Some(crate::session_log::SessionLog::new(
+            host_key, session_id, timestamps,
+        )),
+    }
+}
+
 impl SshSession {
     pub async fn connect(
         app_handle: tauri::AppHandle,
@@ -468,19 +492,13 @@ impl SshSession {
 
         let host_key = format!("{}:{}", hostname, port);
 
-        let session_log = if session_logging {
-            match session_log_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                Some(dir) => Some(crate::session_log::SessionLog::new_in(
-                    std::path::Path::new(dir),
-                    &host_key,
-                    session_id,
-                    session_log_timestamps,
-                )),
-                None => Some(crate::session_log::SessionLog::new(&host_key, session_id, session_log_timestamps)),
-            }
-        } else {
-            None
-        };
+        let session_log = create_session_log(
+            session_logging,
+            session_log_dir.as_deref(),
+            &host_key,
+            session_id,
+            session_log_timestamps,
+        );
         let transcript = crate::transcript::Transcript::new(
             session_log,
             Box::new(crate::transcript::TauriOutputSink::new(app_handle.clone(), session_id)),
@@ -1050,6 +1068,29 @@ mod tests {
         // Take reduces count
         m.take(1);
         assert_eq!(m.len(), 0);
+    }
+
+    #[test]
+    fn disabled_session_logging_does_not_create_a_log_file() {
+        struct DiscardSink;
+        impl crate::transcript::OutputSink for DiscardSink {
+            fn emit_output(&self, _encoded: &str) {}
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "netssh_session_logging_disabled_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let session_log =
+            create_session_log(false, Some(dir.to_str().unwrap()), "host:22", 1, true);
+        let mut transcript = crate::transcript::Transcript::new(session_log, Box::new(DiscardSink));
+
+        transcript.output(b"remote output that could contain a secret");
+
+        assert!(
+            !dir.exists(),
+            "disabled session logging created a log directory"
+        );
     }
 
     #[test]

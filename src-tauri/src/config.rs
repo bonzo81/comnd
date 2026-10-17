@@ -36,8 +36,8 @@ pub struct AppConfig {
     /// Maximum concurrent SSH sessions. Default 30. 0 = unlimited.
     #[serde(default = "default_max_sessions")]
     pub max_sessions: u32,
-    /// Per-session output logging to file. Default true.
-    #[serde(default = "default_true")]
+    /// Per-session output logging to file. Opt-in; defaults to false.
+    #[serde(default)]
     pub session_logging: bool,
     /// Include `[HH:MM:SS]` timestamp per chunk in session logs. Default true.
     #[serde(default = "default_true")]
@@ -74,7 +74,7 @@ impl Default for AppConfig {
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
             max_sessions: default_max_sessions(),
-            session_logging: true,
+            session_logging: false,
             session_log_timestamps: true,
             session_log_dir: None,
             providers: Default::default(),
@@ -619,6 +619,7 @@ mod tests {
         assert_eq!(config.log_level, "info");
         assert_eq!(config.log_max_size_mb, 10);
         assert!(config.log_file_path.is_none());
+        assert!(!config.session_logging);
     }
 
     #[test]
@@ -764,6 +765,11 @@ mod tests {
         )
         .unwrap();
         assert!(v.providers.is_empty());
+        // Legacy configs without this field no longer enable raw output logs.
+        assert!(!v.session_logging);
+        // Explicit opt-in in an existing config is preserved.
+        let enabled: AppConfig = serde_json::from_str(r#"{"session_logging":true}"#).unwrap();
+        assert!(enabled.session_logging);
         // Pre-rename ollama_* fields alias onto the llm_* fields.
         assert_eq!(v.llm_base_url, "http://localhost:11434");
         assert_eq!(v.llm_model, "gemma4:26b");
