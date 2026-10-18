@@ -85,7 +85,7 @@ pub(super) fn cmd_yaml(name: &str, desc: &str) -> String {
 
 /// Isolated bundled + user KB fixture. Returns (bundled_path, user_path).
 pub(super) fn kb_fixture(suffix: &str, bundled_cmds: &str, user_cmds: Option<&str>) -> (PathBuf, PathBuf) {
-    let base = std::env::temp_dir().join(format!("netssh-kb-{}-{}", suffix, std::process::id()));
+    let base = std::env::temp_dir().join(format!("comnd-kb-{}-{}", suffix, std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let bundled = base.join("bundled");
     let user = base.join("user");

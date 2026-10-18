@@ -85,7 +85,7 @@ mod tests {
     use std::fs;
 
     fn tmp(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("netssh_platform_{}_{}", prefix, uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_platform_{}_{}", prefix, uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

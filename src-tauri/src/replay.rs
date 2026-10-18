@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_validate_custom_platform_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("netssh_replay_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_replay_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);

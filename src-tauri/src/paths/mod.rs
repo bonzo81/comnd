@@ -10,14 +10,14 @@ pub mod commands;
 use std::path::{Path, PathBuf};
 
 /// Bundle identifier — must match `identifier` in `tauri.conf.json`.
-const BUNDLE_ID: &str = "com.netssh.app";
+const BUNDLE_ID: &str = "com.comnd.app";
 
 /// Resolve the app data dir without an `AppHandle` (replicates Tauri's
 /// `app_local_data_dir` = `dirs::data_local_dir()` + bundle id). Used at
 /// startup, before the `AppHandle` exists.
-/// - Windows: `%LOCALAPPDATA%\com.netssh.app` (Local, not Roaming)
-/// - macOS: `~/Library/Application Support/com.netssh.app`
-/// - Linux: `$XDG_DATA_HOME/com.netssh.app` or `~/.local/share/com.netssh.app`
+/// - Windows: `%LOCALAPPDATA%\com.comnd.app` (Local, not Roaming)
+/// - macOS: `~/Library/Application Support/com.comnd.app`
+/// - Linux: `$XDG_DATA_HOME/com.comnd.app` or `~/.local/share/com.comnd.app`
 pub fn app_data_dir() -> Result<PathBuf, String> {
     dirs::data_local_dir()
         .map(|d| d.join(BUNDLE_ID))
@@ -307,7 +307,7 @@ pub fn scan_merge(src: &Path) -> Result<MergeScan, String> {
     let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err("Import file does not contain any recognizable netssh data files".to_string());
+        return Err("Import file does not contain any recognizable Comnd data files".to_string());
     }
 
     let mut conflicts = Vec::new();
@@ -472,7 +472,7 @@ pub fn apply_merge(
 
 // ─── Merge helpers ───────────────────────────────────────────────────
 
-/// Total uncompressed bytes a single import zip may extract. netssh backups
+/// Total uncompressed bytes a single import zip may extract. comnd backups
 /// (hosts/config/KB YAML) are a few MB — 512 MB leaves huge headroom while
 /// stopping zip bombs from filling the disk.
 const MAX_IMPORT_UNCOMPRESSED: u64 = 512 * 1024 * 1024;
@@ -511,7 +511,7 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to read zip: {}", e))?;
 
     let temp_dir = std::env::temp_dir().join(format!(
-        "netssh-import-{}",
+        "comnd-import-{}",
         chrono::Utc::now().format("%Y%m%dT%H%M%S%3f")
     ));
     ensure_data_dir(&temp_dir)?;
@@ -810,7 +810,7 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
         .map_err(|e| format!("Failed to read zip: {}", e))?;
 
     // Extract to a temp dir first — validate before replacing live data.
-    let temp_dir = std::env::temp_dir().join(format!("netssh-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    let temp_dir = std::env::temp_dir().join(format!("comnd-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
     ensure_data_dir(&temp_dir)?;
     let mut total: u64 = 0;
     for i in 0..archive.len() {
@@ -841,7 +841,7 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err("Import file does not contain any recognizable netssh data files".to_string());
+        return Err("Import file does not contain any recognizable Comnd data files".to_string());
     }
 
     // Back up the current data files. We can't rename the whole data dir
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("data.txt");
         atomic_write(&path, b"hello").unwrap();
@@ -970,7 +970,7 @@ mod tests {
 
     #[test]
     fn test_secure_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("secret.json");
         secure_write(&path, b"{}").unwrap();
@@ -990,13 +990,13 @@ mod tests {
     #[cfg(unix)]
     fn test_log_dir_created_with_secure_perms() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("netssh_logperm_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_logperm_{}", uuid::Uuid::new_v4()));
         ensure_data_dir(&dir).unwrap();
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "log/data dir must be owner-only");
 
-        // Mirror the file-perm step lib.rs applies to netssh.log
-        let file = dir.join("netssh.log");
+        // Mirror the file-perm step lib.rs applies to comnd.log
+        let file = dir.join("comnd.log");
         std::fs::write(&file, "").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         let fmode = std::fs::metadata(&file).unwrap().permissions().mode();
@@ -1006,7 +1006,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_overwrites_existing() {
-        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("data.txt");
         atomic_write(&path, b"v1").unwrap();
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_load_json_or_preserve_defaults_on_missing_and_corrupt() {
-        let dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // missing → default
@@ -1063,7 +1063,7 @@ mod tests {
     fn test_bundled_kb_path_prefers_resource_dir_over_dev() {
         // The real repo KB (CARGO_MANIFEST_DIR/../knowledge-base) exists at test
         // time, so returning the temp resource_dir proves release is checked first.
-        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
         assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
         let _ = std::fs::remove_dir_all(&resource_dir);
@@ -1075,7 +1075,7 @@ mod tests {
         // KB lands under resource_dir/_up_/knowledge-base. Only that layout exists
         // here (the dev fallback also exists at test time), so returning the _up_
         // path proves it is checked before the dev location.
-        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(
             bundled_kb_path(&resource_dir),
@@ -1088,7 +1088,7 @@ mod tests {
     fn test_bundled_kb_path_prefers_release_over_up_dir() {
         // Both layouts present (a rebuild that changed the form, or a partial
         // install): the canonical release path must win over the _up_ fallback.
-        let resource_dir = std::env::temp_dir().join(format!("netssh_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));

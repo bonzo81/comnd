@@ -1078,7 +1078,7 @@ mod tests {
         }
 
         let dir = std::env::temp_dir().join(format!(
-            "netssh_session_logging_disabled_{}",
+            "comnd_session_logging_disabled_{}",
             uuid::Uuid::new_v4()
         ));
         let session_log =

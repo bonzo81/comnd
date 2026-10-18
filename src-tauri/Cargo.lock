@@ -494,6 +494,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "comnd"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 6.0.0",
+ "keyring",
+ "log",
+ "reqwest 0.12.28",
+ "russh",
+ "scraper",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "simplelog",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "time",
+ "tokio",
+ "uuid",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2596,34 +2624,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys",
-]
-
-[[package]]
-name = "netssh"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "dirs 6.0.0",
- "keyring",
- "log",
- "reqwest 0.12.28",
- "russh",
- "scraper",
- "serde",
- "serde_json",
- "serde_yml",
- "simplelog",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "time",
- "tokio",
- "uuid",
- "zip 2.4.2",
 ]
 
 [[package]]

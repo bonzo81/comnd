@@ -770,7 +770,7 @@ mod tests {
 
         for platform in ["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"] {
             let tmp = std::env::temp_dir().join(format!(
-                "netssh-idx-test-{}-{}",
+                "comnd-idx-test-{}-{}",
                 std::process::id(),
                 platform
             ));
@@ -802,7 +802,7 @@ mod tests {
             .unwrap()
             .join("knowledge-base");
         let tmp = std::env::temp_dir().join(format!(
-            "netssh-idx-new-{}",
+            "comnd-idx-new-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&tmp);

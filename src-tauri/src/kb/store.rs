@@ -482,7 +482,7 @@ mod tests {
     fn test_tombstone_hides_bundled_after_merge() {
         // User _deleted.yaml must keep hiding a bundled command after the
         // user-wins merge change (existing behaviour, pinned).
-        let base = std::env::temp_dir().join(format!("netssh-tombstone-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("comnd-tombstone-{}", std::process::id()));
         let bundled = base.join("bundled");
         let user = base.join("user");
         let _ = std::fs::remove_dir_all(&base);
