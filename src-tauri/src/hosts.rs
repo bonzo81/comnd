@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_corrupt_file_preserved() {
-        let dir = std::env::temp_dir().join(format!("netssh_hosts_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_hosts_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hosts.json");
         std::fs::write(&path, "{not valid json").unwrap();
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_custom_platform_host_validates_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("netssh_hosts_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_hosts_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
@@ -819,7 +819,7 @@ mod tests {
         // hosts to empty WITHOUT clobbering a valid groups.json (and vice
         // versa), since each file is loaded independently.
         let dir = std::env::temp_dir().join(format!(
-            "netssh-hosts-btest-{}-{}",
+            "comnd-hosts-btest-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));

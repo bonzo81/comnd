@@ -25,7 +25,7 @@ overlaying the content area. Arrow keys / Tab navigate results; Enter activates:
 
 ## Current state (what exists today)
 
-- **Titlebar** — `src/main.ts:154` `renderTitleBar()`: `[netssh]` left,
+- **Titlebar** — `src/main.ts:154` `renderTitleBar()`: `[comnd]` left,
   `.title-bar-controls` right (`?`, theme, min/max/close). CSS in
   `src/styles/main.css:19` — 32px tall, `-webkit-app-region: drag`.
 - **Hosts** — `getHosts()` (`src/lib/tauri-api.ts:92`) returns all hosts.

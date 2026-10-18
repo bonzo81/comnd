@@ -1,4 +1,4 @@
-# netssh — Overview & Goals
+# Comnd — Overview & Goals
 
 **Version:** 0.1 (draft) **Status:** In progress **Author:** Andy Norwood (architect) **Last updated:** 2026-03-03
 
@@ -7,9 +7,9 @@
 
 ## Overview
 
-**netssh** is a cross-platform desktop SSH client with context-aware, platform-intelligent command suggestions. It targets network engineers who work across multiple device types and OS dialects daily.
+**Comnd** is a cross-platform desktop SSH client with context-aware, platform-intelligent command suggestions. It targets network engineers who work across multiple device types and OS dialects daily.
 
-Unlike generic SSH clients, netssh understands *what you're connected to* and surfaces relevant commands inline — from a structured, version-aware knowledge base. AI-assisted suggestions are a planned future enhancement; the MVP relies entirely on curated structured data.
+Unlike generic SSH clients, Comnd understands *what you're connected to* and surfaces relevant commands inline — from a structured, version-aware knowledge base. AI-assisted suggestions are a planned future enhancement; the MVP relies entirely on curated structured data.
 
 
 ---
@@ -35,7 +35,7 @@ Unlike generic SSH clients, netssh understands *what you're connected to* and su
 
 ### Two Command Stores
 
-netssh distinguishes two sources of commands surfaced into the terminal:
+Comnd distinguishes two sources of commands surfaced into the terminal:
 
 - **Knowledge Base** — curated, app-authored reference of valid syntax per platform. Shipped with install, read-only, used for ghost text suggestions. *Teaches.*
 - **Command Replay** — the user's own saved commands, captured from the terminal or entered manually, with named variables and platform assignment. Played back into the terminal via the side panel. Empty until the user fills it. *Remembers.*

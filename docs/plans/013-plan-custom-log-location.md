@@ -22,7 +22,7 @@ watching the dir for liveness (start-time check is enough).
 
 ## Current state (what we build on)
 
-- **Default log path**: `paths::log_dir()` = `dirs::data_local_dir().join("com.netssh.app").join("logs").join("netssh.log")` (`paths.rs:28`). User-only perms (0o600 / 0o700) set at startup (`lib.rs:752-766`).
+- **Default log path**: `paths::log_dir()` = `dirs::data_local_dir().join("com.comnd.app").join("logs").join("comnd.log")` (`paths.rs:28`). User-only perms (0o600 / 0o700) set at startup (`lib.rs:752-766`).
 - **Logger init**: `lib.rs:737-776`. Runs **before** `tauri::Builder::default().setup`, no `AppHandle`. Config is read once via `ConfigStore::new(&data_dir)` at `lib.rs:738` so a new config field will be visible here.
 - **Config shape**: `AppConfig` in `config.rs:11-27` already has `log_level` + `log_max_size_mb`; adding a field is mechanical. `ConfigStore` owns `save_*` helpers.
 - **Settings UI**: `settings-screen.ts:137-160` renders the "Logging" section with two dropdowns. Adding a row means one more block in `renderGeneral()` + one listener in `attachListeners()`.
@@ -40,7 +40,7 @@ watching the dir for liveness (start-time check is enough).
 pub struct AppConfig {
     // ...existing fields...
     #[serde(default)]
-    pub log_file_path: Option<String>,  // absolute path to netssh.log, or None for default
+    pub log_file_path: Option<String>,  // absolute path to comnd.log, or None for default
 }
 ```
 
@@ -72,7 +72,7 @@ let (level, max_mb, custom_log_path) = match &data_dir {
             c.get().log_file_path.clone(),
         ))
         .unwrap_or_else(|e| {
-            eprintln!("netssh: Failed to read config ({}). Using 'info'/10MB/default log path.", e);
+            eprintln!("comnd: Failed to read config ({}). Using 'info'/10MB/default log path.", e);
             ("info".to_string(), 10, None)
         }),
     Err(_) => ("info".to_string(), 10, None),
@@ -133,13 +133,13 @@ if !cfg!(debug_assertions) {
 fn resolve_log_path(custom: Option<&str>) -> Result<(std::path::PathBuf, bool), String> {
     let Some(p) = custom.map(str::trim).filter(|s| !s.is_empty()) else {
         // No custom path → default
-        return paths::log_dir().map(|d| (d.join("netssh.log"), false))
+        return paths::log_dir().map(|d| (d.join("comnd.log"), false))
             .ok_or_else(|| "Default log dir could not be resolved".to_string());
     };
     let path = std::path::PathBuf::from(p);
     if !path.is_absolute() {
         // Reject relative paths — logger runs before CWD stabilizes
-        return paths::log_dir().map(|d| (d.join("netssh.log"), false))
+        return paths::log_dir().map(|d| (d.join("comnd.log"), false))
             .ok_or_else(|| format!("Custom log path '{}' is not absolute; using default", p));
     }
     // Defer file-open failure to the caller; we only validate shape here.
@@ -277,7 +277,7 @@ this.container?.querySelector<HTMLButtonElement>("#log-file-browse")
 private async browseLogFile(): Promise<void> {
   try {
     const selected = await save({
-      defaultPath: "netssh.log",
+      defaultPath: "comnd.log",
       filters: [{ name: "Log files", extensions: ["log"] }],
     });
     if (selected) {
@@ -382,7 +382,7 @@ Skip the Browse button test unless the dialog plugin is mockable — it's a conv
 
 Update `docs/plans/plan-logging-improvements.md` status header (lines 1-8): the log path is no longer only the default; mention the custom-path feature with a backlink to this plan.
 
-Update `docs/plans/plan-local-storage-hardening.md` P3.3: the `netssh.log` path is now configurable; the perms treatment (0o600 / 0o700) applies to whichever path is used. Add a note that **custom paths outside `app_local_data_dir` may inherit lax ACLs from their parent dir** — we chmod on unix but Windows users pointing at a shared drive may expose hostnames to other users. Document the risk in the Settings hint: "Custom locations may have different access permissions. Prefer the default for privacy."
+Update `docs/plans/plan-local-storage-hardening.md` P3.3: the `comnd.log` path is now configurable; the perms treatment (0o600 / 0o700) applies to whichever path is used. Add a note that **custom paths outside `app_local_data_dir` may inherit lax ACLs from their parent dir** — we chmod on unix but Windows users pointing at a shared drive may expose hostnames to other users. Document the risk in the Settings hint: "Custom locations may have different access permissions. Prefer the default for privacy."
 
 ## Open questions
 
@@ -405,8 +405,8 @@ Each step compiles and passes `cargo check` + `npm run build` independently.
 - `cargo check` in `src-tauri/` — exit 0 after each P1 step.
 - `cargo test` — new tests pass; existing 68 tests unchanged.
 - `npm run build` — exit 0 after each P2 step.
-- Manual: set a custom log path in Settings, restart, confirm `netssh.log` appears at the custom location with 0o600 perms (`ls -l` on unix).
-- Manual: set a custom path to `/nonexistent/vol/netssh.log`, restart, confirm toast appears and logs go to stderr only (no crash).
+- Manual: set a custom log path in Settings, restart, confirm `comnd.log` appears at the custom location with 0o600 perms (`ls -l` on unix).
+- Manual: set a custom path to `/nonexistent/vol/comnd.log`, restart, confirm toast appears and logs go to stderr only (no crash).
 - Manual: set custom path blank, restart, confirm logs go to the default location.
 - Manual (Windows): set a custom path under `%USERPROFILE%\Documents`, restart, confirm `icacls` shows the file is user-only (or document if it isn't — see Open Question 4).
 
@@ -432,5 +432,5 @@ Each step compiles and passes `cargo check` + `npm run build` independently.
 
 - **Live log path switching**: requires swapping the global `simplelog` logger at runtime. Doable but niche. Restart is fine for v1.
 - **Log rotation to the custom path**: covered by the existing `ponytail:` comment in `lib.rs`. Rotation is a separate task.
-- **Directory picker (vs file picker)**: `save` returns a file path, which is what we want. A directory picker would let the user choose a folder and we'd auto-append `netssh.log` — marginally nicer but more code. Skip.
+- **Directory picker (vs file picker)**: `save` returns a file path, which is what we want. A directory picker would let the user choose a folder and we'd auto-append `comnd.log` — marginally nicer but more code. Skip.
 - **Windows ACL tightening on custom paths**: would need the `windows` crate to set explicit user-only ACL. Document the caveat for now; revisit if a user reports exposure on a shared system.

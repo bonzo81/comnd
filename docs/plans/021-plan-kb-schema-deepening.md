@@ -1,6 +1,6 @@
 # Plan: KB Schema Deepening — Single Validator & Shared Token Module
 
-The knowledge base is a core differentiator of netssh: it is both the
+The knowledge base is a core differentiator of comnd: it is both the
 reference for commands and the live guide during a session (see
 docs/specs/06-knowledge-base.md for the YAML schema and docs/specs/05-suggestion-engine.md
 for the suggestion flow). Its correctness therefore depends on two things

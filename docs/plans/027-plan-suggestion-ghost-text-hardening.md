@@ -7,21 +7,21 @@ Warp, and Copilot CLI implement inline suggestions.
 
 **Findings that motivated this plan** (research summary, 2026-09):
 
-Every mature implementation shares four guard rails netssh lacks:
+Every mature implementation shares four guard rails comnd lacks:
 
 1. **Suppress when the cursor is not at end-of-line** — fish, zsh, PSReadLine,
-   and Fig all gate suggestions on cursor-at-EOL. netssh's shadow buffer
+   and Fig all gate suggestions on cursor-at-EOL. comnd's shadow buffer
    assumes end-of-line and has no guard at all.
 2. **Cap buffer length** — zsh's `ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE` protects
-   against paste storms flooding the matcher. netssh queries on any buffer.
+   against paste storms flooding the matcher. comnd queries on any buffer.
 3. **Cancel stale in-flight queries** — Copilot CLI and Fig drop results that
-   arrive after the buffer changed. netssh renders whatever comes back.
+   arrive after the buffer changed. comnd renders whatever comes back.
 4. **Partial acceptance** — fish's Ctrl-→ / Alt-→ ("accept next word") is the
-   most-copied UX in this space. netssh only has Tab-all-accept.
+   most-copied UX in this space. comnd only has Tab-all-accept.
 
-Plus two netssh-specific defects found in the code: the ghost overlay does not
+Plus two comnd-specific defects found in the code: the ghost overlay does not
 reposition on terminal scroll, and the remote can flip cursor visibility
-(`\x1b[?25h`) while netssh has hidden it, leaving the cursor stuck hidden.
+(`\x1b[?25h`) while comnd has hidden it, leaving the cursor stuck hidden.
 
 ## Scope boundaries
 
@@ -91,7 +91,7 @@ clear the flag so the next prompt line gets suggestions again.
 Same early-return: if `text.length > MAX_SHADOW_LEN` (128 — longer than any
 KB command prefix but short enough to reject pastes), hide and return. Add
 the constant to `shadow-buffer.ts` next to the class. zsh uses 1024 for full
-shell buffers; netssh suggestions are command-shaped, 128 is generous.
+shell buffers; comnd suggestions are command-shaped, 128 is generous.
 
 **Verify:** type `sh`, press left-arrow, type `o` → no ghost appears. Type a
 128+ char paste → no ghost, no query spam in logs. Normal typing unaffected.
@@ -151,7 +151,7 @@ is transient UI; ghost is anchored to the cursor.
 `GhostText` writes `\x1b[?25l` on show and `\x1b[?25h` on hide
 (src/lib/ghost-text.ts:73, :95). If the remote emits `\x1b[?25h` (TUI apps,
 `clear` on some devices) while ghost is visible, xterm shows the cursor and
-netssh's `cursorHidden` bookkeeping still says hidden — later `hide()` writes
+comnd's `cursorHidden` bookkeeping still says hidden — later `hide()` writes
 a redundant show, but if remote emitted hide after that, cursor can end up
 stuck hidden.
 

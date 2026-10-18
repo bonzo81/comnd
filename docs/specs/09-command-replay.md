@@ -1,4 +1,4 @@
-# netssh — Command Replay
+# Comnd — Command Replay
 
 **Version:** 0.1 (draft) **Status:** In progress **Author:** Andy Norwood (architect) **Last updated:** 2026-09-03
 
@@ -6,7 +6,7 @@
 
 ## Intent: Knowledge Base vs Command Replay
 
-netssh has two distinct command stores. They look similar (both surface commands into the terminal) but serve different purposes:
+Comnd has two distinct command stores. They look similar (both surface commands into the terminal) but serve different purposes:
 
 | | **Knowledge Base (KB)** | **Command Replay** |
 |---|---|---|

@@ -1,12 +1,12 @@
 [package]
-name = "netssh"
+name = "comnd"
     version = "0.3.0"
 description = "Cross-platform SSH client with context-aware command suggestions"
 authors = ["Andy Norwood"]
 edition = "2021"
 
 [lib]
-name = "netssh_lib"
+name = "comnd_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

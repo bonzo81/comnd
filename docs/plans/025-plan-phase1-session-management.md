@@ -41,7 +41,7 @@ Settings introduced — global only, no host overrides:
 - Tauri commands: `get_session_log_dir() -> String` (open-in-explorer button), `set_session_logging(enabled)`, `set_session_log_timestamps(enabled)`.
 
 **Timestamps in the log file** — independent of the terminal gutter:
-- Log timestamps and the in-view gutter (`netssh-timestamps` / `netssh-timestamps-format`) are **separate concerns**: the log is an audit record, the gutter is visual. A user may want timestamps in logs but a clean terminal. Own toggle: `session_log_timestamps: bool`.
+- Log timestamps and the in-view gutter (`comnd-timestamps` / `comnd-timestamps-format`) are **separate concerns**: the log is an audit record, the gutter is visual. A user may want timestamps in logs but a clean terminal. Own toggle: `session_log_timestamps: bool`.
 - When on, each write chunk gets a `[HH:MM:SS]` wall-clock prefix (24h, fixed — log files are for parsing/audit, one canonical format; no 12h/ms options to configure). When off, raw stream only.
 - Header line records ISO-8601 start time always. Terminal gutter behavior unchanged.
 

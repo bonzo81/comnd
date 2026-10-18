@@ -16,7 +16,7 @@ export type UpdatePlatform = "windows" | "linux" | "darwin";
 /** What clicking the update indicator does on a given platform. */
 export type UpdateActionKind = "install" | "open-release-page";
 
-export const RELEASE_PAGE_URL = "https://github.com/bonzo81/netssh/releases/latest";
+export const RELEASE_PAGE_URL = "https://github.com/bonzo81/comnd/releases/latest";
 
 /** Detect the desktop OS from the user agent (Tauri webview UAs). */
 export function detectPlatform(userAgent: string = navigator.userAgent): UpdatePlatform {

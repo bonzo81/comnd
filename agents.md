@@ -1,10 +1,10 @@
-# Agents.md — netssh
+# Agents.md — Comnd
 
-AI agent behavior and conventions for the netssh project.
+AI agent behavior and conventions for the Comnd project.
 
 ## Project Context
 
-netssh is a cross-platform desktop SSH client with context-aware command suggestions for network engineers.
+Comnd is a cross-platform desktop SSH client with context-aware command suggestions for network engineers.
 
 **Stack:** Tauri v2 (Rust) + TypeScript/Vite frontend + xterm.js terminal emulator
 
@@ -196,7 +196,7 @@ Never bump versions or edit `CHANGELOG.md` by hand — write conventional commit
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues (`bonzo81/netssh`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues (`bonzo81/comnd`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

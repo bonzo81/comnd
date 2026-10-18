@@ -4,8 +4,8 @@ Status: implemented (2026-08-18)
 
 ## Decisions (user-confirmed)
 
-- App theme: dark (default) / light — persisted in `localStorage` (`netssh-theme`).
-- Terminal theme: **separate** setting from app theme, dark/light for now (more themes later) — persisted in `localStorage` (`netssh-terminal-theme`).
+- App theme: dark (default) / light — persisted in `localStorage` (`comnd-theme`).
+- Terminal theme: **separate** setting from app theme, dark/light for now (more themes later) — persisted in `localStorage` (`comnd-terminal-theme`).
 - App theme toggle: button in the app tab bar (`.app-tab-bar`).
 - Terminal theme toggle: button in the terminal topbar (`.tv-topbar`), next to `≡ Panel`.
 - No keyboard shortcuts (user declined).
@@ -45,13 +45,13 @@ Single source of truth:
 ```ts
 export type Theme = "dark" | "light";
 
-// App theme — localStorage["netssh-theme"], sets documentElement.dataset.theme,
-// dispatches window CustomEvent "netssh:theme"
+// App theme — localStorage["comnd-theme"], sets documentElement.dataset.theme,
+// dispatches window CustomEvent "comnd:theme"
 export function getAppTheme(): Theme
 export function setAppTheme(t: Theme): void
 
-// Terminal theme — localStorage["netssh-terminal-theme"], dispatches
-// window CustomEvent "netssh:terminal-theme"
+// Terminal theme — localStorage["comnd-terminal-theme"], dispatches
+// window CustomEvent "comnd:terminal-theme"
 export function getTerminalTheme(): Theme
 export function setTerminalTheme(t: Theme): void
 
@@ -72,7 +72,7 @@ export const TERMINAL_THEMES: Record<Theme, ITheme> = {
   `<button class="btn-text app-theme-btn">` with icon `☀`/`🌙` (show the theme
   you'd switch TO, or current — pick one, be consistent). Own click listener
   (tab bar's existing handler only reacts to `.app-tab` class, no conflict):
-  click → `setAppTheme(next)`, update icon. Listen for `netssh:theme` event to
+  click → `setAppTheme(next)`, update icon. Listen for `comnd:theme` event to
   keep icon in sync.
 
 ## 4. Terminal view (`src/components/terminal-view.ts`)
@@ -88,7 +88,7 @@ export const TERMINAL_THEMES: Record<Theme, ITheme> = {
   xterm 5.5 applies `options.theme` live.
 - Topbar template (line 362): add `<button class="btn-text tv-theme-btn">`
   before `≡ Panel`. Own listener: cycle dark→light, `setTerminalTheme(next)`
-  (persists + dispatches), update icon. Listen for `netssh:terminal-theme` to
+  (persists + dispatches), update icon. Listen for `comnd:terminal-theme` to
   keep icon in sync (covers future programmatic changes).
 - Import `Theme`, `TERMINAL_THEMES`, `getTerminalTheme`, `setTerminalTheme`
   from `../lib/theme`.

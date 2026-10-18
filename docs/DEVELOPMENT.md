@@ -27,8 +27,8 @@ nvm install --lts
 cargo install tauri-cli
 
 # Clone and run
-git clone https://github.com/bonzo81/netssh.git
-cd netssh
+git clone https://github.com/bonzo81/comnd.git
+cd comnd
 npm install
 cargo tauri dev
 ```
@@ -48,8 +48,8 @@ cargo install tauri-cli
 # WebView2 — usually pre-installed on Windows 10/11
 
 # Clone and run
-git clone https://github.com/bonzo81/netssh.git
-cd netssh
+git clone https://github.com/bonzo81/comnd.git
+cd comnd
 npm install
 cargo tauri dev
 ```
@@ -70,8 +70,8 @@ brew install node
 cargo install tauri-cli
 
 # Clone and run
-git clone https://github.com/bonzo81/netssh.git
-cd netssh
+git clone https://github.com/bonzo81/comnd.git
+cd comnd
 npm install
 cargo tauri dev
 ```
@@ -91,7 +91,7 @@ cargo tauri build
 ## Project Structure
 
 ```
-netssh/
+comnd/
 ├── docs/                    # Spec documents (8 parts)
 ├── knowledge-base/          # Platform command YAML files
 │   ├── cisco-iosxe/

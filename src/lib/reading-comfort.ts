@@ -10,8 +10,8 @@
  * while ON. Re-enabling restores those values instead of re-stamping the
  * preset. First-ever ON still stamps defaults.
  *
- * Persistence: localStorage `netssh-reading-comfort` (flat object, created on
- * first ON, kept across OFF) + `netssh-terminal-font-size` (via
+ * Persistence: localStorage `comnd-reading-comfort` (flat object, created on
+ * first ON, kept across OFF) + `comnd-terminal-font-size` (via
  * terminal-prefs). Presentational → localStorage, never config.json.
  * Zero Rust changes.
  *
@@ -40,7 +40,7 @@ interface StoredRC extends ReadingComfortState {
   lastFontSize?: number; // size last used while ON — re-ON restore target
 }
 
-const KEY = "netssh-reading-comfort";
+const KEY = "comnd-reading-comfort";
 
 export const RC_PRESET = { fontSize: 16, uiScale: 1.15, lineHeight: 1.4, letterSpacing: 2 };
 
@@ -122,7 +122,7 @@ export function disable(): void {
   write({ ...stored, enabled: false, lastFontSize: getTerminalFontSize() });
   setTerminalFontSize(stored.prevFontSize);
   clearDom();
-  window.dispatchEvent(new CustomEvent("netssh:reading-comfort", { detail: false }));
+  window.dispatchEvent(new CustomEvent("comnd:reading-comfort", { detail: false }));
 }
 
 /** Slider path — patch one or more fields, clamp ranges, re-apply. */
@@ -167,7 +167,7 @@ export function applyReadingComfort(): void {
   }
   document.documentElement.style.setProperty("--text-scale", String(state.uiScale));
   document.documentElement.dataset.readingComfort = "on";
-  window.dispatchEvent(new CustomEvent("netssh:reading-comfort", { detail: state }));
+  window.dispatchEvent(new CustomEvent("comnd:reading-comfort", { detail: state }));
 }
 
 function clearDom(): void {

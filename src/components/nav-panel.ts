@@ -112,7 +112,7 @@ export class NavPanel {
   private docScrollHandler: ((e: Event) => void) | null = null;
   private docResizeHandler: (() => void) | null = null;
 
-  private static STORAGE_KEY = "netssh.nav.expandedGroups";
+  private static STORAGE_KEY = "comnd.nav.expandedGroups";
 
   private static loadExpanded(): string[] {
     try {

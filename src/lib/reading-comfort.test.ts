@@ -12,7 +12,7 @@ import {
 import { getTerminalFontSize, setTerminalFontSize } from "./terminal-prefs";
 import { getAppTheme, setAppTheme, getTerminalTheme, setTerminalTheme } from "./theme";
 
-const KEY = "netssh-reading-comfort";
+const KEY = "comnd-reading-comfort";
 
 beforeEach(() => {
   localStorage.clear();

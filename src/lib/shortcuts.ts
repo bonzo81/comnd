@@ -249,14 +249,14 @@ export function resolvedCombo(id: ShortcutAction): string {
 }
 
 /** Replace the overrides map and notify listeners (the open help modal
- *  and settings pane re-render on "netssh:shortcuts"). */
+ *  and settings pane re-render on "comnd:shortcuts"). */
 export function setOverrides(map: Record<string, string>): void {
   overrides.clear();
   for (const [k, v] of Object.entries(map)) {
     if (typeof v === "string" && v) overrides.set(k, v);
   }
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("netssh:shortcuts", { detail: { ...map } }));
+    window.dispatchEvent(new CustomEvent("comnd:shortcuts", { detail: { ...map } }));
   }
 }
 

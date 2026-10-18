@@ -1,4 +1,4 @@
-# netssh — User-Definable Keyboard Shortcuts
+# Comnd — User-Definable Keyboard Shortcuts
 
 **Version:** 0.2 (draft) **Status:** Planned **Author:** Andy Norwood (architect) **Last updated:** 2026-10-11
 

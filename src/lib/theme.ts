@@ -11,8 +11,8 @@ export const APP_THEMES = [
 
 export type Theme = (typeof APP_THEMES)[number]["id"];
 
-const APP_KEY = "netssh-theme";
-const TERMINAL_KEY = "netssh-terminal-theme";
+const APP_KEY = "comnd-theme";
+const TERMINAL_KEY = "comnd-terminal-theme";
 
 export function getAppTheme(): Theme {
   const stored = localStorage.getItem(APP_KEY);
@@ -22,7 +22,7 @@ export function getAppTheme(): Theme {
 export function setAppTheme(t: Theme): void {
   localStorage.setItem(APP_KEY, t);
   document.documentElement.dataset.theme = t;
-  window.dispatchEvent(new CustomEvent("netssh:theme", { detail: t }));
+  window.dispatchEvent(new CustomEvent("comnd:theme", { detail: t }));
 }
 
 export type TerminalTheme = 'dark' | 'warm-charcoal' | 'cream' | 'light';
@@ -37,7 +37,7 @@ export function getTerminalTheme(): TerminalTheme {
 
 export function setTerminalTheme(t: TerminalTheme): void {
   localStorage.setItem(TERMINAL_KEY, t);
-  window.dispatchEvent(new CustomEvent("netssh:terminal-theme", { detail: t }));
+  window.dispatchEvent(new CustomEvent("comnd:terminal-theme", { detail: t }));
 }
 
 export const TERMINAL_THEMES: Record<TerminalTheme, ITheme> = {

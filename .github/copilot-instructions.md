@@ -1,8 +1,8 @@
-# Copilot Instructions — netssh
+# Copilot Instructions — Comnd
 
 ## Project Overview
 
-netssh is a cross-platform desktop SSH client with context-aware command suggestions, built for network engineers. It targets Linux, macOS, and Windows.
+Comnd is a cross-platform desktop SSH client with context-aware command suggestions, built for network engineers. It targets Linux, macOS, and Windows.
 
 **Tech stack:** Tauri v2 (Rust backend) + TypeScript/Vite frontend + xterm.js terminal
 

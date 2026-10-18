@@ -113,7 +113,7 @@ fn legacy_key(key: &str) -> Option<&str> {
 
 /// Save a secret under `key` in the OS keychain.
 pub fn save_secret(key: &str, secret: &str) -> Result<(), String> {
-    keyring::Entry::new("netssh", key)
+    keyring::Entry::new("comnd", key)
         .and_then(|e| e.set_password(secret))
         .map_err(|e| e.to_string())
 }
@@ -123,10 +123,10 @@ pub fn save_secret(key: &str, secret: &str) -> Result<(), String> {
 /// legacy bare `<id>` entry is consulted. The new key is written on the
 /// next save, so no one-time migration pass is needed.
 pub fn get_secret(key: &str) -> Result<Option<String>, String> {
-    match keyring::Entry::new("netssh", key).and_then(|e| e.get_password()) {
+    match keyring::Entry::new("comnd", key).and_then(|e| e.get_password()) {
         Ok(pw) => Ok(Some(pw)),
         Err(keyring::Error::NoEntry) => match legacy_key(key) {
-            Some(legacy) => match keyring::Entry::new("netssh", legacy).and_then(|e| e.get_password()) {
+            Some(legacy) => match keyring::Entry::new("comnd", legacy).and_then(|e| e.get_password()) {
                 Ok(pw) => Ok(Some(pw)),
                 Err(keyring::Error::NoEntry) => Ok(None),
                 Err(e) => Err(e.to_string()),
@@ -147,7 +147,7 @@ pub fn delete_secret(key: &str) -> Result<(), String> {
 }
 
 fn delete_entry(key: &str) -> Result<(), String> {
-    keyring::Entry::new("netssh", key)
+    keyring::Entry::new("comnd", key)
         .and_then(|e| e.delete_credential())
         .or_else(|e| {
             // Deleting a non-existent entry is not an error.
@@ -253,10 +253,10 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_password_reads_keyring() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if keyring::Entry::new("netssh", "netssh_test_probe").is_err() {
+        if keyring::Entry::new("comnd", "comnd_test_probe").is_err() {
             return;
         }
-        let key = host_key(&format!("netssh_cred_test_{}", uuid::Uuid::new_v4()));
+        let key = host_key(&format!("comnd_cred_test_{}", uuid::Uuid::new_v4()));
         save_secret(&key, "pw-123").unwrap();
 
         let registry = empty_registry();
@@ -274,12 +274,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_secret_falls_back_to_legacy_bare_id() {
-        if keyring::Entry::new("netssh", "netssh_test_probe").is_err() {
+        if keyring::Entry::new("comnd", "comnd_test_probe").is_err() {
             return;
         }
-        let id = format!("netssh_legacy_{}", uuid::Uuid::new_v4());
+        let id = format!("comnd_legacy_{}", uuid::Uuid::new_v4());
         // Simulate a pre-key-scheme entry: stored under the bare host id.
-        let legacy_entry = keyring::Entry::new("netssh", &id).unwrap();
+        let legacy_entry = keyring::Entry::new("comnd", &id).unwrap();
         legacy_entry.set_password("old-pw").unwrap();
 
         match get_secret(&host_key(&id)) {

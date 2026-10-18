@@ -41,7 +41,7 @@ Builds are **unsigned**. Consequences per platform:
 - **Windows**: SmartScreen "Unknown publisher" warning on install. Installer works fine after "Run anyway".
 - **macOS**: Gatekeeper blocks downloaded apps with an "app is damaged" message on Apple Silicon. Workaround for beta testers:
   ```
-  xattr -d com.apple.quarantine /Applications/netssh.app
+  xattr -d com.apple.quarantine /Applications/comnd.app
   ```
   (or System Settings → Privacy & Security → "Open Anyway"). Tauri ad-hoc signs the binary, which satisfies the linker but not Gatekeeper for downloaded apps.
 - **Linux**: no signing concept — unaffected.

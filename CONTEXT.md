@@ -1,6 +1,6 @@
-# CONTEXT.md — netssh domain glossary
+# CONTEXT.md — Comnd domain glossary
 
-Vocabulary for the netssh codebase. AI agents and architecture reviews use these
+Vocabulary for the Comnd codebase. AI agents and architecture reviews use these
 terms; keep them current as concepts crystallize.
 
 ## Suggestion pipeline

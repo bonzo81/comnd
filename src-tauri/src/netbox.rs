@@ -188,7 +188,7 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
 
 // ─── Platform mapping (plan §7.2) ───────────────────────────────────
 
-/// NetBox platform slug → netssh platform. Materialized hosts must carry
+/// NetBox platform slug → comnd platform. Materialized hosts must carry
 /// one of the four VALID_PLATFORMS values.
 const PLATFORM_TABLE: &[(&str, &str)] = &[
     ("cisco-ios", "cisco-iosxe"),
@@ -228,7 +228,7 @@ pub struct PlatformPolicy {
 }
 
 impl PlatformPolicy {
-    /// Resolve a NetBox platform slug to a netssh platform, or `None` to
+    /// Resolve a NetBox platform slug to a comnd platform, or `None` to
     /// skip the device.
     pub fn resolve(&self, slug: Option<&str>) -> Option<String> {
         let slug = match slug {
@@ -524,8 +524,8 @@ fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
 // ─── Source config + materialization (plan §8) ──────────────────────
 
 /// Keyring keys (plan §8.1/§11 — secrets never live in config.json).
-pub const TOKEN_KEY: &str = "netssh_source_netbox_token";
-pub const DEFAULT_PW_KEY: &str = "netssh_source_netbox_default_pw";
+pub const TOKEN_KEY: &str = "comnd_source_netbox_token";
+pub const DEFAULT_PW_KEY: &str = "comnd_source_netbox_default_pw";
 
 /// Connection parameters resolved for one NetBox-sourced device.
 pub struct ConnectParams {
@@ -2065,7 +2065,7 @@ mod tests {
     // ─── Cache store (plan §7.3) ───────────────────────────────────
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("netssh_netbox_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_netbox_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -2358,7 +2358,7 @@ mod tests {
 
     #[test]
     fn test_override_to_custom_platform_validates_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("netssh_netbox_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("comnd_netbox_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);

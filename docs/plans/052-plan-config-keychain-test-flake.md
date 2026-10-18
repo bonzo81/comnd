@@ -19,8 +19,8 @@ The two use different targets:
 
 | Test | Keyring target | Unique? |
 |---|---|---|
-| `test_save_and_get_provider_secret` | `"netssh_provider_<uuid>"` (config.rs:750) | yes — per-run UUID |
-| `test_save_and_get_llm_api_key` | `LLM_KEY_ENTRY = "netssh_ollama_api_key"` (config.rs:655, const at :129) | **no — fixed** |
+| `test_save_and_get_provider_secret` | `"comnd_provider_<uuid>"` (config.rs:750) | yes — per-run UUID |
+| `test_save_and_get_llm_api_key` | `LLM_KEY_ENTRY = "comnd_ollama_api_key"` (config.rs:655, const at :129) | **no — fixed** |
 
 `LLM_KEY_ENTRY` is the *production* target — `save_llm_api_key` /
 `get_llm_api_key` (config.rs:132–149) use it. The test writes a throwaway value
@@ -39,7 +39,7 @@ Two problems, one line apart:
    fails its read-back or `NoEntry` assertion — hence the *rotating* failure.
 2. **Clobbers real user data.** Because the target is fixed, running the suite
    locally overwrites then deletes whatever live LLM API key the developer had
-   stored under `netssh/netssh_ollama_api_key`. Silent data loss on a plain
+   stored under `comnd/comnd_ollama_api_key`. Silent data loss on a plain
    `cargo test`.
 
 The provider test does not exhibit (2) because its target is already unique; it
@@ -57,12 +57,12 @@ Change (config.rs:655–661): construct the entry from a fresh UUID instead of
 `LLM_KEY_ENTRY`, e.g.
 
 ```rust
-let id = format!("netssh_test_llm_{}", uuid::Uuid::new_v4());
-let entry = keyring::Entry::new("netssh", &id).unwrap();
+let id = format!("comnd_test_llm_{}", uuid::Uuid::new_v4());
+let entry = keyring::Entry::new("comnd", &id).unwrap();
 entry.set_password(test_key).unwrap();
 assert_eq!(entry.get_password().unwrap(), test_key);
 entry.delete_credential().unwrap();
-let e2 = keyring::Entry::new("netssh", &id).unwrap();
+let e2 = keyring::Entry::new("comnd", &id).unwrap();
 assert!(matches!(e2.get_password(), Err(keyring::Error::NoEntry)));
 ```
 
@@ -86,7 +86,7 @@ Do not add that until the unique-target fix alone is measured insufficient.
    so a single green run is not sufficient evidence.
 3. Confirm the two keychain tests still pass in isolation.
 4. **No data loss:** after a local `cargo test`, the developer's real LLM API
-   key under `netssh/netssh_ollama_api_key` must be unchanged (the test no
+   key under `comnd/comnd_ollama_api_key` must be unchanged (the test no
    longer touches that target).
 
 ## Non-goals

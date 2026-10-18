@@ -1,4 +1,4 @@
-# Contributing to netssh
+# Contributing to Comnd
 
 ## Commit Messages
 

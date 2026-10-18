@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_write_and_read() {
-        let dir = std::env::temp_dir().join(format!("netssh_session_log_test_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "test-host:22", 1, true);
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_not_orphaned_on_leading_newline() {
-        let dir = std::env::temp_dir().join(format!("netssh_session_log_test_lead_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_lead_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "host:22", 3, true);
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_write_no_timestamps() {
-        let dir = std::env::temp_dir().join(format!("netssh_session_log_test_notime_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_notime_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "host:22", 2, false);

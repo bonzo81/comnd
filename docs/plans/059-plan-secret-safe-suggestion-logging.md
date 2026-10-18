@@ -2,7 +2,7 @@
 
 **Status: implemented (2026-10-18).**
 
-Origin: GitHub issue [#19](https://github.com/bonzo81/netssh/issues/19),
+Origin: GitHub issue [#19](https://github.com/bonzo81/comnd/issues/19),
 “Close latent debug-log leak of typed secrets.”
 
 ## Goal

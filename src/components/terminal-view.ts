@@ -114,7 +114,7 @@ const MODE_TINTS: Record<string, string> = {
 };
 
 // Auto-suggestion toggle — persisted, synced across tabs via window event
-const SUGGESTIONS_KEY = "netssh-suggestions";
+const SUGGESTIONS_KEY = "comnd-suggestions";
 
 function getSuggestionsEnabled(): boolean {
   return localStorage.getItem(SUGGESTIONS_KEY) === "1";
@@ -122,7 +122,7 @@ function getSuggestionsEnabled(): boolean {
 
 function setSuggestionsEnabled(enabled: boolean): void {
   localStorage.setItem(SUGGESTIONS_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netssh:suggestions", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("comnd:suggestions", { detail: enabled }));
 }
 
 interface ConnectProgress {
@@ -292,9 +292,9 @@ export class TerminalView {
     });
 
     this.fontChangeHandler = () => this.applyFontSize(getTerminalFontSize());
-    window.addEventListener("netssh:terminal-font-size", this.fontChangeHandler);
+    window.addEventListener("comnd:terminal-font-size", this.fontChangeHandler);
     this.readingComfortHandler = () => this.syncReadingComfort();
-    window.addEventListener("netssh:reading-comfort", this.readingComfortHandler);
+    window.addEventListener("comnd:reading-comfort", this.readingComfortHandler);
 
     // Ghost text is anchored to the cursor — reposition on buffer scroll.
     // Dropdown is transient: hide it on scroll (PSReadLine ListView model).
@@ -640,7 +640,7 @@ export class TerminalView {
       this.applyTerminalTheme(getTerminalTheme());
       syncThemeIcon();
     };
-    window.addEventListener("netssh:terminal-theme", this.themeChangeHandler);
+    window.addEventListener("comnd:terminal-theme", this.themeChangeHandler);
     syncThemeIcon();
 
     // Line timestamps toggle
@@ -650,22 +650,22 @@ export class TerminalView {
     // Events apply to THIS terminal — keeps every session tab in sync
     this.timestampsChangeHandler = () => this.syncTimestamps();
     this.timestampsFormatHandler = () => this.syncTimestamps();
-    window.addEventListener("netssh:timestamps", this.timestampsChangeHandler);
-    window.addEventListener("netssh:timestamps-format", this.timestampsFormatHandler);
+    window.addEventListener("comnd:timestamps", this.timestampsChangeHandler);
+    window.addEventListener("comnd:timestamps-format", this.timestampsFormatHandler);
 
     // Command suggestions toggle (auto-show dropdown while typing)
     this.$(".tv-suggestions-btn")!.addEventListener("click", () => {
       setSuggestionsEnabled(!getSuggestionsEnabled());
     });
     this.suggestionsChangeHandler = () => this.syncSuggestions();
-    window.addEventListener("netssh:suggestions", this.suggestionsChangeHandler);
+    window.addEventListener("comnd:suggestions", this.suggestionsChangeHandler);
 
     // Auto-copy on selection toggle
     this.$(".tv-autocopy-btn")!.addEventListener("click", () => {
       setAutoCopyEnabled(!getAutoCopyEnabled());
     });
     this.autoCopyChangeHandler = () => this.syncAutoCopy();
-    window.addEventListener("netssh:auto-copy", this.autoCopyChangeHandler);
+    window.addEventListener("comnd:auto-copy", this.autoCopyChangeHandler);
     this.syncAutoCopy();
 
     // Output highlighting toggle
@@ -673,7 +673,7 @@ export class TerminalView {
       setOutputHighlightEnabled(!getOutputHighlightEnabled());
     });
     this.highlightChangeHandler = () => this.syncHighlight();
-    window.addEventListener("netssh:output-highlight", this.highlightChangeHandler);
+    window.addEventListener("comnd:output-highlight", this.highlightChangeHandler);
     this.syncHighlight();
 
     // Panel toggle
@@ -1684,35 +1684,35 @@ export class TerminalView {
       this.ctrlWHandler = null;
     }
     if (this.themeChangeHandler) {
-      window.removeEventListener("netssh:terminal-theme", this.themeChangeHandler);
+      window.removeEventListener("comnd:terminal-theme", this.themeChangeHandler);
       this.themeChangeHandler = null;
     }
     if (this.fontChangeHandler) {
-      window.removeEventListener("netssh:terminal-font-size", this.fontChangeHandler);
+      window.removeEventListener("comnd:terminal-font-size", this.fontChangeHandler);
       this.fontChangeHandler = null;
     }
     if (this.readingComfortHandler) {
-      window.removeEventListener("netssh:reading-comfort", this.readingComfortHandler);
+      window.removeEventListener("comnd:reading-comfort", this.readingComfortHandler);
       this.readingComfortHandler = null;
     }
     if (this.timestampsChangeHandler) {
-      window.removeEventListener("netssh:timestamps", this.timestampsChangeHandler);
+      window.removeEventListener("comnd:timestamps", this.timestampsChangeHandler);
       this.timestampsChangeHandler = null;
     }
     if (this.timestampsFormatHandler) {
-      window.removeEventListener("netssh:timestamps-format", this.timestampsFormatHandler);
+      window.removeEventListener("comnd:timestamps-format", this.timestampsFormatHandler);
       this.timestampsFormatHandler = null;
     }
     if (this.suggestionsChangeHandler) {
-      window.removeEventListener("netssh:suggestions", this.suggestionsChangeHandler);
+      window.removeEventListener("comnd:suggestions", this.suggestionsChangeHandler);
       this.suggestionsChangeHandler = null;
     }
     if (this.autoCopyChangeHandler) {
-      window.removeEventListener("netssh:auto-copy", this.autoCopyChangeHandler);
+      window.removeEventListener("comnd:auto-copy", this.autoCopyChangeHandler);
       this.autoCopyChangeHandler = null;
     }
     if (this.highlightChangeHandler) {
-      window.removeEventListener("netssh:output-highlight", this.highlightChangeHandler);
+      window.removeEventListener("comnd:output-highlight", this.highlightChangeHandler);
       this.highlightChangeHandler = null;
     }
 

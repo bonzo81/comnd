@@ -110,8 +110,8 @@ Core API:
   Called once at app boot, before `registerGlobalShortcuts()` (main.ts:
   220). Until it resolves, `matches()` runs on defaults — no race.
 - `setOverrides(map: Record<string, string>): void` — replace overrides,
-  dispatch `netssh:shortcuts` CustomEvent (same pattern as
-  `netssh:reading-comfort`, `netssh:terminal-font-size`).
+  dispatch `comnd:shortcuts` CustomEvent (same pattern as
+  `comnd:reading-comfort`, `comnd:terminal-font-size`).
 
 ### Rust: config field + command
 
@@ -178,7 +178,7 @@ Core API:
 wins + old combo stops matching, `bareKeyOnly` input-focus gate,
 `modLocked` ignores platform Mod; `formatCombo` per platform;
 `ctrlByteForCombo` incl. null cases; `setOverrides` dispatches
-`netssh:shortcuts`; unknown ids in a hand-edited map are ignored.
+`comnd:shortcuts`; unknown ids in a hand-edited map are ignored.
 
 Gate: `npm run build`, `npm run test`, and `cargo check --all-targets` in
 `src-tauri/` all exit 0.
@@ -199,7 +199,7 @@ Gate: `npm run build`, `npm run test`, and `cargo check --all-targets` in
   re-render). Reachable from every screen (status bar is global chrome).
 - Modal footer gains a **"Customize…"** link → `showView("settings")` +
   `settingsScreen.setItem("shortcuts")` + close the modal.
-- Listen for `netssh:shortcuts` to re-render an open modal after a
+- Listen for `comnd:shortcuts` to re-render an open modal after a
   rebinding (stale combos in the help list are the bug this feature kills).
 
 Gate: `npm run build` + `npm run test` exit 0; manual: button opens modal,
@@ -230,7 +230,7 @@ rows match the defaults table, no phantom entries.
     (clipboard muscle memory), `Escape` (cascade + modal dismiss).
   - **Save**: on capture confirm, write the row override into the map →
     `setShortcutOverrides(map)` (persists) → `setOverrides(map)` (re-read
-    into the registry) → `netssh:shortcuts` re-renders pane + open modal.
+    into the registry) → `comnd:shortcuts` re-renders pane + open modal.
     Applies immediately, no restart (spec).
   - **Restore all defaults** button → save the empty map.
 - Styles in `_settings-screen.css` (tokens only, 4px grid): `.shortcut-row`,

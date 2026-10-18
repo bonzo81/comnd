@@ -2,7 +2,7 @@
 
 Continuation of `plan-production-readiness.md` (Phase 1, complete).
 
-**Why this doc exists:** Phase 2 is split into two tracks by one dependency — *does the work require code-signing / notarization?* This track (2A) holds everything that does **not**. It can proceed immediately with no certificate or account prerequisites, so netssh keeps moving. The signing-dependent remainder lives in `plan-production-readiness-phase2b-code-signing.md` (2B) and is deferred until a no-vendor-warning public release is actually required.
+**Why this doc exists:** Phase 2 is split into two tracks by one dependency — *does the work require code-signing / notarization?* This track (2A) holds everything that does **not**. It can proceed immediately with no certificate or account prerequisites, so comnd keeps moving. The signing-dependent remainder lives in `plan-production-readiness-phase2b-code-signing.md` (2B) and is deferred until a no-vendor-warning public release is actually required.
 
 **Nothing in 2A blocks on 2B.** A beta can ship on 2A alone.
 
@@ -80,7 +80,7 @@ Item IDs continue from Phase 1 for traceability (e.g. P2.2 here is the same item
 
 ### P2.7 — Honest User-Agent in import fetch
 
-- [ ] Replace `"netssh-kb-import/0.1"` with a real, versioned UA string that includes the app version and an optional contact URL
+- [ ] Replace `"comnd-kb-import/0.1"` with a real, versioned UA string that includes the app version and an optional contact URL
 - [ ] Make it configurable via `tauri.conf.json` or a constant
 
 **Why:** The current UA is a placeholder. A real product should identify itself honestly to the servers it fetches from.

@@ -423,7 +423,7 @@ export async function getLogStatus(): Promise<string | null> {
   return invoke<string | null>("get_log_status");
 }
 
-/** Forward a frontend log record to the Rust logger (persisted to netssh.log). */
+/** Forward a frontend log record to the Rust logger (persisted to comnd.log). */
 export function logFrontend(level: string, tag: string, msg: string, args: string): Promise<void> {
   return invoke<void>("log_frontend", { level, tag, msg, args });
 }

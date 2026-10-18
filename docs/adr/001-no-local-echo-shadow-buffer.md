@@ -4,7 +4,7 @@ Date: 2026-10-02
 Status: Accepted
 
 ## Context
-netssh is a live SSH client: every keystroke must reach the remote device in real time (AGENTS.md rule 1). The frontend keeps a **shadow buffer** — an observation-only mirror of the input line used solely for suggestion matching (CONTEXT.md, `src/lib/shadow-buffer.ts`).
+Comnd is a live SSH client: every keystroke must reach the remote device in real time (AGENTS.md rule 1). The frontend keeps a **shadow buffer** — an observation-only mirror of the input line used solely for suggestion matching (CONTEXT.md, `src/lib/shadow-buffer.ts`).
 
 ## Options
 - **Local echo** — render each keystroke locally, then send. Cost: desyncs and double-renders when the remote echoes back; breaks the observe-only model.

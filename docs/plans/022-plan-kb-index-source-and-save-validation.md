@@ -1,6 +1,6 @@
 # Plan: KB Index Single Source + Honest Save Validation
 
-The knowledge base is the core differentiator of netssh: it is both the
+The knowledge base is the core differentiator of comnd: it is both the
 reference for commands and the live guide during a session (see
 docs/specs/06-knowledge-base.md and docs/specs/05-suggestion-engine.md). This plan fixes
 two correctness problems in the KB domain, found in an architecture review of

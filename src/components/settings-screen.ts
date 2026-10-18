@@ -154,7 +154,7 @@ export class SettingsScreen {
     // Re-render when the mode is toggled elsewhere (status bar) while open.
     // Slider drags dispatch the same event — only re-render on state flips.
     let rcLastEnabled = isReadingComfortEnabled();
-    window.addEventListener("netssh:reading-comfort", () => {
+    window.addEventListener("comnd:reading-comfort", () => {
       const now = isReadingComfortEnabled();
       if (now !== rcLastEnabled) {
         rcLastEnabled = now;
@@ -162,10 +162,10 @@ export class SettingsScreen {
       }
     });
 
-    // A shortcut save re-emits "netssh:shortcuts": keep the rows in sync
+    // A shortcut save re-emits "comnd:shortcuts": keep the rows in sync
     // with the registry. Mid-capture the live chip keeps its state —
     // only restore focus.
-    window.addEventListener("netssh:shortcuts", () => {
+    window.addEventListener("comnd:shortcuts", () => {
       if (!this.container || this.itemId !== "shortcuts") return;
       if (this.scCapturing) {
         this.focusCaptureChip();
@@ -357,7 +357,7 @@ export class SettingsScreen {
           <div class="log-file-row">
             <button type="button" id="check-updates" class="btn-secondary">Check for updates</button>
           </div>
-          <span class="import-hint" id="update-status">netssh checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>
+          <span class="import-hint" id="update-status">Comnd checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>
         </div>
       </div>
     `;
@@ -452,7 +452,7 @@ export class SettingsScreen {
           <select class="form-input" id="theme-app">
             ${opts}
           </select>
-          <span class="import-hint">Applies to the netssh window chrome, nav panel, and settings</span>
+          <span class="import-hint">Applies to the Comnd window chrome, nav panel, and settings</span>
         </div>
       </div>
     `;
@@ -1079,7 +1079,7 @@ export class SettingsScreen {
   }
 
   /** Persist `map`, re-read it into the registry, and let the
-   *  netssh:shortcuts event re-render this pane and any open help modal —
+   *  comnd:shortcuts event re-render this pane and any open help modal —
    *  bindings apply immediately, no restart (spec §Settings UI). */
   private saveShortcutOverrides(map: Record<string, string>) {
     this.clearCaptureState();
@@ -1112,7 +1112,7 @@ export class SettingsScreen {
         el.textContent = "Downloading update…";
         break;
       case "installed":
-        el.textContent = "Update installed — netssh is restarting.";
+        el.textContent = "Update installed — Comnd is restarting.";
         break;
       case "error":
         el.textContent = `Update check failed: ${s.error ?? "unknown error"}`;
@@ -1702,7 +1702,7 @@ export class SettingsScreen {
   private async browseLogFile(): Promise<void> {
     try {
       const selected = await save({
-        defaultPath: "netssh.log",
+        defaultPath: "comnd.log",
         filters: [{ name: "Log files", extensions: ["log"] }],
       });
       if (selected) {
@@ -1733,7 +1733,7 @@ export class SettingsScreen {
   private async exportData(): Promise<void> {
     try {
       const dest = await save({
-        defaultPath: "netssh-backup.zip",
+        defaultPath: "comnd-backup.zip",
         filters: [{ name: "Backup files", extensions: ["zip"] }],
       });
       if (!dest) return;
