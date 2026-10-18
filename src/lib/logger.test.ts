@@ -64,12 +64,26 @@ describe("record construction", () => {
     expect(records[0].args).not.toContain('"xyz"');
   });
 
-  it("redacts bare quoted strings in Suggest messages before any sink sees them", () => {
+  it("redacts quoted spans in Suggest messages before any sink sees them", () => {
     const { records, sink } = capture();
     setSinks([sink]);
     log.debug(LogTag.Suggest, "('secretvalue' != '')");
-    expect(records[0].msg).toBe("('[REDACTED]' != '')");
+    expect(records[0].msg).toBe("('[REDACTED]')");
     expect(records[0].msg).not.toContain("secretvalue");
+  });
+
+  it.each([
+    ["empty quoted pair", "('' != 'secretvalue')"],
+    ["embedded apostrophe", "('prefix'secretvalue' != '')"],
+  ])("redacts ambiguous quoted values in messages and args (%s)", (_label, text) => {
+    const { records, sink } = capture();
+    setSinks([sink]);
+    log.debug(LogTag.Suggest, text, text);
+
+    expect(records[0].msg).not.toContain("secretvalue");
+    expect(records[0].args).not.toContain("secretvalue");
+    expect(records[0].msg).toContain("[REDACTED]");
+    expect(records[0].args).toContain("[REDACTED]");
   });
 
   it("leaves clean messages untouched and keeps rawArgs raw", () => {

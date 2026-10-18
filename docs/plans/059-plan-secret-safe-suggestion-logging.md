@@ -34,20 +34,21 @@ before any logger sink receives the record.
    no-op `clearTimeout` stub to let an earlier query callback run after the
    buffer changes. Capture Suggest-tagged records and assert none contains
    the synthetic secret substring supplied to the buffer.
-3. In `src/lib/logger.ts`, add a redaction rule for non-empty single-quoted
-   strings in Suggest-tagged records. Keep it tag-scoped and apply it during
-   record construction, before any sink sees the record. Preserve existing
-   redaction behavior for other tags.
+3. In `src/lib/logger.ts`, mask the full span from the first to the last
+   single quote in Suggest-tagged records (or through the end for an unmatched
+   quote). Do not parse ambiguous embedded apostrophes. Apply redaction during
+   record construction, before any sink sees the record; preserve existing
+   behavior for other tags.
 4. In `src/lib/logger.test.ts`, verify a Suggest message like
-   `('secretvalue' != '')` reaches a capture sink with the quoted value
-   redacted.
+   `('secretvalue' != '')`, empty quoted pairs, and embedded apostrophes are
+   redacted in both messages and serialized args before reaching a sink.
 
 ## Scope and risks
 
 Only the four implementation and test files above are in scope. No
 dependency or production timer behavior changes are planned. Tag-scoped
-quoted-string redaction can also mask harmless quoted text in Suggest
-messages; this is preferable to persisting an unlabelled typed value.
+quoted-span redaction can also mask harmless text between quoted fragments in
+Suggest messages; this is preferable to persisting an unlabelled typed value.
 `rawArgs` behavior is unchanged; the affected stale-query call passes no
 arguments.
 
@@ -58,6 +59,6 @@ From the repository root, run:
 1. `npm run test`
 2. `npm run build`
 
-Both commands exited successfully: `npm run test` (24 files, 321 tests) and
+Both commands exited successfully: `npm run test` (28 files, 368 tests) and
 `npm run build` (TypeScript and Vite build). The test run printed jsdom canvas
 context warnings; the build printed the existing large-chunk warning.

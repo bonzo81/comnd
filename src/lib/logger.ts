@@ -67,13 +67,23 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/("api[_-]?key"\s*:\s*")[^"]*"/gi, '$1[REDACTED]"'],
 ];
 
+function redactSuggestQuotedText(s: string): string {
+  const firstQuote = s.indexOf("'");
+  if (firstQuote === -1) return s;
+  const lastQuote = s.lastIndexOf("'");
+  const suffix = lastQuote === firstQuote ? "" : s.slice(lastQuote + 1);
+  // Embedded apostrophes make individual quoted spans ambiguous; mask the
+  // whole range rather than risk leaving text between matches visible.
+  return `${s.slice(0, firstQuote)}'[REDACTED]'${suffix}`;
+}
+
 function redact(s: string, tag: LogTag): string {
   const redacted = SECRET_PATTERNS.reduce(
     (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
     s,
   );
   return tag === LogTag.Suggest
-    ? redacted.replace(/'[^']+'/g, "'[REDACTED]'")
+    ? redactSuggestQuotedText(redacted)
     : redacted;
 }
 
