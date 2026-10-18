@@ -58,6 +58,7 @@ describe("SettingsScreen — NetBox folder visibility", () => {
           enabled: true,
           show_empty_folders: !initial,
           base_url: "https://netbox.example.com",
+          filters: { status: null, sites: [], roles: [], tags: [] },
         }),
         defaultPassword: null,
       },

@@ -668,7 +668,7 @@ export class SettingsScreen {
           <div class="import-field">
             <label for="netbox-filter-status">Device status</label>
             <input type="text" class="form-input" id="netbox-filter-status" placeholder="active"
-                   value="${escAttr(filters.status ?? "active")}" />
+                   value="${escAttr(cfg ? (filters.status ?? "") : "active")}" />
             <span class="import-hint">NetBox status slug. Leave blank to sync devices in any status.</span>
           </div>
           ${this.renderFilterMultiSelect("netbox-filter-sites", "Sites", "Search sites…", this.netboxSites, filters.sites)}
