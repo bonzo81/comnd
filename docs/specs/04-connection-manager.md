@@ -45,7 +45,7 @@ The first thing every new user sees. This screen determines whether they continu
 ```
 ┌──────────────────────────────────────────────────────┐
 │                                                      │
-│              🖥  Welcome to netssh                    │
+│              🖥  Welcome to comnd                    │
 │                                                      │
 │   A smarter SSH client for network engineers.        │
 │   Connect to your devices with context-aware         │
@@ -60,7 +60,7 @@ The first thing every new user sees. This screen determines whether they continu
 │   ─────────────────────────────────────              │
 │                                                      │
 │   💡 Tip: After connecting, start typing a command   │
-│   and netssh will suggest completions inline.        │
+│   and comnd will suggest completions inline.        │
 │   Press Tab to accept, Ctrl+Space to browse.         │
 │                                                      │
 └──────────────────────────────────────────────────────┘
@@ -108,7 +108,7 @@ NetBox-sourced devices appear alongside user hosts, never mixed into them.
   menu). No background sync, no polling, no refresh-on-launch.
 - **Sync filters**: status (default `active`), sites, roles, tags -
   comma-separated slugs passed as NetBox API query filters.
-- **Platform mapping**: NetBox platform slug -> netssh platform via a built-in
+- **Platform mapping**: NetBox platform slug -> Comnd platform via a built-in
   table (cisco-ios, nx-os, f5-tmos, ubuntu, ...). Unknown slugs: skip
   (reported in the sync summary) or fallback platform, plus a slug=platform
   overrides list.

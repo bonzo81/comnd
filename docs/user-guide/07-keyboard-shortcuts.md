@@ -16,7 +16,7 @@ These shortcuts work while you are connected to a device with an active SSH sess
 | `Ctrl+Shift+Q` | Disconnect active session (after a confirmation dialog) |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom terminal font in / out / reset |
 
-**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and netssh does not interfere with that.
+**Note:** `Ctrl+W` is intentionally unbound. It passes through to the remote device — in most shells this deletes the word behind the cursor, and Comnd does not interfere with that.
 
 ## Connection Manager Shortcuts
 

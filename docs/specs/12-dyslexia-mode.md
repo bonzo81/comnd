@@ -68,11 +68,11 @@ airy at terminal densities and cell height feeds ghost-text positioning.
 Two localStorage keys, matching the theme precedent (presentational →
 localStorage, never config.json):
 
-- **`netssh-terminal-font-size`** — always present, mode-independent. Fixes
+- **`comnd-terminal-font-size`** — always present, mode-independent. Fixes
   the spec-03 drift where `Ctrl++`/`Ctrl+-`/`Ctrl+0` zoom was session-only:
   those shortcuts now read/write this key. Terminal font size has ONE source
   of truth; the mode stamps into it like any other writer.
-- **`netssh-reading-comfort`** — flat object, created on first ON, kept
+- **`comnd-reading-comfort`** — flat object, created on first ON, kept
   across OFF (an `enabled` flag flips; values survive the toggle cycle):
   ```json
   { "enabled": true, "prevFontSize": 14, "lastFontSize": 16,
@@ -171,7 +171,7 @@ the mode is off), so adjustments never require leaving the current screen.
 
 - `AGENTS.md` docs table: add row for this spec.
 - `03-ui-visual-design.md`: correct the "persisted" claim (now true, via
-  `netssh-terminal-font-size`); document 4 terminal themes.
+  `comnd-terminal-font-size`); document 4 terminal themes.
 - `accessibility.md`: Reading Comfort section + note the status bar toggle
   in the ARIA inventory.
 - `CONTEXT.md`: glossary entry added (Reading Comfort mode).

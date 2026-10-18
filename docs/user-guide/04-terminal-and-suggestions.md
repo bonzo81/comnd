@@ -14,7 +14,7 @@ Once you connect to a device, the terminal view has four zones. For a walkthroug
 
 ## How Suggestions Work
 
-As you type a command, netssh looks up matching commands from its knowledge base for the device you are connected to. The matching is simple and predictable:
+As you type a command, Comnd looks up matching commands from its knowledge base for the device you are connected to. The matching is simple and predictable:
 
 - It matches what you type against the start of command names and aliases. Matching ignores capital letters.
 - It filters results to your device platform and OS version.
@@ -55,19 +55,19 @@ See [Side Panel](05-side-panel.md) for the full panel layout and what it shows.
 
 ## CLI Mode Awareness
 
-netssh detects your current CLI mode from the device prompt. For example, on a Cisco router:
+Comnd detects your current CLI mode from the device prompt. For example, on a Cisco router:
 
 - `>` means user mode (limited commands)
 - `#` means privileged mode (full exec access)
 - `(config)#` means global configuration mode (changing device settings)
 
-netssh filters suggestions to commands that are valid in the current mode. The detected mode is always visible in the status bar. For a full list of modes per platform, see [Knowledge Base](06-knowledge-base-overview.md).
+Comnd filters suggestions to commands that are valid in the current mode. The detected mode is always visible in the status bar. For a full list of modes per platform, see [Knowledge Base](06-knowledge-base-overview.md).
 
 ## How Input Works
 
-All keystrokes go directly to the remote device. netssh does not intercept or hold back your input. There is no local echo: the app never mirrors your typing on screen. The remote device shows what you type, lets you edit it, and keeps command history as normal.
+All keystrokes go directly to the remote device. Comnd does not intercept or hold back your input. There is no local echo: the app never mirrors your typing on screen. The remote device shows what you type, lets you edit it, and keeps command history as normal.
 
-netssh watches what you type in order to offer suggestions, but the terminal remains a regular SSH session. The terminal feels responsive because your keystrokes reach the device with no added delay. The remote display stays accurate even inside interactive programs.
+Comnd watches what you type in order to offer suggestions, but the terminal remains a regular SSH session. The terminal feels responsive because your keystrokes reach the device with no added delay. The remote display stays accurate even inside interactive programs.
 
 If suggestions do not appear or the detected mode is wrong, see [Troubleshooting](10-troubleshooting.md).
 

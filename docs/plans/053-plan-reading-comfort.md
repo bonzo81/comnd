@@ -14,8 +14,8 @@ if they disagree, fix the plan.
 - OFF reverts typography only; the user's theme choice is kept.
   `prevFontSize` (snapshotted at ON) is the sole rollback state — no per-knob
   dirty tracking.
-- Persistence: localStorage only (`netssh-reading-comfort`,
-  `netssh-terminal-font-size`), same pattern as `src/lib/theme.ts`.
+- Persistence: localStorage only (`comnd-reading-comfort`,
+  `comnd-terminal-font-size`), same pattern as `src/lib/theme.ts`.
   Never `config.json`. Zero Rust changes.
 - No forked `[data-dyslexia]` colour layer (maintenance tax on every future
   theme edit). Instead: `--text-scale` calc pattern for font-size tokens +
@@ -59,14 +59,14 @@ New module `src/lib/terminal-prefs.ts` (follows the `output-highlight.ts` /
 `timestamps.ts` toggle pattern — localStorage key + window CustomEvent):
 
 ```ts
-const SIZE_KEY = "netssh-terminal-font-size";
+const SIZE_KEY = "comnd-terminal-font-size";
 export const TERMINAL_FONT_MIN = 8;
 export const TERMINAL_FONT_MAX = 32;
 export const TERMINAL_FONT_DEFAULT = 14;
 
 export function getTerminalFontSize(): number   // parse + clamp, default 14
 export function setTerminalFontSize(px: number): void  // clamp, store, dispatch
-  // dispatches window CustomEvent "netssh:terminal-font-size"
+  // dispatches window CustomEvent "comnd:terminal-font-size"
 ```
 
 `terminal-view.ts` changes (touch points verified against current code):
@@ -79,9 +79,9 @@ export function setTerminalFontSize(px: number): void  // clamp, store, dispatch
   Extract the apply into one private `applyFontSize(px)` so all callers share it.
   (Post-implementation simplification: the three zoom wrappers were deleted —
   main.ts calls `setTerminalFontSize` directly at the three shortcut sites;
-  the `netssh:terminal-font-size` event + `applyFontSize` path is unchanged.)
+  the `comnd:terminal-font-size` event + `applyFontSize` path is unchanged.)
 - New handler `fontChangeHandler` (mirror `themeChangeHandler`, line 150):
-  listen for `netssh:terminal-font-size`, re-apply to this terminal. Keeps
+  listen for `comnd:terminal-font-size`, re-apply to this terminal. Keeps
   every session tab in sync when the settings slider writes the value.
   Register in `initTerminal()`, remove in `destroy()` (where
   `themeChangeHandler` is removed today).
@@ -178,7 +178,7 @@ export interface ReadingComfortState {
   lineHeight: number;    // xterm lineHeight, 1.0–1.8
   letterSpacing: number; // px, 0–6
 }
-const KEY = "netssh-reading-comfort";
+const KEY = "comnd-reading-comfort";
 
 export const RC_PRESET = { fontSize: 16, uiScale: 1.15, lineHeight: 1.4, letterSpacing: 2 };
 
@@ -193,7 +193,7 @@ export function getReadingComfortState(): ReadingComfortState | null
 export function applyReadingComfort(): void
   // document.documentElement.style.setProperty("--text-scale", ...)
   // document.documentElement.dataset.readingComfort = "on" | remove
-  // dispatch "netssh:reading-comfort" so terminal-view re-applies
+  // dispatch "comnd:reading-comfort" so terminal-view re-applies
   //   terminal options (lineHeight/letterSpacing live on xterm)
 ```
 
@@ -211,8 +211,8 @@ attribute removal returns derived tokens to `:root` defaults. Theme choice
 persists — nothing to revert.
 
 Terminal live options (`lineHeight`, `letterSpacing`) are xterm options, not
-CSS — `terminal-view.ts` listens for `netssh:reading-comfort` +
-`netssh:terminal-font-size` and writes `this.terminal.options.{lineHeight,
+CSS — `terminal-view.ts` listens for `comnd:reading-comfort` +
+`comnd:terminal-font-size` and writes `this.terminal.options.{lineHeight,
 letterSpacing, fontSize}` then re-fits (fit → PTY resize — existing
 `onResize` path, architecture rule 4). One handler covers both events or two
 thin ones, whichever matches the file's existing pattern.
@@ -245,13 +245,13 @@ treated as off.
     to terminal re-fit). Layout-only classes +
     existing input conventions; no new input CSS system.
   - Toggle → `enable()`/`disable()` + re-render pane.
-  - Listen for `netssh:reading-comfort` to re-render if the status bar
+  - Listen for `comnd:reading-comfort` to re-render if the status bar
     button toggled while the pane is open.
 
 `main.ts` `renderStatusBar()` (line 429): after `spacer`, add
 Reading Comfort toggle button (`.statusbar-item.sb-rc`, `aria-pressed`,
 `setToggleState` pattern, icon via `icons.ts`). Sync on the
-`netssh:reading-comfort` event + on `refreshStatusBar()`. Reachable from
+`comnd:reading-comfort` event + on `refreshStatusBar()`. Reachable from
 every screen (status bar is global chrome).
 
 ## Phase 6 — Docs + verification

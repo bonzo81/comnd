@@ -4,7 +4,7 @@
 Implementation notes: `env_logger` replaced by `simplelog` (P3.2) — runtime
 level changes work live both up and down via `log::set_max_level`. P3.1
 forwards prod logs to Rust via `log_frontend` command (dev stays console-only).
-Log file: default `dirs::data_dir()/netssh/logs/netssh.log`, release builds
+Log file: default `dirs::data_dir()/comnd/logs/comnd.log`, release builds
 only, no rotation (`ponytail:` comment in `lib.rs`). The path is now
 user-configurable via Settings → General → "Log file location" (see
 `plan-custom-log-location.md`); a custom path that can't be opened at startup
@@ -100,7 +100,7 @@ console only. No UI = no P1 block.
 ```ts
 function format(level: LogLevel, tag: string, msg: string): string {
   const ts = new Date().toISOString();
-  return `[netssh:${tag}] ${ts} ${level.toUpperCase()} ${msg}`;
+  return `[comnd:${tag}] ${ts} ${level.toUpperCase()} ${msg}`;
 }
 ```
 ISO 8601 matches `env_logger` default. No deps. Done.
@@ -193,7 +193,7 @@ simplelog = "0.12"
 ```
 ```rust
 use simplelog::{WriteLogger, Config, LevelFilter};
-let log_path = dirs::data_dir().unwrap().join("netssh").join("logs").join("netssh.log");
+let log_path = dirs::data_dir().unwrap().join("comnd").join("logs").join("comnd.log");
 std::fs::create_dir_all(log_path.parent().unwrap()).ok();
 let file = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).unwrap();
 WriteLogger::init(LevelFilter::Info, Config::default(), file).ok();
@@ -201,7 +201,7 @@ WriteLogger::init(LevelFilter::Info, Config::default(), file).ok();
 Replaces `env_logger::init()`. Loses env var override — combine with
 P1.1 level: pass `parse_level(config.log_level)` as `LevelFilter`.
 
-Rotation: not in scope. `netssh.log` grows unbounded. `ponytail:` comment
+Rotation: not in scope. `comnd.log` grows unbounded. `ponytail:` comment
 naming ceiling: manual truncate or rotate when size > 10MB. Upgrade
 path: `simplelog::RollingFileAppender`.
 
@@ -211,7 +211,7 @@ has Rust logs only — still useful for SSH/KB debugging.
 ### Verify
 
 - `cargo check`
-- Manual: run app, tail `netssh.log`, confirm SSH connect line written.
+- Manual: run app, tail `comnd.log`, confirm SSH connect line written.
 - Check file not created in dev unless config flag set (avoid noise in
   dev — add `if !isDev` equivalent on Rust side via `cfg!(debug_assertions)`).
 

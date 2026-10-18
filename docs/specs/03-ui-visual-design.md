@@ -2,7 +2,7 @@
 
 ## Design Language
 
-netssh is a professional tool for network engineers. The visual design should be clean, information-dense, and distraction-free. No decorative elements. Every pixel earns its place.
+Comnd is a professional tool for network engineers. The visual design should be clean, information-dense, and distraction-free. No decorative elements. Every pixel earns its place.
 
 Style reference: Linear-inspired neutral slate surfaces, single green accent, subtle borders. All colors are CSS custom properties in `src/styles/tokens.css`.
 
@@ -50,7 +50,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 | Sidebar command name (heading) | JetBrains Mono, bold | 16px | Monospace to match terminal context |
 | Sidebar code blocks / syntax | JetBrains Mono | 12px | Syntax colouring for optional vs required params |
 
-**Terminal font size:** adjustable via `Ctrl++` / `Ctrl+-` / `Ctrl+0` (zoom). Persisted via the `netssh-terminal-font-size` localStorage key (range 8–32px); one source of truth also written by Reading Comfort mode (spec 12).
+**Terminal font size:** adjustable via `Ctrl++` / `Ctrl+-` / `Ctrl+0` (zoom). Persisted via the `comnd-terminal-font-size` localStorage key (range 8–32px); one source of truth also written by Reading Comfort mode (spec 12).
 
 **Terminal themes:** four states, cycled by the toolbar theme button — `dark`, `light`, `cream`, `warm-charcoal` (definitions in spec 12). See Reading Comfort mode (`docs/specs/12-dyslexia-mode.md`) for typography scaling (`--text-scale`), spacing, and prose-measure tokens.
 

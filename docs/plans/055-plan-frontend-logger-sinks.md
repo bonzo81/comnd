@@ -19,12 +19,12 @@ decision 6 reversed), and P5 uses the harness fake instead of `vi.mock`.
   `redact(msg)` — secrets are masked in devtools.
 - The **forward** path (`forward()`, logger.ts:92-95) sends the **raw,
   un-redacted** `msg` (plus serialized args) to the Rust `log_frontend`
-  Tauri command, which writes it **verbatim** into `netssh.log`
+  Tauri command, which writes it **verbatim** into `comnd.log`
   (`src-tauri/src/config.rs:563-576`).
 
 So `log.error(tag, "password=hunter2 rejected")` prints
 `password=[REDACTED]` in devtools but persists `password=hunter2` in
-`netssh.log` — the file users attach to bug reports.
+`comnd.log` — the file users attach to bug reports.
 `plan-logging-improvements.md` P2.1 intended redaction to cover logging; the
 P3.1 forward path bypassed it. The guard protects the sink that doesn't
 persist and skips the one that does.
@@ -32,7 +32,7 @@ persist and skips the one that does.
 Related friction around the same code (item 3 withdrawn — see its note):
 
 1. **Four `console.error` call sites bypass the logger entirely** (below) —
-   they never reach `netssh.log`, carry no tag/timestamp, and can't be
+   they never reach `comnd.log`, carry no tag/timestamp, and can't be
    level-filtered.
 2. **`LogTag.Ssh` is dead** (defined logger.ts:27, used only in the header
    doc-comment).
@@ -51,7 +51,7 @@ Related friction around the same code (item 3 withdrawn — see its note):
 |---|---|
 | Build **one redacted record** per call, then fan out to sinks | Redaction covers every sink, including the persistent one |
 | A sink seam (`LogSink` + `setSinks`/`resetSinks`) | First unit tests for redact / serialize / level gate / payload |
-| Route the 4 `console.error` bypasses through the logger | Real errors reach `netssh.log` |
+| Route the 4 `console.error` bypasses through the logger | Real errors reach `comnd.log` |
 
 ## Non-goals
 
@@ -137,7 +137,7 @@ Related friction around the same code (item 3 withdrawn — see its note):
 Add next to the other log wrappers (~line 409, after `getLogStatus`):
 
 ```ts
-/** Forward a frontend log record to the Rust logger (persisted to netssh.log). */
+/** Forward a frontend log record to the Rust logger (persisted to comnd.log). */
 export function logFrontend(level: string, tag: string, msg: string, args: string): Promise<void> {
   return invoke<void>("log_frontend", { level, tag, msg, args });
 }
@@ -162,13 +162,13 @@ absent (`config.rs:564-566`), so passing `""` is fine.
  * Every call builds one LogRecord — redaction happens ONCE, at record
  * construction — then the record fans out to the registered sinks. Default
  * sinks: console (always) and forward-to-Rust (production only, persists to
- * netssh.log via the `log_frontend` command, fire-and-forget). Tests swap
+ * comnd.log via the `log_frontend` command, fire-and-forget). Tests swap
  * in a capture sink via setSinks() and restore with resetSinks().
  *
  * Redaction: `msg` and the serialized `args` summary are scanned for
  * credential patterns (password / api key, plus the JSON-quoted form they
  * take after serialization) BEFORE any sink sees the record — the console
- * line and the persisted netssh.log line are both covered. `rawArgs` are
+ * line and the persisted comnd.log line are both covered. `rawArgs` are
  * for devtools only and never persisted; callers must still not log secret
  * objects (devtools shows them raw).
  */
@@ -259,7 +259,7 @@ export type LogSink = (record: LogRecord) => void;
 
 function format(record: LogRecord): string {
   const ts = new Date().toISOString();
-  return `[netssh:${record.tag}] ${ts} ${record.level.toUpperCase()} ${record.msg}`;
+  return `[comnd:${record.tag}] ${ts} ${record.level.toUpperCase()} ${record.msg}`;
 }
 
 export const consoleSink: LogSink = (record) => {
@@ -325,7 +325,7 @@ export const log = {
 
 Behavior deltas vs today (all intended):
 
-- Persisted `[fe:…]` lines in `netssh.log` are now redacted (the fix).
+- Persisted `[fe:…]` lines in `comnd.log` are now redacted (the fix).
 - Dev console output is byte-identical to today (same format, same spread
   args, same level gate).
 - The forward gate is evaluated once at registration instead of per record
@@ -524,7 +524,7 @@ describe("sinks", () => {
     consoleSink(record({ level: "info", tag: LogTag.App, msg: "hello password=[REDACTED]" }));
     expect(spy).toHaveBeenCalledTimes(1);
     const line = spy.mock.calls[0][0] as string;
-    expect(line).toContain("[netssh:app]");
+    expect(line).toContain("[comnd:app]");
     expect(line).toContain("INFO");
     expect(line).toContain("hello password=[REDACTED]");
   });
@@ -552,7 +552,7 @@ Notes:
    should now match only `src/lib/logger.ts` (the consoleSink).
 4. Optional manual (release build): trigger a frontend error (e.g. point the
    app at an unreachable KB path), then confirm the `[fe:…]` line in
-   `netssh.log` — and that a `password=…` test message shows up as
+   `comnd.log` — and that a `password=…` test message shows up as
    `password=[REDACTED]` in the file.
 
 ## Files touched

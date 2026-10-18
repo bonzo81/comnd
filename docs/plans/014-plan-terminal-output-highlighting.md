@@ -326,7 +326,7 @@ toggle as the reference implementation.
 `src/lib/output-highlight.ts` (new, ~30 lines):
 
 ```ts
-const STORAGE_KEY = "netssh-output-highlight";
+const STORAGE_KEY = "comnd-output-highlight";
 
 export function getOutputHighlightEnabled(): boolean {
   return localStorage.getItem(STORAGE_KEY) === "1";
@@ -334,7 +334,7 @@ export function getOutputHighlightEnabled(): boolean {
 
 export function setOutputHighlightEnabled(enabled: boolean): void {
   localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-  window.dispatchEvent(new CustomEvent("netssh:output-highlight", { detail: enabled }));
+  window.dispatchEvent(new CustomEvent("comnd:output-highlight", { detail: enabled }));
 }
 ```
 
@@ -353,7 +353,7 @@ output-affecting toggles grouped before cosmetic ones).
 
 Wire it identically to `.tv-suggestions-btn` (see lines 519-524):
 - Click → `setOutputHighlightEnabled(!getOutputHighlightEnabled())`
-- Listen for `netssh:output-highlight` window event → `syncHighlight()`
+- Listen for `comnd:output-highlight` window event → `syncHighlight()`
 - `syncHighlight()` method: read flag, toggle `.active` class, set icon + aria-label.
 - Icon: use a Lucide "palette" or "highlighter" path. Add to `src/lib/icons.ts`.
   Suggested: Lucide "paintbrush" path:
@@ -458,7 +458,7 @@ this.$(".tv-highlight-btn")!.addEventListener("click", () => {
   setOutputHighlightEnabled(!getOutputHighlightEnabled());
 });
 this.highlightChangeHandler = () => this.syncHighlight();
-window.addEventListener("netssh:output-highlight", this.highlightChangeHandler);
+window.addEventListener("comnd:output-highlight", this.highlightChangeHandler);
 this.syncHighlight();
 ```
 
@@ -482,7 +482,7 @@ Add alongside the other handler removals:
 
 ```ts
 if (this.highlightChangeHandler) {
-  window.removeEventListener("netssh:output-highlight", this.highlightChangeHandler);
+  window.removeEventListener("comnd:output-highlight", this.highlightChangeHandler);
   this.highlightChangeHandler = null;
 }
 this.outputHighlighter = null;

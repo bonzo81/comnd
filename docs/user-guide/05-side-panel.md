@@ -1,4 +1,4 @@
-﻿# Side Panel
+# Side Panel
 
 ## Opening and Closing
 
