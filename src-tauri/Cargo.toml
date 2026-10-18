@@ -23,9 +23,11 @@ serde_json = "1"
 # serde_yml's libyml backend is unsound and unmaintained (GHSA-gfxp-f68g-8x78,
 # Dependabot #44/#45); yaml_serde is the maintained serde-yaml fork.
 yaml_serde = "0.10"
-# 0.49: authenticate_future → authenticate_publickey_with, whose future is
-# provably Send (0.46's generic shape broke the tauri command Send bound).
-russh = "0.49"
+# 0.60: ring backend (same crypto as the 0.49 build) — the new default
+# aws-lc-rs backend needs NASM on every Windows build machine, including
+# the windows-latest release runner. rsa keeps ssh-rsa host keys working
+# (Cisco/F5 devices). Security: CVE-2026-46673 + GHSA-f5v4-2wr6-hqmg fixes.
+russh = { version = "0.60", default-features = false, features = ["flate2", "rsa", "ring"] }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
