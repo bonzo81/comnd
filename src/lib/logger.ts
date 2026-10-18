@@ -15,10 +15,10 @@
  *
  * Redaction: `msg` and the serialized `args` summary are scanned for
  * credential patterns (password / api key, plus the JSON-quoted form they
- * take after serialization) BEFORE any sink sees the record — the console
- * line and the persisted netssh.log line are both covered. `rawArgs` are
- * for devtools only and never persisted; callers must still not log secret
- * objects (devtools shows them raw).
+ * take after serialization). Suggest-tagged records also redact bare
+ * single-quoted strings. Redaction happens BEFORE any sink sees the record.
+ * `rawArgs` are for devtools only and never persisted; callers must still not
+ * log secret objects (devtools shows them raw).
  */
 
 import { logFrontend } from "./tauri-api";
@@ -67,8 +67,14 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/("api[_-]?key"\s*:\s*")[^"]*"/gi, '$1[REDACTED]"'],
 ];
 
-function redact(s: string): string {
-  return SECRET_PATTERNS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), s);
+function redact(s: string, tag: LogTag): string {
+  const redacted = SECRET_PATTERNS.reduce(
+    (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
+    s,
+  );
+  return tag === LogTag.Suggest
+    ? redacted.replace(/'[^']+'/g, "'[REDACTED]'")
+    : redacted;
 }
 
 // ponytail: JSON.stringify + Error name/message only. Circular refs → "[Circular]".
@@ -146,9 +152,9 @@ function emit(level: LogLevel, tag: LogTag, msg: string, args: unknown[]): void 
   const record: LogRecord = {
     level,
     tag,
-    msg: redact(msg),
+    msg: redact(msg, tag),
     rawArgs: args,
-    args: redact(serializeArgs(args)),
+    args: redact(serializeArgs(args), tag),
   };
   for (const sink of sinks) {
     sink(record);

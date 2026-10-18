@@ -64,6 +64,14 @@ describe("record construction", () => {
     expect(records[0].args).not.toContain('"xyz"');
   });
 
+  it("redacts bare quoted strings in Suggest messages before any sink sees them", () => {
+    const { records, sink } = capture();
+    setSinks([sink]);
+    log.debug(LogTag.Suggest, "('secretvalue' != '')");
+    expect(records[0].msg).toBe("('[REDACTED]' != '')");
+    expect(records[0].msg).not.toContain("secretvalue");
+  });
+
   it("leaves clean messages untouched and keeps rawArgs raw", () => {
     const { records, sink } = capture();
     setSinks([sink]);

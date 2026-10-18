@@ -386,7 +386,10 @@ export class SuggestionController {
       // with the current content instead of rendering a stale result.
       const current = this.shadowBuffer.content;
       if (current !== text) {
-        log.debug(LogTag.Suggest, `stale query dropped ('${text}' != '${current}')`);
+        log.debug(
+          LogTag.Suggest,
+          `stale query dropped (scheduled length=${text.length}, current length=${current.length})`,
+        );
         this.debounceSuggestionQuery(current);
         return;
       }
