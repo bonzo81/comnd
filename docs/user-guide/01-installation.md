@@ -5,26 +5,20 @@
 | Platform | Minimum Version | Notes |
 |---|---|---|
 | Windows | Windows 10 (21H2) or later | x64 only. Windows 11 fully supported. |
-| macOS | macOS 13 Ventura or later | Apple Silicon and Intel. Universal binary. |
+| macOS | macOS 13 Ventura or later | Apple Silicon and Intel (separate builds). |
 | Linux | Any distro with glibc 2.31+ | Tested on Ubuntu 22.04, Fedora 39, Arch. |
 
 ## Windows
 
-Download `Comnd_<version>_x64-setup.exe` from GitHub Releases and run it. A Windows build produced this NSIS installer name. Replace `<version>` with the release version. You do not need administrator rights unless your organization requires them for MSI installs. The installer places the app in `%LOCALAPPDATA%\Programs\Comnd\` and creates a Start menu shortcut.
-
-An MSI installer is also available as `Comnd_<version>_x64_en-US.msi`.
+Download `Comnd_<version>_x64-setup.exe` from GitHub Releases and run it. A Windows build produced this NSIS installer name. Replace `<version>` with the release version. You do not need administrator rights. The installer places the app in `%LOCALAPPDATA%\Programs\Comnd\` and creates a Start menu shortcut.
 
 ## macOS
 
-Download the `.dmg` asset from GitHub Releases. Drag Comnd into your Applications folder. On first launch, macOS Gatekeeper can block the app. Right-click (or Control-click) the icon in Launchpad and choose **Open** to allow it once. The app is a single `.app` bundle with everything it needs inside. The app has no extra dependencies.
+Download the `.dmg` asset for your Mac (`aarch64` for Apple Silicon, `x64` for Intel) from GitHub Releases. Drag Comnd into your Applications folder. On first launch, macOS Gatekeeper can block the app. Right-click (or Control-click) the icon in Launchpad and choose **Open** to allow it once. The app is a single `.app` bundle with everything it needs inside. The app has no extra dependencies.
 
 ## Linux
 
-Three options:
-
-- **AppImage** — recommended. Make the downloaded file executable with `chmod +x`, then run it. The AppImage is fully portable. You can run it from a USB stick without installing anything.
-- **`.deb` package** — for Debian/Ubuntu. Install the downloaded package with `sudo dpkg -i <file>.deb` or use your GUI package manager.
-- **`.rpm` package** — for Fedora/RHEL. Install the downloaded package with `sudo rpm -i <file>.rpm`.
+Download the `.AppImage` asset from GitHub Releases. Make the downloaded file executable with `chmod +x`, then run it. The AppImage is fully portable. You can run it from a USB stick without installing anything.
 
 The app bundles everything it needs. No additional dependencies are required.
 

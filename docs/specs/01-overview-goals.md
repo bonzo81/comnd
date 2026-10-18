@@ -49,9 +49,9 @@ See `docs/specs/09-command-replay.md`.
 
 | OS  | Distribution format |
 |-----|---------------------|
-| Windows | `.msi` installer    |
+| Windows | NSIS installer (`-setup.exe`) |
 | macOS | `.dmg` / `.app` bundle |
-| Linux | `.AppImage` / `.deb` / `.rpm` |
+| Linux | `.AppImage` |
 
 Built with **Tauri v2** (Rust backend + web frontend). Uses the OS native webview — no bundled browser. Small binary, native feel.
 

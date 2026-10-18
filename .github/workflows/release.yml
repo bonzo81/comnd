@@ -122,6 +122,9 @@ jobs:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           releaseDraft: true
           args: ${{ matrix.args }}
-          # Windows updater entry should be the NSIS setup.exe (passive install),
-          # not the MSI (which prompts UAC mid-update).
+          # Windows updater entry is the NSIS setup.exe (passive install);
+          # it is also the only Windows bundle target (tauri.windows.conf.json).
           updaterJsonPreferNsis: true
+          # .sig files are build-time inputs for latest.json, which embeds the
+          # signatures — clients never fetch them, so don't attach them.
+          uploadUpdaterSignatures: false
