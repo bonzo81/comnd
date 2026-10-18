@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/bonzo81/netssh/compare/v0.3.0...v0.4.0) (2026-10-18)
+
+
+### Features
+
+* **nav:** add host-row tooltip with connection details ([58b99be](https://github.com/bonzo81/netssh/commit/58b99be481c995fcb3b4fc9088e8dff8c7c9489d))
+* **nav:** add host-row tooltip with connection details ([0ec9232](https://github.com/bonzo81/netssh/commit/0ec9232b2c8324e64aa39b33a97d7297915efb10))
+
+
+### Bug Fixes
+
+* close secret prompt recovery gaps ([982e01a](https://github.com/bonzo81/netssh/commit/982e01a3fcfcd661d57396fddfd03aa08bebf152))
+* **logging:** make session logs opt-in ([e4511dc](https://github.com/bonzo81/netssh/commit/e4511dc0341111ebe4c584a7898ffb7e2460d8c9))
+* **logging:** make session logs opt-in ([adaed9c](https://github.com/bonzo81/netssh/commit/adaed9c85208a4cec99c871edef65c3e5a832b23)), closes [#20](https://github.com/bonzo81/netssh/issues/20)
+* **logging:** mask ambiguous Suggest quote spans ([b0db3f1](https://github.com/bonzo81/netssh/commit/b0db3f11736deda59039fa5be212347ead91707e)), closes [#19](https://github.com/bonzo81/netssh/issues/19)
+* **logging:** redact suggestion buffer diagnostics ([b3d78af](https://github.com/bonzo81/netssh/commit/b3d78afeba6a5dc0bfc1e0cf037a36c27b0c8a87))
+* **logging:** redact suggestion buffer diagnostics ([4c6ba4a](https://github.com/bonzo81/netssh/commit/4c6ba4ac9fe9988eaea4ac8149e1dbebac8e9fbc)), closes [#19](https://github.com/bonzo81/netssh/issues/19)
+* **nav:** bind expanded host rows, harden tooltip dismissal ([75aad5d](https://github.com/bonzo81/netssh/commit/75aad5d70055258e2cb242a100b25be3336fb50d))
+* **ssh:** address pr review findings in interactive auth ([c5b7313](https://github.com/bonzo81/netssh/commit/c5b7313a345fa14f0f6b9963bbcb9b342d88df6f))
+* **ssh:** interactive password prompt for hosts without stored password ([1097e18](https://github.com/bonzo81/netssh/commit/1097e18bbb8c38dc624904adbd4993ede6b69fbd))
+* **ssh:** interactive password prompt for hosts without stored password ([3e71518](https://github.com/bonzo81/netssh/commit/3e71518f10d9019130387e5686f08ca4ab066fb4))
+* suppress shadow buffer at secret prompts ([c1c42a7](https://github.com/bonzo81/netssh/commit/c1c42a758850c431f68ea64f7b7dc8e9b2724b77))
+* suppress shadow buffer at secret prompts ([05a5994](https://github.com/bonzo81/netssh/commit/05a599458693ff59a4533b73d768334484c4d050))
+
 ## [0.3.0](https://github.com/bonzo81/netssh/compare/v0.2.2...v0.3.0) (2026-10-15)
 
 
