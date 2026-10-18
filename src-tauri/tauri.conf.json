@@ -29,7 +29,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU1OEU3RkYyMjI3RThDRDAKUldUUWpINGk4bitPNVdPVkRtbU1SYW91ZUwxNER3OVlDa09qVEtNY2tJTytFcDc0N1B0L2R5RnYK",
       "endpoints": [
-        "https://github.com/bonzo81/comnd/releases/download/latest/latest.json"
+        "https://github.com/bonzo81/comnd/releases/latest/download/latest.json"
       ]
     }
   },
