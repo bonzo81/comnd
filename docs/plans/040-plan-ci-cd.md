@@ -21,10 +21,12 @@ Runs on tag push (`v*`) or manual dispatch. Matrix with `fail-fast: false`:
 
 | Runner | Target | Artifacts |
 |---|---|---|
-| macos-latest | aarch64-apple-darwin | .dmg |
-| macos-latest | x86_64-apple-darwin | .dmg |
-| ubuntu-22.04 | x86_64 | AppImage, .deb, .rpm |
-| windows-latest | x86_64 | .msi, NSIS .exe |
+| macos-latest | aarch64-apple-darwin | .dmg + signed .app.tar.gz (updater check) |
+| macos-latest | x86_64-apple-darwin | .dmg + signed .app.tar.gz (updater check) |
+| ubuntu-22.04 | x86_64 | .AppImage |
+| windows-latest | x86_64 | NSIS .exe |
+
+One installer format per platform: bundle targets come from the platform-specific `tauri.<platform>.conf.json` files, which override the base `tauri.conf.json`. `.sig` signature files are not attached — `latest.json` embeds the signatures, and clients never fetch `.sig` files.
 
 `tauri-action` runs `beforeBuildCommand` (`npm run build`) itself; the workflow only installs deps. Output: a **draft** GitHub Release (`releaseDraft: true`) — a human reviews assets before publishing. `contents: write` permission is set at job level; without it the release upload fails with "Resource not accessible by integration".
 
