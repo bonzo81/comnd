@@ -64,6 +64,7 @@ pub(super) fn mk_test_store(cmds: Vec<Command>) -> KbStore {
             reference_url: String::new(),
             versions: vec![],
             prompt_patterns: std::collections::HashMap::new(),
+            secret_prompt_patterns: vec![],
             default_mode: "privileged-exec".to_string(),
             negation_prefix: None,
             prefix_commands: std::collections::HashMap::new(),

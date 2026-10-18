@@ -18,6 +18,8 @@ pub(crate) struct PlatformIndex {
     pub reference_url: String,
     pub versions: Vec<String>,
     pub prompt_patterns: HashMap<String, String>,
+    #[serde(default)]
+    pub secret_prompt_patterns: Vec<String>,
     pub default_mode: String,
     #[serde(default)]
     pub negation_prefix: Option<String>,
@@ -385,6 +387,28 @@ mod contract {
             let issues = validate_command(cmd);
             assert!(issues.is_empty(), "fixture command '{}' must be validation-clean: {:?}", cmd.name, issues);
         }
+    }
+
+    #[test]
+    fn secret_prompt_patterns_are_optional_and_deserialize() {
+        let legacy = r#"
+id: test
+name: Test
+description: ""
+reference_url: ""
+versions: []
+prompt_patterns: {}
+default_mode: default
+"#;
+        let index: PlatformIndex = serde_yml::from_str(legacy).unwrap();
+        assert!(index.secret_prompt_patterns.is_empty());
+
+        let extended = legacy.replace(
+            "default_mode: default",
+            "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
+        );
+        let index: PlatformIndex = serde_yml::from_str(&extended).unwrap();
+        assert_eq!(index.secret_prompt_patterns, vec!["^Password:$"]);
     }
 
 }

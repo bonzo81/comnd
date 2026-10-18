@@ -39,7 +39,11 @@ function makeController(opts: { suggestionsToggleByte?: () => string | null } = 
     dismissSidebar: vi.fn(),
     toggleSuggestions: vi.fn(),
   };
-  const tracker = new LineTracker(() => {}, () => {});
+  const tracker = new LineTracker(
+    () => {},
+    () => c?.onPromptDetected(),
+    () => c?.onSecretPromptDetected(),
+  );
   const sendSpy = vi.fn((d: string) => {
     sent.push(d);
     inputAtSend.push(c.input);
@@ -225,6 +229,39 @@ describe("SuggestionController — output handling", () => {
     ctx.c.onPromptDetected();
     expect(ctx.c.input).toBe("");
     expect(ctx.c.isReceivingOutput).toBe(false);
+  });
+
+  it("forwards secret input without buffering or showing suggestions, then resumes at the next prompt", () => {
+    const ctx = makeController();
+    ctx.c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    ctx.c.setMode("bash");
+    ctx.tracker.loadPatterns({}, "shell", ["\\[sudo\\] [Pp]assword for [^:]+:\\s*"]);
+
+    ctx.c.buffer.appendAll("show inter");
+    vi.advanceTimersByTime(50);
+    expect(ghostText(ctx.container)).toBe("faces");
+
+    ctx.c.onOutput("[sudo] Password for alice:");
+    vi.advanceTimersByTime(200);
+    expect(ctx.c.input).toBe("");
+    expect(ghostText(ctx.container)).toBeNull();
+    expect(ctx.dropdown.isVisible()).toBe(false);
+
+    ctx.c.keyIn("s");
+    ctx.c.paste("ecret");
+    ctx.c.refresh();
+    vi.advanceTimersByTime(50);
+    expect(ctx.sent).toEqual(["s", "ecret"]);
+    expect(ctx.c.input).toBe("");
+    expect(ghostText(ctx.container)).toBeNull();
+
+    ctx.c.keyIn("\r");
+    ctx.c.onOutput("\r\nalice@host:~$ ");
+    vi.advanceTimersByTime(300);
+    type(ctx, "show inter");
+    vi.advanceTimersByTime(50);
+    expect(ctx.c.input).toBe("show inter");
+    expect(ghostText(ctx.container)).toBe("faces");
   });
 });
 

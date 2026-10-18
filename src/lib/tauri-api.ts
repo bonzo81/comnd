@@ -50,6 +50,7 @@ export interface PlatformIndex {
   reference_url: string;
   versions: string[];
   prompt_patterns: Record<string, string>;
+  secret_prompt_patterns?: string[];
   default_mode: string;
   negation_prefix?: string | null;
   /** Commands that may precede other commands (sudo, tmsh). Keyed by prefix word. */
