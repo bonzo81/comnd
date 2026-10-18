@@ -14,12 +14,14 @@ export type PromptPatterns = PlatformIndex["prompt_patterns"];
 
 export class LineTracker {
   private patterns = new Map<string, RegExp>();
+  private secretPatterns: RegExp[] = [];
   private currentMode = "";
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private noMatchTimer: ReturnType<typeof setTimeout> | null = null;
   // Interactive-app passthrough: set when no prompt has matched for >2s while
   // data keeps arriving (vi/more/top). Suppresses output highlighting.
   private passthrough = false;
+  private secretPromptActive = false;
   /** Text of the last matched prompt (trimmed) — used for echo re-sync. */
   private lastPromptText = "";
 
@@ -34,6 +36,7 @@ export class LineTracker {
 
   private onModeChange: (mode: string) => void;
   private onPromptDetected: () => void;
+  private onSecretPromptDetected: () => void;
 
   private static readonly IDLE_MS = 200;
   private static readonly PASSTHROUGH_MS = 2000;
@@ -41,13 +44,15 @@ export class LineTracker {
   constructor(
     onModeChange: (mode: string) => void,
     onPromptDetected: () => void,
+    onSecretPromptDetected: () => void,
   ) {
     this.onModeChange = onModeChange;
     this.onPromptDetected = onPromptDetected;
+    this.onSecretPromptDetected = onSecretPromptDetected;
   }
 
   /** Load prompt patterns from platform index.yaml */
-  loadPatterns(patterns: PromptPatterns, defaultMode: string) {
+  loadPatterns(patterns: PromptPatterns, defaultMode: string, secretPromptPatterns: string[] = []) {
     this.patterns.clear();
     for (const [mode, pattern] of Object.entries(patterns)) {
       // A prompt must match the ENTIRE trailing text. Without the end anchor,
@@ -55,7 +60,10 @@ export class LineTracker {
       // resetting the shadow buffer and killing ghost text while the user types.
       this.patterns.set(mode, new RegExp(`^(?:${pattern})$`));
     }
+    this.secretPatterns = secretPromptPatterns.map((pattern) => new RegExp(`^(?:${pattern})$`));
     this.currentMode = defaultMode;
+    this.secretPromptActive = false;
+    this.lastPromptText = "";
     // No patterns → can't detect prompts → passthrough is meaningless. Leave
     // it off so highlighting is never suppressed by a stuck passthrough flag.
     this.passthrough = false;
@@ -85,6 +93,10 @@ export class LineTracker {
       // Other control bytes (BEL, etc.) ignored
     }
 
+    // Secret prompts must suppress input synchronously. Waiting for the idle
+    // window can leave time for the first password characters to be buffered.
+    this.matchSecretPrompt(this.line.trim());
+
     // Reset idle timer
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.checkPrompt(), LineTracker.IDLE_MS);
@@ -106,23 +118,60 @@ export class LineTracker {
     const text = this.line.trim();
     if (!text) return;
 
+    if (this.matchSecretPrompt(text)) return;
+
     for (const [mode, regex] of this.patterns) {
       if (regex.test(text)) {
-        if (mode !== this.currentMode) {
-          this.currentMode = mode;
-          this.onModeChange(mode);
-        }
-        // Successful prompt match — clear passthrough (interactive app exited)
-        this.passthrough = false;
-        this.lastPromptText = text;
-        if (this.noMatchTimer) {
-          clearTimeout(this.noMatchTimer);
-          this.noMatchTimer = null;
-        }
-        this.onPromptDetected();
+        this.detectNormalPrompt(text, mode);
         return;
       }
     }
+
+    // Bash has no reliable configured prompt pattern. While recovering from a
+    // secret prompt, prefer a previously learned/detected exact prefix; if it
+    // changed (e.g. sudo -i), accept a standalone conventional or bracketed
+    // shell prompt. This heuristic is scoped to secret recovery.
+    if (this.secretPromptActive && this.patterns.size === 0) {
+      const knownPrompts = [this.learnedPrompt.trim(), this.lastPromptText.trim()];
+      if (knownPrompts.some((prompt) => prompt && text === prompt)) {
+        this.detectNormalPrompt(text, this.currentMode);
+      } else if (
+        /^[\w.-]+(?:@[\w.-]+)?(?::[^\s#$]*)?[#$]$/.test(text)
+        || /^\[[^\]\r\n]+\][#$]$/.test(text)
+      ) {
+        this.detectNormalPrompt(text, this.currentMode);
+      }
+    }
+  }
+
+  private matchSecretPrompt(text: string): boolean {
+    if (!text) return false;
+    for (const regex of this.secretPatterns) {
+      if (regex.test(text)) {
+        if (!this.secretPromptActive) {
+          this.secretPromptActive = true;
+          this.onSecretPromptDetected();
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private detectNormalPrompt(text: string, mode: string) {
+    this.secretPromptActive = false;
+    if (mode !== this.currentMode) {
+      this.currentMode = mode;
+      this.onModeChange(mode);
+    }
+    // Successful prompt match — clear passthrough (interactive app exited)
+    this.passthrough = false;
+    this.lastPromptText = text;
+    if (this.noMatchTimer) {
+      clearTimeout(this.noMatchTimer);
+      this.noMatchTimer = null;
+    }
+    this.onPromptDetected();
   }
 
   /** True when no prompt matched for >2s while output kept arriving (vi/more/top). */

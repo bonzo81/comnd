@@ -9,6 +9,9 @@ versions:
 prompt_patterns:
   tmsh: '^[\w\-]+(?:@\([\w\-\.]+\))?\(tmos(\.[\w]+)?\)#\s*$'
   bash: '^\[[\w\-\.@:]+\S*\][\s\$#]*\s*$'
+secret_prompt_patterns:
+  - '^(?:(?:[Oo]ld|[Cc]urrent|[Nn]ew|[Cc]onfirm|[Rr]e-?[Ee]nter|[Rr]etype) )?[Pp]assword:\s*$'
+  - '^[Ee]nter (?:[Nn]ew )?[Pp]assword:\s*$'
 default_mode: tmsh
 negation_prefix: null
 prefix_commands:

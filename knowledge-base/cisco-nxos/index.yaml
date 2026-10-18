@@ -13,5 +13,7 @@ prompt_patterns:
   interface-config: '^[\w\-]+\(config-if\)#$'
   routing-config: '^[\w\-]+\(config-router\)#$'
   vdc-config: '^[\w\-]+\(config-vdc\)#$'
+secret_prompt_patterns:
+  - '^[Pp]assword:\s*$'
 default_mode: privileged-exec
 negation_prefix: "no "

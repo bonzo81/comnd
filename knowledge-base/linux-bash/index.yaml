@@ -6,6 +6,9 @@ versions:
   - "bash-4"
   - "bash-5"
 prompt_patterns: {}
+secret_prompt_patterns:
+  - '^\[sudo\] [Pp]assword(?: for [^:]+)?:\s*$'
+  - '^[Pp]assword:\s*$'
 default_mode: shell
 negation_prefix: null
 prefix_commands:

@@ -211,6 +211,9 @@ export class TerminalView {
       () => {
         this.controller.onPromptDetected();
       },
+      () => {
+        this.controller.onSecretPromptDetected();
+      },
     );
     this.controller = new SuggestionController({
       send: (data) => this.sendData(data),
@@ -773,7 +776,11 @@ export class TerminalView {
       this.setProgress("Loading knowledge base...", 8);
       try {
         this.platformIndex = await loadPlatformIndex(host.platform);
-        this.tracker.loadPatterns(this.platformIndex.prompt_patterns, this.platformIndex.default_mode);
+        this.tracker.loadPatterns(
+          this.platformIndex.prompt_patterns,
+          this.platformIndex.default_mode,
+          this.platformIndex.secret_prompt_patterns ?? [],
+        );
         this.currentMode = this.platformIndex.default_mode;
         this.controller.setPlatformIndex(this.platformIndex);
         this.controller.setMode(this.currentMode);

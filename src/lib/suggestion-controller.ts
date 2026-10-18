@@ -161,6 +161,7 @@ export class SuggestionController {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private receivingOutput = false;
+  private secretInputActive = false;
   // True when line-editing keys made the shadow buffer untrustworthy â€”
   // suggestions suppressed until next Enter/Ctrl+C/prompt or echo re-sync.
   private cursorMoved = false;
@@ -196,6 +197,7 @@ export class SuggestionController {
 
   setConnected(connected: boolean): void {
     this.connected = connected;
+    if (!connected) this.secretInputActive = false;
   }
 
   setSuggestionsEnabled(enabled: boolean): void {
@@ -229,8 +231,8 @@ export class SuggestionController {
       ? this.deps.suggestionsToggleByte()
       : "\x00";
     const r = routeKeystroke(data, {
-      dropdownVisible: dropdown?.isVisible() ?? false,
-      ghostShowing: ghost?.isShowing() ?? false,
+      dropdownVisible: !this.secretInputActive && (dropdown?.isVisible() ?? false),
+      ghostShowing: !this.secretInputActive && (ghost?.isShowing() ?? false),
       sidebarOpen: this.deps.ui.isSidebarOpen(),
       toggleByte,
     });
@@ -265,13 +267,15 @@ export class SuggestionController {
       }
     }
 
-    for (const op of r.shadowOps) {
-      if (op.op === "append") this.shadowBuffer.append(op.ch);
-      else if (op.op === "backspace") this.shadowBuffer.backspace();
-      else if (op.op === "reset") this.reset();
+    if (!this.secretInputActive) {
+      for (const op of r.shadowOps) {
+        if (op.op === "append") this.shadowBuffer.append(op.ch);
+        else if (op.op === "backspace") this.shadowBuffer.backspace();
+        else if (op.op === "reset") this.reset();
+      }
     }
 
-    if (r.markCursorMoved) this.markCursorMoved();
+    if (!this.secretInputActive && r.markCursorMoved) this.markCursorMoved();
     if (r.moveDropdown === "up") dropdown?.moveUp();
     else if (r.moveDropdown === "down") dropdown?.moveDown();
     if (r.rebuildGhost) this.syncDropdownToGhostText();
@@ -284,7 +288,7 @@ export class SuggestionController {
   /** Clipboard paste: forward the text and mirror it into the shadow buffer. */
   paste(text: string): void {
     this.deps.send(text);
-    this.shadowBuffer.appendAll(text);
+    if (!this.secretInputActive) this.shadowBuffer.appendAll(text);
   }
 
   /** Line-editing keys (arrows etc.) made the buffer untrustworthy. */
@@ -352,6 +356,7 @@ export class SuggestionController {
 
   /** Prompt detected â€” reset shadow buffer, suppress output flag. */
   onPromptDetected(): void {
+    this.secretInputActive = false;
     this.reset();
     this.receivingOutput = false;
     this.deps.tracker.reset();
@@ -359,11 +364,29 @@ export class SuggestionController {
     this.deps.ghost()?.hide();
   }
 
+  /** Secret prompt detected — clear any command text and suppress suggestions. */
+  onSecretPromptDetected(): void {
+    this.secretInputActive = true;
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.outputTimer) {
+      clearTimeout(this.outputTimer);
+      this.outputTimer = null;
+    }
+    this.reset();
+    this.receivingOutput = false;
+    this.deps.ghost()?.hide();
+    this.deps.dropdown()?.hide();
+    this.deps.sidebar.placeholder();
+  }
+
   // â”€â”€â”€ Query pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /** Toolbar toggle re-query. */
   refresh(): void {
-    if (!this.suggestionsEnabled) return;
+    if (!this.suggestionsEnabled || this.secretInputActive) return;
     if (this.shadowBuffer.content && !this.receivingOutput && this.connected) {
       const results = this.engine.query(this.shadowBuffer.content);
       if (results.length > 0) this.openDropdown(results);
@@ -372,7 +395,7 @@ export class SuggestionController {
 
   private debounceSuggestionQuery(text: string) {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (!text || this.receivingOutput || this.cursorMoved || !this.connected
+    if (this.secretInputActive || !text || this.receivingOutput || this.cursorMoved || !this.connected
       || text.length > MAX_SHADOW_LEN) {
       this.deps.ghost()?.hide();
       if (this.deps.dropdown()?.isVisible()) {
@@ -398,6 +421,7 @@ export class SuggestionController {
   }
 
   private showSuggestions(text: string) {
+    if (this.secretInputActive) return;
     const results = this.engine.query(text);
 
     if (results.length === 0) {
@@ -477,6 +501,7 @@ export class SuggestionController {
 
   /** Re-render ghost from the current dropdown selection. */
   syncDropdownToGhostText(): void {
+    if (this.secretInputActive) return;
     const selected = this.deps.dropdown()?.getSelected();
     if (selected) {
       this.applyTopMatch(selected, this.shadowBuffer.content, 0);
@@ -489,6 +514,7 @@ export class SuggestionController {
    * remainder.
    */
   acceptDropdownSelection(): void {
+    if (this.secretInputActive) return;
     const dd = this.deps.dropdown();
     const selected = dd?.getSelected();
     if (!selected) return;
@@ -503,6 +529,7 @@ export class SuggestionController {
    * command name. Phase 3 token-aware.
    */
   acceptFromDropdown(cmd: Command, payload: GhostPayload | null): void {
+    if (this.secretInputActive) return;
     const text = payload
       ? ghostPayloadAcceptText(payload)
       : this.remainderFor(cmd.name, this.shadowBuffer.content);

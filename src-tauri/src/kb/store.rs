@@ -206,8 +206,14 @@ impl KbManager {
                                 user_store.commands.len(),
                                 store.commands.len()
                             );
-                            // User index (prompt patterns, default mode) overrides bundled —
-                            // bundled scaffolds ship with empty prompt_patterns.
+                            // User index overrides bundled prompt settings. Legacy user
+                            // indexes inherit bundled secret patterns; an explicit empty
+                            // list remains an opt-out.
+                            let mut user_store = user_store;
+                            if user_store.platform.secret_prompt_patterns.is_none() {
+                                user_store.platform.secret_prompt_patterns =
+                                    store.platform.secret_prompt_patterns.clone();
+                            }
                             store.platform = user_store.platform.clone();
                             // Merge: user commands override bundled ones by name
                             store.merge_from(user_store);
@@ -435,6 +441,41 @@ mod tests {
         let theirs = bundled.commands.iter().find(|c| c.name == "show version").unwrap();
         assert_eq!(theirs.source, None);
         assert!(!theirs.overrides);
+    }
+
+    #[test]
+    fn legacy_user_index_inherits_bundled_secret_patterns_but_empty_overrides() {
+        let (bundled, user) = kb_fixture(
+            "secret-pattern-merge",
+            &cmd_yaml("show version", "bundled"),
+            None,
+        );
+        let bundled_index = INDEX_YAML.replace(
+            "default_mode: default",
+            "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
+        );
+        std::fs::write(bundled.join("test-plat/index.yaml"), bundled_index).unwrap();
+        std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
+        assert_eq!(
+            mgr.get_platform_index("test-plat").unwrap().secret_prompt_patterns,
+            Some(vec!["^Password:$".into()]),
+        );
+        drop(mgr);
+
+        let user_index = INDEX_YAML.replace(
+            "default_mode: default",
+            "secret_prompt_patterns: []\ndefault_mode: default",
+        );
+        std::fs::write(user.join("test-plat/index.yaml"), user_index).unwrap();
+        let mut mgr = KbManager::with_user_path(bundled.clone(), user);
+        assert_eq!(
+            mgr.get_platform_index("test-plat").unwrap().secret_prompt_patterns,
+            Some(vec![]),
+        );
+
+        drop_fixture(&bundled);
     }
 
     #[test]

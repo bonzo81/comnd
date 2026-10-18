@@ -4,8 +4,9 @@ import { LineTracker } from "./line-tracker";
 function makeTracker() {
   const onModeChange = vi.fn();
   const onPromptDetected = vi.fn();
-  const t = new LineTracker(onModeChange, onPromptDetected);
-  return { t, onModeChange, onPromptDetected };
+  const onSecretPromptDetected = vi.fn();
+  const t = new LineTracker(onModeChange, onPromptDetected, onSecretPromptDetected);
+  return { t, onModeChange, onPromptDetected, onSecretPromptDetected };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -122,6 +123,69 @@ describe("LineTracker — prompt detection", () => {
     expect(t.currentLine).toBe("stale line");
     t.loadPatterns({ enable: "Router#" }, "user");
     expect(t.currentLine).toBe("");
+  });
+
+  it("detects secret prompts against the full idle line before normal prompts", () => {
+    const { t, onModeChange, onPromptDetected, onSecretPromptDetected } = makeTracker();
+    t.loadPatterns({ shell: "user@host:~\\$" }, "shell", ["\\[sudo\\] [Pp]assword for [^:]+:\\s*"]);
+
+    t.feed("[sudo] Password for alice:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(200);
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+    expect(onPromptDetected).not.toHaveBeenCalled();
+    expect(onModeChange).not.toHaveBeenCalled();
+
+    // The regex is full-line anchored by LineTracker, so prompt-like output
+    // with trailing text is not classified as a secret prompt.
+    t.loadPatterns({}, "shell", ["[Pp]assword:\\s*"]);
+    t.feed("Password: incorrect");
+    vi.advanceTimersByTime(200);
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends secret mode at the learned normal Bash prompt", () => {
+    const { t, onPromptDetected, onSecretPromptDetected } = makeTracker();
+    t.loadPatterns({}, "shell", ["\\[sudo\\] [Pp]assword for [^:]+:\\s*"]);
+    t.feed("alice@host:~$ sudo -v");
+    t.learnPrompt("sudo -v");
+
+    t.feed("\r\n[sudo] Password for alice:");
+    vi.advanceTimersByTime(200);
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\nalice@host:~$ ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends secret mode at a conventional Bash prompt when none was learned", () => {
+    const { t, onPromptDetected, onSecretPromptDetected } = makeTracker();
+    t.loadPatterns({}, "shell", ["[Pp]assword:\\s*"]);
+    t.feed("Password:");
+    vi.advanceTimersByTime(200);
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\nuser@host:~$ ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers from changed bracketed Bash prompts on consecutive secret rounds", () => {
+    const { t, onPromptDetected, onSecretPromptDetected } = makeTracker();
+    t.loadPatterns({}, "shell", ["[Pp]assword:\\s*"]);
+    t.feed("Password:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\n[root@host ~]# ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\nPassword:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(2);
+    t.feed("\r\n[root@host ~]# ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(2);
   });
 });
 
