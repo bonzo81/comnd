@@ -6,6 +6,7 @@ import { GhostText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import type { SuggestionResult } from "./suggestion-engine";
 import type { Command } from "./tauri-api";
+import { resetSinks, setLogLevel, setSinks, type LogRecord } from "./logger";
 
 const cmd = (name: string, mode = "bash"): Command => ({
   id: name, name, mode, category: "test", description: "",
@@ -111,6 +112,29 @@ describe("SuggestionController — query pipeline", () => {
     ctx.c.buffer.appendAll("nter");
     vi.advanceTimersByTime(100);
     expect(ghostText(ctx.container)).toBe("faces");
+  });
+
+  it("stale-query logs never contain shadow-buffer text", () => {
+    const ctx = makeController();
+    const records: LogRecord[] = [];
+    setLogLevel("debug");
+    setSinks([(record) => records.push(record)]);
+
+    // Ordinary buffer changes cancel the prior callback. Let it run here to
+    // exercise the defensive staleness branch without changing production behavior.
+    const clearTimeout = vi.spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+    const secret = "typed-secret-value";
+    try {
+      ctx.c.buffer.setContent(secret);
+      ctx.c.buffer.setContent(`${secret}x`);
+      vi.advanceTimersByTime(40);
+
+      expect(records.some((record) => record.msg.startsWith("stale query dropped"))).toBe(true);
+      expect(records.every((record) => !record.msg.includes(secret) && !record.args.includes(secret))).toBe(true);
+    } finally {
+      clearTimeout.mockRestore();
+      resetSinks();
+    }
   });
 
   it("openDropdown shows and re-syncs ghost from selection", () => {
