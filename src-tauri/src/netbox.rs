@@ -607,6 +607,8 @@ pub struct NetBoxConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
+    pub show_empty_folders: bool,
+    #[serde(default)]
     pub base_url: String,
     #[serde(default)]
     pub filters: NetBoxFilters,
@@ -643,6 +645,7 @@ impl Default for NetBoxConfig {
     fn default() -> Self {
         NetBoxConfig {
             enabled: false,
+            show_empty_folders: false,
             base_url: String::new(),
             filters: NetBoxFilters::default(),
             platform_policy: default_platform_policy(),
@@ -882,15 +885,15 @@ fn ensure_chain(
 }
 
 /// Synthetic host groups for the nav tree (plan §8.3): NetBox root →
-/// region(s) → site → location(s), mirroring the FULL cached NetBox
-/// geography — every region/site/location is emitted, including branches
-/// with no devices. Devices whose site/location slug is missing from the
-/// tables (stale cache) still get slug-named fallback groups so no
+/// region(s) → site → location(s), hiding branches without enabled devices
+/// unless show_empty_folders is set. Devices whose site/location slug is
+/// missing from the tables (stale cache) still get slug-named fallback groups so no
 /// enabled device is orphaned. The whole tree disappears when no enabled
 /// device is cached; the root sorts after every user group.
 pub fn synthetic_groups(
     devices: &[NetBoxDeviceEntry],
     geo: &NetBoxGeo,
+    show_empty_folders: bool,
 ) -> Vec<crate::hosts::HostGroup> {
     let enabled: Vec<&NetBoxDeviceEntry> = devices.iter().filter(|d| d.enabled).collect();
     if enabled.is_empty() {
@@ -977,6 +980,25 @@ pub fn synthetic_groups(
                 );
             }
         }
+    }
+
+    if !show_empty_folders {
+        let parents: HashMap<&str, Option<&str>> = groups
+            .iter()
+            .map(|g| (g.id.as_str(), g.parent_id.as_deref()))
+            .collect();
+        let mut populated = std::collections::HashSet::new();
+        populated.insert(ROOT_GROUP_ID.to_string());
+        for device in enabled {
+            let mut id = group_id_for(device);
+            while populated.insert(id.clone()) {
+                match parents.get(id.as_str()).copied().flatten() {
+                    Some(parent) => id = parent.to_string(),
+                    None => break,
+                }
+            }
+        }
+        groups.retain(|g| populated.contains(&g.id));
     }
 
     groups
@@ -2288,8 +2310,14 @@ mod tests {
         // Absent config → defaults
         let cfg = NetBoxConfig::from_json(None);
         assert!(!cfg.enabled);
+        assert!(!cfg.show_empty_folders);
         assert_eq!(cfg.default_port, 22);
         assert_eq!(cfg.platform_policy, "skip");
+
+        let legacy = serde_json::json!({"enabled": true, "base_url": "https://netbox.example.com"});
+        let cfg = NetBoxConfig::from_json(Some(&legacy));
+        assert!(cfg.enabled);
+        assert!(!cfg.show_empty_folders);
 
         // Malformed JSON → defaults (never break reads)
         let bad = serde_json::json!({"enabled": "yes please", "default_port": "abc"});
@@ -2300,6 +2328,7 @@ mod tests {
         // Full roundtrip
         let cfg = NetBoxConfig {
             enabled: true,
+            show_empty_folders: true,
             base_url: "https://netbox.example.com/".into(),
             filters: NetBoxFilters {
                 status: Some("active".into()),
@@ -2483,7 +2512,7 @@ mod tests {
         d4.site = None;
         d4.location = None;
 
-        let groups = synthetic_groups(&[d1, d2, d3.clone(), d4], &NetBoxGeo::default());
+        let groups = synthetic_groups(&[d1, d2, d3.clone(), d4], &NetBoxGeo::default(), false);
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, vec!["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:rack-1"]);
         // Location falls back to its site parent when no geo tables (pre-v2
@@ -2498,8 +2527,10 @@ mod tests {
         assert_eq!(root.sort_order, u32::MAX);
 
         // Empty / all-disabled cache → no groups at all
-        assert!(synthetic_groups(&[d3.clone()], &NetBoxGeo::default()).is_empty());
-        assert!(synthetic_groups(&[], &NetBoxGeo::default()).is_empty());
+        for show_empty in [false, true] {
+            assert!(synthetic_groups(&[d3.clone()], &NetBoxGeo::default(), show_empty).is_empty());
+            assert!(synthetic_groups(&[], &NetBoxGeo::default(), show_empty).is_empty());
+        }
     }
 
     #[test]
@@ -2529,7 +2560,7 @@ mod tests {
         d3.site = Some("dc2".into());
         d3.location = None;
 
-        let groups = synthetic_groups(&[d1, d2, d3], &geo);
+        let groups = synthetic_groups(&[d1, d2, d3], &geo, false);
         let by_id: HashMap<&str, &crate::hosts::HostGroup> =
             groups.iter().map(|g| (g.id.as_str(), g)).collect();
 
@@ -2545,8 +2576,7 @@ mod tests {
         assert_eq!(by_id["__netbox__:loc:room-a"].name, "Room A");
         assert_eq!(by_id["__netbox__:loc:room-a"].parent_id.as_deref(), Some("__netbox__:loc:floor-1"));
 
-        // Site with region directly under a top region; full-geography mode
-        // emits every cached node, so dc2's location-less branch still shows.
+        // An enabled device directly under a site keeps that branch visible.
         assert_eq!(by_id["__netbox__:site:dc2"].parent_id.as_deref(), Some("__netbox__:region:emea"));
         assert_eq!(groups.len(), 7); // root + 2 regions + 2 sites + 2 locations
     }
@@ -2586,7 +2616,7 @@ mod tests {
         d.site = Some("living-room".into());
         d.location = Some("room-a".into());
 
-        let groups = synthetic_groups(&[d], &geo);
+        let groups = synthetic_groups(&[d], &geo, false);
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -2620,7 +2650,7 @@ mod tests {
         let mut d = sample_entry(1, true);
         d.site = Some("dc1".into());
         d.location = Some("ghost-loc".into());
-        let groups = synthetic_groups(&[d], &geo);
+        let groups = synthetic_groups(&[d], &geo, false);
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, vec!["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:ghost-loc"]);
         assert_eq!(groups[2].name, "ghost-loc");
@@ -2649,7 +2679,7 @@ mod tests {
         d.site = Some("study".into());
         d.location = None;
 
-        let groups = synthetic_groups(&[d], &geo);
+        let groups = synthetic_groups(&[d], &geo, true);
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
         assert!(ids.contains(&"__netbox__:region:region-1"));
         assert!(ids.contains(&"__netbox__:site:demo-site"));
@@ -2660,6 +2690,49 @@ mod tests {
             groups.iter().map(|g| (g.id.as_str(), g)).collect();
         assert_eq!(by_id["__netbox__:site:demo-site"].parent_id.as_deref(), Some("__netbox__:region:region-1"));
         assert_eq!(by_id["__netbox__:loc:demo-loc"].parent_id.as_deref(), Some("__netbox__:site:demo-site"));
+    }
+
+    #[test]
+    fn test_synthetic_groups_prunes_empty_and_disabled_only_subtrees() {
+        let geo = NetBoxGeo {
+            regions: vec![
+                NetBoxGeoNode { slug: "world".into(), name: "World".into(), parent_slug: None, site_slug: None, region_slug: None },
+                NetBoxGeoNode { slug: "active".into(), name: "Active".into(), parent_slug: Some("world".into()), site_slug: None, region_slug: None },
+                NetBoxGeoNode { slug: "empty".into(), name: "Empty".into(), parent_slug: Some("world".into()), site_slug: None, region_slug: None },
+            ],
+            sites: vec![
+                NetBoxGeoNode { slug: "dc1".into(), name: "DC1".into(), parent_slug: None, site_slug: None, region_slug: Some("active".into()) },
+                NetBoxGeoNode { slug: "dc2".into(), name: "DC2".into(), parent_slug: None, site_slug: None, region_slug: Some("empty".into()) },
+                NetBoxGeoNode { slug: "dc3".into(), name: "DC3".into(), parent_slug: None, site_slug: None, region_slug: Some("active".into()) },
+            ],
+            locations: vec![
+                NetBoxGeoNode { slug: "floor".into(), name: "Floor".into(), parent_slug: None, site_slug: Some("dc1".into()), region_slug: None },
+                NetBoxGeoNode { slug: "room".into(), name: "Room".into(), parent_slug: Some("floor".into()), site_slug: Some("dc1".into()), region_slug: None },
+                NetBoxGeoNode { slug: "unused".into(), name: "Unused".into(), parent_slug: Some("floor".into()), site_slug: Some("dc1".into()), region_slug: None },
+                NetBoxGeoNode { slug: "disabled".into(), name: "Disabled".into(), parent_slug: None, site_slug: Some("dc2".into()), region_slug: None },
+            ],
+        };
+        let mut enabled = sample_entry(1, true);
+        enabled.site = Some("dc1".into());
+        enabled.location = Some("room".into());
+        let mut disabled = sample_entry(2, false);
+        disabled.site = Some("dc2".into());
+        disabled.location = Some("disabled".into());
+        let devices = [enabled, disabled];
+
+        let groups = synthetic_groups(&devices, &geo, false);
+        let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec![
+            "__netbox__", "__netbox__:region:world", "__netbox__:region:active",
+            "__netbox__:site:dc1", "__netbox__:loc:floor", "__netbox__:loc:room",
+        ]);
+        assert_eq!(synthetic_groups(&devices, &geo, true).len(), 11);
+        assert!(synthetic_groups(&[], &geo, true).is_empty());
+
+        let mut root_device = sample_entry(3, true);
+        root_device.site = None;
+        root_device.location = None;
+        assert_eq!(synthetic_groups(&[root_device], &geo, false).len(), 1);
     }
 
     #[test]
@@ -2677,12 +2750,15 @@ mod tests {
         let mut d = sample_entry(1, true);
         d.site = Some("dc1".into());
         d.location = Some("a".into());
-        let groups = synthetic_groups(&[d], &geo);
+        let groups = synthetic_groups(&[d.clone()], &geo, true);
         // Cycle guard: "a" and "b" each flatten to attach under the site
         // instead of nesting into each other.
         let by_id: HashMap<&str, &crate::hosts::HostGroup> =
             groups.iter().map(|g| (g.id.as_str(), g)).collect();
         assert_eq!(by_id["__netbox__:loc:a"].parent_id.as_deref(), Some("__netbox__:site:dc1"));
         assert_eq!(by_id["__netbox__:loc:b"].parent_id.as_deref(), Some("__netbox__:site:dc1"));
+        let pruned = synthetic_groups(&[d], &geo, false);
+        let ids: Vec<&str> = pruned.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(ids, vec!["__netbox__", "__netbox__:site:dc1", "__netbox__:loc:a"]);
     }
 }

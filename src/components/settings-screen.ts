@@ -630,6 +630,13 @@ export class SettingsScreen {
         </label>
 
         <div class="netbox-body${enabled ? "" : " netbox-body-disabled"}">
+          <label class="settings-toggle">
+            <input type="checkbox" id="netbox-show-empty-folders" ${cfg?.show_empty_folders ? "checked" : ""} />
+            <span>
+              Show empty folders
+              <span class="import-hint">Show all cached regions, sites, and locations, including folders with no enabled hosts.</span>
+            </span>
+          </label>
           <h3 class="settings-section-title">Instance</h3>
           <div class="import-field">
             <label for="netbox-url">NetBox URL</label>
@@ -1312,6 +1319,7 @@ export class SettingsScreen {
     // NOTE: #netbox-enabled is NOT here — it has its own handler below that
     // saves only the toggle, merged onto the saved config.
     const autosaveFields = [
+      "#netbox-show-empty-folders",
       "#netbox-invalid-certs",
       "#netbox-filter-status", "#netbox-filter-sites", "#netbox-filter-roles", "#netbox-filter-tags",
       "#netbox-platform-policy", "#netbox-platform-fallback", "#netbox-platform-overrides",
@@ -1493,7 +1501,7 @@ export class SettingsScreen {
   /** Read the NetBox form into a config for auto-save. The URL always comes
    *  from the saved config — it only changes via Save Connection. */
   private collectNetboxConfig(): { config: NetBoxConfig; password: string | null } {
-    const q = (id: string) => this.container?.querySelector<HTMLInputElement>(id);
+    const q = (id: string) => this.container?.querySelector<HTMLInputElement>(`#${id}`);
     const val = (id: string) => (q(id)?.value ?? "").trim();
     const nameVal = (name: string) =>
       (this.container?.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`)?.value ?? "").trim();
@@ -1519,6 +1527,7 @@ export class SettingsScreen {
     const status = val("netbox-filter-status");
     const config: NetBoxConfig = {
       enabled: !!q("netbox-enabled")?.checked,
+      show_empty_folders: !!q("netbox-show-empty-folders")?.checked,
       // URL: from the field on explicit Save Connection, from saved config on
       // auto-save (so an unsaved/half-typed URL never sneaks into config.json).
       base_url: this.netboxConfig?.base_url ?? "",
@@ -1548,11 +1557,13 @@ export class SettingsScreen {
   private async autosaveNetboxConfig(): Promise<void> {
     if (!this.container?.querySelector("#netbox-enabled")) return;
     const { config, password } = this.collectNetboxConfig();
+    const foldersChanged = config.show_empty_folders !== this.netboxConfig?.show_empty_folders;
     log.debug(LogTag.Netbox, "autosave fired", { enabled: config.enabled, base_url: config.base_url });
     try {
       this.netboxConfig = await netboxSaveConfig(config, password);
       log.debug(LogTag.Netbox, "autosave saved ok", { enabled: this.netboxConfig.enabled });
       if (config.default_credential?.type !== "password") this.netboxDefaultPwSaved = false;
+      if (foldersChanged) this.onTreeChanged();
     } catch (e) {
       log.error(LogTag.Netbox, "autosave failed", e);
       showToast(`Failed to save NetBox settings: ${e}`, "error", 8000);
@@ -1571,6 +1582,7 @@ export class SettingsScreen {
       const fieldUrl = (this.container?.querySelector<HTMLInputElement>("#netbox-url")?.value ?? "").trim();
       const saved = this.netboxConfig ?? {
         enabled: false,
+        show_empty_folders: false,
         base_url: "",
         filters: { status: null, sites: [], roles: [], tags: [] },
         platform_policy: "skip",
