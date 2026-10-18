@@ -1416,18 +1416,24 @@ export class SettingsScreen {
 
     // Enable toggle also flips the live disabled styling — autosave never
     // re-renders, so without this the form stays greyed out until reload.
-    // It saves ONLY the toggle merged onto the saved config: never collect
-    // the whole form here, a stale read would persist enabled=false.
+    // It saves ONLY the toggle merged onto the saved config, so the persisted
+    // `enabled` always equals the visible toggle (issue #11).
     this.container?.querySelector<HTMLInputElement>("#netbox-enabled")?.addEventListener("change", async (e) => {
-      const on = (e.target as HTMLInputElement).checked;
-      this.container?.querySelector<HTMLElement>(".netbox-body")?.classList.toggle("netbox-body-disabled", !on);
-      const saved = this.netboxConfig;
-      if (!saved) return;
+      const el = e.target as HTMLInputElement;
+      const on = el.checked;
+      const body = this.container?.querySelector<HTMLElement>(".netbox-body");
+      body?.classList.toggle("netbox-body-disabled", !on);
+      // Never skip the save: if no config is loaded yet, fall back to the
+      // form's values rather than leaving the toggle unpersisted.
+      const saved = this.netboxConfig ?? this.collectNetboxConfig().config;
       try {
         this.netboxConfig = await netboxSaveConfig({ ...saved, enabled: on }, null);
         log.debug(LogTag.Netbox, "enable toggle saved", { enabled: on });
         this.onTreeChanged();
       } catch (err) {
+        // Revert so the toggle keeps reflecting what is actually persisted.
+        el.checked = !on;
+        body?.classList.toggle("netbox-body-disabled", on);
         log.error(LogTag.Netbox, "enable toggle save failed", err);
         showToast(`Failed to save NetBox settings: ${err}`, "error", 8000);
       }
