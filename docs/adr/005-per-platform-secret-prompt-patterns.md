@@ -16,4 +16,4 @@ Different platforms can use different secret-prompt wording. The platform index 
 Add an optional `secret_prompt_patterns` field to each platform's `index.yaml`. The field is a list of regex strings matched against the full prompt line. Keep indexes that omit the field valid, and define platform-specific patterns rather than maintaining one shared list in code.
 
 ## Consequences
-Platform-specific prompt wording stays with its platform data, and each bundled platform can define suitable patterns. Optionality can keep existing indexes valid. The tradeoff is maintaining and testing patterns across the four bundled platforms and the KB schema.
+Platform-specific prompt wording stays with its platform data, and each bundled platform can define suitable patterns. Omitted fields keep existing indexes valid and inherit bundled patterns when a user index overrides a bundled platform; an explicit empty list opts out. The tradeoff is maintaining and testing patterns across the four bundled platforms and the KB schema.

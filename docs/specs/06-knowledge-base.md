@@ -70,7 +70,7 @@ negation_prefix: "no "             # optional; see Negation below
 
 `prompt_patterns` are matched against the **entire trailing line** of output (the detector wraps each pattern in `^(?:…)$`). A pattern must describe the prompt alone, with nothing after it — if it also matched prompt + typed characters (e.g. `Router#sh`), prompt detection would re-fire while the user types, resetting the shadow buffer and wiping the ghost-text suggestion.
 
-`secret_prompt_patterns` is an optional list of regex strings matched against the **entire trailing line** after the same idle window. A match clears and suppresses the shadow buffer and suggestions until the next normal prompt. Use narrowly scoped patterns for secret-entry prompts only; indexes may omit this field.
+`secret_prompt_patterns` is an optional list of regex strings matched against the **entire trailing line** as output arrives, before the normal prompt idle window. This prevents early secret keystrokes from entering the shadow buffer. A match clears and suppresses the shadow buffer and suggestions until the next normal prompt. Use narrowly scoped patterns for secret-entry prompts only. When a user index is merged with a bundled platform, omitting this field inherits the bundled patterns; an explicit empty list overrides them.
 
 ```yaml
 secret_prompt_patterns:

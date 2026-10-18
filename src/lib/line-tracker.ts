@@ -63,6 +63,7 @@ export class LineTracker {
     this.secretPatterns = secretPromptPatterns.map((pattern) => new RegExp(`^(?:${pattern})$`));
     this.currentMode = defaultMode;
     this.secretPromptActive = false;
+    this.lastPromptText = "";
     // No patterns → can't detect prompts → passthrough is meaningless. Leave
     // it off so highlighting is never suppressed by a stuck passthrough flag.
     this.passthrough = false;
@@ -92,6 +93,10 @@ export class LineTracker {
       // Other control bytes (BEL, etc.) ignored
     }
 
+    // Secret prompts must suppress input synchronously. Waiting for the idle
+    // window can leave time for the first password characters to be buffered.
+    this.matchSecretPrompt(this.line.trim());
+
     // Reset idle timer
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.checkPrompt(), LineTracker.IDLE_MS);
@@ -113,13 +118,7 @@ export class LineTracker {
     const text = this.line.trim();
     if (!text) return;
 
-    for (const regex of this.secretPatterns) {
-      if (regex.test(text)) {
-        this.secretPromptActive = true;
-        this.onSecretPromptDetected();
-        return;
-      }
-    }
+    if (this.matchSecretPrompt(text)) return;
 
     for (const [mode, regex] of this.patterns) {
       if (regex.test(text)) {
@@ -129,17 +128,34 @@ export class LineTracker {
     }
 
     // Bash has no reliable configured prompt pattern. While recovering from a
-    // secret prompt, prefer the previously learned exact prefix; if none was
-    // learned, accept only a standalone, conventional `user@host:path$` /
-    // `host#`-style shell prompt. This heuristic is scoped to secret recovery.
+    // secret prompt, prefer a previously learned/detected exact prefix; if it
+    // changed (e.g. sudo -i), accept a standalone conventional or bracketed
+    // shell prompt. This heuristic is scoped to secret recovery.
     if (this.secretPromptActive && this.patterns.size === 0) {
-      const learned = this.learnedPrompt.trim();
-      if (learned && text === learned) {
+      const knownPrompts = [this.learnedPrompt.trim(), this.lastPromptText.trim()];
+      if (knownPrompts.some((prompt) => prompt && text === prompt)) {
         this.detectNormalPrompt(text, this.currentMode);
-      } else if (/^[\w.-]+(?:@[\w.-]+)?(?::[^\s#$]*)?[#$]$/.test(text)) {
+      } else if (
+        /^[\w.-]+(?:@[\w.-]+)?(?::[^\s#$]*)?[#$]$/.test(text)
+        || /^\[[^\]\r\n]+\][#$]$/.test(text)
+      ) {
         this.detectNormalPrompt(text, this.currentMode);
       }
     }
+  }
+
+  private matchSecretPrompt(text: string): boolean {
+    if (!text) return false;
+    for (const regex of this.secretPatterns) {
+      if (regex.test(text)) {
+        if (!this.secretPromptActive) {
+          this.secretPromptActive = true;
+          this.onSecretPromptDetected();
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   private detectNormalPrompt(text: string, mode: string) {

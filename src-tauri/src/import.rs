@@ -723,7 +723,7 @@ pub fn new_platform_index(id: &str, name: &str) -> PlatformIndex {
         reference_url: String::new(),
         versions: vec![],
         prompt_patterns: std::collections::HashMap::new(),
-        secret_prompt_patterns: vec![],
+        secret_prompt_patterns: None,
         default_mode: "default".to_string(),
         negation_prefix: None,
         prefix_commands: std::collections::HashMap::new(),
@@ -785,7 +785,7 @@ mod tests {
             assert_eq!(actual, expected, "scaffold for {platform} diverged from bundled index");
             let index: PlatformIndex = serde_yml::from_slice(&actual).unwrap();
             assert!(
-                !index.secret_prompt_patterns.is_empty(),
+                index.secret_prompt_patterns.as_ref().is_some_and(|patterns| !patterns.is_empty()),
                 "bundled index for {platform} must define secret prompts"
             );
 
@@ -887,7 +887,7 @@ mod tests {
             reference_url: String::new(),
             versions: vec![],
             prompt_patterns,
-            secret_prompt_patterns: vec![],
+            secret_prompt_patterns: None,
             default_mode: "privileged-exec".to_string(),
             negation_prefix: Some("no ".to_string()),
             prefix_commands: std::collections::HashMap::new(),
@@ -904,7 +904,7 @@ mod tests {
             reference_url: String::new(),
             versions: vec![],
             prompt_patterns,
-            secret_prompt_patterns: vec![],
+            secret_prompt_patterns: None,
             default_mode: "shell".to_string(),
             negation_prefix: None,
             prefix_commands: std::collections::HashMap::new(),

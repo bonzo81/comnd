@@ -18,8 +18,8 @@ pub(crate) struct PlatformIndex {
     pub reference_url: String,
     pub versions: Vec<String>,
     pub prompt_patterns: HashMap<String, String>,
-    #[serde(default)]
-    pub secret_prompt_patterns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_prompt_patterns: Option<Vec<String>>,
     pub default_mode: String,
     #[serde(default)]
     pub negation_prefix: Option<String>,
@@ -401,14 +401,14 @@ prompt_patterns: {}
 default_mode: default
 "#;
         let index: PlatformIndex = serde_yml::from_str(legacy).unwrap();
-        assert!(index.secret_prompt_patterns.is_empty());
+        assert_eq!(index.secret_prompt_patterns, None);
 
         let extended = legacy.replace(
             "default_mode: default",
             "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
         );
         let index: PlatformIndex = serde_yml::from_str(&extended).unwrap();
-        assert_eq!(index.secret_prompt_patterns, vec!["^Password:$"]);
+        assert_eq!(index.secret_prompt_patterns, Some(vec!["^Password:$".into()]));
     }
 
 }

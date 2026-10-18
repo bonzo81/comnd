@@ -25,7 +25,7 @@ route keystrokes through Rust.
 
 Add optional `secret_prompt_patterns: string[]` to the Rust and TypeScript
 `PlatformIndex` types. Each entry is a regex string matched against the entire
-trimmed prompt line, using the same idle-window detection as ordinary prompts.
+trimmed trailing line as output arrives, before the normal prompt idle window.
 Indexes that omit the field remain valid; Rust deserialization defaults it to
 an empty list.
 
@@ -54,10 +54,10 @@ Patterns must match prompt lines, not ordinary command prompts or output.
    prompt-reset behavior so later command input produces suggestions normally.
 
 Linux Bash ships with no ordinary `prompt_patterns` because its prompt is
-user-configurable. Use the existing learned-prompt path to identify the next
-normal Bash prompt after a secret prompt; do not add a broad pattern that could
-mistake ordinary output for a prompt. Cover the learned-prompt transition in
-tests, including the case where the prompt has not yet been learned.
+user-configurable. Use the learned/last detected prompt first, then narrowly
+recognize conventional and bracketed shell prompts while recovering. This lets
+`sudo -i` change the prompt without leaving secret mode stuck. Cover changed
+and repeated Bash prompt transitions in tests.
 
 ## Tests
 

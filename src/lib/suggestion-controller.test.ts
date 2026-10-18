@@ -242,7 +242,6 @@ describe("SuggestionController — output handling", () => {
     expect(ghostText(ctx.container)).toBe("faces");
 
     ctx.c.onOutput("[sudo] Password for alice:");
-    vi.advanceTimersByTime(200);
     expect(ctx.c.input).toBe("");
     expect(ghostText(ctx.container)).toBeNull();
     expect(ctx.dropdown.isVisible()).toBe(false);
@@ -257,6 +256,43 @@ describe("SuggestionController — output handling", () => {
 
     ctx.c.keyIn("\r");
     ctx.c.onOutput("\r\nalice@host:~$ ");
+    vi.advanceTimersByTime(300);
+    type(ctx, "show inter");
+    vi.advanceTimersByTime(50);
+    expect(ctx.c.input).toBe("show inter");
+    expect(ghostText(ctx.container)).toBe("faces");
+  });
+
+  it("recovers through changed bracketed Bash prompts and consecutive secret exchanges", () => {
+    const ctx = makeController();
+    ctx.c.loadCommands([cmd("show interfaces")], "linux-bash", null);
+    ctx.c.setMode("bash");
+    ctx.tracker.loadPatterns({}, "shell", ["[Pp]assword:\\s*"]);
+
+    // Learn the user's original custom prompt from a trusted command echo.
+    ctx.c.buffer.appendAll("sudo -i");
+    ctx.c.onOutput("[alice@host ~]$ sudo -i");
+    ctx.c.keyIn("\r");
+
+    // The first password must be suppressed before the idle timer elapses.
+    ctx.c.onOutput("\r\nPassword:");
+    ctx.c.keyIn("s");
+    expect(ctx.c.input).toBe("");
+    ctx.c.keyIn("\r");
+    ctx.c.onOutput("\r\n[root@host ~]# ");
+    vi.advanceTimersByTime(300);
+    type(ctx, "show inter");
+    vi.advanceTimersByTime(50);
+    expect(ghostText(ctx.container)).toBe("faces");
+
+    // The second round still suppresses and the unchanged bracketed root
+    // prompt resumes suggestions after the controller resets tracker state.
+    ctx.c.keyIn("\r");
+    ctx.c.onOutput("\r\nPassword:");
+    ctx.c.keyIn("x");
+    expect(ctx.c.input).toBe("");
+    ctx.c.keyIn("\r");
+    ctx.c.onOutput("\r\n[root@host ~]# ");
     vi.advanceTimersByTime(300);
     type(ctx, "show inter");
     vi.advanceTimersByTime(50);

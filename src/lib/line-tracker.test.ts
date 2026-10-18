@@ -130,6 +130,7 @@ describe("LineTracker — prompt detection", () => {
     t.loadPatterns({ shell: "user@host:~\\$" }, "shell", ["\\[sudo\\] [Pp]assword for [^:]+:\\s*"]);
 
     t.feed("[sudo] Password for alice:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(200);
     expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
     expect(onPromptDetected).not.toHaveBeenCalled();
@@ -168,6 +169,23 @@ describe("LineTracker — prompt detection", () => {
     t.feed("\r\nuser@host:~$ ");
     vi.advanceTimersByTime(200);
     expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers from changed bracketed Bash prompts on consecutive secret rounds", () => {
+    const { t, onPromptDetected, onSecretPromptDetected } = makeTracker();
+    t.loadPatterns({}, "shell", ["[Pp]assword:\\s*"]);
+    t.feed("Password:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\n[root@host ~]# ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("\r\nPassword:");
+    expect(onSecretPromptDetected).toHaveBeenCalledTimes(2);
+    t.feed("\r\n[root@host ~]# ");
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(2);
   });
 });
 
