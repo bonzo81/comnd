@@ -60,7 +60,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 
 - Edition 2021
 - Async everywhere (tokio runtime)
-- `russh` for SSH, `serde_yml` for YAML (NOT `serde_yaml` — it is deprecated)
+- `russh` for SSH, `yaml_serde` for YAML (NOT `serde_yml`/`serde_yaml` — both unmaintained and unsound)
 - `dirs` crate for platform-appropriate data paths
 - Tauri v2 command handlers are `async fn` with `#[tauri::command]`
 - Error handling: return `Result<T, String>` from Tauri commands
@@ -85,7 +85,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 ## What NOT To Do
 
 - No LLM in the suggestion/keystroke path; LLM only for KB import (`import.rs`). See ADR-004.
-- No `serde_yaml` — use `serde_yml`
+- No `serde_yml`/`serde_yaml` — use `yaml_serde` (the maintained serde-yaml fork)
 - No sidebar overlay on terminal
 - No `Ctrl+W` interception — must pass through to remote
 - No local echo — shadow buffer observes only

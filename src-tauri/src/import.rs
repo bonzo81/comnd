@@ -743,7 +743,7 @@ fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathB
             .map_err(|e| format!("Failed to read bundled index {}: {}", bundled_index.display(), e))?
     } else {
         let index = new_platform_index(platform, platform_name.unwrap_or(platform));
-        serde_yml::to_string(&index)
+        yaml_serde::to_string(&index)
             .map_err(|e| format!("Failed to serialize new platform index: {}", e))?
             .into_bytes()
     };
@@ -783,7 +783,7 @@ mod tests {
             let expected = std::fs::read(bundled.join(platform).join("index.yaml")).unwrap();
             let actual = std::fs::read(&user_index).unwrap();
             assert_eq!(actual, expected, "scaffold for {platform} diverged from bundled index");
-            let index: PlatformIndex = serde_yml::from_slice(&actual).unwrap();
+            let index: PlatformIndex = yaml_serde::from_slice(&actual).unwrap();
             assert!(
                 index.secret_prompt_patterns.as_ref().is_some_and(|patterns| !patterns.is_empty()),
                 "bundled index for {platform} must define secret prompts"
@@ -818,7 +818,7 @@ mod tests {
         assert!(content.contains("default_mode: default"));
 
         // The scaffold parses as a PlatformIndex and has no modes.
-        let index: PlatformIndex = serde_yml::from_str(&content).unwrap();
+        let index: PlatformIndex = yaml_serde::from_str(&content).unwrap();
         assert!(index.prompt_patterns.is_empty());
         assert_eq!(index.default_mode, "default");
 
