@@ -23,7 +23,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use russh::keys::key::safe_rng;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};
@@ -253,7 +252,6 @@ impl server::Server for MockServer {
     }
 }
 
-#[async_trait]
 impl server::Handler for MockHandler {
     type Error = russh::Error;
 
@@ -273,11 +271,11 @@ impl server::Handler for MockHandler {
                 if password == expected.as_str() {
                     Ok(Auth::Accept)
                 } else {
-                    Ok(Auth::Reject { proceed_with_methods: None })
+                    Ok(Auth::reject())
                 }
             }
             KbdIntPersona::Password { .. } | KbdIntPersona::PasswordInfoRound { .. } => {
-                Ok(Auth::Reject { proceed_with_methods: None })
+                Ok(Auth::reject())
             }
         }
     }
@@ -296,7 +294,7 @@ impl server::Handler for MockHandler {
             KbdIntPersona::Password { .. }
             | KbdIntPersona::PasswordOnly { .. }
             | KbdIntPersona::PasswordInfoRound { .. } => {
-                Ok(Auth::Reject { proceed_with_methods: None })
+                Ok(Auth::reject())
             }
         }
     }
@@ -304,11 +302,11 @@ impl server::Handler for MockHandler {
     /// Keyboard-interactive per persona: Tailscale-style browser auth (first
     /// round sends the URL prompt, any response accepts) or a Cisco-style
     /// `Password:` round where only the expected password accepts.
-    async fn auth_keyboard_interactive(
-        &mut self,
+    async fn auth_keyboard_interactive<'a>(
+        &'a mut self,
         user: &str,
         _submethods: &str,
-        response: Option<server::Response<'async_trait>>,
+        response: Option<server::Response<'a>>,
     ) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
         match &self.kbd_int {
@@ -341,7 +339,7 @@ impl server::Handler for MockHandler {
                     if got == *expected {
                         Ok(Auth::Accept)
                     } else {
-                        Ok(Auth::Reject { proceed_with_methods: None })
+                        Ok(Auth::reject())
                     }
                 }
             },
@@ -349,7 +347,7 @@ impl server::Handler for MockHandler {
                 // No keyboard-interactive on this server — refuse the method
                 // outright, before any round (mirrors Linux with
                 // `KbdInteractiveAuthentication no`).
-                Ok(Auth::Reject { proceed_with_methods: None })
+                Ok(Auth::reject())
             }
             KbdIntPersona::PasswordInfoRound { expected } => match response {
                 None => Ok(Auth::Partial {
@@ -373,13 +371,21 @@ impl server::Handler for MockHandler {
                             if got == *expected {
                                 Ok(Auth::Accept)
                             } else {
-                                Ok(Auth::Reject { proceed_with_methods: None })
+                                Ok(Auth::reject())
                             }
                         }
                     }
                 }
             },
         }
+    }
+
+    /// The auth banner every persona sends (0.60 moved this from
+    /// server::Config to the handler).
+    async fn authentication_banner(&mut self) -> Result<Option<String>, Self::Error> {
+        Ok(Some(
+            "To authenticate, visit: https://login.tailscale.com/a/test123\n".to_string(),
+        ))
     }
 
     /// Accept session channel open requests.
@@ -421,10 +427,9 @@ impl server::Handler for MockHandler {
             ("Welcome to mock Linux box", "user@host:~$ ")
         };
         self.state.prompt = prompt.into();
-        session.data(
-            channel,
-            format!("\r\n{}\r\n{}", banner, prompt).as_bytes().to_vec().into(),
-        )?;
+        // 0.60: Session::data takes `impl Into<Bytes>` — a plain Vec<u8>
+        // converts without the old `.into()` dance.
+        session.data(channel, format!("\r\n{}\r\n{}", banner, prompt).as_bytes().to_vec())?;
         Ok(())
     }
 
@@ -441,7 +446,7 @@ impl server::Handler for MockHandler {
             self.handle_byte(b, &mut out);
         }
         if !out.is_empty() {
-            session.data(channel, out.into())?;
+            session.data(channel, out)?;
         }
         Ok(())
     }
@@ -490,9 +495,6 @@ async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::Jo
 
     let config = Arc::new(server::Config {
         keys: vec![key],
-        auth_banner: Some(
-            "To authenticate, visit: https://login.tailscale.com/a/test123\n",
-        ),
         inactivity_timeout: None, // Don't time out during tests
         auth_rejection_time: std::time::Duration::from_secs(1),
         ..Default::default()
@@ -525,7 +527,6 @@ mod tests {
 
     struct NoopHandler;
 
-    #[async_trait]
     impl client::Handler for NoopHandler {
         type Error = russh::Error;
         async fn check_server_key(
@@ -615,7 +616,7 @@ mod tests {
             .authenticate_keyboard_interactive_respond(vec!["not-the-password".to_string()])
             .await
             .expect("kbd-int respond (wrong password)");
-        assert!(matches!(wrong, KeyboardInteractiveAuthResponse::Failure));
+        assert!(matches!(wrong, KeyboardInteractiveAuthResponse::Failure { .. }));
 
         // …and the right answer on a fresh connection completes auth.
         let mut session = client::connect(
@@ -662,7 +663,7 @@ mod tests {
             .authenticate_keyboard_interactive_start("andy", None::<String>)
             .await
             .expect("kbd-int start (refused)");
-        assert!(matches!(kbd, KeyboardInteractiveAuthResponse::Failure));
+        assert!(matches!(kbd, KeyboardInteractiveAuthResponse::Failure { .. }));
 
         // …so the client prompts locally and the typed answer completes
         // auth via the single-shot password method.
@@ -670,7 +671,7 @@ mod tests {
             .authenticate_password("andy", "secret-pw")
             .await
             .expect("password auth after kbd-int refusal");
-        assert!(ok);
+        assert!(ok.success());
 
         // A wrong typed password is rejected — the client re-prompts rather
         // than failing the whole connect.
@@ -685,7 +686,7 @@ mod tests {
             .authenticate_password("andy", "not-the-password")
             .await
             .expect("password auth (wrong password)");
-        assert!(!wrong);
+        assert!(!wrong.success());
 
         server.abort();
     }
@@ -750,13 +751,12 @@ mod tests {
         .expect("connect");
 
         let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519).expect("keygen");
-        let key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None)
-            .expect("wrap key");
+        let key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None);
         let ok = session
             .authenticate_publickey("andy", key)
             .await
             .expect("pubkey auth");
-        assert!(ok);
+        assert!(ok.success());
 
         server.abort();
     }

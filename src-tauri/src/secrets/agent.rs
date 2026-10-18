@@ -61,15 +61,20 @@ pub async fn list_identities() -> Result<Vec<AgentIdentity>, String> {
 }
 
 async fn identities(mut client: DynAgent) -> Result<Vec<AgentIdentity>, String> {
-    let keys: Vec<PublicKey> = client
+    // 0.60: the agent lists AgentIdentity (public key or OpenSSH
+    // certificate) instead of bare public keys.
+    let keys: Vec<russh::keys::agent::AgentIdentity> = client
         .request_identities()
         .await
         .map_err(|e| e.to_string())?;
     Ok(keys
         .into_iter()
-        .map(|k| AgentIdentity {
-            fingerprint: fingerprint_b64(&k),
-            algorithm: k.algorithm().as_str().to_string(),
+        .map(|k| {
+            let key = k.public_key();
+            AgentIdentity {
+                fingerprint: fingerprint_b64(&key),
+                algorithm: key.algorithm().as_str().to_string(),
+            }
         })
         .collect())
 }

@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use base64::Engine as _;
 use russh::keys::PublicKey;
 use russh::{client, ChannelId, Disconnect};
@@ -105,13 +104,18 @@ fn responses_for_round(url_round: bool, stored_password: Option<&str>, n_prompts
 }
 
 /// Pick which agent identities to offer, per the host's agent config (chunk 4).
-fn select_agent_keys(agent: &crate::hosts::AgentAuth, keys: Vec<PublicKey>) -> Vec<PublicKey> {
+/// 0.60: the agent lists `AgentIdentity` (public key or certificate) instead
+/// of bare public keys.
+fn select_agent_keys(
+    agent: &crate::hosts::AgentAuth,
+    keys: Vec<russh::keys::agent::AgentIdentity>,
+) -> Vec<russh::keys::agent::AgentIdentity> {
     match agent {
         crate::hosts::AgentAuth::Off => Vec::new(),
         crate::hosts::AgentAuth::All => keys,
         crate::hosts::AgentAuth::Fingerprint(fp) => keys
             .into_iter()
-            .filter(|k| crate::secrets::agent::fingerprint_b64(k) == *fp)
+            .filter(|k| crate::secrets::agent::fingerprint_b64(&k.public_key()) == *fp)
             .collect(),
     }
 }
@@ -253,7 +257,6 @@ struct ClientHandler {
     transcript: crate::transcript::SharedTranscript,
 }
 
-#[async_trait]
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
 
@@ -615,10 +618,18 @@ impl SshSession {
                 .await
                 .map_err(|e| format!("Failed to query SSH agent identities: {}", e))?;
             let mut offered = false;
-            for key in select_agent_keys(&agent, keys) {
+            for identity in select_agent_keys(&agent, keys) {
                 offered = true;
-                let fp = crate::secrets::agent::fingerprint_b64(&key);
+                let public = identity.public_key().into_owned();
+                let fp = crate::secrets::agent::fingerprint_b64(&public);
                 log::info!("Attempting agent publickey auth ({fp})");
+                // RSA signatures need an explicit hash alg (SHA-1 is dead);
+                // everything else takes none.
+                let hash_alg = if public.algorithm().is_rsa() {
+                    Some(russh::keys::HashAlg::Sha256)
+                } else {
+                    None
+                };
                 // The future of `authenticate_publickey_with` is Send only for
                 // specific lifetimes (Signer has no Send bound), which breaks
                 // the tauri command's higher-ranked Send requirement. Running
@@ -627,13 +638,13 @@ impl SshSession {
                 // ponytail: requires a multi-thread runtime (tauri default).
                 let result = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(
-                        session.authenticate_publickey_with(username, key, &mut client),
+                        session.authenticate_publickey_with(username, public, hash_alg, &mut client),
                     )
                 })
                 .map_err(|e| e.to_string());
                 match result {
-                    Ok(true) => return Ok(true),
-                    Ok(false) => log::info!("Agent identity {fp} rejected by server"),
+                    Ok(auth) if auth.success() => return Ok(true),
+                    Ok(_) => log::info!("Agent identity {fp} rejected by server"),
                     Err(e) => {
                         log::warn!("Agent auth error: {}", e);
                         break;
@@ -658,21 +669,24 @@ impl SshSession {
                 log::info!("Attempting SSH key auth with {}", key_path);
                 // RSA signatures need an explicit hash alg (SHA-1 is dead);
                 // everything else ignores it.
-                let loaded = russh::keys::load_secret_key(path, None).and_then(|key| {
-                    let hash = if key.algorithm().is_rsa() {
-                        Some(russh::keys::HashAlg::Sha256)
-                    } else {
-                        None
-                    };
-                    russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), hash)
-                });
+                // 0.60: PrivateKeyWithHashAlg::new is infallible (it ignores
+                // the hash for non-RSA keys instead of failing).
+                let loaded = russh::keys::load_secret_key(path, None)
+                    .map(|key| {
+                        let hash = if key.algorithm().is_rsa() {
+                            Some(russh::keys::HashAlg::Sha256)
+                        } else {
+                            None
+                        };
+                        russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), hash)
+                    });
                 match loaded {
                     Ok(key) => {
                         let auth_result = session
                             .authenticate_publickey(username, key)
                             .await
                             .map_err(|e| format!("Key auth error: {}", e))?;
-                        if auth_result {
+                        if auth_result.success() {
                             return Ok(true);
                         }
                         // Key auth failed, fall through to password
@@ -693,7 +707,7 @@ impl SshSession {
                 .authenticate_password(username, password)
                 .await
                 .map_err(|e| format!("Password auth error: {}", e))?;
-            if auth_result {
+            if auth_result.success() {
                 return Ok(true);
             }
         }
@@ -710,14 +724,11 @@ impl SshSession {
                 russh::keys::Algorithm::Ed25519,
             )
             .map_err(|e| e.to_string())
-            .and_then(|key| {
-                russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None)
-                    .map_err(|e| e.to_string())
-            });
+            .map(|key| russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None));
             match key {
                 Ok(key) => match session.authenticate_publickey(username, key).await {
-                    Ok(true) => return Ok(true),
-                    Ok(false) => log::info!("Ephemeral key rejected — server requires configured credentials"),
+                    Ok(result) if result.success() => return Ok(true),
+                    Ok(_) => log::info!("Ephemeral key rejected — server requires configured credentials"),
                     Err(e) => log::info!("Ephemeral key auth error: {}", e),
                 },
                 Err(e) => log::info!("Ephemeral key generation failed: {}", e),
@@ -806,7 +817,7 @@ impl SshSession {
                     log::info!("Keyboard-interactive auth succeeded");
                     return Ok(true);
                 }
-                Ok(KeyboardInteractiveAuthResponse::Failure) => {
+                Ok(KeyboardInteractiveAuthResponse::Failure { .. }) => {
                     log::info!("Keyboard-interactive auth rejected (server refused method or credentials)");
                     // Refused without a single round → the method is
                     // unavailable. Issue #12: prompt for the password
@@ -880,11 +891,11 @@ impl SshSession {
             let answer = answers.into_iter().next().unwrap_or_default();
             log::info!("Attempting password auth with typed password (attempt {})", attempt);
             match session.authenticate_password(username, &answer).await {
-                Ok(true) => {
+                Ok(result) if result.success() => {
                     log::info!("Password auth succeeded (attempt {})", attempt);
                     return Ok(true);
                 }
-                Ok(false) => log::info!("Typed password rejected (attempt {})", attempt),
+                Ok(_) => log::info!("Typed password rejected (attempt {})", attempt),
                 Err(e) => return Err(format!("Password auth error: {}", e)),
             }
         }
@@ -1122,23 +1133,25 @@ mod tests {
     fn test_select_agent_keys_filters_by_fingerprint() {
         use crate::hosts::AgentAuth;
         use crate::secrets::agent::fingerprint_b64;
+        use russh::keys::agent::AgentIdentity;
         use russh::keys::key::safe_rng;
         let key = |()| {
-            russh::keys::PrivateKey::random(&mut safe_rng(), russh::keys::Algorithm::Ed25519)
+            let pk = russh::keys::PrivateKey::random(&mut safe_rng(), russh::keys::Algorithm::Ed25519)
                 .unwrap()
                 .public_key()
-                .clone()
+                .clone();
+            AgentIdentity::from(pk)
         };
         let k1 = key(());
         let k2 = key(());
-        let fp1 = fingerprint_b64(&k1);
+        let fp1 = fingerprint_b64(&k1.public_key());
         let keys = vec![k1, k2];
 
         assert_eq!(select_agent_keys(&AgentAuth::All, keys.clone()).len(), 2);
 
         let sel = select_agent_keys(&AgentAuth::Fingerprint(fp1.clone()), keys.clone());
         assert_eq!(sel.len(), 1);
-        assert_eq!(fingerprint_b64(&sel[0]), fp1);
+        assert_eq!(fingerprint_b64(&sel[0].public_key()), fp1);
 
         // Unknown fingerprint offers nothing — caller turns that into a clean error.
         assert!(select_agent_keys(&AgentAuth::Fingerprint("nonexistent".into()), keys.clone()).is_empty());
