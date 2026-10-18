@@ -439,13 +439,20 @@ pub async fn get_host_groups(
 
     // Synthetic NetBox groups (plan §8.3) — emitted only when enabled and
     // at least one enabled device is cached.
-    let enabled = {
+    let (enabled, netbox_config) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
-        config.host_source_enabled("netbox")
+        (
+            config.host_source_enabled("netbox"),
+            netbox::NetBoxConfig::from_json(config.host_source_config("netbox")),
+        )
     };
     if enabled {
         let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
-        groups.extend(netbox::synthetic_groups(&netbox.get().devices, &netbox.get().geo));
+        groups.extend(netbox::synthetic_groups(
+            &netbox.get().devices,
+            &netbox.get().geo,
+            netbox_config.show_empty_folders,
+        ));
     }
     Ok(groups)
 }

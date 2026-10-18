@@ -15,6 +15,7 @@ Thumbs.db
 
 # Tauri
 src-tauri/target/
+src-tauri/gen/schemas/linux-schema.json
 
 # Large reference PDFs
 docs/*.pdf

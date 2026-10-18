@@ -611,6 +611,7 @@ export interface NetBoxFilters {
 
 export interface NetBoxConfig {
   enabled: boolean;
+  show_empty_folders: boolean;
   base_url: string;
   filters: NetBoxFilters;
   /** "skip" or "fallback" */
