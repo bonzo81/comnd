@@ -6,7 +6,7 @@
  * Follows the output-highlight / timestamps toggle pattern (key + event).
  */
 
-const SIZE_KEY = "netssh-terminal-font-size";
+const SIZE_KEY = "comnd-terminal-font-size";
 
 export const TERMINAL_FONT_MIN = 8;
 export const TERMINAL_FONT_MAX = 32;
@@ -25,5 +25,5 @@ export function getTerminalFontSize(): number {
 export function setTerminalFontSize(px: number): void {
   const clamped = clamp(px);
   localStorage.setItem(SIZE_KEY, String(clamped));
-  window.dispatchEvent(new CustomEvent("netssh:terminal-font-size", { detail: clamped }));
+  window.dispatchEvent(new CustomEvent("comnd:terminal-font-size", { detail: clamped }));
 }

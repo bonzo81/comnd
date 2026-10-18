@@ -47,7 +47,7 @@ describe("syncLogStatus — toast on unreachable custom path", () => {
   it("shows an error toast when the backend emits log-location-warning", async () => {
     const h = makeHarness(null);
     await syncLogStatus();
-    h.emit("log-location-warning", "Log moved: /var/log/netssh/netssh.log is in use");
+    h.emit("log-location-warning", "Log moved: /var/log/comnd/comnd.log is in use");
     const toast = document.querySelector<HTMLElement>(".toast-error");
     expect(toast).not.toBeNull();
     expect(toast!.textContent).toContain("Log moved");

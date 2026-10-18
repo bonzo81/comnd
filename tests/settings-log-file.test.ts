@@ -23,24 +23,24 @@ async function renderLoggingItem(
 
 describe("SettingsScreen — log file location", () => {
   it("renders the log file path input with the configured value", async () => {
-    const { container } = await renderLoggingItem("/custom/path/netssh.log");
+    const { container } = await renderLoggingItem("/custom/path/comnd.log");
     const input = container.querySelector<HTMLInputElement>("#log-file-path");
     expect(input).not.toBeNull();
-    expect(input!.value).toBe("/custom/path/netssh.log");
+    expect(input!.value).toBe("/custom/path/comnd.log");
   });
 
   it("sends the typed value over IPC on change", async () => {
     const { h, container } = await renderLoggingItem(null);
     const input = container.querySelector<HTMLInputElement>("#log-file-path")!;
-    input.value = "/tmp/netssh.log";
+    input.value = "/tmp/comnd.log";
     input.dispatchEvent(new Event("change"));
     await vi.waitFor(() => {
-      expect(h.ipc.calls("set_log_file_path")).toEqual([{ args: { path: "/tmp/netssh.log" } }]);
+      expect(h.ipc.calls("set_log_file_path")).toEqual([{ args: { path: "/tmp/comnd.log" } }]);
     });
   });
 
   it("sends null when the field is cleared and changed", async () => {
-    const { h, container } = await renderLoggingItem("/custom/path/netssh.log");
+    const { h, container } = await renderLoggingItem("/custom/path/comnd.log");
     const input = container.querySelector<HTMLInputElement>("#log-file-path")!;
     input.value = "   ";
     input.dispatchEvent(new Event("change"));
@@ -50,7 +50,7 @@ describe("SettingsScreen — log file location", () => {
   });
 
   it("sends null and clears the input on reset", async () => {
-    const { h, container } = await renderLoggingItem("/custom/path/netssh.log");
+    const { h, container } = await renderLoggingItem("/custom/path/comnd.log");
     const input = container.querySelector<HTMLInputElement>("#log-file-path")!;
     container.querySelector<HTMLButtonElement>("#log-file-reset")!.click();
     await vi.waitFor(() => {

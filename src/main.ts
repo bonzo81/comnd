@@ -115,7 +115,7 @@ class App {
     // Keep the status-bar Reading Comfort toggle in sync with pane/terminal toggles;
     // an open quick-adjust popover rebuilds only when the enabled state flips
     // (slider drags dispatch the same event — must not destroy a mid-drag slider)
-    window.addEventListener("netssh:reading-comfort", () => {
+    window.addEventListener("comnd:reading-comfort", () => {
       this.syncReadingComfort();
       const on = isReadingComfortEnabled();
       if (this.rcPopover && on !== this.rcPopoverOn && this.sbReadingComfort) {
@@ -124,9 +124,9 @@ class App {
       }
     });
 
-    // A rebinding (Settings pane) re-emits "netssh:shortcuts"; an open
+    // A rebinding (Settings pane) re-emits "comnd:shortcuts"; an open
     // help modal re-renders so the grid never shows stale combos.
-    window.addEventListener("netssh:shortcuts", () => {
+    window.addEventListener("comnd:shortcuts", () => {
       if (this.showShortcuts) this.renderShortcutsModal();
     });
 
@@ -282,7 +282,7 @@ class App {
 
     const title = document.createElement("span");
     title.className = "title-bar-title";
-    title.textContent = "netssh";
+    title.textContent = "Comnd";
 
     const controls = document.createElement("div");
     controls.className = "title-bar-controls";
@@ -513,7 +513,7 @@ class App {
       if (result === "opened-release-page") {
         showToast("Opened the latest release page — download and install from there", "info");
       } else {
-        showToast("Installing update — netssh is restarting…", "info");
+        showToast("Installing update — Comnd is restarting…", "info");
       }
     } catch (err) {
       log.error(LogTag.App, "Update install failed:", err);

@@ -157,7 +157,7 @@ describe("sinks", () => {
     consoleSink(record({ level: "info", tag: LogTag.App, msg: "hello password=[REDACTED]" }));
     expect(spy).toHaveBeenCalledTimes(1);
     const line = spy.mock.calls[0][0] as string;
-    expect(line).toContain("[netssh:app]");
+    expect(line).toContain("[comnd:app]");
     expect(line).toContain("INFO");
     expect(line).toContain("hello password=[REDACTED]");
   });

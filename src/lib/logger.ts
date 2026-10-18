@@ -10,7 +10,7 @@
  * Every call builds one LogRecord — redaction happens ONCE, at record
  * construction — then the record fans out to the registered sinks. Default
  * sinks: console (always) and forward-to-Rust (production only, persists to
- * netssh.log via the `log_frontend` command, fire-and-forget). Tests swap
+ * comnd.log via the `log_frontend` command, fire-and-forget). Tests swap
  * in a capture sink via setSinks() and restore with resetSinks().
  *
  * Redaction: `msg` and the serialized `args` summary are scanned for
@@ -123,7 +123,7 @@ export type LogSink = (record: LogRecord) => void;
 
 function format(record: LogRecord): string {
   const ts = new Date().toISOString();
-  return `[netssh:${record.tag}] ${ts} ${record.level.toUpperCase()} ${record.msg}`;
+  return `[comnd:${record.tag}] ${ts} ${record.level.toUpperCase()} ${record.msg}`;
 }
 
 export const consoleSink: LogSink = (record) => {

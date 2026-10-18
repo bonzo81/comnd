@@ -4,7 +4,7 @@
  * Covers: registry structure (sections), parseCombo canonicalization,
  * platformMod, matches on defaults and overrides, the bareKeyOnly
  * input-focus gate, modLocked, the reserved-keystroke guard in matches(),
- * formatCombo, ctrlByteForCombo, and the netssh:shortcuts dispatch from
+ * formatCombo, ctrlByteForCombo, and the comnd:shortcuts dispatch from
  * setOverrides.
  */
 
@@ -443,15 +443,15 @@ describe("findMapConflict", () => {
 // ─── setOverrides dispatch + initShortcuts ───────────────────────────
 
 describe("setOverrides dispatch", () => {
-  it("dispatches netssh:shortcuts with the new map", () => {
+  it("dispatches comnd:shortcuts with the new map", () => {
     const spy = vi.fn();
-    window.addEventListener("netssh:shortcuts", spy);
+    window.addEventListener("comnd:shortcuts", spy);
     try {
       setOverrides({ "toggle-kb": "Mod+Shift+T" });
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0][0].detail).toEqual({ "toggle-kb": "Mod+Shift+T" });
     } finally {
-      window.removeEventListener("netssh:shortcuts", spy);
+      window.removeEventListener("comnd:shortcuts", spy);
     }
   });
 });
