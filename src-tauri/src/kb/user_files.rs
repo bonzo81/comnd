@@ -24,8 +24,8 @@ fn read_name_list(platform_dir: &Path, filename: &str, key: &str) -> HashSet<Str
     let path = platform_dir.join(filename);
     if path.exists() {
         if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(value) = serde_yml::from_str::<serde_yml::Value>(&content) {
-                if let Some(serde_yml::Value::Sequence(seq)) = value.get(key) {
+            if let Ok(value) = yaml_serde::from_str::<yaml_serde::Value>(&content) {
+                if let Some(yaml_serde::Value::Sequence(seq)) = value.get(key) {
                     return seq.iter().filter_map(|v| v.as_str().map(String::from)).collect();
                 }
             }
@@ -36,12 +36,12 @@ fn read_name_list(platform_dir: &Path, filename: &str, key: &str) -> HashSet<Str
 
 /// Write a set of command names to a list file under `key` (sorted).
 fn write_name_list(path: &Path, key: &str, names: &HashSet<String>) -> Result<(), String> {
-    use serde_yml::Value;
+    use yaml_serde::Value;
     let mut list: Vec<&String> = names.iter().collect();
     list.sort();
-    let mut map = serde_yml::Mapping::new();
-    map.insert(Value::String(key.to_string()), serde_yml::to_value(&list).unwrap_or_default());
-    let yaml_content = serde_yml::to_string(&Value::Mapping(map))
+    let mut map = yaml_serde::Mapping::new();
+    map.insert(Value::String(key.to_string()), yaml_serde::to_value(&list).unwrap_or_default());
+    let yaml_content = yaml_serde::to_string(&Value::Mapping(map))
         .map_err(|e| format!("Failed to serialize list: {}", e))?;
 
     crate::paths::atomic_write(path, yaml_content.as_bytes())
@@ -72,7 +72,7 @@ fn write_disabled_list(disabled_path: &Path, names: &HashSet<String>) -> Result<
 /// Strips merge-generated provenance (`source`/`overrides`) — they are
 /// computed at load, never authored (docs/specs/10-custom-knowledge-base.md § 1.3).
 pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String> {
-    use serde_yml::Value;
+    use yaml_serde::Value;
     let cleaned: Vec<Command> = commands
         .iter()
         .map(|c| Command {
@@ -81,11 +81,11 @@ pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String>
             ..c.clone()
         })
         .collect();
-    serde_yml::to_string(&Value::Mapping({
-        let mut map = serde_yml::Mapping::new();
+    yaml_serde::to_string(&Value::Mapping({
+        let mut map = yaml_serde::Mapping::new();
         map.insert(
             Value::String("commands".to_string()),
-            serde_yml::to_value(&cleaned).unwrap_or_default(),
+            yaml_serde::to_value(&cleaned).unwrap_or_default(),
         );
         map
     }))
@@ -123,7 +123,7 @@ pub(crate) fn write_commands_to_yaml(commands: &[Command], path: &Path) -> Resul
     if path.exists() {
         match std::fs::read_to_string(path) {
             Ok(content) => {
-                match serde_yml::from_str::<CommandFile>(&content) {
+                match yaml_serde::from_str::<CommandFile>(&content) {
                     Ok(file) => {
                         existing_commands = file.commands;
                         log::info!("Loaded {} existing commands from {}", existing_commands.len(), path.display());
@@ -260,7 +260,7 @@ pub(super) fn remove_command(
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
 
-        let mut cmd_file: CommandFile = serde_yml::from_str(&content)
+        let mut cmd_file: CommandFile = yaml_serde::from_str(&content)
             .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
 
         let len_before = cmd_file.commands.len();
@@ -474,7 +474,7 @@ mod tests {
         assert!(yaml.contains("pipe:"), "pipe tag missing in: {}", yaml);
 
         // Round-trip: read back what we wrote.
-        let file: CommandFile = serde_yml::from_str(&yaml).unwrap();
+        let file: CommandFile = yaml_serde::from_str(&yaml).unwrap();
         assert_eq!(file.commands.len(), 1);
         let back = &file.commands[0];
         assert_eq!(back.name, "round-trip");
@@ -557,7 +557,7 @@ mod tests {
 
         // Read back and verify the merge upgraded the legacy entry.
         let content = std::fs::read_to_string(&path).unwrap();
-        let file: CommandFile = serde_yml::from_str(&content).unwrap();
+        let file: CommandFile = yaml_serde::from_str(&content).unwrap();
         assert_eq!(file.commands.len(), 1);
         let merged = &file.commands[0];
         assert_eq!(merged.tokens.len(), 1, "tokens should be upgraded, got {:?}", merged.tokens);
@@ -585,7 +585,7 @@ mod tests {
         assert!(!yaml.contains("overrides:"), "overrides leaked into YAML: {}", yaml);
 
         // Reload from the YAML — commands load cleanly with no provenance.
-        let file: CommandFile = serde_yml::from_str(&yaml).unwrap();
+        let file: CommandFile = yaml_serde::from_str(&yaml).unwrap();
         assert_eq!(file.commands.len(), 2);
         assert!(file.commands.iter().all(|c| c.source.is_none() && !c.overrides));
     }

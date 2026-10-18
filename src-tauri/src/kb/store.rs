@@ -58,7 +58,7 @@ impl KbStore {
         let index_path = platform_dir.join("index.yaml");
         let index_content = std::fs::read_to_string(&index_path)
             .map_err(|e| format!("Failed to read {}: {}", index_path.display(), e))?;
-        let platform: PlatformIndex = serde_yml::from_str(&index_content)
+        let platform: PlatformIndex = yaml_serde::from_str(&index_content)
             .map_err(|e| format!("Failed to parse {}: {}", index_path.display(), e))?;
 
         // Load all command YAML files
@@ -75,7 +75,7 @@ impl KbStore {
                 if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
                     let content = std::fs::read_to_string(&path)
                         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-                    let cmd_file: CommandFile = serde_yml::from_str(&content)
+                    let cmd_file: CommandFile = yaml_serde::from_str(&content)
                         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
                     commands.extend(cmd_file.commands);
                 }

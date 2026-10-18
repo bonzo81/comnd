@@ -12,7 +12,7 @@ Communication between frontend and backend via Tauri v2's IPC command system (ty
 ## SSH Connection Management
 
 * **Library:** `russh` (pure Rust SSH2 implementation) — no dependency on system `ssh` binary
-* **YAML parsing:** `serde_yml` (successor to deprecated `serde_yaml`)
+* **YAML parsing:** `yaml_serde` (maintained serde-yaml fork; `serde_yml`/`serde_yaml` are unmaintained/unsound)
 * **Platform paths:** `dirs` crate for resolving OS-appropriate config/data directories
 * **Host key verification:** First-connect trust-on-first-use (TOFU) model. Known hosts stored in app data directory. User prompted on first connect and on key change (with clear MITM warning)
 * **Authentication flow:**
@@ -127,7 +127,7 @@ If no pattern matches after an idle gap, mode remains unchanged (assumed same co
 ## KB Loading & Performance
 
 * The KB for the active platform is loaded into an in-memory index when a connection is established (not per-keystroke)
-* YAML files are parsed once via `serde_yml` into Rust structs, then indexed for prefix matching
+* YAML files are parsed once via `yaml_serde` into Rust structs, then indexed for prefix matching
 * For 4 platforms × \~500 commands each, initial load is sub-50ms — not a concern
 * The in-memory index supports fast prefix search (trie or sorted vec with binary search — implementation detail)
 

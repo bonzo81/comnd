@@ -49,7 +49,7 @@ These are non-negotiable. Don't deviate without discussion.
 ### Rust (Backend)
 - Edition 2021
 - Async everywhere (tokio runtime)
-- `russh` for SSH, `serde_yml` for YAML (NOT `serde_yaml` — it's deprecated)
+- `russh` for SSH, `yaml_serde` for YAML (NOT `serde_yml`/`serde_yaml` — both unmaintained and unsound)
 - `dirs` crate for platform-appropriate data paths
 - Tauri v2 command handlers are `async fn` with `#[tauri::command]`
 - Error handling: return `Result<T, String>` from Tauri commands
@@ -71,7 +71,7 @@ These are non-negotiable. Don't deviate without discussion.
 
 - Don't add AI/LLM features — that's post-MVP
 - Don't implement multi-tab/multi-session — post-MVP
-- Don't use `serde_yaml` — use `serde_yml`
+- Don't use `serde_yml` or `serde_yaml` — use `yaml_serde`
 - Don't overlay the sidebar on the terminal
 - Don't use `Ctrl+W` for anything — it must pass through to remote
 - Don't add local echo — shadow buffer observes only

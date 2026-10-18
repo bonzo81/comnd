@@ -400,14 +400,14 @@ versions: []
 prompt_patterns: {}
 default_mode: default
 "#;
-        let index: PlatformIndex = serde_yml::from_str(legacy).unwrap();
+        let index: PlatformIndex = yaml_serde::from_str(legacy).unwrap();
         assert_eq!(index.secret_prompt_patterns, None);
 
         let extended = legacy.replace(
             "default_mode: default",
             "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
         );
-        let index: PlatformIndex = serde_yml::from_str(&extended).unwrap();
+        let index: PlatformIndex = yaml_serde::from_str(&extended).unwrap();
         assert_eq!(index.secret_prompt_patterns, Some(vec!["^Password:$".into()]));
     }
 
