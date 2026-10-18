@@ -40,7 +40,10 @@ fn write_name_list(path: &Path, key: &str, names: &HashSet<String>) -> Result<()
     let mut list: Vec<&String> = names.iter().collect();
     list.sort();
     let mut map = yaml_serde::Mapping::new();
-    map.insert(Value::String(key.to_string()), yaml_serde::to_value(&list).unwrap_or_default());
+    map.insert(
+        Value::String(key.to_string()),
+        yaml_serde::to_value(&list).map_err(|e| format!("Failed to serialize list: {}", e))?,
+    );
     let yaml_content = yaml_serde::to_string(&Value::Mapping(map))
         .map_err(|e| format!("Failed to serialize list: {}", e))?;
 
@@ -85,7 +88,8 @@ pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String>
         let mut map = yaml_serde::Mapping::new();
         map.insert(
             Value::String("commands".to_string()),
-            yaml_serde::to_value(&cleaned).unwrap_or_default(),
+            yaml_serde::to_value(&cleaned)
+                .map_err(|e| format!("Failed to serialize commands to YAML: {}", e))?,
         );
         map
     }))
