@@ -1431,9 +1431,11 @@ export class SettingsScreen {
         log.debug(LogTag.Netbox, "enable toggle saved", { enabled: on });
         this.onTreeChanged();
       } catch (err) {
-        // Revert so the toggle keeps reflecting what is actually persisted.
-        el.checked = !on;
-        body?.classList.toggle("netbox-body-disabled", on);
+        // Revert to the last persisted value (not `!on` — a later toggle's
+        // save may already have succeeded) so the toggle matches config.
+        const persisted = this.netboxConfig?.enabled ?? false;
+        el.checked = persisted;
+        body?.classList.toggle("netbox-body-disabled", !persisted);
         log.error(LogTag.Netbox, "enable toggle save failed", err);
         showToast(`Failed to save NetBox settings: ${err}`, "error", 8000);
       }
