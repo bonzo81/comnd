@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/bonzo81/comnd/compare/v0.4.0...v0.4.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **updater:** point manifest endpoint at latest-release permalink ([1bbeda6](https://github.com/bonzo81/comnd/commit/1bbeda656f01044e46f998f3e6ce0011d601ea4b))
+* **updater:** point manifest endpoint at latest-release permalink ([4da6b8b](https://github.com/bonzo81/comnd/commit/4da6b8b205b4fbdfc0ac99aafd5a7f5425c82add))
+
 ## [0.4.0](https://github.com/bonzo81/comnd/compare/v0.3.0...v0.4.0) (2026-10-18)
 
 
