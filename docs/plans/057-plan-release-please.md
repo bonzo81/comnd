@@ -60,7 +60,7 @@ Two files at the repo root, both committed.
       "force-tag-creation": true,
       "extra-files": [
         { "type": "toml", "path": "src-tauri/Cargo.toml", "jsonpath": "$.package.version" },
-        { "type": "toml", "path": "src-tauri/Cargo.lock", "jsonpath": "$.package[?(@.name=='comnd')].version" },
+        { "type": "toml", "path": "src-tauri/Cargo.lock", "jsonpath": "$.package[?(@.name.value=='comnd')].version" },
         { "type": "json", "path": "src-tauri/tauri.conf.json", "jsonpath": "$.version" }
       ]
     }
@@ -79,7 +79,7 @@ Two files at the repo root, both committed.
 Rationale:
 
 - `release-type: node` at `.` avoids both path-scoping problems: it releases on commits anywhere in the repo and bumps `package.json` + `package-lock.json` at the root natively.
-- The `extra-files` updaters keep the Rust and Tauri versions in sync in the same release PR. The `toml` updater with `$.package.version` is the documented pattern for `Cargo.toml`. For `Cargo.lock`, release-please uses jsonpath-plus, which supports the filter expression — it bumps only the `comnd` entry, not dependency entries. If the filter ever fails to match, the updater logs a warning and leaves the file unchanged (soft failure), and cargo rewrites the lock itself on the next build, so the worst case is cosmetic drift.
+- The `extra-files` updaters keep the Rust and Tauri versions in sync in the same release PR. The `toml` updater with `$.package.version` is the documented pattern for `Cargo.toml`. For `Cargo.lock`, the filter must select the `comnd` entry by name. release-please's `toml` updater parses with a tagged TOML parser (`toml-edit.ts`) that wraps every scalar in a `{start, end, value}` object, so a filter comparing the raw string (`@.name=='comnd'`) never matches — filter on the wrapper's `.value` instead (`@.name.value=='comnd'`). If the filter ever fails to match, the updater logs a warning and leaves the file unchanged (soft failure), and cargo rewrites the lock itself on the next build, so the worst case is cosmetic drift.
 - One package means one tag (`vX.Y.Z`) and one release. `include-component-in-tag: false` pins the tag format.
 - `draft: true` + `force-tag-creation: true` implement the human publish gate without losing the git tag (see design constraints 3 and 4).
 - This removes the tag/config mismatch risk called out in `040-plan-ci-cd.md`: the tag, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, and `package.json` all move together in one PR.
@@ -206,7 +206,7 @@ Commit message rules to document:
 - The commitlint job lints PR commits only. Direct pushes to main rely on discipline.
 - `bump-minor-pre-major` only changes behavior while the version is below `1.0.0`.
 - `tauri-action` attaching to a **draft** release is the one unverified link in the chain; check it at first rollout and fall back to a manual `workflow_dispatch` run before publishing if it fails.
-- The `Cargo.lock` jsonpath filter bumps only the `comnd` package entry; if it fails to match it degrades softly (warning + unchanged file), and cargo self-heals the lock on the next build.
+- The `Cargo.lock` filter reaches through release-please's tagged-value wrapper (`@.name.value=='comnd'`); a plain string equality (`@.name=='comnd'`) silently matches nothing, which is how v0.3.0 and v0.4.0 shipped without the lock bumped. If a future release-please release changes the wrapper and the filter fails to match, it degrades softly (warning + unchanged file), and cargo self-heals the lock on the next build.
 
 ## Verification
 
