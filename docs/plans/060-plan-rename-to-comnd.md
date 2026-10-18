@@ -162,6 +162,19 @@ Files with tracked matches, grouped by area:
 - Capture and report the tail of each required verification output and clearly
   mark any command not run.
 
+Recorded results:
+
+- `npm run build` — passed.
+- `npm run test` — passed (28 files, 374 tests).
+- `cargo check --all-targets` — passed with the existing `clear_host_source`
+  dead-code warning.
+- `cargo test` — passed (233 tests; no failures).
+- `npm run tauri build` produced `comnd.exe`,
+  `Comnd_0.3.0_x64_en-US.msi`, and `Comnd_0.3.0_x64-setup.exe`, then exited
+  nonzero because no updater signing private key is available. No signing key
+  was read or added.
+- `cargo clean` removed build outputs after verification to restore disk space.
+
 ### Phase 6 — Push and rename the GitHub repository (final operational step)
 
 1. Ensure all phase commits are pushed and the final branch is ready.
