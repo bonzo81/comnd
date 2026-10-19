@@ -85,7 +85,7 @@ describe("SettingsScreen — NetBox folder visibility", () => {
 });
 
 describe("SettingsScreen — NetBox enabled flag persistence (#11)", () => {
-  async function setup() {
+  async function setup(initial: Partial<NetBoxConfig> = {}, failInitialRead = false) {
     const h = createHarness();
     let stored: NetBoxConfig = {
       enabled: false,
@@ -99,11 +99,17 @@ describe("SettingsScreen — NetBox enabled flag persistence (#11)", () => {
       default_port: 22,
       default_credential: null,
       allow_invalid_certs: false,
+      ...initial,
     };
     let hasToken = false;
     h.ipc.mock("get_app_config", h.fixtures.appConfig());
     h.ipc.mock("get_session_log_dir", "");
-    h.ipc.mockImpl("netbox_get_config", () => ({ config: structuredClone(stored), has_token: hasToken }));
+    h.ipc.mockImpl("netbox_get_config", () => {
+      if (failInitialRead && h.ipc.calls("netbox_get_config").length === 1) {
+        throw new Error("keyring unavailable");
+      }
+      return { config: structuredClone(stored), has_token: hasToken };
+    });
     h.ipc.mockImpl("netbox_get_status", () => ({ has_token: hasToken, has_default_pw: false, last_synced: null }));
     h.ipc.mock("netbox_get_devices", []);
     h.ipc.mock("netbox_get_sites", []);
@@ -176,5 +182,94 @@ describe("SettingsScreen — NetBox enabled flag persistence (#11)", () => {
     expect(h.ipc.calls("netbox_save_config")).toHaveLength(1);
     expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(true);
     expect(persisted().enabled).toBe(false);
+  });
+
+  it("reloads the saved config before toggling after an initial read failure", async () => {
+    const initial: Partial<NetBoxConfig> = {
+      base_url: "https://netbox.example.com",
+      filters: { status: "active", sites: ["lab"], roles: ["switch"], tags: ["core"] },
+      default_username: "netadmin",
+      default_port: 2222,
+      default_credential: { type: "agent", identity: null },
+    };
+    const { h, q, persisted } = await setup(initial, true);
+    q<HTMLInputElement>("#netbox-enabled").click();
+
+    await vi.waitFor(() => expect(persisted().enabled).toBe(true));
+    expect(h.ipc.calls("netbox_get_config")).toHaveLength(2);
+    expect(h.ipc.calls("netbox_save_config")).toEqual([{
+      args: { config: expect.objectContaining({ ...initial, enabled: true }), defaultPassword: null },
+    }]);
+  });
+
+  it("does not write defaults if retrying the saved config read fails", async () => {
+    const { h, q, persisted } = await setup({ base_url: "https://netbox.example.com" }, true);
+    const initial = structuredClone(persisted());
+    h.ipc.mockImpl("netbox_get_config", () => { throw new Error("keyring unavailable"); });
+    q<HTMLInputElement>("#netbox-enabled").click();
+
+    await vi.waitFor(() => expect(q<HTMLInputElement>("#netbox-enabled").checked).toBe(false));
+    expect(h.ipc.calls("netbox_save_config")).toHaveLength(0);
+    expect(persisted()).toEqual(initial);
+    expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(true);
+  });
+
+  it("ignores an older failure while the newest toggle save is pending", async () => {
+    const { h, screen, q, persisted } = await setup();
+    const pending = Array.from({ length: 3 }, () => {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+      return { promise, resolve, reject };
+    });
+    let index = 0;
+    const settled = vi.fn();
+    h.ipc.mockImpl("netbox_save_config", async (args) => {
+      try {
+        await pending[index++].promise;
+      } finally {
+        settled();
+      }
+      Object.assign(persisted(), structuredClone(args.config as NetBoxConfig));
+      return structuredClone(persisted());
+    });
+    const onTreeChanged = vi.fn();
+    screen.onTreeChanged = onTreeChanged;
+    const toggle = q<HTMLInputElement>("#netbox-enabled");
+    toggle.click();
+    toggle.click();
+    toggle.click();
+    expect(h.ipc.calls("netbox_save_config")).toHaveLength(3);
+
+    pending[1].resolve();
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(1));
+    pending[0].reject(new Error("older save failed"));
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledTimes(2));
+    expect(toggle.checked).toBe(true);
+    expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(false);
+    pending[2].resolve();
+
+    await vi.waitFor(() => expect(onTreeChanged).toHaveBeenCalledOnce());
+    expect(persisted().enabled).toBe(true);
+    expect(toggle.checked).toBe(true);
+    expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(false);
+    expect(h.ipc.calls("netbox_get_config")).toHaveLength(1);
+  });
+
+  it.each([false, true])("reconciles a committed toggle save that rejects (initially %s)", async (enabled) => {
+    const { h, screen, q, persisted } = await setup({ enabled });
+    h.ipc.mockImpl("netbox_save_config", (args) => {
+      Object.assign(persisted(), structuredClone(args.config as NetBoxConfig));
+      throw new Error("keyring cleanup failed");
+    });
+    const onTreeChanged = vi.fn();
+    screen.onTreeChanged = onTreeChanged;
+    q<HTMLInputElement>("#netbox-enabled").click();
+
+    await vi.waitFor(() => expect(onTreeChanged).toHaveBeenCalledOnce());
+    expect(h.ipc.calls("netbox_get_config")).toHaveLength(2);
+    expect(persisted().enabled).toBe(!enabled);
+    expect(q<HTMLInputElement>("#netbox-enabled").checked).toBe(!enabled);
+    expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(enabled);
   });
 });
