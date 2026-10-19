@@ -631,7 +631,15 @@ export class NavPanel {
           <span class="nav-sub-icon">${group.icon === "netbox" ? icons.netbox : icons.folder}</span>
           <span class="nav-item-label">${escHtml(group.name)}</span>
         </button>
-        ${isNetboxGroup(group.id) ? "" : `
+        ${isNetboxGroup(group.id)
+          ? depth === 0 ? `
+        <span class="nav-row-actions">
+          <button class="nav-row-btn" data-action="netbox-refresh" title="Refresh from NetBox" aria-label="Refresh from NetBox">
+            ${icons.refresh}
+          </button>
+        </span>
+        ` : ""
+          : `
         <span class="nav-row-actions">
           <button class="nav-row-btn" data-action="add-host" data-parent="${group.id}" title="Add host here" aria-label="Add host">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -879,18 +887,13 @@ export class NavPanel {
     let items: string;
 
     if (cm.type === "group") {
-      if (isNetboxGroup(cm.id)) {
-        items = `
-          <div class="ctx-item" data-action="netbox-refresh">${icons.netbox} Refresh from NetBox</div>`;
-      } else {
-        const group = this.groups.find((g) => g.id === cm.id);
-        items = `
-          <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
-          <div class="ctx-item" data-action="add-host">Add Host Here</div>
-          <div class="ctx-divider"></div>
-          <div class="ctx-item" data-action="rename">Rename</div>
-          <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
-      }
+      const group = this.groups.find((g) => g.id === cm.id);
+      items = `
+        <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
+        <div class="ctx-item" data-action="add-host">Add Host Here</div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item" data-action="rename">Rename</div>
+        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
     } else if (isNetboxHostId(cm.id)) {
       const host = this.hosts.find((h) => h.id === cm.id);
       items = `
@@ -1083,9 +1086,6 @@ export class NavPanel {
           case "disable":
             void this.disableNetboxHost(ctx.id);
             break;
-          case "netbox-refresh":
-            void this.refreshNetbox();
-            break;
         }
       });
     });
@@ -1181,7 +1181,7 @@ export class NavPanel {
     }
   }
 
-  /** Convenience sync from the NetBox folder context menu. */
+  /** Convenience sync from the refresh button on the NetBox root row. */
   private async refreshNetbox() {
     try {
       const report = await netboxSync();
@@ -1303,8 +1303,11 @@ export class NavPanel {
       return;
     }
 
-    // Per-row hover actions: add host / add subgroup (inline)
+    // Per-row hover actions: add host / add subgroup (inline), NetBox refresh
     if (el.matches(".nav-row-btn")) {
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") e.stopPropagation();
+      });
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         const action = el.dataset.action;
@@ -1316,6 +1319,8 @@ export class NavPanel {
           this.expandGroup(parent);
           this.render();
           this.focusCreateInput();
+        } else if (action === "netbox-refresh") {
+          void this.refreshNetbox();
         }
       });
       return;
