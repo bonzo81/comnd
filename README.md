@@ -10,9 +10,16 @@ Comnd (pronounced “command”) is a desktop SSH client that suggests relevant 
 
 ## What it does
 
+- Built-in Command Knowledge Base for Cisco, Juniper, F5 and linux
+- Integrate with NetBox; pull host list from NetBox and connect
 - Suggests commands for the device you're connected to.
-- Adapts suggestions to the device's operating mode and software version.
+- No AI calls, built in privacy.
+- Integrate with password and secret managers; associate records with hosts. No duplicate credential storage
+- Adapts to the device's operating mode (enable/config, bash/tmsh) and software version.
 - Sends your keystrokes directly to the remote device; suggestions never replace or delay your input.
+- In line terminal timestamp
+- Session Logging
+- Syntax Highlighting
 
 ## Supported devices
 
