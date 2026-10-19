@@ -168,6 +168,12 @@ class App {
     void this.replayScreen.mount(this.replayWrapper);
 
     this.settingsScreen = new SettingsScreen();
+    // Icon-nav clicks inside the settings screen update the view's
+    // truth-holder so re-opening Settings shows the last page. The nav
+    // panel has no Settings sub-items to highlight anymore.
+    this.settingsScreen.onItemChanged = (id) => {
+      this.settingsItemId = id;
+    };
     this.settingsScreen.onTreeChanged = () => void this.navPanel.refresh();
     void this.settingsScreen.mount(this.settingsWrapper);
 
@@ -222,10 +228,6 @@ class App {
       onAddHostToGroup: (groupId) => {
         this.showView("connections");
         this.hostScreen.openAddHost(groupId);
-      },
-      onSelectSettings: (id) => {
-        this.settingsItemId = id;
-        this.showView("settings");
       },
       onTreeChanged: () => {
         void this.hostScreen.refresh();
@@ -307,6 +309,23 @@ class App {
     makeBtn("–", () => void getCurrentWindow().minimize(), "Minimize");
     makeBtn("□", () => void getCurrentWindow().toggleMaximize(), "Maximize");
     makeBtn("×", () => void getCurrentWindow().close(), "Close");
+
+    // Settings cog — permanently left of the minimize window button (first
+    // child of the controls group). The conditional update indicator is
+    // inserted left of the controls group (see initUpdateIndicator), so the
+    // final right-edge order is: import · update · cog · minimize/max/close.
+    const settingsBtn = document.createElement("button");
+    settingsBtn.className = "title-bar-btn";
+    settingsBtn.id = "title-bar-settings";
+    settingsBtn.style.setProperty("-webkit-app-region", "no-drag");
+    settingsBtn.innerHTML = icons.settings;
+    settingsBtn.title = "Settings";
+    settingsBtn.setAttribute("aria-label", "Settings");
+    settingsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showView("settings");
+    });
+    controls.insertBefore(settingsBtn, controls.firstChild);
 
     bar.appendChild(title);
 
@@ -732,19 +751,17 @@ class App {
     } else if (view === "replay") {
       this.navPanel.setSection("replay");
       void this.replayScreen?.refresh();
-    } else if (view === "settings") {
-      this.navPanel.setSection("settings");
     }
     // One call: sub-item highlight matches the visible view everywhere.
     this.navPanel.setView(view);
     // Sync the active sub-item from the view's truth-holder so deep-links
     // and keyboard shortcuts highlight correctly without a nav click.
+    // Settings has no nav sub-items — setView() alone clears kb/replay
+    // highlights when it becomes the current view.
     if (view === "knowledge-base") {
       this.navPanel.syncActiveItem({ section: "kb", id: this.kbScreen.getActiveTab() });
     } else if (view === "replay") {
       this.navPanel.syncActiveItem({ section: "replay", id: "manage" });
-    } else if (view === "settings") {
-      this.navPanel.syncActiveItem({ section: "settings", id: this.settingsItemId });
     }
     if (view === "settings") {
       this.settingsScreen.setItem(this.settingsItemId);
