@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.5.0](https://github.com/bonzo81/comnd/compare/v0.4.1...v0.5.0) (2026-10-19)
+
+
+### Features
+
+* **netbox:** enforce read-only netbox api access ([#44](https://github.com/bonzo81/comnd/issues/44)) ([2b9368c](https://github.com/bonzo81/comnd/commit/2b9368cdce1b7f308043645a7bb12a1b9df97b13))
+* **netbox:** hide empty folders by default with a show-all setting ([#30](https://github.com/bonzo81/comnd/issues/30)) ([bf13606](https://github.com/bonzo81/comnd/commit/bf13606b3abaf7f179e1bd38b68690d6499869f1))
+* **netbox:** show inherited source defaults in configure dialog ([#50](https://github.com/bonzo81/comnd/issues/50)) ([3bc1743](https://github.com/bonzo81/comnd/commit/3bc1743c783eb503fa15392a3600c77e2e9664c5))
+* **settings:** replace nav sub-items with labeled icon rail ([#46](https://github.com/bonzo81/comnd/issues/46)) ([948e7ab](https://github.com/bonzo81/comnd/commit/948e7aba9abef9a38ee6fdf9533c2e431bb61e57))
+
+
+### Bug Fixes
+
+* **deps:** bump russh to 0.63.3 to clear 14 ssh advisories ([#43](https://github.com/bonzo81/comnd/issues/43)) ([e812edc](https://github.com/bonzo81/comnd/commit/e812edcf99bfe15fcac6f8ca3c3f88a3029ed464))
+* **deps:** replace serde_yml with yaml_serde to drop unsound libyml ([#37](https://github.com/bonzo81/comnd/issues/37)) ([758e491](https://github.com/bonzo81/comnd/commit/758e4914674759aae27f18ac1957cf556443561d))
+* **nav:** bind menus to expanded tree rows ([#48](https://github.com/bonzo81/comnd/issues/48)) ([012bdd7](https://github.com/bonzo81/comnd/commit/012bdd7df1160e08cbfc7391dce8d48cac4d22b5))
+* **netbox:** keep persisted `enabled` flag in sync with the settings toggle ([#41](https://github.com/bonzo81/comnd/issues/41)) ([b119919](https://github.com/bonzo81/comnd/commit/b119919323c21833e6a248af76666ddcb4a2a0b5))
+* **ui:** keep title-bar search usable when narrow ([#49](https://github.com/bonzo81/comnd/issues/49)) ([f7e6bf2](https://github.com/bonzo81/comnd/commit/f7e6bf2a356272daea75f529310d07c53d8d901e))
+
+
+### Dependencies
+
+* **deps-dev:** bump vite from 6.4.1 to 6.4.4 ([#31](https://github.com/bonzo81/comnd/issues/31)) ([824ea40](https://github.com/bonzo81/comnd/commit/824ea40dc286254099e8911c98e584071aaf4c37))
+* **deps:** bump nanoid from 3.3.11 to 3.3.20 ([#34](https://github.com/bonzo81/comnd/issues/34)) ([6529e70](https://github.com/bonzo81/comnd/commit/6529e709c1a3a94bac1e5bf08ae9fd490344b641))
+* **deps:** bump openssl from 0.10.77 to 0.10.81 in /src-tauri ([#33](https://github.com/bonzo81/comnd/issues/33)) ([ad443a9](https://github.com/bonzo81/comnd/commit/ad443a90bc0d7c2d73db0f0197270876a4f67cf4))
+* **deps:** bump picomatch from 4.0.3 to 4.0.7 ([#42](https://github.com/bonzo81/comnd/issues/42)) ([c5d5f7d](https://github.com/bonzo81/comnd/commit/c5d5f7df6892d13b31b8b4a38a8ce4c1e0e25d22))
+* **deps:** bump postcss from 8.5.8 to 8.5.31 ([#36](https://github.com/bonzo81/comnd/issues/36)) ([4c14e68](https://github.com/bonzo81/comnd/commit/4c14e6892970bf2535483fc39ccf2155b6d56c3c))
+* **deps:** bump russh from 0.49.2 to 0.60.3 in /src-tauri ([#35](https://github.com/bonzo81/comnd/issues/35)) ([e359316](https://github.com/bonzo81/comnd/commit/e359316b0ce00eb6c905ee8c689c11350e5326fa))
+* **deps:** bump source-map-js from 1.2.1 to 1.2.2 ([#32](https://github.com/bonzo81/comnd/issues/32)) ([e56aabd](https://github.com/bonzo81/comnd/commit/e56aabd93e522dea0b1982052bd7c4a8b6e4099e))
+* **deps:** bump undici from 7.29.0 to 7.30.1 ([#39](https://github.com/bonzo81/comnd/issues/39)) ([e497593](https://github.com/bonzo81/comnd/commit/e49759308107fffa29b5b1a45ae69a6824d6b048))
+
 ## [0.4.1](https://github.com/bonzo81/comnd/compare/v0.4.0...v0.4.1) (2026-10-18)
 
 
