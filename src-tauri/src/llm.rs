@@ -766,67 +766,117 @@ Documentation content:
 
 #[cfg(test)]
 pub(crate) mod sse_test_mock {
-    /// Multi-request SSE mock: accepts N sequential connections, each gets
-    /// one response from the queue. `Some(body)` = chunked SSE 200, `None` = HTTP 500.
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    /// Multi-request SSE mock: drains a shared response queue one HTTP
+    /// request at a time, regardless of connection boundaries — the client
+    /// pools keep-alive connections, so a per-connection queue lets a reused
+    /// connection shift responses between requests (flaky under timing).
+    /// `Some(body)` = chunked SSE 200, `None` = HTTP 500.
     pub fn sse_mock_n(responses: Vec<Option<String>>) -> std::net::SocketAddr {
-        use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let queue: Arc<Mutex<VecDeque<Option<String>>>> =
+            Arc::new(Mutex::new(responses.into()));
 
+        let accept_queue = Arc::clone(&queue);
         std::thread::spawn(move || {
-            for resp in responses {
-                let (mut stream, _) = match listener.accept() { Ok(s) => s, Err(_) => break };
-
-                let mut buf = vec![0u8; 65536];
-                let mut total = 0usize;
-                loop {
-                    let n = match stream.read(&mut buf[total..]) { Ok(n) if n > 0 => n, _ => break };
-                    total += n;
-                    if String::from_utf8_lossy(&buf[..total]).contains("\r\n\r\n") { break; }
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                if accept_queue.lock().unwrap().is_empty() {
+                    break; // queue drained: stop accepting, like the old mock
                 }
-
-                let headers = String::from_utf8_lossy(&buf[..total]);
-                let content_len = headers
-                    .lines()
-                    .find_map(|l| l.to_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok()))
-                    .unwrap_or(0);
-                let header_end = headers.find("\r\n\r\n").map(|i| i + 4).unwrap_or(total);
-                let already_read = total - header_end;
-                let remaining = content_len.saturating_sub(already_read);
-                let mut drained = 0;
-                while drained < remaining {
-                    let n = match stream.read(&mut buf[..]) { Ok(n) if n > 0 => n, _ => break };
-                    drained += n;
-                }
-
-                let out = match resp {
-                    Some(body) => {
-                        let data = body.as_bytes();
-                        let mut r = Vec::new();
-                        r.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
-                        r.extend_from_slice(b"Content-Type: text/event-stream\r\n");
-                        r.extend_from_slice(b"Transfer-Encoding: chunked\r\n\r\n");
-                        r.extend_from_slice(format!("{:x}\r\n", data.len()).as_bytes());
-                        r.extend_from_slice(data);
-                        r.extend_from_slice(b"\r\n0\r\n\r\n");
-                        r
-                    }
-                    None => {
-                        let body = b"internal error";
-                        let mut r = Vec::new();
-                        r.extend_from_slice(b"HTTP/1.1 500 Internal Server Error\r\n");
-                        r.extend_from_slice(b"Content-Type: text/plain\r\n");
-                        r.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
-                        r.extend_from_slice(body);
-                        r
-                    }
-                };
-                let _ = stream.write_all(&out);
-                let _ = stream.flush();
+                let queue = Arc::clone(&accept_queue);
+                std::thread::spawn(move || serve_connection(stream, &queue));
             }
         });
 
         addr
+    }
+
+    /// Serve HTTP requests on one connection: read a request, pop the next
+    /// queued response, repeat until the client disconnects or the queue
+    /// runs dry (an extra request gets a connection close).
+    fn serve_connection(
+        mut stream: std::net::TcpStream,
+        queue: &Mutex<VecDeque<Option<String>>>,
+    ) {
+        use std::io::{Read, Write};
+
+        let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+        let mut scratch = [0u8; 8 * 1024];
+
+        loop {
+            // Read the request head (headers end at CRLFCRLF).
+            let header_end = loop {
+                if let Some(end) = find_double_crlf(&buf) {
+                    break end;
+                }
+                let n = match stream.read(&mut scratch) {
+                    Ok(0) | Err(_) => return, // client disconnected
+                    Ok(n) => n,
+                };
+                buf.extend_from_slice(&scratch[..n]);
+            };
+
+            // Consume the full request body so leftover bytes can't be
+            // mistaken for the next request's headers on a kept-alive
+            // connection.
+            let content_len: usize = String::from_utf8_lossy(&buf[..header_end])
+                .lines()
+                .find_map(|l| {
+                    l.to_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            while buf.len() < header_end + content_len {
+                let n = match stream.read(&mut scratch) {
+                    Ok(0) | Err(_) => return, // client disconnected mid-body
+                    Ok(n) => n,
+                };
+                buf.extend_from_slice(&scratch[..n]);
+            }
+            buf.drain(..header_end + content_len);
+
+            let resp = match queue.lock().unwrap().pop_front() {
+                Some(r) => r,
+                None => return,
+            };
+
+            let out = match resp {
+                Some(body) => {
+                    let data = body.as_bytes();
+                    let mut r = Vec::new();
+                    r.extend_from_slice(b"HTTP/1.1 200 OK\r\n");
+                    r.extend_from_slice(b"Content-Type: text/event-stream\r\n");
+                    r.extend_from_slice(b"Transfer-Encoding: chunked\r\n\r\n");
+                    r.extend_from_slice(format!("{:x}\r\n", data.len()).as_bytes());
+                    r.extend_from_slice(data);
+                    r.extend_from_slice(b"\r\n0\r\n\r\n");
+                    r
+                }
+                None => {
+                    let body = b"internal error";
+                    let mut r = Vec::new();
+                    r.extend_from_slice(b"HTTP/1.1 500 Internal Server Error\r\n");
+                    r.extend_from_slice(b"Content-Type: text/plain\r\n");
+                    r.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
+                    r.extend_from_slice(body);
+                    r
+                }
+            };
+            if stream.write_all(&out).is_err() {
+                return;
+            }
+            let _ = stream.flush();
+        }
+    }
+
+    /// Index just past the first `\r\n\r\n` in `buf`, if present.
+    fn find_double_crlf(buf: &[u8]) -> Option<usize> {
+        buf.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4)
     }
 }
 
