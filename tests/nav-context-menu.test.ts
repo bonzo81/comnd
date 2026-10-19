@@ -21,7 +21,6 @@ describe("nav panel context menu", () => {
       "onKbTab",
       "onNewConnection",
       "onAddHostToGroup",
-      "onSelectSettings",
       "onTreeChanged",
     ]) {
       cb[k] = vi.fn();

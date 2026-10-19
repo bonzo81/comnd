@@ -1,21 +1,68 @@
-/* â”€â”€â”€ Settings Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Settings Screen ───────────────────────────────────────────── */
+/* Left icon rail + content pane of SettingRows (docs/plans/061).
+   All controls share the app-wide pill radius (`--radius-pill` via
+   .form-input / .btn); booleans are pill switches (`.settings-switch`). */
 .settings-screen {
   height: 100%;
-  overflow-y: auto;
+  display: flex;
+  overflow: hidden;
   background: var(--color-surface-primary);
 }
 
-.settings-page {
-  max-width: 560px;
-  margin: 0 auto;
-  padding: var(--space-8) var(--space-5) var(--space-16);
+/* ─── Icon rail ─────────────────────────────────────────────────── */
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-8) var(--space-3);
+  flex-shrink: 0;
 }
 
-.settings-title {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1-5) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-nav-item:hover {
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
-  margin-bottom: var(--space-6);
+}
+
+/* Active page — filled pill, mirrors the nav panel's active sub-item */
+.settings-nav-item.active {
+  background: var(--color-surface-selected);
+  color: var(--color-accent);
+}
+
+.settings-nav-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.settings-nav-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Content pane ──────────────────────────────────────────────── */
+.settings-page {
+  flex: 1;
+  max-width: 720px;
+  overflow-y: auto;
+  padding: var(--space-8) var(--space-8) var(--space-16);
 }
 
 .settings-form {
@@ -23,10 +70,131 @@
   flex-direction: column;
 }
 
+/* Group label — small, muted, whitespace separation only (no dividers) */
+.settings-group-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-tertiary);
+  margin: var(--space-6) 0 var(--space-2);
+}
+
+.settings-group-label:first-child {
+  margin-top: 0;
+}
+
+/* ─── SettingRow ────────────────────────────────────────────────── */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+/* `hidden` must beat the flex display above (fallback-platform row) */
+.settings-row[hidden] {
+  display: none;
+}
+
+.settings-row-block {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.settings-row-label {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+}
+
+.settings-row-desc {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
+}
+
+.settings-row-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* Compact, right-aligned value controls — never full-width */
+.settings-row-control .form-input {
+  width: 280px;
+}
+
+.settings-row-block .settings-row-control {
+  width: 100%;
+}
+
+.settings-row-block .settings-row-control .form-input {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── Pill switch (boolean SettingRow control) ──────────────────── */
+/* Native checkbox restyled in place — element, IDs, and .checked
+   bindings unchanged. */
+.settings-switch {
+  appearance: none;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  position: relative;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-hover);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.settings-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-text-secondary);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-switch:checked {
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+.settings-switch:checked::before {
+  transform: translateX(14px);
+  background: var(--color-on-accent);
+}
+
+.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Shared form bits ──────────────────────────────────────────── */
 .settings-form .import-config-row {
   margin-bottom: var(--space-4);
   padding: 0;
   background: none;
+  justify-content: flex-end;
 }
 
 .settings-actions {
@@ -43,43 +211,6 @@
   color: var(--color-text-secondary);
 }
 
-/* â”€â”€â”€ General section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.settings-section-title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border);
-}
-
-.settings-section-title:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-.settings-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-  cursor: pointer;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-}
-
-.settings-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin-top: var(--space-1);
-  accent-color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.settings-toggle .import-hint {
-  display: block;
-}
-
 .log-file-row {
   display: flex;
   align-items: center;
@@ -91,7 +222,7 @@
   min-width: 0;
 }
 
-/* â”€â”€â”€ Auth Integrations (chunk 7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Auth Integrations (chunk 7) ───────────────────────────────── */
 .provider-refresh-row {
   display: flex;
   justify-content: flex-end;
@@ -100,7 +231,7 @@
 
 .provider-card {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-3);
   background: var(--color-surface-primary);
@@ -134,12 +265,6 @@
   font-size: var(--font-size-sm);
 }
 
-.provider-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-accent);
-}
-
 .provider-status-row {
   margin-top: var(--space-2);
   font-size: var(--font-size-sm);
@@ -158,7 +283,7 @@
   margin-top: var(--space-3);
 }
 
-/* --- NetBox host source (plan ï¿½9.2) ------------------------------- */
+/* --- NetBox host source (plan §9.2) ------------------------------- */
 
 .netbox-body {
   display: flex;
@@ -229,7 +354,7 @@
   opacity: 0.5;
 }
 
-/* --- NetBox Configure dialog (plan ï¿½9.4) -------------------------- */
+/* --- NetBox Configure dialog (plan §9.4) -------------------------- */
 
 .netbox-cfg-summary {
   display: flex;
@@ -242,7 +367,7 @@
 }
 
 .netbox-cfg-name {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
 }
 
@@ -252,7 +377,7 @@
   font-family: var(--font-mono);
 }
 
-/* Save Token button ï¿½ highlighted after a successful Test (plan ï¿½9.2) */
+/* Save Token button — highlighted after a successful Test (plan §9.2) */
 #netbox-token-save.netbox-save-token-ready {
   background: var(--color-accent);
   color: var(--color-on-accent);
@@ -262,7 +387,7 @@
   filter: brightness(1.08);
 }
 
-/* â”€â”€â”€ NetBox filter multi-select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── NetBox filter multi-select ────────────────────────────────── */
 .ms-wrap {
   position: relative;
   border: 1px solid var(--color-border);

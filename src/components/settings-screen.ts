@@ -1,8 +1,11 @@
 /**
  * Settings Screen — dedicated settings view (right of nav panel).
  *
- * Sub-items: LLM API / KB Import (functional), General + Shortcuts (placeholders).
- * The LLM sub-item owns the LLM connection settings used by KB import.
+ * Left icon nav (SETTINGS_NAV) switches between the 8 pages; page content
+ * renders as SettingRow rows (label + description left, control right).
+ * The LLM page owns the LLM connection settings used by KB import.
+ * The nav panel's Settings section is a flat link here — page state is
+ * kept in main.ts via onItemChanged so re-opening shows the last page.
  */
 
 import {
@@ -47,16 +50,19 @@ import {
   ShortcutAction, ShortcutDef,
 } from "../lib/shortcuts";
 
-const LABELS: Record<string, string> = {
-  general: "General",
-  logging: "Logging",
-  theme: "Theme",
-  "reading-comfort": "Reading Comfort",
-  llm: "LLM API / KB Import",
-  auth: "Auth Integrations",
-  netbox: "NetBox",
-  shortcuts: "Shortcuts",
-};
+/** Icon-nav entries — one per settings page, in rail order. The main nav
+ *  panel's Settings sub-items (nav-panel.ts SETTINGS_ITEMS) use the same
+ *  ids; the two stay in sync via setItem()/onItemChanged. */
+const SETTINGS_NAV: { id: string; label: string; icon: keyof typeof icons }[] = [
+  { id: "general", label: "General", icon: "sliders" },
+  { id: "logging", label: "Logging", icon: "fileText" },
+  { id: "theme", label: "Theme", icon: "paintbrush" },
+  { id: "reading-comfort", label: "Reading Comfort", icon: "type" },
+  { id: "llm", label: "LLM API / KB Import", icon: "bot" },
+  { id: "auth", label: "Auth Integrations", icon: "lock" },
+  { id: "netbox", label: "NetBox", icon: "netbox" },
+  { id: "shortcuts", label: "Shortcuts", icon: "keyboard" },
+];
 
 /** Quick-setup presets for the Base URL. Not exhaustive — the URL field stays
  *  editable after selection. All are OpenAI-compatible (Anthropic is entered
@@ -127,6 +133,12 @@ export class SettingsScreen {
   private scConflict: { a: ShortcutAction; b: ShortcutAction; combo: string } | null = null;
   /** Document capture-phase keydown listener, active only mid-capture. */
   private scKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Called when the in-screen icon nav switches pages so main.ts can keep
+   *  `settingsItemId` and the nav panel's sub-item highlight in step. */
+  onItemChanged: (id: string) => void = () => {};
+  /** Set just before a nav-driven re-render; render() focuses the active
+   *  icon-nav item afterwards so keyboard users keep their place. */
+  private pendingNavFocus = false;
   /** Called when a NetBox action changes the merged host tree (sync, enable
    *  toggle, device toggle) so the nav panel can re-fetch. */
   onTreeChanged: () => void = () => {};
@@ -189,7 +201,7 @@ export class SettingsScreen {
     // persist that stale `enabled: false` (bug: "Sync failed: disabled").
     const enabledNow = this.container.querySelector<HTMLInputElement>("#netbox-enabled")?.checked;
     if (enabledNow !== undefined && this.netboxConfig) this.netboxConfig.enabled = enabledNow;
-    const label = LABELS[this.itemId] ?? "Settings";
+    const label = SETTINGS_NAV.find((n) => n.id === this.itemId)?.label ?? "Settings";
     const body =
       this.itemId === "llm" ? this.renderLlm()
       : this.itemId === "general" ? this.renderGeneral()
@@ -202,13 +214,104 @@ export class SettingsScreen {
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
+        <nav class="settings-nav" aria-label="Settings sections">
+          ${SETTINGS_NAV.map((item) => {
+            const active = item.id === this.itemId;
+            return `
+              <button type="button" class="settings-nav-item${active ? " active" : ""}"
+                      data-item-id="${item.id}"
+                      ${active ? 'aria-current="true" tabindex="0"' : 'tabindex="-1"'}>
+                ${icons[item.icon]}
+                <span class="settings-nav-label">${escHtml(item.label)}</span>
+              </button>`;
+          }).join("")}
+        </nav>
         <div class="settings-page">
-          <h2 class="settings-title">${escHtml(label)}</h2>
           ${body}
         </div>
       </div>
     `;
     this.bindEvents();
+    this.bindNavEvents();
+    if (this.pendingNavFocus) {
+      this.pendingNavFocus = false;
+      this.container.querySelector<HTMLButtonElement>(".settings-nav-item.active")?.focus();
+    }
+  }
+
+  /** Icon nav: click switches pages; roving tabindex + arrows mirror the
+   *  nav panel's keyboard pattern (docs/specs/accessibility.md). */
+  private bindNavEvents() {
+    const nav = this.container?.querySelector<HTMLElement>(".settings-nav");
+    if (!nav) return;
+    nav.querySelectorAll<HTMLButtonElement>(".settings-nav-item").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.itemId ?? "";
+        if (!id || id === this.itemId) return;
+        this.pendingNavFocus = document.activeElement === btn;
+        this.setItem(id);
+        this.onItemChanged(id);
+      });
+    });
+    nav.addEventListener("keydown", (e) => {
+      const items = Array.from(nav.querySelectorAll<HTMLButtonElement>(".settings-nav-item"));
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      let next = -1;
+      if (e.key === "ArrowDown") next = (current + 1) % items.length;
+      else if (e.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = items.length - 1;
+      if (next < 0 || current < 0) return;
+      e.preventDefault();
+      items.forEach((b, i) => (b.tabIndex = i === next ? 0 : -1));
+      items[next].focus();
+    });
+  }
+
+  // ─── SettingRow helpers ─────────────────────────────────────────
+
+  /** SettingRow — label + description left, control right, one baseline.
+   *  Empty label renders a desc-only text side. */
+  private row(label: string, control: string, desc = "", forId = ""): string {
+    const labelHtml = label
+      ? `<label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>`
+      : "";
+    const descHtml = desc ? `<span class="settings-row-desc">${desc}</span>` : "";
+    return `
+      <div class="settings-row">
+        <div class="settings-row-text">${labelHtml}${descHtml}</div>
+        <div class="settings-row-control">${control}</div>
+      </div>`;
+  }
+
+  /** Block variant: label + description on top, full-width control below —
+   *  for wide widgets (path inputs, textarea, multi-select). */
+  private rowBlock(label: string, control: string, desc = "", forId = ""): string {
+    const labelHtml = label
+      ? `<label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>`
+      : "";
+    const descHtml = desc ? `<span class="settings-row-desc">${desc}</span>` : "";
+    return `
+      <div class="settings-row settings-row-block">
+        <div class="settings-row-text">${labelHtml}${descHtml}</div>
+        <div class="settings-row-control">${control}</div>
+      </div>`;
+  }
+
+  /** Boolean row — native checkbox restyled as a pill switch (`.settings-switch`).
+   *  The input element and its bindings are unchanged. */
+  private switchRow(id: string, label: string, desc: string, checked: boolean, extraAttrs = ""): string {
+    return this.row(
+      label,
+      `<input type="checkbox" id="${escAttr(id)}" class="settings-switch" ${checked ? "checked" : ""} ${extraAttrs} />`,
+      desc,
+      id,
+    );
+  }
+
+  /** Small muted group label — whitespace separation only, no divider. */
+  private group(label: string): string {
+    return `<div class="settings-group-label">${escHtml(label)}</div>`;
   }
 
   private renderLlm(): string {
@@ -219,40 +322,32 @@ export class SettingsScreen {
     const ctxLen = this.config?.llm_context_length ?? 64000;
     return `
       <form class="settings-form" id="llm-settings-form">
-        <div class="import-field">
-          <label for="llm-format">API Format</label>
-          <select class="form-input" id="llm-format">
+        ${this.row("API Format", `
+          <select class="form-input form-input-sm" id="llm-format">
             <option value="openai" ${apiFormat === "openai" ? "selected" : ""}>OpenAI-compatible</option>
             <option value="anthropic" ${apiFormat === "anthropic" ? "selected" : ""}>Anthropic</option>
-          </select>
-          <span class="import-hint">Covers OpenAI, Gemini, Ollama, llama.cpp, vLLM, LM Studio, Unsloth, Groq, OpenRouter, … (OpenAI-compatible) and Claude (Anthropic)</span>
-        </div>
-        <div class="import-field">
-          <label for="llm-provider-preset">Quick Setup</label>
-          <select class="form-input" id="llm-provider-preset">
+          </select>`,
+          "Covers OpenAI, Gemini, Ollama, llama.cpp, vLLM, LM Studio, Unsloth, Groq, OpenRouter, … (OpenAI-compatible) and Claude (Anthropic)",
+          "llm-format")}
+        ${this.row("Quick Setup", `
+          <select class="form-input form-input-sm" id="llm-provider-preset">
             <option value="">— Choose a provider… —</option>
             ${LLM_PROVIDER_PRESETS.map((p) => `<option value="${escAttr(p.url)}">${escHtml(p.name)}</option>`).join("")}
-          </select>
-          <span class="import-hint">Fills the Base URL below — edit it freely afterwards. Pick a local provider for Ollama/LM Studio.</span>
-        </div>
-        <div class="import-field">
-          <label for="llm-url">Base URL</label>
-          <input type="url" class="form-input" id="llm-url" value="${escAttr(baseUrl)}" required />
-          <span class="import-hint">e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com</span>
-        </div>
-        <div class="import-field">
-          <label for="llm-model-select">Model</label>
-          ${this.renderModelSelect(model)}
-        </div>
-        <div class="import-field">
-          <label for="llm-key">API Key (cloud only)</label>
-          <input type="password" class="form-input" id="llm-key" value="${escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />
-        </div>
-        <div class="import-field">
-          <label for="llm-ctx">Context Length</label>
-          <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />
-          <span class="import-hint">Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.</span>
-        </div>
+          </select>`,
+          "Fills the Base URL below — edit it freely afterwards. Pick a local provider for Ollama/LM Studio.",
+          "llm-provider-preset")}
+        ${this.row("Base URL", `
+          <input type="url" class="form-input" id="llm-url" value="${escAttr(baseUrl)}" required />`,
+          "e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com",
+          "llm-url")}
+        ${this.row("Model", this.renderModelSelect(model), "", "llm-model-select")}
+        ${this.row("API Key (cloud only)", `
+          <input type="password" class="form-input" id="llm-key" value="${escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />`,
+          "", "llm-key")}
+        ${this.row("Context Length", `
+          <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />`,
+          "Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.",
+          "llm-ctx")}
         <div class="import-config-row">
           <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
           <span class="import-model-info" id="llm-test-status"></span>
@@ -301,65 +396,39 @@ export class SettingsScreen {
       `<option value="${value}" ${maxSessions === value ? "selected" : ""}>${label}</option>`;
     return `
       <div class="settings-form">
-        <h3 class="settings-section-title">Terminal</h3>
-        <div class="import-field">
-          <label for="ts-format">Timestamp format</label>
-          <select class="form-input" id="ts-format">
+        ${this.row("Timestamp format", `
+          <select class="form-input form-input-sm" id="ts-format">
             ${opt("24h", "24-hour — 14:32:05")}
             ${opt("12h", "12-hour — 2:32:05 PM")}
             ${opt("24h-ms", "24-hour with ms — 14:32:05.123")}
-          </select>
-          <span class="import-hint">Re-renders timestamps in open terminals immediately</span>
-        </div>
-        <label class="settings-toggle">
-          <input type="checkbox" id="auto-copy" ${autoCopy ? "checked" : ""} />
-          <span>
-            Copy text on selection
-            <span class="import-hint">Automatically copies highlighted terminal text to the clipboard as you select it</span>
-          </span>
-        </label>
-        <label class="settings-toggle">
-          <input type="checkbox" id="output-highlight" ${highlight ? "checked" : ""} />
-          <span>
-            Syntax highlighting in terminal output
-            <span class="import-hint">Colorizes IPs, interface names, status keywords (up/down/error), and config keywords in command output. Off by default.</span>
-          </span>
-        </label>
-        <div class="import-field">
-          <label for="max-sessions">Maximum concurrent sessions</label>
-          <select class="form-input" id="max-sessions">
+          </select>`,
+          "Re-renders timestamps in open terminals immediately", "ts-format")}
+        ${this.switchRow("auto-copy", "Copy text on selection",
+          "Automatically copies highlighted terminal text to the clipboard as you select it", autoCopy)}
+        ${this.switchRow("output-highlight", "Syntax highlighting in terminal output",
+          "Colorizes IPs, interface names, status keywords (up/down/error), and config keywords in command output. Off by default.", highlight)}
+        ${this.row("Maximum concurrent sessions", `
+          <select class="form-input form-input-sm" id="max-sessions">
             ${sessionOpt(10, "10")}
             ${sessionOpt(20, "20")}
             ${sessionOpt(30, "30 (default)")}
             ${sessionOpt(50, "50")}
             ${sessionOpt(100, "100")}
             ${sessionOpt(0, "Unlimited")}
-          </select>
-          <span class="import-hint">Prevents runaway resource usage from too many open SSH connections. Applies immediately.</span>
-        </div>
-        <h3 class="settings-section-title">Global Search</h3>
-        <label class="settings-toggle">
-          <input type="checkbox" id="search-tags" ${tagsOn ? "checked" : ""} />
-          <span>
-            Match command tags in search
-            <span class="import-hint">When off, global search and KB search match command name and aliases only</span>
-          </span>
-        </label>
-        <h3 class="settings-section-title">Data Management</h3>
-        <div class="import-field">
-          <div class="log-file-row">
-            <button type="button" id="data-export" class="btn-secondary">Export backup...</button>
-            <button type="button" id="data-import" class="btn-secondary">Restore from backup...</button>
-          </div>
-          <span class="import-hint">Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.</span>
-        </div>
-        <h3 class="settings-section-title">Updates</h3>
-        <div class="import-field">
-          <div class="log-file-row">
-            <button type="button" id="check-updates" class="btn-secondary">Check for updates</button>
-          </div>
-          <span class="import-hint" id="update-status">Comnd checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>
-        </div>
+          </select>`,
+          "Prevents runaway resource usage from too many open SSH connections. Applies immediately.", "max-sessions")}
+        ${this.group("Global Search")}
+        ${this.switchRow("search-tags", "Match command tags in search",
+          "When off, global search and KB search match command name and aliases only", tagsOn)}
+        ${this.group("Data Management")}
+        ${this.row("", `
+          <button type="button" id="data-export" class="btn-secondary btn-small">Export backup...</button>
+          <button type="button" id="data-import" class="btn-secondary btn-small">Restore from backup...</button>`,
+          "Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.")}
+        ${this.group("Updates")}
+        ${this.row("", `
+          <button type="button" id="check-updates" class="btn-secondary btn-small">Check for updates</button>`,
+          `<span id="update-status">Comnd checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>`)}
       </div>
     `;
   }
@@ -374,68 +443,47 @@ export class SettingsScreen {
     const sessionDir = this.config?.session_log_dir ?? "";
     return `
       <div class="settings-form">
-        <h3 class="settings-section-title">App Log</h3>
-        <div class="import-field">
-          <label for="log-level">Log level</label>
-          <select class="form-input" id="log-level">
+        ${this.group("App Log")}
+        ${this.row("Log level", `
+          <select class="form-input form-input-sm" id="log-level">
             ${levelOpt("debug", "Debug")}
             ${levelOpt("info", "Info")}
             ${levelOpt("warn", "Warn")}
             ${levelOpt("error", "Error")}
-          </select>
-          <span class="import-hint">Applies immediately. Debug shows suggestion queries and PTY resize events.</span>
-        </div>
-        <div class="import-field">
-          <label for="log-max-size">Log file size cap</label>
-          <select class="form-input" id="log-max-size">
+          </select>`,
+          "Applies immediately. Debug shows suggestion queries and PTY resize events.", "log-level")}
+        ${this.row("Log file size cap", `
+          <select class="form-input form-input-sm" id="log-max-size">
             ${sizeOpt(0, "Off")}
             ${sizeOpt(5, "5 MB")}
             ${sizeOpt(10, "10 MB")}
             ${sizeOpt(50, "50 MB")}
             ${sizeOpt(100, "100 MB")}
-          </select>
-          <span class="import-hint">File is truncated when the cap is reached. Applies on next app start.</span>
-        </div>
-        <div class="import-field">
-          <label for="log-file-path">Log file location</label>
-          <div class="log-file-row">
-            <input type="text" class="form-input" id="log-file-path"
-              value="${escAttr(this.config?.log_file_path ?? "")}"
-              placeholder="Default: app data dir"
-              spellcheck="false" autocomplete="off" />
-            <button type="button" id="log-file-browse" class="btn-secondary">Browse...</button>
-            <button type="button" id="log-file-reset" class="btn-link">Reset</button>
-          </div>
-          <span class="import-hint">Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.</span>
-        </div>
-        <h3 class="settings-section-title">Session Logging</h3>
-        <label class="settings-toggle">
-          <input type="checkbox" id="session-logging" ${this.config?.session_logging ?? true ? "checked" : ""} />
-          <span>
-            Log SSH session output to file
-            <span class="import-hint">Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.</span>
-            <span class="import-hint">Warning: logs capture everything on screen and everything you type, including passwords (enable, sudo). Keep the log directory private.</span>
-          </span>
-        </label>
-        <label class="settings-toggle">
-          <input type="checkbox" id="session-log-timestamps" ${this.config?.session_log_timestamps ?? true ? "checked" : ""} />
-          <span>
-            Prefix log lines with timestamps
-            <span class="import-hint">Adds an [HH:MM:SS] stamp before each chunk of output.</span>
-          </span>
-        </label>
-        <div class="import-field">
-          <label for="session-log-dir">Session log directory</label>
-          <div class="log-file-row">
-            <input type="text" class="form-input" id="session-log-dir"
-              value="${escAttr(sessionDir)}"
-              placeholder="Default: ${escAttr(this.sessionLogDefaultDir)}"
-              spellcheck="false" autocomplete="off" />
-            <button type="button" id="session-log-dir-browse" class="btn-secondary">Browse...</button>
-            <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>
-          </div>
-          <span class="import-hint">Leave blank for the default location. Applies to new connections.</span>
-        </div>
+          </select>`,
+          "File is truncated when the cap is reached. Applies on next app start.", "log-max-size")}
+        ${this.rowBlock("Log file location", `
+          <input type="text" class="form-input" id="log-file-path"
+            value="${escAttr(this.config?.log_file_path ?? "")}"
+            placeholder="Default: app data dir"
+            spellcheck="false" autocomplete="off" />
+          <button type="button" id="log-file-browse" class="btn-secondary btn-small">Browse...</button>
+          <button type="button" id="log-file-reset" class="btn-link">Reset</button>`,
+          "Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.")}
+        ${this.group("Session Logging")}
+        ${this.switchRow("session-logging", "Log SSH session output to file",
+          "Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.<br />Warning: logs capture everything on screen and everything you type, including passwords (enable, sudo). Keep the log directory private.",
+          this.config?.session_logging ?? true)}
+        ${this.switchRow("session-log-timestamps", "Prefix log lines with timestamps",
+          "Adds an [HH:MM:SS] stamp before each chunk of output.",
+          this.config?.session_log_timestamps ?? true)}
+        ${this.rowBlock("Session log directory", `
+          <input type="text" class="form-input" id="session-log-dir"
+            value="${escAttr(sessionDir)}"
+            placeholder="Default: ${escAttr(this.sessionLogDefaultDir)}"
+            spellcheck="false" autocomplete="off" />
+          <button type="button" id="session-log-dir-browse" class="btn-secondary btn-small">Browse...</button>
+          <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>`,
+          "Leave blank for the default location. Applies to new connections.")}
       </div>
     `;
   }
@@ -447,14 +495,11 @@ export class SettingsScreen {
     ).join("");
     return `
       <div class="settings-form">
-        <h3 class="settings-section-title">Appearance</h3>
-        <div class="import-field">
-          <label for="theme-app">App theme</label>
-          <select class="form-input" id="theme-app">
+        ${this.row("App theme", `
+          <select class="form-input form-input-sm" id="theme-app">
             ${opts}
-          </select>
-          <span class="import-hint">Applies to the Comnd window chrome, nav panel, and settings</span>
-        </div>
+          </select>`,
+          "Applies to the Comnd window chrome, nav panel, and settings", "theme-app")}
       </div>
     `;
   }
@@ -468,40 +513,25 @@ export class SettingsScreen {
     const letterSpacing = s?.letterSpacing ?? RC_PRESET.letterSpacing;
     return `
       <div class="settings-form">
-        <h3 class="settings-section-title">Reading Comfort</h3>
-        <label class="settings-toggle">
-          <input type="checkbox" id="rc-enabled" ${on ? "checked" : ""} />
-          <span>
-            Enable Reading Comfort
-            <span class="import-hint">Recommended settings for dyslexic readers and anyone who finds text hard to read. Applies readability defaults as a starting point; every value below stays adjustable via its slider. Turning off restores your previous font size; your theme choice is kept.</span>
-          </span>
-        </label>
+        ${this.switchRow("rc-enabled", "Enable Reading Comfort",
+          "Recommended settings for dyslexic readers and anyone who finds text hard to read. Applies readability defaults as a starting point; every value below stays adjustable via its slider. Turning off restores your previous font size; your theme choice is kept.",
+          on)}
         ${on ? `
-        <div class="log-file-row">
-          <button type="button" id="rc-reset" class="btn-text">Reset to preset</button>
-        </div>
-        <h3 class="settings-section-title">Adjustments</h3>
-        <div class="import-field">
-          <label for="rc-font-size">Terminal font size</label>
-          <input type="range" class="form-input" id="rc-font-size" min="${TERMINAL_FONT_MIN}" max="${TERMINAL_FONT_MAX}" step="1" value="${fontSize}" />
-          <span class="import-hint">${fontSize}px — shared with the terminal zoom shortcuts (Ctrl+= / Ctrl+-)</span>
-        </div>
-        <div class="import-field">
-          <label for="rc-ui-scale">UI text scale</label>
-          <input type="range" class="form-input" id="rc-ui-scale" min="1.0" max="1.5" step="0.05" value="${uiScale}" />
-          <span class="import-hint">${uiScale.toFixed(2)}× — scales all interface text (not terminal output)</span>
-        </div>
-        <div class="import-field">
-          <label for="rc-line-height">Terminal line height</label>
-          <input type="range" class="form-input" id="rc-line-height" min="1.0" max="1.8" step="0.05" value="${lineHeight}" />
-          <span class="import-hint">${lineHeight.toFixed(2)} — vertical spacing between terminal lines</span>
-        </div>
-        <div class="import-field">
-          <label for="rc-letter-spacing">Terminal letter spacing</label>
-          <input type="range" class="form-input" id="rc-letter-spacing" min="0" max="6" step="0.5" value="${letterSpacing}" />
-          <span class="import-hint">${letterSpacing}px — horizontal gap between characters</span>
-        </div>
-        ` : `<p class="import-hint">Enable Reading Comfort to reveal the adjustment sliders.</p>`}
+        ${this.row("", `<button type="button" id="rc-reset" class="btn-text">Reset to preset</button>`)}
+        ${this.group("Adjustments")}
+        ${this.row("Terminal font size", `
+          <input type="range" class="form-input" id="rc-font-size" min="${TERMINAL_FONT_MIN}" max="${TERMINAL_FONT_MAX}" step="1" value="${fontSize}" />`,
+          `${fontSize}px — shared with the terminal zoom shortcuts (Ctrl+= / Ctrl+-)`, "rc-font-size")}
+        ${this.row("UI text scale", `
+          <input type="range" class="form-input" id="rc-ui-scale" min="1.0" max="1.5" step="0.05" value="${uiScale}" />`,
+          `${uiScale.toFixed(2)}× — scales all interface text (not terminal output)`, "rc-ui-scale")}
+        ${this.row("Terminal line height", `
+          <input type="range" class="form-input" id="rc-line-height" min="1.0" max="1.8" step="0.05" value="${lineHeight}" />`,
+          `${lineHeight.toFixed(2)} — vertical spacing between terminal lines`, "rc-line-height")}
+        ${this.row("Terminal letter spacing", `
+          <input type="range" class="form-input" id="rc-letter-spacing" min="0" max="6" step="0.5" value="${letterSpacing}" />`,
+          `${letterSpacing}px — horizontal gap between characters`, "rc-letter-spacing")}
+        ` : `<p class="settings-row-desc">Enable Reading Comfort to reveal the adjustment sliders.</p>`}
       </div>
     `;
   }
@@ -622,97 +652,80 @@ export class SettingsScreen {
 
     return `
       <div class="settings-form" id="netbox-settings">
-        <label class="settings-toggle">
-          <input type="checkbox" id="netbox-enabled" ${enabled ? "checked" : ""} />
-          <span>
-            Enable NetBox host source
-            <span class="import-hint">Pulls devices from a NetBox instance into the host list under their own NetBox folder. Nothing syncs until you click Refresh. Changes here save automatically.</span>
-          </span>
-        </label>
+        ${this.switchRow("netbox-enabled", "Enable NetBox host source",
+          "Pulls devices from a NetBox instance into the host list under their own NetBox folder. Nothing syncs until you click Refresh. Changes here save automatically.",
+          enabled)}
 
         <div class="netbox-body${enabled ? "" : " netbox-body-disabled"}">
-          <label class="settings-toggle">
-            <input type="checkbox" id="netbox-show-empty-folders" ${cfg?.show_empty_folders ? "checked" : ""} />
-            <span>
-              Show empty folders
-              <span class="import-hint">Show all cached regions, sites, and locations, including folders with no enabled hosts.</span>
-            </span>
-          </label>
-          <h3 class="settings-section-title">Instance</h3>
-          <div class="import-field">
-            <label for="netbox-url">NetBox URL</label>
+          ${this.switchRow("netbox-show-empty-folders", "Show empty folders",
+            "Show all cached regions, sites, and locations, including folders with no enabled hosts.",
+            !!cfg?.show_empty_folders)}
+          ${this.group("Instance")}
+          ${this.row("NetBox URL", `
             <input type="url" class="form-input" id="netbox-url"
                    placeholder="https://netbox.example.com" spellcheck="false" autocomplete="off"
-                   value="${escAttr(cfg?.base_url ?? "")}" />
-          </div>
-          <div class="import-field">
-            <label for="netbox-token">API Token</label>
+                   value="${escAttr(cfg?.base_url ?? "")}" />`,
+            "", "netbox-url")}
+          ${this.row("API Token", `
             <input type="password" class="form-input" id="netbox-token"
                    placeholder="${this.netboxHasToken ? "Saved — enter a new token to replace" : "Paste a NetBox API token"}"
-                   autocomplete="off" spellcheck="false" />
-            <span class="import-hint">Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.</span>
-          </div>
+                   autocomplete="off" spellcheck="false" />`,
+            "Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.",
+            "netbox-token")}
           <div class="import-config-row">
             <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
             <button type="button" class="btn-secondary btn-small${this.netboxTestOk ? " netbox-save-token-ready" : ""}" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>${icons.lock} Save Connection</button>
             <span class="import-model-info${testLine ? (testLine.ok ? " import-test-ok" : " import-test-err") : ""}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
           </div>
-          <label class="settings-toggle">
-            <input type="checkbox" id="netbox-invalid-certs" ${cfg?.allow_invalid_certs ? "checked" : ""} />
-            <span>
-              Allow self-signed certificates
-              <span class="import-hint">Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.</span>
-            </span>
-          </label>
+          ${this.switchRow("netbox-invalid-certs", "Allow self-signed certificates",
+            "Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.",
+            !!cfg?.allow_invalid_certs)}
 
-          <h3 class="settings-section-title">Sync Filters</h3>
-          <div class="import-field">
-            <label for="netbox-filter-status">Device status</label>
+          ${this.group("Sync Filters")}
+          ${this.row("Device status", `
             <input type="text" class="form-input" id="netbox-filter-status" placeholder="active"
-                   value="${escAttr(cfg ? (filters.status ?? "") : "active")}" />
-            <span class="import-hint">NetBox status slug. Leave blank to sync devices in any status.</span>
-          </div>
+                   value="${escAttr(cfg ? (filters.status ?? "") : "active")}" />`,
+            "NetBox status slug. Leave blank to sync devices in any status.", "netbox-filter-status")}
           ${this.renderFilterMultiSelect("netbox-filter-sites", "Sites", "Search sites…", this.netboxSites, filters.sites)}
           ${this.renderFilterMultiSelect("netbox-filter-roles", "Roles", "Search roles…", this.netboxRoles, filters.roles)}
           ${this.renderFilterMultiSelect("netbox-filter-tags", "Tags", "Search tags…", this.netboxTags, filters.tags)}
 
-          <h3 class="settings-section-title">Platform Mapping</h3>
-          <div class="import-field">
-            <label for="netbox-platform-policy">Unknown platform slugs</label>
-            <select class="form-input" id="netbox-platform-policy">
+          ${this.group("Platform Mapping")}
+          ${this.row("Unknown platform slugs", `
+            <select class="form-input form-input-sm" id="netbox-platform-policy">
               <option value="skip" ${cfg?.platform_policy !== "fallback" ? "selected" : ""}>Skip device (report in sync summary)</option>
               <option value="fallback" ${cfg?.platform_policy === "fallback" ? "selected" : ""}>Treat as fallback platform</option>
-            </select>
-            <span class="import-hint">Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.</span>
+            </select>`,
+            "Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.",
+            "netbox-platform-policy")}
+          <div class="settings-row" id="netbox-fallback-field"${cfg?.platform_policy === "fallback" ? "" : " hidden"}>
+            <div class="settings-row-text">
+              <label class="settings-row-label" for="netbox-platform-fallback">Fallback platform</label>
+            </div>
+            <div class="settings-row-control">
+              <select class="form-input form-input-sm" id="netbox-platform-fallback">
+                ${platformOpt("cisco-iosxe", "Cisco IOS-XE")}
+                ${platformOpt("cisco-nxos", "Cisco NX-OS")}
+                ${platformOpt("f5-tmos", "F5 TMOS")}
+                ${platformOpt("linux-bash", "Linux Bash")}
+              </select>
+            </div>
           </div>
-          <div class="import-field" id="netbox-fallback-field"${cfg?.platform_policy === "fallback" ? "" : " hidden"}>
-            <label for="netbox-platform-fallback">Fallback platform</label>
-            <select class="form-input" id="netbox-platform-fallback">
-              ${platformOpt("cisco-iosxe", "Cisco IOS-XE")}
-              ${platformOpt("cisco-nxos", "Cisco NX-OS")}
-              ${platformOpt("f5-tmos", "F5 TMOS")}
-              ${platformOpt("linux-bash", "Linux Bash")}
-            </select>
-          </div>
-          <div class="import-field">
-            <label for="netbox-platform-overrides">Platform overrides</label>
+          ${this.rowBlock("Platform overrides", `
             <textarea class="form-input" id="netbox-platform-overrides" rows="3"
-                      placeholder="juniper-junos=linux-bash">${escHtml(overridesText)}</textarea>
-            <span class="import-hint">One per line: netbox-slug=platform. Wins over the built-in table.</span>
-          </div>
+                      placeholder="juniper-junos=linux-bash">${escHtml(overridesText)}</textarea>`,
+            "One per line: netbox-slug=platform. Wins over the built-in table.")}
 
-          <h3 class="settings-section-title">Default Authentication</h3>
-          <span class="import-hint">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
-          <div class="import-field">
-            <label for="netbox-default-username">Username</label>
+          ${this.group("Default Authentication")}
+          <span class="settings-row-desc">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
+          ${this.row("Username", `
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
-                   autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />
-          </div>
-          <div class="import-field">
-            <label for="netbox-default-port">Port</label>
+                   autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />`,
+            "", "netbox-default-username")}
+          ${this.row("Port", `
             <input type="number" class="form-input" id="netbox-default-port" min="1" max="65535"
-                   value="${cfg?.default_port ?? 22}" />
-          </div>
+                   value="${cfg?.default_port ?? 22}" />`,
+            "", "netbox-default-port")}
           ${renderCredentialFieldset({
             name: "netbox_auth_type",
             credential: cred ?? null,
@@ -730,12 +743,11 @@ export class SettingsScreen {
             <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.folder} Refresh Now</button>
           </div>
 
-          <h3 class="settings-section-title">Devices</h3>
-          <div class="import-field">
+          ${this.group("Devices")}
+          ${this.rowBlock("", `
             <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
                    value="${escAttr(this.netboxDeviceSearch)}" />
-            <span class="import-hint" id="netbox-status-line">${this.netboxStatusLine()}</span>
-          </div>
+            <span class="settings-row-desc" id="netbox-status-line">${this.netboxStatusLine()}</span>`)}
           <div class="netbox-device-list" id="netbox-device-list">${this.renderNetBoxDeviceList()}</div>
         </div>
       </div>
@@ -832,7 +844,7 @@ export class SettingsScreen {
         <div class="provider-card-head">
           <span class="provider-name">${icons.lock}${escHtml(p.name)}</span>
           <label class="provider-toggle">
-            <input type="checkbox" data-provider-toggle="${p.id}" ${state.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} />
+            <input type="checkbox" data-provider-toggle="${p.id}" class="settings-switch" ${state.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} />
             Enable
           </label>
         </div>
@@ -886,7 +898,7 @@ export class SettingsScreen {
       const rows = SHORTCUT_DEFS.filter((d) => d.section === section)
         .map((d) => this.renderShortcutRow(d))
         .join("");
-      return `<h3 class="settings-section-title">${escHtml(SECTION_TITLES[section])}</h3>${rows}`;
+      return `<div class="settings-group-label">${escHtml(SECTION_TITLES[section])}</div>${rows}`;
     }).join("");
     return `
       <div class="settings-form">

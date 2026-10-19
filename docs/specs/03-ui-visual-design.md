@@ -72,7 +72,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 * **Dropdown max height:** 8 visible items, scroll indicator if more
 * **Dropdown item height:** 32px
 * **Radii:** 4px / 6px / 8px (`--radius-sm/md/lg`)
-* **Content column** (centered, `margin: 0 auto`): Settings 560px, Replay 900px. Full-bleed screens (terminal, connection manager, KB) have no max-width.
+* **Content column** (centered, `margin: 0 auto`): Replay 900px. Full-bleed screens (terminal, connection manager, KB, settings) have no max-width — Settings uses an icon rail + capped pane instead (see Settings Screen Layout).
 
 ## Screens / Views
 
@@ -80,7 +80,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 1. **Connection Manager** — Home screen. Lists saved hosts. Add / edit / delete. Host tree groups in the left nav panel.
 2. **Terminal View** — Active SSH session. Terminal + suggestion UI. One tab per connected host.
 3. **Knowledge Base** — Browse / edit / import KB commands.
-4. **Settings** — App preferences, KB update channel, theme.
+4. **Settings** — App preferences, KB update channel, theme. Icon-nav layout (see Settings Screen Layout below).
 
 ## Terminal View Layout
 
@@ -199,6 +199,24 @@ Progress stages shown sequentially:
 5. → Terminal view (connected)
 
 Cancel button available at all stages. On failure, error overlay with retry button (see Connection Error Handling in Technical Architecture).
+
+## Settings Screen Layout
+
+```
+┌──────────────────────────────────────────────────────┐
+│ nav │ ▤  │  GROUP LABEL                              │
+│ panel │ ▥ │  Label                      [control]    │
+│       │ ▣ │  description                              │
+│       │ … │                                           │
+└──────────────────────────────────────────────────────┘
+```
+
+* **Icon rail (left):** one labeled button per page — icon + text: General, Logging, Theme, Reading Comfort, LLM API / KB Import, Auth Integrations, NetBox, Shortcuts (icons from `src/lib/icons.ts`). Flat — no borders on items; the active page is a **filled pill** (accent-tint background + accent text), mirroring the nav panel's active sub-item. Keyboard: roving tabindex (`↑`/`↓`/`Home`/`End`, Enter/Space activate) with the standard visible focus ring.
+* **Nav panel:** no Settings section — the entry point is the **title-bar cog** (left of the minimize button, tooltip "Settings"; the conditional update indicator sits left of it). The icon rail is the single page switcher.
+* **Content pane:** max-width 720px, left-aligned. No per-page title heading — the rail is the title.
+* **SettingRow:** label + short description left, control right-aligned on the same baseline. Wide widgets (log paths, textarea, filter multi-select) use a block variant: label on top, full-width control below.
+* **Group labels:** small, muted, uppercase (`--color-text-tertiary`), separated by whitespace only — no bold section headings, no divider rules.
+* **Controls:** all share the app-wide pill radius (`--radius-pill` via `.form-input` / `.btn`). Booleans are **pill switches** — native checkboxes restyled in place, so bindings and tests are unchanged. Selects and buttons are compact and right-aligned, never full-width (one exception: the NetBox filter multi-select chips box stays full-width — it cannot function compact).
 
 ## Accessibility
 

@@ -1,6 +1,11 @@
 # Plan: Settings Pages — Layout & Form Styling Review Fixes
 
-Status: proposed (not implemented). Source: layout/form review of
+Status: **superseded.** The fixes below landed in `d1c8486` (layout review
+fixes) and `eb421e9` (pill inputs/buttons + token consistency); the
+settings layout was then replaced wholesale by the icon-nav redesign —
+see [061-plan-settings-screen-redesign.md](061-plan-settings-screen-redesign.md)
+and the Settings Screen Layout section of `docs/specs/03-ui-visual-design.md`.
+Kept for reference. Source: layout/form review of
 `src/components/settings-screen.ts` + `src/styles/components/_settings-screen.css`
 (2026-09-01). Color tokens are explicitly out of scope — review confirmed
 colors are correct; only layout and form styling change.

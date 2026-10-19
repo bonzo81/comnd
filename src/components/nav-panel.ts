@@ -30,7 +30,7 @@ import { initContextMenu } from "../lib/a11y";
 import { showToast } from "../lib/toast";
 import { NetBoxConfigureDialog } from "./netbox-configure-dialog";
 
-export type NavSection = "connections" | "kb" | "replay" | "settings";
+export type NavSection = "connections" | "kb" | "replay";
 
 export interface NavCallbacks {
   onSelectHost: (hostId: string) => void;
@@ -40,7 +40,6 @@ export interface NavCallbacks {
   onOpenReplay: () => void;
   onNewConnection: () => void;
   onAddHostToGroup: (groupId: string) => void;
-  onSelectSettings: (id: string) => void;
   onTreeChanged: () => void;
   /** Live set of host ids with an active SSH session. Used to colour the
    *  host-row dot green in the nav panel, matching the content area. */
@@ -54,17 +53,6 @@ const TIP_HOVER_DELAY_MS = 700;
 /** Grace period before hiding once every trigger is gone, so the pointer
  *  can cross the gap between row and tooltip without a flicker. */
 const TIP_HIDE_GRACE_MS = 150;
-
-const SETTINGS_ITEMS = [
-  { id: "general", label: "General", ready: true },
-  { id: "logging", label: "Logging", ready: true },
-  { id: "theme", label: "Theme", ready: true },
-  { id: "reading-comfort", label: "Reading Comfort", ready: true },
-  { id: "llm", label: "LLM API / KB Import", ready: true },
-  { id: "auth", label: "Auth Integrations", ready: true },
-  { id: "netbox", label: "NetBox", ready: true },
-  { id: "shortcuts", label: "Shortcuts", ready: true },
-];
 
 type DragPayload = { kind: "host" | "group"; id: string };
 
@@ -83,11 +71,11 @@ export class NavPanel {
   /**
    * THE active sub-item, app-wide. Exactly one sub-item is highlighted:
    * the active one in the current view. Replaces the former per-section
-   * fields (activeKbTab / activeSettingsId / activeReplayId).
+   * fields (activeKbTab / activeReplayId).
    */
-  private activeItem: { section: NavSection; id: string } | null = { section: "settings", id: "llm" };
+  private activeItem: { section: NavSection; id: string } | null = null;
   /** Current app view, so sub-item highlights match the visible screen. */
-  private currentView: NavSection | "terminal" | null = null;
+  private currentView: NavSection | "terminal" | "settings" | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private creatingIn: string | null = null;
   private contextMenu: { type: "host" | "group"; id: string; x: number; y: number } | null = null;
@@ -397,9 +385,11 @@ export class NavPanel {
     });
   }
 
-  /** Set the current view so sub-item highlights match the visible screen. */
+  /** Set the current view so sub-item highlights match the visible screen.
+   *  "settings" highlights nothing — its pages live in the settings
+   *  screen's own icon rail. */
   setView(view: "connections" | "terminal" | "knowledge-base" | "replay" | "settings") {
-    const section: NavSection | "terminal" =
+    const section: NavSection | "terminal" | "settings" =
       view === "knowledge-base" ? "kb" : view;
     if (this.currentView === section) return;
     this.currentView = section;
@@ -408,9 +398,9 @@ export class NavPanel {
 
   /**
    * Sync the active sub-item from the current view's truth-holder
-   * (kbScreen tab, settings screen item, replay's single item).
-   * Called from showView() so deep-links and keyboard shortcuts highlight
-   * correctly even when no nav item was clicked.
+   * (kbScreen tab, replay's single item). Called from showView() so
+   * deep-links and keyboard shortcuts highlight correctly even when no
+   * nav item was clicked.
    */
   syncActiveItem(item: { section: NavSection; id: string } | null) {
     this.activeItem = item;
@@ -509,7 +499,6 @@ export class NavPanel {
       ${this.renderSection("connections", icons.monitor, "Connections", this.renderConnectionsItems())}
       ${this.renderSection("kb", icons.book, "Knowledge Base", this.renderKbItems())}
       ${this.renderSection("replay", icons.clock, "Command Replay", this.renderReplayItems())}
-      ${this.renderSection("settings", icons.settings, "Settings", this.renderSettingsItems())}
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
     `;
@@ -882,10 +871,6 @@ export class NavPanel {
     return this.renderSubItem("replay", "manage", "Manage Commands");
   }
 
-  private renderSettingsItems(): string {
-    return SETTINGS_ITEMS.map((s) => this.renderSubItem("settings", s.id, s.label, s.ready ? undefined : { disabled: true, badge: "soon" })).join("");
-  }
-
   // ─── Context Menu ────────────────────────────────────────────────
 
   private renderContextMenu(): string {
@@ -1007,7 +992,6 @@ export class NavPanel {
         if (!section || !id) return;
         if (section === "kb") this.cb.onKbTab(id as "browse" | "import");
         else if (section === "replay") this.cb.onOpenReplay();
-        else if (section === "settings") this.cb.onSelectSettings(id);
       });
     });
 
