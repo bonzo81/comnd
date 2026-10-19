@@ -9,7 +9,9 @@
 
 import {
   DeviceOverlay,
+  NetBoxConfig,
   NetBoxDeviceEntry,
+  netboxGetConfig,
   netboxGetDevices,
   netboxSetDeviceOverlay,
   listProviders,
@@ -21,11 +23,13 @@ import { escHtml } from "../lib/format";
 import { collectCredential, renderCredentialFieldset, updateCredentialVisibility } from "../lib/credential-fieldset";
 import { platformBadge, platformColorClass } from "../lib/platforms";
 import { openModal, ModalHandle } from "../lib/modal";
+import { icons } from "../lib/icons";
 
 export class NetBoxConfigureDialog {
   private modal: ModalHandle | null = null;
   private device: NetBoxDeviceEntry | null = null;
   private hasPassword = false;
+  private sourceConfig: NetBoxConfig | null = null;
 
   constructor(
     private hostId: string,
@@ -35,7 +39,12 @@ export class NetBoxConfigureDialog {
   async open(): Promise<void> {
     let devices: NetBoxDeviceEntry[] = [];
     try {
-      devices = await netboxGetDevices();
+      const [devs, cfgState] = await Promise.all([
+        netboxGetDevices(),
+        netboxGetConfig().catch(() => null),
+      ]);
+      devices = devs;
+      this.sourceConfig = cfgState?.config ?? null;
     } catch (e) {
       showToast(`Failed to load device data: ${e}`, "error");
       return;
@@ -65,6 +74,11 @@ export class NetBoxConfigureDialog {
       .filter((s) => s)
       .join(" · ");
 
+    const inheritedUsername = this.sourceConfig?.default_username?.trim() || null;
+    const inheritedPort = this.sourceConfig?.default_port;
+    const usernamePlaceholder = inheritedUsername ?? "Inherit source default";
+    const portPlaceholder = inheritedPort != null ? String(inheritedPort) : "Inherit source default";
+
     const content = `
       <h2 id="nb-cfg-title">Configure NetBox Device</h2>
       <div class="netbox-cfg-summary">
@@ -77,13 +91,19 @@ export class NetBoxConfigureDialog {
       <form id="nb-cfg-form" autocomplete="off">
         <label>
           <span>Username</span>
-          <input type="text" class="form-input" name="username" placeholder="Inherit source default"
-                 value="${escHtml(o.username ?? "")}" />
+          <span class="netbox-cfg-input-wrap">
+            <input type="text" class="form-input" name="username" placeholder="${escHtml(usernamePlaceholder)}"
+                   value="${escHtml(o.username ?? "")}" />
+            <button type="button" class="netbox-cfg-reset" aria-label="Reset to inherited default" title="Reset to inherited default">${icons.refresh}</button>
+          </span>
         </label>
         <label>
           <span>Port</span>
-          <input type="number" class="form-input" name="port" min="1" max="65535"
-                 placeholder="Inherit source default" value="${o.port ?? ""}" />
+          <span class="netbox-cfg-input-wrap">
+            <input type="number" class="form-input" name="port" min="1" max="65535"
+                   placeholder="${escHtml(portPlaceholder)}" value="${o.port ?? ""}" />
+            <button type="button" class="netbox-cfg-reset" aria-label="Reset to inherited default" title="Reset to inherited default">${icons.refresh}</button>
+          </span>
         </label>
         ${renderCredentialFieldset({
           name: "auth_type",
@@ -116,6 +136,21 @@ export class NetBoxConfigureDialog {
     this.modal.panel.setAttribute("aria-labelledby", "nb-cfg-title");
 
     const panel = this.modal.panel;
+    panel.querySelectorAll<HTMLElement>(".netbox-cfg-input-wrap").forEach((wrap) => {
+      const input = wrap.querySelector<HTMLInputElement>("input");
+      const btn = wrap.querySelector<HTMLButtonElement>(".netbox-cfg-reset");
+      if (!input || !btn) return;
+      const update = () => {
+        wrap.classList.toggle("has-value", input.value.trim() !== "");
+      };
+      input.addEventListener("input", update);
+      update();
+      btn.addEventListener("click", () => {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      });
+    });
     panel.querySelector<HTMLButtonElement>("#nb-cfg-cancel")?.addEventListener("click", () => this.close());
     panel.querySelectorAll<HTMLInputElement>('input[name="auth_type"]').forEach((radio) => {
       radio.addEventListener("change", () => this.updateAuthVisibility());

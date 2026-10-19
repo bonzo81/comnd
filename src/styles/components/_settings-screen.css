@@ -404,6 +404,48 @@
   font-family: var(--font-mono);
 }
 
+/* Input with reset-to-default button (NetBox configure) */
+.netbox-cfg-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.netbox-cfg-input-wrap .form-input {
+  padding-right: var(--space-8);
+}
+
+.netbox-cfg-reset {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.netbox-cfg-reset svg {
+  width: 14px;
+  height: 14px;
+}
+
+.netbox-cfg-reset:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-selected);
+}
+
+.netbox-cfg-input-wrap.has-value .netbox-cfg-reset {
+  display: inline-flex;
+}
+
 /* Save Token button — highlighted after a successful Test (plan §9.2) */
 #netbox-token-save.netbox-save-token-ready {
   background: var(--color-accent);
