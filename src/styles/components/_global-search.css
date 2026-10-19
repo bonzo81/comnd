@@ -12,7 +12,12 @@
   position: relative;
   display: flex;
   align-items: center;
-  width: min(480px, 60vw);
+  /* Capped against the title bar's width so the centered box can never
+     reach the right-edge stack (import · update · settings · window
+     controls ≈ 256px) or the app title on the left — at the 800px
+     minimum window width 60vw alone would overlap the settings cog
+     (search z-index: 10 would swallow its clicks). */
+  width: min(480px, 60vw, calc(100% - 640px));
   height: 32px;
   padding: 0 var(--space-2) 0 0;
   background: var(--color-surface-elevated);

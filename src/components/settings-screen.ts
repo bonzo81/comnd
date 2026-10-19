@@ -147,9 +147,17 @@ export class SettingsScreen {
     // Auth re-fetches on every show (refresh-on-mount); other items no-op.
     if (this.itemId === id && id !== "auth" && id !== "netbox") return;
     this.itemId = id;
-    if (id === "auth") void this.loadProviders().then(() => this.render());
-    else if (id === "netbox") void this.loadNetbox().then(() => this.render());
-    else this.render();
+    // Only the load for the *current* item may re-render. An auth/netbox
+    // load resolving after the user switched pages would rebuild the DOM
+    // (rail included) mid-interaction — dropping keyboard focus from the
+    // rail and clobbering the visible page with a redundant render.
+    if (id === "auth") {
+      void this.loadProviders().then(() => { if (this.itemId === id) this.render(); });
+    } else if (id === "netbox") {
+      void this.loadNetbox().then(() => { if (this.itemId === id) this.render(); });
+    } else {
+      this.render();
+    }
   }
 
   async mount(container: HTMLElement) {
@@ -468,7 +476,8 @@ export class SettingsScreen {
             spellcheck="false" autocomplete="off" />
           <button type="button" id="log-file-browse" class="btn-secondary btn-small">Browse...</button>
           <button type="button" id="log-file-reset" class="btn-link">Reset</button>`,
-          "Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.")}
+          "Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.",
+          "log-file-path")}
         ${this.group("Session Logging")}
         ${this.switchRow("session-logging", "Log SSH session output to file",
           "Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.<br />Warning: logs capture everything on screen and everything you type, including passwords (enable, sudo). Keep the log directory private.",
@@ -483,7 +492,8 @@ export class SettingsScreen {
             spellcheck="false" autocomplete="off" />
           <button type="button" id="session-log-dir-browse" class="btn-secondary btn-small">Browse...</button>
           <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>`,
-          "Leave blank for the default location. Applies to new connections.")}
+          "Leave blank for the default location. Applies to new connections.",
+          "session-log-dir")}
       </div>
     `;
   }
@@ -714,7 +724,8 @@ export class SettingsScreen {
           ${this.rowBlock("Platform overrides", `
             <textarea class="form-input" id="netbox-platform-overrides" rows="3"
                       placeholder="juniper-junos=linux-bash">${escHtml(overridesText)}</textarea>`,
-            "One per line: netbox-slug=platform. Wins over the built-in table.")}
+            "One per line: netbox-slug=platform. Wins over the built-in table.",
+            "netbox-platform-overrides")}
 
           ${this.group("Default Authentication")}
           <span class="settings-row-desc">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>

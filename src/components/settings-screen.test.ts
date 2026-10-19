@@ -273,3 +273,33 @@ describe("SettingsScreen — NetBox enabled flag persistence (#11)", () => {
     expect(q<HTMLElement>(".netbox-body").classList.contains("netbox-body-disabled")).toBe(enabled);
   });
 });
+
+describe("SettingsScreen — stale async page loads", () => {
+  it("keeps rail focus when an obsolete auth load resolves after switching pages", async () => {
+    const h = createHarness();
+    let resolveProviders!: (v: unknown[]) => void;
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
+    h.ipc.mock("get_session_log_dir", "");
+    h.ipc.mockImpl("list_providers", () => new Promise<unknown[]>((res) => (resolveProviders = res)));
+    h.ipc.mock("get_provider_state", { enabled: false, has_secret: false });
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+
+    screen.setItem("auth"); // starts the (pending) provider load
+    screen.setItem("general"); // synchronous render — active page is General
+    const railBtn = container.querySelector<HTMLButtonElement>(
+      '.settings-nav-item[data-item-id="general"]',
+    );
+    railBtn?.focus();
+    expect(document.activeElement).toBe(railBtn);
+
+    // The auth load resolves after the switch — its render must be dropped,
+    // or the DOM rebuild steals focus from the rail (PR #46 review).
+    resolveProviders([]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.activeElement).toBe(railBtn);
+    expect(container.querySelector(".settings-nav-item.active")?.getAttribute("data-item-id")).toBe("general");
+  });
+});

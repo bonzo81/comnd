@@ -63,6 +63,9 @@
   max-width: 720px;
   overflow-y: auto;
   padding: var(--space-8) var(--space-8) var(--space-16);
+  /* Container for the narrow-pane query below — measures the pane's own
+     width, so the layout adapts to whatever the nav + rail leave it. */
+  container-type: inline-size;
 }
 
 .settings-form {
@@ -143,6 +146,30 @@
   width: auto;
   flex: 1;
   min-width: 0;
+}
+
+/* Narrow panes (e.g. the 800px minimum window with the nav panel open):
+   stack every row and let controls take the available width, so a
+   fixed-width control can't squeeze its label or overflow horizontally.
+   Reading Comfort text scaling hits this sooner — the query adapts. */
+@container (max-width: 560px) {
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .settings-row-control {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .settings-row-control .form-input {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    max-width: 280px;
+  }
 }
 
 /* ─── Pill switch (boolean SettingRow control) ──────────────────── */
