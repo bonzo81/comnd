@@ -887,13 +887,18 @@ export class NavPanel {
     let items: string;
 
     if (cm.type === "group") {
-      const group = this.groups.find((g) => g.id === cm.id);
-      items = `
-        <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
-        <div class="ctx-item" data-action="add-host">Add Host Here</div>
-        <div class="ctx-divider"></div>
-        <div class="ctx-item" data-action="rename">Rename</div>
-        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+      if (isNetboxGroup(cm.id)) {
+        items = `
+          <div class="ctx-item" data-action="netbox-refresh">${icons.netbox} Refresh from NetBox</div>`;
+      } else {
+        const group = this.groups.find((g) => g.id === cm.id);
+        items = `
+          <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
+          <div class="ctx-item" data-action="add-host">Add Host Here</div>
+          <div class="ctx-divider"></div>
+          <div class="ctx-item" data-action="rename">Rename</div>
+          <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+      }
     } else if (isNetboxHostId(cm.id)) {
       const host = this.hosts.find((h) => h.id === cm.id);
       items = `
@@ -1011,31 +1016,6 @@ export class NavPanel {
       this.cb.onNewConnection();
     });
 
-    // Context menu on group rows (right-click). NetBox groups get no context
-    // menu — they're managed by the NetBox integration; sync via the refresh
-    // button on the NetBox root row instead.
-    this.container.querySelectorAll<HTMLElement>(".nav-group-row[data-group-id] > .nav-item[data-group-id]").forEach((el) => {
-      const gid = el.dataset.groupId;
-      if (!gid || gid === ALL_GROUP_ID) return;
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        if (isNetboxGroup(gid)) return;
-        this.contextMenu = { type: "group", id: gid, x: e.clientX, y: e.clientY };
-        this.render();
-      });
-    });
-
-    // Context menu on host rows (right-click)
-    this.container.querySelectorAll<HTMLElement>(".nav-host-row[data-host-id] > .nav-item[data-host-id]").forEach((el) => {
-      const hid = el.dataset.hostId;
-      if (!hid) return;
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        this.contextMenu = { type: "host", id: hid, x: e.clientX, y: e.clientY };
-        this.render();
-      });
-    });
-
     // Context menu actions
     this.container.querySelectorAll<HTMLElement>(".ctx-item").forEach((el) => {
       el.addEventListener("click", () => {
@@ -1110,6 +1090,9 @@ export class NavPanel {
             break;
           case "disable":
             void this.disableNetboxHost(ctx.id);
+            break;
+          case "netbox-refresh":
+            void this.refreshNetbox();
             break;
         }
       });
@@ -1230,6 +1213,13 @@ export class NavPanel {
   private bindRowEvents(el: HTMLElement) {
     // Group items — click = expand/collapse only
     if (el.matches(".nav-item.nav-sub[data-group-id]")) {
+      el.addEventListener("contextmenu", (e) => {
+        const groupId = el.dataset.groupId;
+        if (!groupId || groupId === ALL_GROUP_ID) return;
+        e.preventDefault();
+        this.contextMenu = { type: "group", id: groupId, x: e.clientX, y: e.clientY };
+        this.render();
+      });
       el.addEventListener("click", () => {
         const groupId = el.dataset.groupId ?? "";
         const row = el.closest<HTMLElement>(".nav-group-row");
@@ -1268,6 +1258,14 @@ export class NavPanel {
     // Host items — click = select, double-click = connect
     if (el.matches(".nav-host-row")) {
       const id = el.dataset.hostId ?? "";
+      // Bind on the row so both full renders and rows inserted by
+      // mountGroupChildren() receive the context-menu handler.
+      el.addEventListener("contextmenu", (e) => {
+        if (!id) return;
+        e.preventDefault();
+        this.contextMenu = { type: "host", id, x: e.clientX, y: e.clientY };
+        this.render();
+      });
       el.addEventListener("click", () => {
         if (this.dragMoved) return;
         this.selectedHostId = id;
