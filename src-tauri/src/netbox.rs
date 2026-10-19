@@ -1837,8 +1837,10 @@ mod tests {
 
     /// Responder: (method, path-with-query, Authorization header) →
     /// (status, JSON body, extra headers like API-Version). The method is
-    /// the REAL one from the request line — though non-GET requests are
-    /// rejected with a 405 before the responder runs (read-only contract).
+    /// the REAL one from the request line, and the responder runs for
+    /// every request — rejected ones included, so tests can record the
+    /// true verb — but a non-GET is always answered with a 405 whatever
+    /// the responder returns (read-only contract).
     type Responder = Arc<
         dyn Fn(&str, &str, &str) -> (u16, String, Vec<(String, String)>) + Send + Sync,
     >;
@@ -1847,7 +1849,9 @@ mod tests {
     /// API tests. `make` receives the base URL so `next` links can point
     /// back. Enforces the read-only contract (AGENTS.md): any request
     /// whose method is not GET is answered with a 405, so a client
-    /// regression to a write verb fails whichever test exercises it.
+    /// regression to a write verb fails whichever test exercises it. The
+    /// responder still sees rejected request lines, so tests can assert
+    /// on the verb explicitly.
     async fn start_mock<F>(make: F) -> (String, tokio::task::JoinHandle<()>)
     where
         F: FnOnce(String) -> Responder,
@@ -1894,11 +1898,16 @@ mod tests {
                         }
                     }
                     // Read-only contract tripwire (AGENTS.md): the NetBox
-                    // integration issues GETs only. A non-GET gets a 405
-                    // here, which surfaces as an error in the client call
-                    // that made it and fails the test.
+                    // integration issues GETs only. The responder runs for
+                    // every request line — rejected ones included — so a
+                    // test-side recorder sees the true verb even when the
+                    // client call swallows the rejection; but a non-GET
+                    // is ALWAYS answered with a 405, which surfaces as an
+                    // error in the client call that made it and fails
+                    // whichever test exercises it.
+                    let (status, body, extra_headers) = responder(&method, &path, &auth);
                     let (status, body, extra_headers) = if method == "GET" {
-                        responder(&method, &path, &auth)
+                        (status, body, extra_headers)
                     } else {
                         (
                             405,
@@ -2153,8 +2162,9 @@ mod tests {
     async fn test_netbox_client_issues_get_requests_only() {
         // AGENTS.md: the NetBox integration is strictly read-only. The
         // recorder sees the true request line of every request every
-        // client method makes — each one must be a GET. (The mock 405s
-        // non-GETs anyway; this names the offender explicitly.)
+        // client method makes — including any the mock would reject —
+        // and each one must be a GET to an expected endpoint. (The
+        // mock 405s non-GETs anyway; this names the offender.)
         let seen = Arc::new(Mutex::new(Vec::<String>::new()));
         let (base, server) = start_mock({
             let seen = seen.clone();
@@ -2182,12 +2192,42 @@ mod tests {
         client.fetch_tags().await.unwrap();
 
         let seen = seen.lock().unwrap();
-        assert!(!seen.is_empty(), "expected the client to issue requests");
-        for request in seen.iter() {
-            let method = request.split(' ').next().unwrap_or_default();
+        // Exactly the eight requests the calls above issue: one
+        // connection check, one device page, three geography reads,
+        // three choice reads. Pinning the full set catches a silent
+        // drop — fetch_geo degrades an erroring read to an empty
+        // table, so without this a rejected geography request would
+        // vanish instead of failing the test.
+        let expected = [
+            "/api/dcim/devices/",      // test_connection
+            "/api/dcim/devices/",      // fetch_devices, first page
+            "/api/dcim/regions/",      // fetch_geo
+            "/api/dcim/sites/",        // fetch_geo
+            "/api/dcim/locations/",    // fetch_geo
+            "/api/dcim/sites/",        // fetch_sites choices
+            "/api/dcim/device-roles/", // fetch_device_roles choices
+            "/api/extras/tags/",       // fetch_tags choices
+        ];
+        assert_eq!(
+            seen.len(),
+            expected.len(),
+            "expected exactly {} requests, saw: {:?}",
+            expected.len(),
+            seen
+        );
+        for (request, endpoint) in seen.iter().zip(expected) {
+            let (method, path) = request
+                .split_once(' ')
+                .expect("recorded entries are 'METHOD path'");
             assert_eq!(
                 method, "GET",
                 "NetBox integration is read-only — unexpected request: {}",
+                request
+            );
+            let path = path.split('?').next().unwrap_or_default();
+            assert_eq!(
+                path, endpoint,
+                "unexpected endpoint in request: {}",
                 request
             );
         }
