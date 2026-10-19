@@ -1008,28 +1008,6 @@ export class NavPanel {
       this.cb.onNewConnection();
     });
 
-    // Context menu on group rows (right-click)
-    this.container.querySelectorAll<HTMLElement>(".nav-group-row[data-group-id] > .nav-item[data-group-id]").forEach((el) => {
-      const gid = el.dataset.groupId;
-      if (!gid || gid === ALL_GROUP_ID) return;
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        this.contextMenu = { type: "group", id: gid, x: e.clientX, y: e.clientY };
-        this.render();
-      });
-    });
-
-    // Context menu on host rows (right-click)
-    this.container.querySelectorAll<HTMLElement>(".nav-host-row[data-host-id] > .nav-item[data-host-id]").forEach((el) => {
-      const hid = el.dataset.hostId;
-      if (!hid) return;
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        this.contextMenu = { type: "host", id: hid, x: e.clientX, y: e.clientY };
-        this.render();
-      });
-    });
-
     // Context menu actions
     this.container.querySelectorAll<HTMLElement>(".ctx-item").forEach((el) => {
       el.addEventListener("click", () => {
@@ -1227,6 +1205,16 @@ export class NavPanel {
   private bindRowEvents(el: HTMLElement) {
     // Group items — click = expand/collapse only
     if (el.matches(".nav-item.nav-sub[data-group-id]")) {
+      el.addEventListener("contextmenu", (e) => {
+        const groupId = el.dataset.groupId;
+        if (!groupId || groupId === ALL_GROUP_ID) return;
+        e.preventDefault();
+        // NetBox groups are managed by the integration; refresh from the
+        // NetBox root row instead of showing user-group actions.
+        if (isNetboxGroup(groupId)) return;
+        this.contextMenu = { type: "group", id: groupId, x: e.clientX, y: e.clientY };
+        this.render();
+      });
       el.addEventListener("click", () => {
         const groupId = el.dataset.groupId ?? "";
         const row = el.closest<HTMLElement>(".nav-group-row");
@@ -1265,6 +1253,13 @@ export class NavPanel {
     // Host items — click = select, double-click = connect
     if (el.matches(".nav-host-row")) {
       const id = el.dataset.hostId ?? "";
+      // Bind on the row so both full renders and rows inserted by
+      // mountGroupChildren() receive the context-menu handler.
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        this.contextMenu = { type: "host", id, x: e.clientX, y: e.clientY };
+        this.render();
+      });
       el.addEventListener("click", () => {
         if (this.dragMoved) return;
         this.selectedHostId = id;
