@@ -887,13 +887,18 @@ export class NavPanel {
     let items: string;
 
     if (cm.type === "group") {
-      const group = this.groups.find((g) => g.id === cm.id);
-      items = `
-        <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
-        <div class="ctx-item" data-action="add-host">Add Host Here</div>
-        <div class="ctx-divider"></div>
-        <div class="ctx-item" data-action="rename">Rename</div>
-        <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+      if (isNetboxGroup(cm.id)) {
+        items = `
+          <div class="ctx-item" data-action="netbox-refresh">${icons.netbox} Refresh from NetBox</div>`;
+      } else {
+        const group = this.groups.find((g) => g.id === cm.id);
+        items = `
+          <div class="ctx-item" data-action="add-subgroup">New Group Here</div>
+          <div class="ctx-item" data-action="add-host">Add Host Here</div>
+          <div class="ctx-divider"></div>
+          <div class="ctx-item" data-action="rename">Rename</div>
+          <div class="ctx-item ctx-danger" data-action="delete">Delete ${escHtml(group?.name ?? "Group")}</div>`;
+      }
     } else if (isNetboxHostId(cm.id)) {
       const host = this.hosts.find((h) => h.id === cm.id);
       items = `
@@ -1086,6 +1091,9 @@ export class NavPanel {
           case "disable":
             void this.disableNetboxHost(ctx.id);
             break;
+          case "netbox-refresh":
+            void this.refreshNetbox();
+            break;
         }
       });
     });
@@ -1209,9 +1217,6 @@ export class NavPanel {
         const groupId = el.dataset.groupId;
         if (!groupId || groupId === ALL_GROUP_ID) return;
         e.preventDefault();
-        // NetBox groups are managed by the integration; refresh from the
-        // NetBox root row instead of showing user-group actions.
-        if (isNetboxGroup(groupId)) return;
         this.contextMenu = { type: "group", id: groupId, x: e.clientX, y: e.clientY };
         this.render();
       });
@@ -1256,6 +1261,7 @@ export class NavPanel {
       // Bind on the row so both full renders and rows inserted by
       // mountGroupChildren() receive the context-menu handler.
       el.addEventListener("contextmenu", (e) => {
+        if (!id) return;
         e.preventDefault();
         this.contextMenu = { type: "host", id, x: e.clientX, y: e.clientY };
         this.render();

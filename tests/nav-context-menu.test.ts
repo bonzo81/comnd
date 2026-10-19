@@ -111,6 +111,70 @@ describe("nav panel context menu", () => {
     expect(cb.onSelectHost).not.toHaveBeenCalled();
   });
 
+  it("opens the refresh-only menu on the NetBox root", async () => {
+    const rootId = "__netbox__";
+    const siteId = "__netbox__:site:dc1";
+    h.ipc.mock("get_hosts", [h.fixtures.host({
+      id: "netbox:42",
+      display_name: "switch-42",
+      group_id: siteId,
+      source: "netbox",
+    })]);
+    h.ipc.mock("get_host_groups", [
+      h.fixtures.hostGroup({ id: rootId, name: "NetBox", icon: "netbox" }),
+      h.fixtures.hostGroup({ id: siteId, name: "DC1", parent_id: rootId }),
+    ]);
+
+    await panel.mount();
+    const root = container.querySelector<HTMLElement>(`.nav-item[data-group-id="${rootId}"]`)!;
+    root.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+
+    expect(container.querySelector('.ctx-item[data-action="netbox-refresh"]')).toBeTruthy();
+    expect(container.querySelector('.ctx-item[data-action="rename"]')).toBeNull();
+  });
+
+  it("opens the refresh-only menu on an expanded NetBox subgroup", async () => {
+    const rootId = "__netbox__";
+    const regionId = "__netbox__:region:emea";
+    const siteId = "__netbox__:site:dc1";
+    const locationId = "__netbox__:loc:rack-1";
+    h.ipc.mock("get_hosts", [h.fixtures.host({
+      id: "netbox:42",
+      display_name: "switch-42",
+      group_id: locationId,
+      source: "netbox",
+    })]);
+    h.ipc.mock("get_host_groups", [
+      h.fixtures.hostGroup({ id: rootId, name: "NetBox", icon: "netbox" }),
+      h.fixtures.hostGroup({ id: regionId, name: "EMEA", parent_id: rootId }),
+      h.fixtures.hostGroup({ id: siteId, name: "DC1", parent_id: regionId }),
+      h.fixtures.hostGroup({ id: locationId, name: "Rack 1", parent_id: siteId }),
+    ]);
+
+    await panel.mount();
+    for (const id of [rootId, regionId, siteId]) {
+      container.querySelector<HTMLElement>(`.nav-item[data-group-id="${id}"]`)!.click();
+    }
+    const site = container.querySelector<HTMLElement>(`.nav-item[data-group-id="${siteId}"]`)!;
+    site.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+
+    expect(container.querySelector('.ctx-item[data-action="netbox-refresh"]')).toBeTruthy();
+    expect(container.querySelector('.ctx-item[data-action="rename"]')).toBeNull();
+  });
+
+  it("leaves the native context menu available while renaming a host", async () => {
+    await panel.mount();
+    openMenuOn("h1");
+    container.querySelector<HTMLElement>('.ctx-item[data-action="rename"]')!.click();
+
+    const input = container.querySelector<HTMLElement>(".nav-rename-input")!;
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(container.querySelector("#nav-context-menu")).toBeNull();
+  });
+
   it("opens a group menu on a subgroup revealed by expansion", async () => {
     h.ipc.mock("get_host_groups", [
       h.fixtures.hostGroup({ id: "parent", name: "Parent" }),
