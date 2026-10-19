@@ -56,7 +56,7 @@ describe("updateAction", () => {
     expect(updateAction("linux")).toBe("install");
   });
 
-  it("opens the release page on macOS (ADR-005)", () => {
+  it("opens the release page on macOS (ADR-006)", () => {
     expect(updateAction("darwin")).toBe("open-release-page");
   });
 });

@@ -5,7 +5,7 @@
  * Tauri updater/process plugins are imported dynamically inside functions so
  * vitest never touches the Tauri runtime.
  *
- * Platform behaviour (ADR-005):
+ * Platform behaviour (ADR-006):
  *  - windows/linux — real in-app update: download, install, relaunch
  *  - darwin        — no silent replace until notarization exists; the
  *                    indicator opens the latest GitHub Release page instead
@@ -29,7 +29,7 @@ export function detectPlatform(userAgent: string = navigator.userAgent): UpdateP
   return "linux";
 }
 
-/** darwin falls back to the GitHub Release page (ADR-005); others install in place. */
+/** darwin falls back to the GitHub Release page (ADR-006); others install in place. */
 export function updateAction(platform: UpdatePlatform): UpdateActionKind {
   return platform === "darwin" ? "open-release-page" : "install";
 }
@@ -165,7 +165,7 @@ export async function applyAvailableUpdate(): Promise<"installed" | "opened-rele
   if (!update) throw new Error("No update available");
 
   if (updateAction(status.platform) === "open-release-page") {
-    // macOS: never replace silently — open the latest release page (ADR-005).
+    // macOS: never replace silently — open the latest release page (ADR-006).
     // Idempotent, so a repeated click just opens the page again.
     const { openUrl } = await import("./tauri-api");
     await openUrl(RELEASE_PAGE_URL);

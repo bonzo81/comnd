@@ -64,6 +64,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 - `dirs` crate for platform-appropriate data paths
 - Tauri v2 command handlers are `async fn` with `#[tauri::command]`
 - Error handling: return `Result<T, String>` from Tauri commands
+- Test HTTP mocks (e.g. the `sse_test_mock` in `src-tauri/src/llm.rs`) must serve responses per HTTP request, not per connection — the reqwest client pools keep-alive connections, so per-connection response queues desync between requests and flake on CI
 
 ### CSS
 
@@ -157,6 +158,7 @@ Before marking a task complete:
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Rust tests: run `cargo test` in `src-tauri/`. It must exit 0 (CI runs this on every PR).
 - Make sure that agent results match the expected outcomes.
+- Windows/PowerShell agents: cargo and npm print progress to stderr, which PowerShell renders as error records even on success — judge by exit code or final output lines, not error-record styling. Quote-sensitive `gh` filters (`--jq`, GraphQL queries) are safer written to a file and passed with `-F key=@file`.
 
 ## Git Hygiene
 
@@ -202,4 +204,4 @@ Issues are tracked in GitHub Issues (`bonzo81/comnd`) via the `gh` CLI. See `doc
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
-Reviewed: 2026-10-02
+Reviewed: 2026-10-19

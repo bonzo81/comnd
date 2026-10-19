@@ -310,7 +310,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // P1.4 — in-app updater (minisign-signed; ADR-005) + relaunch after install.
+        // P1.4 — in-app updater (minisign-signed; ADR-006) + relaunch after install.
         // The updater plugin has no `init()`; it is configured via tauri.conf.json and
         // registered through its Builder.
         .plugin(tauri_plugin_updater::Builder::new().build())
