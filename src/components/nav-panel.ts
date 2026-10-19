@@ -1313,6 +1313,9 @@ export class NavPanel {
 
     // Per-row hover actions: add host / add subgroup (inline), NetBox refresh
     if (el.matches(".nav-row-btn")) {
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") e.stopPropagation();
+      });
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         const action = el.dataset.action;
