@@ -101,6 +101,7 @@ export class SettingsScreen {
   private providerStates = new Map<string, ProviderState>();
   // ── NetBox state ──
   private netboxConfig: NetBoxConfig | null = null;
+  private netboxToggleRequest = 0;
   private netboxHasToken = false;
   private netboxDefaultPwSaved = false;
   private netboxLastSynced: string | null = null;
@@ -1416,19 +1417,40 @@ export class SettingsScreen {
 
     // Enable toggle also flips the live disabled styling — autosave never
     // re-renders, so without this the form stays greyed out until reload.
-    // It saves ONLY the toggle merged onto the saved config: never collect
-    // the whole form here, a stale read would persist enabled=false.
+    // It saves ONLY the toggle merged onto the saved config, so the persisted
+    // `enabled` always equals the visible toggle (issue #11).
     this.container?.querySelector<HTMLInputElement>("#netbox-enabled")?.addEventListener("change", async (e) => {
-      const on = (e.target as HTMLInputElement).checked;
-      this.container?.querySelector<HTMLElement>(".netbox-body")?.classList.toggle("netbox-body-disabled", !on);
-      const saved = this.netboxConfig;
-      if (!saved) return;
+      const el = e.target as HTMLInputElement;
+      const on = el.checked;
+      const request = ++this.netboxToggleRequest;
+      const body = this.container?.querySelector<HTMLElement>(".netbox-body");
+      body?.classList.toggle("netbox-body-disabled", !on);
+      let saveAttempted = false;
       try {
-        this.netboxConfig = await netboxSaveConfig({ ...saved, enabled: on }, null);
+        const saved = this.netboxConfig ?? (await netboxGetConfig()).config;
+        if (request !== this.netboxToggleRequest) return;
+        saveAttempted = true;
+        const config = await netboxSaveConfig({ ...saved, enabled: on }, null);
+        if (request !== this.netboxToggleRequest) return;
+        this.netboxConfig = config;
         log.debug(LogTag.Netbox, "enable toggle saved", { enabled: on });
         this.onTreeChanged();
       } catch (err) {
         log.error(LogTag.Netbox, "enable toggle save failed", err);
+        if (request !== this.netboxToggleRequest) return;
+        try {
+          // A save can commit before keyring cleanup fails; read back its
+          // actual state instead of assuming rejection means no write.
+          const config = saveAttempted ? (await netboxGetConfig()).config : this.netboxConfig;
+          if (request !== this.netboxToggleRequest) return;
+          this.netboxConfig = config;
+          const persisted = config?.enabled ?? false;
+          el.checked = persisted;
+          body?.classList.toggle("netbox-body-disabled", !persisted);
+          if (saveAttempted) this.onTreeChanged();
+        } catch (readErr) {
+          log.error(LogTag.Netbox, "enable toggle reconciliation failed", readErr);
+        }
         showToast(`Failed to save NetBox settings: ${err}`, "error", 8000);
       }
     });
