@@ -530,8 +530,9 @@ wrappers for all nine commands (camelCase args; file is the single IPC source of
   duplicate (host-screen.ts:825, nav-panel.ts:911), delete entries in both context menus,
   host form open (host-screen.ts renderForm path).
 - NetBox host context menu: **Configure** (opens overlay dialog §9.4), **Disable**
-  (netbox_set_device_enabled false + refresh). NetBox folder context menu: **Refresh**
-  (netbox_sync + refresh) — convenience shortcut.
+  (netbox_set_device_enabled false + refresh). NetBox folders have no context menu; a
+  single **Refresh** button (netbox_sync + refresh) sits on the top-level NetBox row,
+  styled like the All Hosts row actions.
 - `isNetboxHost(host)` helper (`host.source === "netbox"` or id prefix) — put in
   `host-filters.ts` next to `ALL_GROUP_ID`.
 
