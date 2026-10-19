@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use base64::Engine as _;
-use russh::keys::PublicKey;
+use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use russh::{client, ChannelId, Disconnect};
 use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use serde::{Deserialize, Serialize};
@@ -262,11 +262,14 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &PublicKey,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
+        // 0.63: the server may present a raw key or an SSH certificate; the
+        // known-hosts / TOFU logic below works on the underlying public key.
+        let server_public_key = server_public_key.public_key();
         let mut known = load_known_hosts();
-        let key_b64 = key_to_base64(server_public_key);
-        let key_type = key_type_name(server_public_key);
+        let key_b64 = key_to_base64(&server_public_key);
+        let key_type = key_type_name(&server_public_key);
 
         if let Some(entry) = known.get(&self.host_key) {
             if entry.key_base64 == key_b64 && entry.key_type == key_type {

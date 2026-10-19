@@ -23,11 +23,13 @@ serde_json = "1"
 # serde_yml's libyml backend is unsound and unmaintained (GHSA-gfxp-f68g-8x78,
 # Dependabot #44/#45); yaml_serde is the maintained serde-yaml fork.
 yaml_serde = "0.10"
-# 0.60: ring backend (same crypto as the 0.49 build) — the new default
-# aws-lc-rs backend needs NASM on every Windows build machine, including
-# the windows-latest release runner. rsa keeps ssh-rsa host keys working
-# (Cisco/F5 devices). Security: CVE-2026-46673 + GHSA-f5v4-2wr6-hqmg fixes.
-russh = { version = "0.60", default-features = false, features = ["flate2", "rsa", "ring"] }
+# 0.63: security fixes for CVE-2026-46702/46705/48107/48108/48110, CVE-2026-68930,
+# CVE-2026-73429/73430/73489, CVE-2026-102821/102822/102823/102824/102825
+# (Dependabot #61-#75; 0.63.2 is the lowest non-vulnerable version). ring backend
+# (same crypto as the 0.49 build) — the aws-lc-rs default backend needs NASM on
+# every Windows build machine, including the windows-latest release runner.
+# rsa keeps ssh-rsa host keys working (Cisco/F5 devices).
+russh = { version = "0.63", default-features = false, features = ["flate2", "rsa", "ring"] }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
