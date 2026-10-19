@@ -768,6 +768,7 @@ Documentation content:
 pub(crate) mod sse_test_mock {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     /// Multi-request SSE mock: drains a shared response queue one HTTP
     /// request at a time, regardless of connection boundaries — the client
@@ -781,14 +782,29 @@ pub(crate) mod sse_test_mock {
             Arc::new(Mutex::new(responses.into()));
 
         let accept_queue = Arc::clone(&queue);
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(stream) = stream else { break };
-                if accept_queue.lock().unwrap().is_empty() {
-                    break; // queue drained: stop accepting, like the old mock
+        // Nonblocking accept: poll for connections so the accept thread can
+        // shut down on its own once the queue drains instead of blocking in
+        // accept() and leaking the thread + socket until process exit (the
+        // old bounded loop terminated after its last response).
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // Accepted sockets inherit the listener's nonblocking
+                    // mode; the worker does blocking reads.
+                    if stream.set_nonblocking(false).is_err() {
+                        continue;
+                    }
+                    let queue = Arc::clone(&accept_queue);
+                    std::thread::spawn(move || serve_connection(stream, &queue));
                 }
-                let queue = Arc::clone(&accept_queue);
-                std::thread::spawn(move || serve_connection(stream, &queue));
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if accept_queue.lock().unwrap().is_empty() {
+                        return; // queue drained: stop accepting, like the old mock
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => return,
             }
         });
 
