@@ -106,7 +106,7 @@ Files with tracked matches, grouped by area:
   `README.md`, `agents.md`.
 - Development and architecture: `docs/DEVELOPMENT.md`,
   `docs/adr/001-no-local-echo-shadow-buffer.md`,
-  `docs/adr/005-per-platform-secret-prompt-patterns.md`.
+  `docs/adr/007-per-platform-secret-prompt-patterns.md`.
 - Specifications: `docs/specs/01-overview-goals.md`,
   `02-technical-architecture.md`, `03-ui-visual-design.md`,
   `04-connection-manager.md`, `08-future-open-questions.md`,

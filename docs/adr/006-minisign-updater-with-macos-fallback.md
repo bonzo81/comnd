@@ -1,4 +1,4 @@
-# 005. Minisign-only updater; macOS falls back to GitHub until code signing lands
+# 006. Minisign-only updater; macOS falls back to GitHub until code signing lands
 
 Date: 2026-10-15
 Status: Accepted
