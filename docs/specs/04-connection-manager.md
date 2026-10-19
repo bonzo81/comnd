@@ -125,3 +125,8 @@ NetBox-sourced devices appear alongside user hosts, never mixed into them.
   or dragged. Grouping is fixed by the sync. Configure / Disable replace the
   usual host context-menu actions. The backend rejects these mutations even
   if the UI is bypassed.
+- **Read-only API access**: Comnd never writes to the configured NetBox
+  instance. Every request is a GET against a list endpoint, and the Rust
+  client structurally exposes GET only (the `readonly_http` guard in
+  `src-tauri/src/netbox.rs`, enforced by tests). The settings UI recommends
+  provisioning a read-only API token.

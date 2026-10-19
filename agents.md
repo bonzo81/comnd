@@ -92,6 +92,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 - No local echo — shadow buffer observes only
 - No heavy logic in Rust that could run in the frontend. IPC latency harms the terminal.
 - No manual git tags or GitHub releases — release-please creates both; a human only publishes the draft
+- No writes to the NetBox API — the integration is strictly read-only (GET only). All NetBox HTTP must go through the `readonly_http` guard in `src-tauri/src/netbox.rs`; never bypass it with a raw `reqwest::Client`, and never add a write command (`netbox_*` Tauri commands are reads/syncs only)
 
 ## File Locations
 

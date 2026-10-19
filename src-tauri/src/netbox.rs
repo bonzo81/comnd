@@ -1013,10 +1013,64 @@ pub struct FetchResult {
     pub no_primary_ip: usize,
 }
 
+// ─── Read-only HTTP guard (AGENTS.md) ────────────────────────────────
+//
+// The NetBox integration is strictly read-only: it must never
+// POST/PUT/PATCH/DELETE to the configured instance. `ReadOnlyHttp` is the
+// only route from this module to the network, and its `reqwest::Client` is
+// private to the child module below — so nothing outside it (including
+// `NetBoxClient` and the tests) can reach a write-verb builder. Do not:
+//   - expose the client or a `RequestBuilder` here (`.method()` can
+//     rewrite the verb),
+//   - add a raw `reqwest::Client` field to `NetBoxClient`
+//     (`test_netbox_source_has_no_write_http_methods` fails CI).
+
+mod readonly_http {
+    use std::time::Duration;
+
+    /// GET-only wrapper around `reqwest::Client`. The private field makes
+    /// the write verbs unreachable outside this module.
+    pub struct ReadOnlyHttp {
+        inner: reqwest::Client,
+    }
+
+    impl ReadOnlyHttp {
+        /// 30s-timeout client. `allow_invalid_certs` accepts self-signed/
+        /// unverifiable TLS certs (opt-in, off by default).
+        pub fn new(allow_invalid_certs: bool) -> Result<Self, reqwest::Error> {
+            let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
+            if allow_invalid_certs {
+                builder = builder.danger_accept_invalid_certs(true);
+            }
+            Ok(ReadOnlyHttp {
+                inner: builder.build()?,
+            })
+        }
+
+        /// Issue one authenticated GET and return the raw response. The
+        /// `RequestBuilder` never leaves this module. `timeout` overrides
+        /// the 30s client default when set. This is the ONLY HTTP verb
+        /// `NetBoxClient` can perform.
+        pub async fn get(
+            &self,
+            url: &reqwest::Url,
+            auth: &str,
+            timeout: Option<Duration>,
+        ) -> Result<reqwest::Response, reqwest::Error> {
+            let mut request = self.inner.get(url.clone());
+            if let Some(t) = timeout {
+                request = request.timeout(t);
+            }
+            request.header("Authorization", auth).send().await
+        }
+    }
+}
+use readonly_http::ReadOnlyHttp;
+
 pub struct NetBoxClient {
     base_url: String,
     token: String,
-    http: reqwest::Client,
+    http: ReadOnlyHttp,
 }
 
 const MAX_PAGES: usize = 200;
@@ -1034,16 +1088,13 @@ impl NetBoxClient {
         if trimmed.is_empty() {
             return Err("NetBox URL is empty".to_string());
         }
-        let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
         if allow_invalid_certs {
             log::warn!(
                 "NetBox client for {} built with TLS verification disabled — home-lab mode, token is MITM-able",
                 trimmed
             );
-            builder = builder.danger_accept_invalid_certs(true);
         }
-        let http = builder
-            .build()
+        let http = ReadOnlyHttp::new(allow_invalid_certs)
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         Ok(NetBoxClient {
             base_url: trimmed.to_string(),
@@ -1065,17 +1116,15 @@ impl NetBoxClient {
     /// One `GET /api/dcim/devices/?limit=1&exclude=config_context` — the
     /// `API-Version` response header plus `count` from the body (plan §4.2).
     pub async fn test_connection(&self) -> Result<(String, u32), String> {
-        let url = format!(
+        let url = reqwest::Url::parse(&format!(
             "{}/api/dcim/devices/?limit=1&exclude=config_context",
             self.base_url
-        );
+        ))
+        .map_err(|e| format!("Invalid NetBox URL: {}", e))?;
         log::info!("NetBox test_connection -> {}", url);
         let response = self
             .http
-            .get(&url)
-            .timeout(Duration::from_secs(5))
-            .header("Authorization", self.auth_header())
-            .send()
+            .get(&url, &self.auth_header(), Some(Duration::from_secs(5)))
             .await
             .map_err(|e| {
                 log::warn!("NetBox test_connection request failed: {}", e);
@@ -1128,14 +1177,11 @@ impl NetBoxClient {
             query.push(("tag", t));
         }
 
-        let mut url = self
-            .http
-            .get(format!("{}/api/dcim/devices/", self.base_url))
-            .query(&query)
-            .build()
-            .map_err(|e| format!("Failed to build request URL: {}", e))?
-            .url()
-            .clone();
+        let mut url = reqwest::Url::parse_with_params(
+            &format!("{}/api/dcim/devices/", self.base_url),
+            query,
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
 
         log::info!("NetBox fetch_devices -> {} (status={:?} sites={:?} roles={:?} tags={:?})",
             url, filters.status, filters.sites, filters.roles, filters.tags);
@@ -1285,9 +1331,7 @@ impl NetBoxClient {
     async fn get_json(&self, url: &reqwest::Url) -> Result<serde_json::Value, String> {
         let response = self
             .http
-            .get(url.clone())
-            .header("Authorization", self.auth_header())
-            .send()
+            .get(url, &self.auth_header(), None)
             .await
             .map_err(|e| {
                 log::warn!("NetBox GET {} failed: {}", url, e);
@@ -1792,13 +1836,22 @@ mod tests {
     use tokio::net::TcpListener;
 
     /// Responder: (method, path-with-query, Authorization header) →
-    /// (status, JSON body, extra headers like API-Version).
+    /// (status, JSON body, extra headers like API-Version). The method is
+    /// the REAL one from the request line, and the responder runs for
+    /// every request — rejected ones included, so tests can record the
+    /// true verb — but a non-GET is always answered with a 405 whatever
+    /// the responder returns (read-only contract).
     type Responder = Arc<
         dyn Fn(&str, &str, &str) -> (u16, String, Vec<(String, String)>) + Send + Sync,
     >;
 
     /// Minimal one-shot-connection HTTP server on 127.0.0.1:0 for NetBox
-    /// API tests. `make` receives the base URL so `next` links can point back.
+    /// API tests. `make` receives the base URL so `next` links can point
+    /// back. Enforces the read-only contract (AGENTS.md): any request
+    /// whose method is not GET is answered with a 405, so a client
+    /// regression to a write verb fails whichever test exercises it. The
+    /// responder still sees rejected request lines, so tests can assert
+    /// on the verb explicitly.
     async fn start_mock<F>(make: F) -> (String, tokio::task::JoinHandle<()>)
     where
         F: FnOnce(String) -> Responder,
@@ -1832,7 +1885,9 @@ mod tests {
                     let text = String::from_utf8_lossy(&buf);
                     let mut lines = text.lines();
                     let request_line = lines.next().unwrap_or_default().to_string();
-                    let path = request_line.split(' ').nth(1).unwrap_or("/").to_string();
+                    let mut parts = request_line.split(' ');
+                    let method = parts.next().unwrap_or_default().to_string();
+                    let path = parts.next().unwrap_or("/").to_string();
                     let mut auth = String::new();
                     for line in lines {
                         let mut parts = line.splitn(2, ':');
@@ -1842,12 +1897,31 @@ mod tests {
                             auth = value;
                         }
                     }
-                    let (status, body, extra_headers) = responder("GET", &path, &auth);
+                    // Read-only contract tripwire (AGENTS.md): the NetBox
+                    // integration issues GETs only. The responder runs for
+                    // every request line — rejected ones included — so a
+                    // test-side recorder sees the true verb even when the
+                    // client call swallows the rejection; but a non-GET
+                    // is ALWAYS answered with a 405, which surfaces as an
+                    // error in the client call that made it and fails
+                    // whichever test exercises it.
+                    let (status, body, extra_headers) = responder(&method, &path, &auth);
+                    let (status, body, extra_headers) = if method == "GET" {
+                        (status, body, extra_headers)
+                    } else {
+                        (
+                            405,
+                            "{\"detail\":\"comnd's NetBox integration is read-only; only GET is allowed\"}"
+                                .into(),
+                            vec![],
+                        )
+                    };
                     let reason = match status {
                         200 => "OK",
                         401 => "Unauthorized",
                         403 => "Forbidden",
                         404 => "Not Found",
+                        405 => "Method Not Allowed",
                         429 => "Too Many Requests",
                         _ => "Error",
                     };
@@ -2082,6 +2156,109 @@ mod tests {
         assert!(NetBoxClient::new("  ", "t", false).is_err());
         assert!(NetBoxClient::new("https://netbox.example.com/", "t", false).is_ok());
         assert!(NetBoxClient::new("http://192.168.1.10:8000", "t", false).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_netbox_client_issues_get_requests_only() {
+        // AGENTS.md: the NetBox integration is strictly read-only. The
+        // recorder sees the true request line of every request every
+        // client method makes — including any the mock would reject —
+        // and each one must be a GET to an expected endpoint. (The
+        // mock 405s non-GETs anyway; this names the offender.)
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (base, server) = start_mock({
+            let seen = seen.clone();
+            move |_| {
+                let seen = seen.clone();
+                Arc::new(move |method, path, _| {
+                    seen.lock().unwrap().push(format!("{} {}", method, path));
+                    (
+                        200,
+                        r#"{"count": 0, "next": null, "previous": null, "results": []}"#
+                            .into(),
+                        vec![],
+                    )
+                })
+            }
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "nbt_v2.ro", false).unwrap();
+        client.test_connection().await.unwrap();
+        client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        client.fetch_geo().await;
+        client.fetch_sites().await.unwrap();
+        client.fetch_device_roles().await.unwrap();
+        client.fetch_tags().await.unwrap();
+
+        let seen = seen.lock().unwrap();
+        // Exactly the eight requests the calls above issue: one
+        // connection check, one device page, three geography reads,
+        // three choice reads. Pinning the full set catches a silent
+        // drop — fetch_geo degrades an erroring read to an empty
+        // table, so without this a rejected geography request would
+        // vanish instead of failing the test.
+        let expected = [
+            "/api/dcim/devices/",      // test_connection
+            "/api/dcim/devices/",      // fetch_devices, first page
+            "/api/dcim/regions/",      // fetch_geo
+            "/api/dcim/sites/",        // fetch_geo
+            "/api/dcim/locations/",    // fetch_geo
+            "/api/dcim/sites/",        // fetch_sites choices
+            "/api/dcim/device-roles/", // fetch_device_roles choices
+            "/api/extras/tags/",       // fetch_tags choices
+        ];
+        assert_eq!(
+            seen.len(),
+            expected.len(),
+            "expected exactly {} requests, saw: {:?}",
+            expected.len(),
+            seen
+        );
+        for (request, endpoint) in seen.iter().zip(expected) {
+            let (method, path) = request
+                .split_once(' ')
+                .expect("recorded entries are 'METHOD path'");
+            assert_eq!(
+                method, "GET",
+                "NetBox integration is read-only — unexpected request: {}",
+                request
+            );
+            let path = path.split('?').next().unwrap_or_default();
+            assert_eq!(
+                path, endpoint,
+                "unexpected endpoint in request: {}",
+                request
+            );
+        }
+        server.abort();
+    }
+
+    #[test]
+    fn test_netbox_source_has_no_write_http_methods() {
+        // AGENTS.md: the NetBox integration is strictly read-only. All HTTP
+        // goes through the GET-only `readonly_http` guard; this tripwire
+        // fails CI if anyone reintroduces a write-verb builder call (or
+        // the generic request-builder escape hatch) anywhere in netbox.rs.
+        // Banned patterns are assembled at runtime so this test's own
+        // source never matches itself.
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/netbox.rs"))
+            .expect("netbox.rs must be readable for the read-only tripwire");
+        for verb in ["post", "put", "patch", "delete", "request"] {
+            let builder_call = format!(".{}(", verb);
+            assert!(
+                !src.contains(&builder_call),
+                "netbox.rs contains '{}' — the NetBox integration is read-only (AGENTS.md); \
+                 route reads through readonly_http::ReadOnlyHttp",
+                builder_call
+            );
+            let method_const = format!("::{}", verb.to_uppercase());
+            assert!(
+                !src.contains(&method_const),
+                "netbox.rs contains '{}' — the NetBox integration is read-only (AGENTS.md)",
+                method_const
+            );
+        }
     }
 
     // ─── Cache store (plan §7.3) ───────────────────────────────────
