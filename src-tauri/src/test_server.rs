@@ -389,12 +389,15 @@ impl server::Handler for MockHandler {
     }
 
     /// Accept session channel open requests.
+    /// 0.63: acceptance is explicit via the open handle (dropping it rejects).
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,
+        handle: russh::ChannelOpenHandleInner<Msg>,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+    ) -> Result<(), Self::Error> {
+        handle.accept().await;
+        Ok(())
     }
 
     /// Accept PTY allocation requests.
@@ -531,7 +534,7 @@ mod tests {
         type Error = russh::Error;
         async fn check_server_key(
             &mut self,
-            _key: &russh::keys::PublicKey,
+            _key: &russh::keys::PublicKeyOrCertificate,
         ) -> Result<bool, Self::Error> {
             Ok(true) // test key — trust anything
         }
