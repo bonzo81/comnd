@@ -163,15 +163,41 @@ fn delete_entry(key: &str) -> Result<(), String> {
 /// warning annotation) when the OS keychain cannot be used.
 #[cfg(test)]
 pub(crate) fn keychain_available_or_skip(test: &str) -> bool {
-    let probe = (|| -> Result<(), keyring::Error> {
+    let probe = (|| -> Result<(), String> {
         let entry = keyring::Entry::new(
             "comnd",
             &format!("comnd_test_probe_{}", uuid::Uuid::new_v4()),
-        )?;
-        entry.set_password("probe")?;
-        let got = entry.get_password();
-        let _ = entry.delete_credential();
-        got.map(|_| ())
+        )
+        .map_err(|e| e.to_string())?;
+        let roundtrip = entry
+            .set_password("probe")
+            .and_then(|()| entry.get_password())
+            .map_err(|e| e.to_string())
+            .and_then(|got| {
+                if got == "probe" {
+                    Ok(())
+                } else {
+                    Err("keychain probe value did not roundtrip".to_owned())
+                }
+            });
+        let cleanup = entry
+            .delete_credential()
+            .or_else(|e| {
+                if matches!(e, keyring::Error::NoEntry) {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
+            .map_err(|e| e.to_string());
+        match (roundtrip, cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(()), Err(e)) => Err(format!("failed to clean up keychain probe ({e})")),
+            (Err(roundtrip), Err(cleanup)) => Err(format!(
+                "{roundtrip}; failed to clean up keychain probe ({cleanup})"
+            )),
+        }
     })();
     match probe {
         Ok(()) => true,
