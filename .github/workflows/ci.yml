@@ -15,8 +15,13 @@ concurrency:
 
 jobs:
   frontend:
-    runs-on: ubuntu-22.04
+    name: frontend (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
 
@@ -35,12 +40,18 @@ jobs:
         run: npm run test
 
   rust:
-    runs-on: ubuntu-22.04
+    name: rust (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
 
       - name: install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -56,7 +67,7 @@ jobs:
         working-directory: src-tauri
 
       - name: cargo test
-        run: cargo test
+        run: cargo test -- --nocapture
         working-directory: src-tauri
 
   commitlint:

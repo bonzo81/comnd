@@ -672,8 +672,7 @@ mod tests {
     #[test]
     fn test_save_and_get_llm_api_key() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        let probe = keyring::Entry::new("comnd", "comnd_test_probe");
-        if probe.is_err() {
+        if !crate::credentials::keychain_available_or_skip("config::test_save_and_get_llm_api_key") {
             return;
         }
         let test_key = "test-llm-key-123";
@@ -815,7 +814,7 @@ mod tests {
     #[test]
     fn test_save_and_get_provider_secret() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if keyring::Entry::new("comnd", "comnd_test_probe").is_err() {
+        if !crate::credentials::keychain_available_or_skip("config::test_save_and_get_provider_secret") {
             return;
         }
         let id = format!("test_{}", uuid::Uuid::new_v4());
