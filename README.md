@@ -1,19 +1,19 @@
 # Comnd
 
-### SSH command suggestions for network engineers
+### SSH terminal with knowledge
 
-Comnd (pronounced “command”) is a desktop SSH client that suggests relevant commands as you type, based on the device you're connected to and its current mode. Suggestions run locally and work without a cloud service.
+Comnd [“command”] is a desktop SSH client that suggests relevant commands as you type, based on the device you're connected to and its current mode. Suggestions run locally and work without a cloud AI service. It integrates with NetBox as a source of hosts so no duplicating of host sessions. It also integrates with password and secret managers so no duplicating of password storage.
 
 [Download Comnd](https://github.com/bonzo81/comnd/releases/latest) · [Get started](docs/user-guide/02-getting-started.md) · [Supported devices](#supported-devices) · [Contribute](CONTRIBUTING.md)
 
 > **Development status:** Comnd is an early-stage app (pre-1.0) that is still being developed. Public releases are available to try, but features may change; it is not ready for production use. Builds are unsigned, so Windows or macOS may show first-launch security warnings. Review suggestions before using them on important systems.
 
-## What it does
+## Feature List
 
 - Built-in Command Knowledge Base for Cisco, F5 and Linux
-- Add custom commands from your own web sources using LLM support
+- Add custom commands for other platforms, from your own web sources using LLM support
 - Integrate with NetBox; pull host list from NetBox and connect
-- Suggests commands for the device you're connected to.
+- Suggests commands based on deivce platform and even software version.
 - No AI calls, built in privacy.
 - Integrate with password and secret managers; associate records with hosts. No duplicate credential storage
 - Adapts to the device's operating mode (enable/config, bash/tmsh) and software version.
