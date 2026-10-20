@@ -5,6 +5,16 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+
+// updater.ts reads navigator.userAgent at import time and jsdom derives it from
+// the host OS, so pin it to keep the install-path tests identical on every OS.
+vi.hoisted(() => {
+  Object.defineProperty(navigator, "userAgent", {
+    value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+    configurable: true,
+  });
+});
+
 import {
   applyAvailableUpdate,
   checkForUpdatesNow,
