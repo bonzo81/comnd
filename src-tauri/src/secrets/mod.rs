@@ -92,6 +92,10 @@ impl ProviderRegistry {
         if provider_enabled(config, "proton") {
             list.push(Arc::new(providers::proton::ProtonProvider));
         }
+        #[cfg(debug_assertions)]
+        if std::env::var_os("COMND_TEST_MOCK_SECRET").is_some() {
+            list.push(Arc::new(TestMockSecretProvider));
+        }
         Self::new(list)
     }
 
@@ -102,6 +106,32 @@ impl ProviderRegistry {
 
     pub fn all(&self) -> Vec<Arc<dyn SecretProvider>> {
         self.providers.clone()
+    }
+}
+
+#[cfg(debug_assertions)]
+struct TestMockSecretProvider;
+
+#[cfg(debug_assertions)]
+#[async_trait]
+impl SecretProvider for TestMockSecretProvider {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    async fn status(&self) -> ProviderStatus {
+        if std::env::var_os("COMND_TEST_MOCK_SECRET").is_some() {
+            ProviderStatus::Ready
+        } else {
+            ProviderStatus::NotInstalled {
+                message: "Smoke-test secret is not configured".into(),
+            }
+        }
+    }
+
+    async fn resolve(&self, _reference: &str) -> Result<String, String> {
+        std::env::var("COMND_TEST_MOCK_SECRET")
+            .map_err(|_| "Smoke-test secret is not configured".to_string())
     }
 }
 
@@ -297,6 +327,13 @@ mod tests {
         assert_eq!(items[0].id, "a");
         assert_eq!(items[0].username.as_deref(), Some("u"));
 
+        // The debug-only smoke provider is registered only while the var is set.
+        let config = crate::config::AppConfig::default();
+        std::env::remove_var(VAR);
+        assert!(ProviderRegistry::from_config(&config).all().is_empty());
+        std::env::set_var(VAR, "s3cret");
+        assert!(ProviderRegistry::from_config(&config).get("mock").is_some());
+
         std::env::remove_var(VAR);
     }
 
@@ -316,9 +353,8 @@ mod tests {
         assert!(reg.get("mock").is_some());
         assert!(reg.get("nope").is_none());
         assert_eq!(reg.all().len(), 1);
-
-        let empty = ProviderRegistry::from_config(&crate::config::AppConfig::default());
-        assert!(empty.all().is_empty());
+        // from_config's env-dependent behaviour is covered in
+        // test_mock_provider_status_resolve_list, which owns the env var.
     }
 
     #[tokio::test]

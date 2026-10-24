@@ -969,6 +969,10 @@ pub struct SshManager {
     sessions: SessionMap<SshSession>,
     #[cfg(debug_assertions)]
     test_server_handle: Option<tokio::task::JoinHandle<()>>,
+    #[cfg(debug_assertions)]
+    test_server_received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
+    #[cfg(debug_assertions)]
+    test_server_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl SshManager {
@@ -977,6 +981,10 @@ impl SshManager {
             sessions: SessionMap::new(),
             #[cfg(debug_assertions)]
             test_server_handle: None,
+            #[cfg(debug_assertions)]
+            test_server_received: None,
+            #[cfg(debug_assertions)]
+            test_server_closed: None,
         }
     }
 
@@ -1004,8 +1012,34 @@ impl SshManager {
     }
 
     #[cfg(debug_assertions)]
+    pub fn set_test_server_received(&mut self, received: Arc<std::sync::Mutex<Vec<u8>>>) {
+        self.test_server_received = Some(received);
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn clear_test_server_received(&mut self) {
+        self.test_server_received = None;
+        self.test_server_closed = None;
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn set_test_server_closed(&mut self, closed: Arc<std::sync::atomic::AtomicBool>) {
+        self.test_server_closed = Some(closed);
+    }
+
+    #[cfg(debug_assertions)]
     pub fn take_test_server_handle(&mut self) -> Option<tokio::task::JoinHandle<()>> {
         self.test_server_handle.take()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn test_server_received(&self) -> Option<Arc<std::sync::Mutex<Vec<u8>>>> {
+        self.test_server_received.clone()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn test_server_closed(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+        self.test_server_closed.clone()
     }
 }
 
