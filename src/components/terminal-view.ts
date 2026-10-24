@@ -1179,7 +1179,7 @@ export class TerminalView {
     const platformEl = this.$(".tv-sb-platform");
 
     if (dot) {
-      dot.className = "sb-indicator";
+      dot.className = "sb-indicator tv-sb-dot";
       switch (status) {
         case "connecting": dot.classList.add("sb-connecting"); break;
         case "connected": dot.classList.add("sb-connected"); break;
