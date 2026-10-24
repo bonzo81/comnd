@@ -57,6 +57,12 @@ import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/out
 import { initContextMenu, setToggleState } from "../lib/a11y";
 import { getPlatformMeta } from "../lib/platforms";
 
+declare global {
+  interface Window {
+    __comndTerminal?: Terminal;
+  }
+}
+
 /**
  * Minimal private-API seam into xterm v5 internals. There is no public API to
  * force a char-size re-measure after the web font loads (xterm only re-measures
@@ -266,6 +272,9 @@ export class TerminalView {
 
     const termContainer = this.$(".tv-terminal")!;
     this.terminal.open(termContainer);
+    if (import.meta.env.MODE === "smoke") {
+      window.__comndTerminal = this.terminal;
+    }
     this.timestampGutter = new TimestampGutter(this.terminal);
     this.syncTerminalChrome();
     this.syncTimestamps();
@@ -1732,6 +1741,9 @@ export class TerminalView {
     }
     document.body.classList.remove("tv-resizing");
 
+    if (window.__comndTerminal === this.terminal) {
+      delete window.__comndTerminal;
+    }
     this.terminal?.dispose();
     this.terminal = null;
     this.fitAddon = null;
