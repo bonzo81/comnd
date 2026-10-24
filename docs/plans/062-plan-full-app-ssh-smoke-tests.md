@@ -22,8 +22,8 @@ These smoke tests boot the real debug desktop app against an ephemeral mock host
 
 ## Platform verification
 
-- **Windows:** Verified locally with a debug build and tauri-driver. WebView2 matched the installed WebDriver version; `npm run smoke` and `npm run smoke:mutation` passed.
-- **Linux:** CI job is configured on Ubuntu 22.04 with `webkit2gtk-driver` and Xvfb. A passing CI run is still required; this Windows machine cannot verify Linux.
+- **Windows:** Verified locally with a debug build and tauri-driver. WebView2 matched the installed WebDriver version; `npm run smoke` and `npm run smoke:mutation` passed. `tauri-driver` needs `msedgedriver.exe` matching the installed WebView2 on `PATH`; it exits at startup otherwise and the runner prints its stderr in the failure.
+- **Linux:** CI job is configured on Ubuntu 22.04 with `webkit2gtk-driver` and Xvfb. A passing CI run is still required; this Windows machine cannot verify Linux. Session capabilities carry no `browserName`: tauri-driver injects the native one on Windows, and WebKitWebDriver rejects `wry` with "Failed to match capabilities".
 - **macOS:** Unsupported by this external-driver setup; no smoke coverage is claimed.
 
 ## Files touched
