@@ -149,11 +149,52 @@ async fn test_mock_server(state: tauri::State<'_, AppState>) -> Result<u16, Stri
 
 #[cfg(debug_assertions)]
 #[tauri::command]
+async fn test_smoke_server(
+    reject_auth: bool,
+    mute_output: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<u16, String> {
+    let (port, handle, received, closed) =
+        test_server::start_smoke_mock_server(reject_auth, mute_output).await;
+    let mut mgr = state.ssh.lock().await;
+    if let Some(previous) = mgr.take_test_server_handle() {
+        previous.abort();
+    }
+    mgr.set_test_server_handle(handle);
+    mgr.set_test_server_received(received);
+    mgr.set_test_server_closed(closed);
+    Ok(port)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_received(state: tauri::State<'_, AppState>) -> Result<Vec<u8>, String> {
+    let mgr = state.ssh.lock().await;
+    let received = mgr
+        .test_server_received()
+        .ok_or_else(|| "Smoke test server is not recording".to_string())?;
+    let bytes = received.lock().map_err(|e| e.to_string())?.clone();
+    Ok(bytes)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_client_closed(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    let mgr = state.ssh.lock().await;
+    let closed = mgr
+        .test_server_closed()
+        .ok_or_else(|| "Smoke test server is not tracking channel closure".to_string())?;
+    Ok(closed.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
 async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut mgr = state.ssh.lock().await;
     if let Some(handle) = mgr.take_test_server_handle() {
         handle.abort();
     }
+    mgr.clear_test_server_received();
     Ok(())
 }
 
@@ -442,6 +483,12 @@ pub fn run() {
                 replay::replay_delete,
                 #[cfg(debug_assertions)]
                 test_mock_server,
+                #[cfg(debug_assertions)]
+                test_smoke_server,
+                #[cfg(debug_assertions)]
+                test_smoke_received,
+                #[cfg(debug_assertions)]
+                test_smoke_client_closed,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
             ]
