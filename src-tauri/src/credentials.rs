@@ -158,6 +158,57 @@ fn delete_entry(key: &str) -> Result<(), String> {
 
 // ─── Tests ──────────────────────────────────────────────────────────
 
+/// Test guard: real set/get/delete roundtrip on a unique probe entry.
+/// Returns false (after printing a visible SKIP line and a GitHub Actions
+/// warning annotation) when the OS keychain cannot be used.
+#[cfg(test)]
+pub(crate) fn keychain_available_or_skip(test: &str) -> bool {
+    let probe = (|| -> Result<(), String> {
+        let entry = keyring::Entry::new(
+            "comnd",
+            &format!("comnd_test_probe_{}", uuid::Uuid::new_v4()),
+        )
+        .map_err(|e| e.to_string())?;
+        let roundtrip = entry
+            .set_password("probe")
+            .and_then(|()| entry.get_password())
+            .map_err(|e| e.to_string())
+            .and_then(|got| {
+                if got == "probe" {
+                    Ok(())
+                } else {
+                    Err("keychain probe value did not roundtrip".to_owned())
+                }
+            });
+        let cleanup = entry
+            .delete_credential()
+            .or_else(|e| {
+                if matches!(e, keyring::Error::NoEntry) {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
+            .map_err(|e| e.to_string());
+        match (roundtrip, cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(()), Err(e)) => Err(format!("failed to clean up keychain probe ({e})")),
+            (Err(roundtrip), Err(cleanup)) => Err(format!(
+                "{roundtrip}; failed to clean up keychain probe ({cleanup})"
+            )),
+        }
+    })();
+    match probe {
+        Ok(()) => true,
+        Err(e) => {
+            println!("SKIP {test}: OS keychain unavailable ({e})");
+            println!("::warning title=Keychain test skipped::{test}: OS keychain unavailable ({e})");
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,7 +304,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_password_reads_keyring() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if keyring::Entry::new("comnd", "comnd_test_probe").is_err() {
+        if !crate::credentials::keychain_available_or_skip("credentials::test_resolve_password_reads_keyring") {
             return;
         }
         let key = host_key(&format!("comnd_cred_test_{}", uuid::Uuid::new_v4()));
@@ -274,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_secret_falls_back_to_legacy_bare_id() {
-        if keyring::Entry::new("comnd", "comnd_test_probe").is_err() {
+        if !crate::credentials::keychain_available_or_skip("credentials::test_get_secret_falls_back_to_legacy_bare_id") {
             return;
         }
         let id = format!("comnd_legacy_{}", uuid::Uuid::new_v4());

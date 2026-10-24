@@ -6,12 +6,18 @@ Implements **P0.2a** of `plan-production-readiness-phase2a-no-signing.md`: test 
 
 ### `.github/workflows/ci.yml` — quality gate
 
-Runs on every PR, push to `main`, and manual dispatch. Two parallel jobs:
+Runs on every PR, push to `main`, and manual dispatch. Two jobs, each a matrix over `ubuntu-22.04`, `windows-latest`, `macos-latest` (`fail-fast: false`, no `continue-on-error`), so each OS reports its own required check, e.g. `frontend (windows-latest)`:
 
-- **frontend** (ubuntu-22.04): `npm ci` → `npm run build` (tsc + vite) → `npm run test` (vitest)
-- **rust** (ubuntu-22.04): WebKitGTK 4.1 system deps → `cargo check` → `cargo test`
+- **frontend**: `npm ci` → `npm run build` (tsc + vite) → `npm run test` (vitest)
+- **rust**: Linux only: WebKitGTK 4.1 system deps (Windows and macOS need no extra system packages) → `cargo check` → `cargo test -- --nocapture`
 
-This is exactly the local verification contract in `AGENTS.md`, so a green local run predicts a green CI run. Keyring-dependent tests self-skip on headless runners (probe guard in `src-tauri/src/credentials.rs`).
+This is exactly the local verification contract in `AGENTS.md`, so a green local run predicts a green CI run.
+
+**Skipped vs passed keychain tests.** Four tests need a working OS keychain (`credentials.rs`: 2, `config.rs`: 2). They call `keychain_available_or_skip`, which does a real set/get/delete roundtrip on a unique probe entry. If it fails, the test prints `SKIP <test>: <reason>` and a `::warning title=Keychain test skipped::` annotation, then returns. Cargo still shows `ok` for a skipped test, so a pass with no SKIP line or annotation means the test was exercised. `--nocapture` makes the lines visible in CI logs. Tests use unique entries and delete only their own.
+
+**Automated per OS:** typecheck/build, vitest, `cargo check`, `cargo test` (temp-dir fixtures, loopback mock servers, `#[cfg(windows)]` process tests on Windows, keychain tests wherever the keychain works).
+
+**Still manual (release smoke):** installer install/launch, native window/WebView behaviour, real SSH to devices, updater. No native smoke suite exists in this repo, so there are no unsupported runner combinations to list.
 
 No bundling, no signing — fast feedback only. PR runs cancel earlier runs on the same ref (`concurrency`), which matters while the repo is private (billed minutes).
 
