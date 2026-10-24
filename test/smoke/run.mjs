@@ -31,11 +31,14 @@ async function freePort() {
   return port;
 }
 
-async function waitForDriver(driver, port) {
+async function waitForDriver(driver, port, driverLog) {
   const until = Date.now() + 15_000;
   while (Date.now() < until) {
     if (driver.exitCode !== null) {
-      throw new Error(`tauri-driver exited before becoming ready (code ${driver.exitCode})`);
+      await pause(100);
+      throw new Error(
+        `tauri-driver exited before becoming ready (code ${driver.exitCode}): ${driverLog() || "no stderr output"}`,
+      );
     }
     try {
       await new Promise((resolve, reject) => {
@@ -226,9 +229,13 @@ async function startDriver(dataDir) {
       COMND_DATA_DIR: dataDir,
       COMND_TEST_MOCK_SECRET: "smoke-secret",
     },
-    stdio: ["ignore", "ignore", "ignore"],
+    stdio: ["ignore", "ignore", "pipe"],
   });
-  return { driver, port };
+  let stderr = "";
+  driver.stderr.on("data", (chunk) => {
+    if (stderr.length < 4000) stderr += chunk.toString();
+  });
+  return { driver, port, driverLog: () => stderr.trim() };
 }
 
 async function runCase(test) {
@@ -241,14 +248,13 @@ async function runCase(test) {
   try {
     const started = await startDriver(dataDir);
     driver = started.driver;
-    await waitForDriver(driver, started.port);
+    await waitForDriver(driver, started.port, started.driverLog);
     browser = await remote({
       hostname: "127.0.0.1",
       port: started.port,
       path: "/",
       logLevel: "error",
       capabilities: {
-        browserName: "wry",
         "tauri:options": { application: appPath },
       },
     });
