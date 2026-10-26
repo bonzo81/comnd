@@ -126,7 +126,9 @@ async function inputState(browser) {
   return browser.execute(() => {
     const style = (selector) => {
       const el = document.querySelector(selector);
-      return el ? getComputedStyle(el).display !== "none" : false;
+      // getClientRects() is empty when an ancestor is hidden, which
+      // getComputedStyle() alone would miss.
+      return !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== "none";
     };
     return {
       ghost: style(".ghost-text"),
@@ -265,7 +267,21 @@ async function waitForSessionCleanup(browser, label) {
 
 async function sendKeys(browser, keys) {
   await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
-  await browser.keys(keys);
+  const sequence = Array.isArray(keys) ? keys : [...keys];
+  // A modifier chord must stay in one command, otherwise WebKit releases the
+  // modifier before the character arrives (Ctrl+W becomes a plain "w").
+  if (sequence.some((key) => /[\uE008-\uE00A\uE03D]/.test(key))) {
+    await browser.keys(sequence);
+    return;
+  }
+  // WebKitWebDriver coalesces a run of identical characters inside one keys()
+  // call, so "zzzz" arrives as a single "z" and "disconnect" loses its doubled
+  // letter. One character per command keeps the real keystroke path and the
+  // exact byte counts the scenarios assert on.
+  for (const key of sequence) {
+    await browser.keys(key);
+    await pause(5);
+  }
 }
 
 async function startDriver(dataDir) {
