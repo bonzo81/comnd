@@ -573,10 +573,12 @@ async function main() {
       console.error(`FAIL ${test.name}: ${error.message}`);
     }
   }
-  if (failures) process.exitCode = 1;
+  // The driver's grandchildren can inherit its stderr pipe, so returning
+  // normally leaves Node alive and the CI job hangs until its own timeout.
+  process.exit(failures ? 1 : 0);
 }
 
 main().catch((error) => {
   console.error(error.stack ?? error);
-  process.exitCode = 1;
+  process.exit(1);
 });
