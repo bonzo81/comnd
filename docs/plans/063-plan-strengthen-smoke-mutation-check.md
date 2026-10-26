@@ -1,0 +1,54 @@
+# Plan: Strengthen the smoke mutation check (issue #61)
+
+Status: Approved; implementation not started.
+Spec: bonzo81/comnd#61. Task prompt: none yet.
+
+## Goal
+
+The runner can break one app behaviour from the app process's environment, and running the
+mutation makes a named smoke scenario fail with a message that names what broke — instead of
+the mock going quiet.
+
+## Background
+
+`npm run smoke:mutation` currently makes the mock host stop echoing (`muteOutput` in
+`src-tauri/src/test_server.rs`). No application code is touched, so the check proves the runner
+notices a silent mock, not that the suite would catch a broken app. Issue #61 records this as
+the weakest of the #53 acceptance criteria.
+
+## Not doing
+
+- No new smoke scenarios; the mutation reuses `command-round-trip`.
+- No change to how keystrokes reach the app in unmutated runs.
+- No change to the mock's normal echo behaviour.
+
+## Rules
+
+- The switch is an env var, `COMND_SMOKE_MUTATION`, read from the app process only. The runner
+  already spawns the driver that launches the app, so it sets the variable there.
+- Debug builds only, gated like the existing smoke commands in `src-tauri/src/lib.rs`. A release
+  build must have no mutation path.
+- `npm run smoke:mutation` keeps its shape; the CLI does not change.
+- Keystroke path stays in the frontend. The mutation may stop bytes at the Rust boundary; it
+  must not move terminal logic into Rust.
+
+## Done looks like
+
+- [ ] `COMND_SMOKE_MUTATION=ssh_input` forwards zero bytes for typed input — proof: the flag's
+      diff sits in app code (`src-tauri/src/lib.rs` / `src-tauri/src/ssh.rs`), and `git diff`
+      shows nothing changed in the mock's echo path to make the failure happen.
+- [ ] `npm run smoke:mutation` exits 0 with one expected failure — proof: the output line pasted
+      into the PR.
+- [ ] That failure names the behaviour, not just a byte count — proof: the pasted text reads as a
+      broken feature (for example "mock received 0 bytes"), not a bare mismatch.
+- [ ] Unmutated `npm run smoke` passes 10/10 on Windows and on Linux CI — proof: green run ids.
+- [ ] No mutation in release — proof: the read sits inside `#[cfg(debug_assertions)]`, cited by
+      file and line in the PR.
+
+## Known gaps (handed over deliberately)
+
+- **Whether the existing mock-side `muteOutput` check stays.** It may run alongside the app-side
+  mutation, or be replaced by it. Either is acceptable, as long as `npm run smoke:mutation`
+  proves an app-side break.
+- **The target is `ssh_input` byte forwarding**, option 1 in issue #61. If that turns out
+  impractical, the implementer picks the next option and says which and why.
