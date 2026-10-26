@@ -141,6 +141,9 @@ src-tauri/              # Rust backend
   Cargo.toml            # Rust dependencies
   tauri.conf.json       # Tauri configuration
 
+test/smoke/             # Full-app WebDriver smoke suite (npm run smoke; mock SSH
+                        #   host in src-tauri/src/test_server.rs)
+
 docs/                   # Specification documents, implementation plans, roadmap
 
 knowledge-base/         # YAML knowledge bases per platform
@@ -158,8 +161,9 @@ Before marking a task complete:
 - Frontend unit tests are co-located with source as `*.test.ts` files in the same directory (e.g., `src/lib/suggestion-engine.test.ts` tests `src/lib/suggestion-engine.ts`). Do not create a separate `tests/` directory for unit tests — the top-level `tests/` holds harness-based integration tests.
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Rust tests: run `cargo test` in `src-tauri/`. It must exit 0 (CI runs this on every PR).
+- Smoke tests: run `npm run smoke` when a change touches the keystroke path, the suggestion controller, the terminal view, or the smoke suite itself. It boots the real debug app against an ephemeral mock host; see `docs/plans/062-plan-full-app-ssh-smoke-tests.md`. CI runs it on every PR.
 - Make sure that agent results match the expected outcomes.
-- Windows/PowerShell agents: cargo and npm print progress to stderr, which PowerShell renders as error records even on success — judge by exit code or final output lines, not error-record styling. Quote-sensitive `gh` filters (`--jq`, GraphQL queries) are safer written to a file and passed with `-F key=@file`.
+- Windows/PowerShell agents: cargo and npm print progress to stderr, which PowerShell renders as error records even on success — judge by exit code or final output lines, not error-record styling. Quote-sensitive `gh` filters (`--jq`, GraphQL queries) are safer written to a file and passed with `-F key=@file`. Write commit messages with `[System.IO.File]::WriteAllLines` plus `UTF8Encoding($false)`; PowerShell 5.1's `Set-Content -Encoding utf8` prepends a BOM, which corrupts the subject and fails commitlint.
 
 ## Git Hygiene
 
