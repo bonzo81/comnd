@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -19,6 +19,20 @@ const appPath = path.join(
 );
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const SCENARIO_TIMEOUT_MS = 180_000;
+
+// CI runners are slow (debug build, Xvfb, WebKit); a tight wait turns runner
+// latency into a false failure. The per-scenario cap still bounds the suite.
+const WAIT_MS = 30_000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timerPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not finish within ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timerPromise]).finally(() => clearTimeout(timer));
+}
 
 async function freePort() {
   const server = net.createServer();
@@ -102,12 +116,46 @@ async function readBytes(browser) {
   return Array.from(await invoke(browser, "test_smoke_received"));
 }
 
+function escapeBytes(bytes) {
+  return `[${bytes.map((byte) => (byte === 0x09 ? "0x09" : byte >= 0x20 && byte < 0x7f
+    ? JSON.stringify(String.fromCharCode(byte))
+    : `0x${byte.toString(16).padStart(2, "0")}`)).join(" ")}]`;
+}
+
+async function inputState(browser) {
+  return browser.execute(() => {
+    const style = (selector) => {
+      const el = document.querySelector(selector);
+      return el ? getComputedStyle(el).display !== "none" : false;
+    };
+    return {
+      ghost: style(".ghost-text"),
+      ghostText: document.querySelector(".ghost-text")?.textContent ?? null,
+      dropdown: style(".suggestion-dropdown"),
+      suggestionsPressed: document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null,
+      focused: document.activeElement?.className ?? null,
+      connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+      banner: style(".tv-banner"),
+      hostList: style(".hs-host-list"),
+      overlayError: style(".tv-overlay-error"),
+    };
+  }).catch(() => null);
+}
+
 async function waitForBytes(browser, length) {
-  await browser.waitUntil(async () => (await readBytes(browser)).length >= length, {
-    timeout: 10_000,
-    interval: 50,
-    timeoutMsg: `Mock host did not receive ${length} bytes`,
-  });
+  try {
+    await browser.waitUntil(async () => (await readBytes(browser)).length >= length, {
+      timeout: WAIT_MS,
+      interval: 50,
+      timeoutMsg: `Mock host did not receive ${length} bytes`,
+    });
+  } catch (error) {
+    const received = await readBytes(browser).catch(() => []);
+    throw new Error(
+      `${error.message}; mock received ${received.length} bytes ${escapeBytes(received)}; `
+      + `input state ${JSON.stringify(await inputState(browser))}`,
+    );
+  }
   return readBytes(browser);
 }
 
@@ -142,7 +190,7 @@ async function acceptHostKeyIfNeeded(browser) {
     }
     return state.connected || state.failed;
   }, {
-    timeout: 10_000,
+    timeout: WAIT_MS,
     interval: 100,
     timeoutMsg: "Host-key confirmation did not appear and SSH did not finish",
   });
@@ -209,7 +257,7 @@ async function waitForSessionCleanup(browser, label) {
     return !document.querySelector(".tv-terminal")
       && document.body.innerText.includes("0 sessions");
   }), {
-    timeout: 10_000,
+    timeout: WAIT_MS,
     interval: 100,
     timeoutMsg: `${label}: terminal session was not removed`,
   });
@@ -260,15 +308,16 @@ async function runCase(test) {
     });
     await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
     await (await browser.$("body")).waitForExist({ timeout: 20_000 });
-    await test.run(browser, dataDir);
+    // A wedged WebDriver session otherwise blocks the whole job until its timeout.
+    await withTimeout(test.run(browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
   } catch (caught) {
     error = caught;
     if (browser) {
-      const state = await browser.execute(() => ({
+      const state = await withTimeout(browser.execute(() => ({
         text: document.body.innerText,
         terminal: !!document.querySelector(".tv-terminal"),
         connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
-      })).catch(() => null);
+      })), 15_000, "failure state capture").catch(() => null);
       if (state) {
         error = new Error(
           `${caught.message}\nVisible app text: ${state.text}\nTerminal mounted: ${state.terminal}; connected: ${state.connected}`,
@@ -279,12 +328,12 @@ async function runCase(test) {
   } finally {
     if (browser) {
       try {
-        await invoke(browser, "test_stop_mock_server");
+        await withTimeout(invoke(browser, "test_stop_mock_server"), 15_000, "mock server stop");
       } catch {
         // The app may have failed before the debug command became available.
       }
       try {
-        await browser.deleteSession();
+        await withTimeout(browser.deleteSession(), 20_000, "session teardown");
       } catch (caught) {
         cleanupError ??= caught;
       }
@@ -368,7 +417,7 @@ async function main() {
       expectedFailure: /Command round-trip: expected remote echo exactly once/,
       run: (browser, dataDir) => commandRoundTrip(browser, dataDir, true),
     });
-    console.log(`PASS mutation-check — ${result}`);
+    console.log(`PASS mutation-check â€” ${result}`);
     return;
   }
 
@@ -392,7 +441,7 @@ async function main() {
           const ghost = document.querySelector(".ghost-text");
           return !!ghost && getComputedStyle(ghost).display !== "none" && ghost.textContent === "oute";
         }), {
-          timeout: 10_000,
+          timeout: WAIT_MS,
           interval: 100,
           timeoutMsg: "Suggestion accept: expected ghost remainder 'oute' for 'ip r'",
         });
@@ -468,7 +517,16 @@ async function main() {
         await launchAndConnect(browser, dataDir);
         await sendKeys(browser, "disconnect");
         await sendKeys(browser, "\uE007");
-        await (await browser.$(".hs-host-list")).waitForDisplayed({ timeout: 10_000 });
+        try {
+          await (await browser.$(".hs-host-list")).waitForDisplayed({ timeout: WAIT_MS });
+        } catch (error) {
+          const received = await readBytes(browser).catch(() => []);
+          throw new Error(
+            `${error.message}; mock received ${received.length} bytes ${escapeBytes(received)}; `
+            + `state ${JSON.stringify(await inputState(browser))}; terminal text `
+            + `${JSON.stringify((await terminalText(browser).catch(() => "")).slice(-400))}`,
+          );
+        }
         assertBytes(await readBytes(browser), [...Buffer.from("disconnect\r")], "Server disconnect: mock received disconnect command");
       },
     },
@@ -509,7 +567,7 @@ async function main() {
   for (const test of tests) {
     try {
       const expected = await runCase(test);
-      console.log(`PASS ${test.name}${expected ? ` — ${expected}` : ""}`);
+      console.log(`PASS ${test.name}${expected ? ` â€” ${expected}` : ""}`);
     } catch (error) {
       failures += 1;
       console.error(`FAIL ${test.name}: ${error.message}`);

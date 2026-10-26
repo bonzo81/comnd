@@ -95,7 +95,15 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
+      - name: cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-2.1.0-${{ runner.os }}-${{ runner.arch }}
+
       - name: install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.1.0 --locked
 
       - name: full-app SSH smoke tests
