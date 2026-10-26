@@ -21,6 +21,7 @@
 //!   the `Password:` round — pins that empty rounds are auto-answered
 //!   instead of stalling auth until the 120s timeout.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use russh::keys::key::safe_rng;
@@ -46,12 +47,29 @@ struct ConnState {
     /// Pending escape-sequence bytes; survives across `data()` calls so a
     /// sequence split over packets still parses.
     esc_buf: Vec<u8>,
+    /// The `disconnect` command asks the mock to close the remote channel.
+    disconnect_requested: bool,
 }
 
 /// Per-connection handler: auth (captures username) + interactive shell.
 struct MockHandler {
     state: ConnState,
     kbd_int: KbdIntPersona,
+    /// When set, every raw shell byte received is appended here so smoke
+    /// tests can assert exact bytes the client sent.
+    received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
+    /// Set when the client closes the shell channel or SSH connection.
+    closed: Option<Arc<AtomicBool>>,
+    /// Mutation-test mode: accept input but suppress all shell responses.
+    mute_output: bool,
+}
+
+impl Drop for MockHandler {
+    fn drop(&mut self) {
+        if let Some(closed) = &self.closed {
+            closed.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 impl MockHandler {
@@ -194,7 +212,11 @@ impl MockHandler {
             0x0d | 0x0a => {
                 let cmd = String::from_utf8_lossy(&self.state.line).into_owned();
                 self.state.line.clear();
-                self.dispatch_command(&cmd, out);
+                if cmd == "disconnect" {
+                    self.state.disconnect_requested = true;
+                } else {
+                    self.dispatch_command(&cmd, out);
+                }
             }
             0x7f | 0x08 => {
                 // Backspace / DEL: drop the last char and repaint.
@@ -239,6 +261,9 @@ enum KbdIntPersona {
 #[derive(Clone)]
 struct MockServer {
     kbd_int: KbdIntPersona,
+    received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
+    closed: Option<Arc<AtomicBool>>,
+    mute_output: bool,
 }
 
 impl server::Server for MockServer {
@@ -248,6 +273,9 @@ impl server::Server for MockServer {
         MockHandler {
             state: ConnState::default(),
             kbd_int: self.kbd_int.clone(),
+            received: self.received.clone(),
+            closed: self.closed.clone(),
+            mute_output: self.mute_output,
         }
     }
 }
@@ -444,12 +472,31 @@ impl server::Handler for MockHandler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if let Some(rec) = &self.received {
+            rec.lock()
+                .expect("recorder poisoned")
+                .extend_from_slice(data);
+        }
         let mut out = Vec::new();
         for &b in data {
             self.handle_byte(b, &mut out);
         }
-        if !out.is_empty() {
+        if self.state.disconnect_requested {
+            self.state.disconnect_requested = false;
+            session.close(channel)?;
+        } else if !out.is_empty() && !self.mute_output {
             session.data(channel, out)?;
+        }
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        _channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if let Some(closed) = &self.closed {
+            closed.store(true, Ordering::SeqCst);
         }
         Ok(())
     }
@@ -490,8 +537,49 @@ pub async fn start_info_round_mock_server(expected: &str) -> (u16, tokio::task::
     start_mock_server_with(KbdIntPersona::PasswordInfoRound { expected: expected.to_string() }).await
 }
 
+/// Start the debug-app smoke-test server. `reject_auth` makes its password
+/// prompt reject the configured test secret; `mute_output` is used only by
+/// the mutation smoke test to prove terminal-output assertions are active.
+#[cfg(debug_assertions)]
+pub async fn start_smoke_mock_server(
+    reject_auth: bool,
+    mute_output: bool,
+) -> (
+    u16,
+    tokio::task::JoinHandle<()>,
+    Arc<std::sync::Mutex<Vec<u8>>>,
+    Arc<AtomicBool>,
+) {
+    let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let closed = Arc::new(AtomicBool::new(false));
+    let persona = if reject_auth {
+        KbdIntPersona::Password {
+            expected: "not-the-smoke-secret".into(),
+        }
+    } else {
+        KbdIntPersona::BrowserAuth
+    };
+    let (port, handle) = start_mock_server_inner(
+        persona,
+        Some(received.clone()),
+        Some(closed.clone()),
+        mute_output,
+    )
+    .await;
+    (port, handle, received, closed)
+}
+
 /// Persona-driven server bootstrap shared by both public constructors.
 async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::JoinHandle<()>) {
+    start_mock_server_inner(kbd_int, None, None, false).await
+}
+
+async fn start_mock_server_inner(
+    kbd_int: KbdIntPersona,
+    received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
+    closed: Option<Arc<AtomicBool>>,
+    mute_output: bool,
+) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
     let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519)
         .expect("Failed to generate mock server key");
@@ -513,7 +601,12 @@ async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::Jo
 
     // Move socket and server into a spawned task so they outlive this function
     let handle = tokio::spawn(async move {
-        let mut server = MockServer { kbd_int };
+        let mut server = MockServer {
+            kbd_int,
+            received,
+            closed,
+            mute_output,
+        };
         let running = server.run_on_socket(config, &socket);
         running.await.expect("Mock server encountered an error");
     });
@@ -771,6 +864,9 @@ mod tests {
         let mut h = MockHandler {
             state: ConnState { user: "cisco".into(), prompt: "Router>".into(), ..Default::default() },
             kbd_int: KbdIntPersona::BrowserAuth,
+            received: None,
+            closed: None,
+            mute_output: false,
         };
         let e = MockHandler::ESC;
 
@@ -804,6 +900,9 @@ mod tests {
         let mut h = MockHandler {
             state: ConnState { user: "root".into(), prompt: "user@host:~$ ".into(), ..Default::default() },
             kbd_int: KbdIntPersona::BrowserAuth,
+            received: None,
+            closed: None,
+            mute_output: false,
         };
 
         let mut out = Vec::new();

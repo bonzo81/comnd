@@ -19,6 +19,12 @@ const BUNDLE_ID: &str = "com.comnd.app";
 /// - macOS: `~/Library/Application Support/com.comnd.app`
 /// - Linux: `$XDG_DATA_HOME/com.comnd.app` or `~/.local/share/com.comnd.app`
 pub fn app_data_dir() -> Result<PathBuf, String> {
+    // Smoke tests point the app at a throwaway dir so runs never touch real
+    // user data. Debug builds only: release builds ignore the variable.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("COMND_DATA_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     dirs::data_local_dir()
         .map(|d| d.join(BUNDLE_ID))
         .ok_or_else(|| "Could not resolve app data dir".to_string())
