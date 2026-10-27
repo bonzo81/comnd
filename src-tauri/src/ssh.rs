@@ -488,16 +488,9 @@ impl SshSession {
         mut auth_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<Self, String> {
         // Usernames are never logged: comnd.log persists to disk and gets
-        // attached to bug reports. host:port and session_id are enough to
-        // correlate a connection, so both are logged.
-        log::info!(
-            "SSH connecting to {}:{} ({}x{}) [session {}]",
-            hostname,
-            port,
-            cols,
-            rows,
-            session_id
-        );
+        // attached to bug reports. host:port is enough to identify a
+        // connection.
+        log::info!("SSH connecting to {}:{} ({}x{})", hostname, port, cols, rows);
 
         // Build russh config
         let config = Arc::new(client::Config {
@@ -530,7 +523,7 @@ impl SshSession {
 
         // Connect
         let addr = format!("{}:{}", hostname, port);
-        log::info!("SSH TCP connecting to {} [session {}]", addr, session_id);
+        log::info!("SSH TCP connecting to {}", addr);
         let mut session = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             client::connect(config, &addr, handler),
@@ -539,7 +532,7 @@ impl SshSession {
         .map_err(|_| format!("Connection timed out after 10s to {}", addr))?
         .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
 
-        log::info!("SSH TCP connected to {} [session {}]", addr, session_id);
+        log::info!("SSH TCP connected to {}", addr);
 
         // Authenticate (with timeout to prevent indefinite hangs).
         // 120s: browser-auth gateways (Tailscale check mode) hold auth open while
@@ -553,11 +546,11 @@ impl SshSession {
         ?;
 
         if !auth_success {
-            log::warn!("SSH authentication failed for {} [session {}]", addr, session_id);
+            log::warn!("SSH authentication failed for {}", addr);
             return Err("Authentication failed — server rejected all offered methods (SSH key, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
-        log::info!("SSH authenticated successfully for {} [session {}]", addr, session_id);
+        log::info!("SSH authenticated successfully for {}", addr);
 
         // Open channel and allocate PTY (with timeout)
         let setup = async {

@@ -52,10 +52,8 @@ at any level, in any build, with no opt-in escape hatch. Host display names
 stay, because they are a label the user chose rather than an identity. Local
 file paths are identifiers too: the key-auth log lines record the private-key
 file name only, because the full path carries the account name in the home
-directory. Session id is logged alongside host:port, since it is what
-distinguishes two overlapping attempts on the same host. Session logs are
-unchanged: they record the raw terminal stream by design, can contain the
-username, and remain opt-in.
+directory. Session logs are unchanged: they record the raw terminal stream by
+design, can contain the username, and remain opt-in.
 
 Implemented in PR #65.
 
@@ -65,9 +63,14 @@ Implemented in PR #65.
   cleartext-logging alerts close; one rule now covers both the direct `log::`
   path and the frontend forward sink.
 - Harder: diagnosing "which account failed" on a host with several saved
-  accounts needs the session id or the user's own knowledge, not the log.
+  accounts needs the user's own knowledge, not the log.
 - Rules out: a future verbose mode that logs usernames. Adding one supersedes
   this ADR.
+- Rejected in review: adding session id to the connection log lines so
+  overlapping attempts could be told apart. It only helps when two connections
+  to the same host are live at once, which needs multi-session — post-MVP — and
+  CodeQL treats `session_id` as a sensitive value, so it would open five more
+  permanent alerts for a case the app cannot produce yet.
 - Not covered: the log still records hostnames, ports and host display names. A
   hostname can be identifying in some environments; this ADR accepts that.
 - Lesson from the work: an error string returned to the frontend is a logging
