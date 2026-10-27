@@ -18,8 +18,10 @@ bug reports. It carried the SSH username in cleartext at four sites:
 
 `session_log.rs` is the per-session transcript: raw terminal bytes, opt-in, one
 file per connection, named from host:port and session id. Its raw-output nature
-is documented in `docs/specs/02-technical-architecture.md:144`. It never
-contained the username, and it is deliberately not redacted.
+is documented in `docs/specs/02-technical-architecture.md:144`. It does contain
+the username when the client-side password prompt fires, because `ssh.rs:877`
+writes `user@host's password:` into the transcript like any device prompt, and
+it is deliberately not redacted.
 
 The two had drifted together in practice: the 11 `rust/cleartext-logging`
 code-scanning alerts did not say which log they meant, and the answer was "the
@@ -47,9 +49,13 @@ open.
 
 Redact usernames from the app log and keep host:port. Usernames are not logged
 at any level, in any build, with no opt-in escape hatch. Host display names
-stay, because they are a label the user chose rather than an identity. Session
-logs are unchanged: they record the raw terminal stream by design, never
-contained the username, and remain opt-in.
+stay, because they are a label the user chose rather than an identity. Local
+file paths are identifiers too: the key-auth log lines record the private-key
+file name only, because the full path carries the account name in the home
+directory. Session id is logged alongside host:port, since it is what
+distinguishes two overlapping attempts on the same host. Session logs are
+unchanged: they record the raw terminal stream by design, can contain the
+username, and remain opt-in.
 
 Implemented in PR #65.
 

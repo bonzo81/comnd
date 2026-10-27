@@ -28,9 +28,15 @@ dependency of the end-to-end test harness: webdriverio → @wdio/utils → @pupp
 → extract-zip. `npm ls extract-zip --omit=dev` returns nothing, and no release artifact
 contains it.
 
-Both are unfixable from this repo today. The difference is whether the vulnerable code can
-reach a user. glib compiles into Linux release builds; extract-zip never leaves the dev
-machine.
+glib is unfixable from this repo. extract-zip is not: `npm audit` offers exactly
+one remediation, a semver-major upgrade to webdriverio 10.1.0, which is deferred
+and tracked in issue #66. That deferral is what the dismissal rests on, not the
+absence of a fix. The distinction matters — `first_patched_version: null` says
+nothing about whether an upgrade further up the chain drops the dependency, so
+the parent chain has to be checked separately every time.
+
+What separates the two is reachability: glib compiles into Linux release builds,
+extract-zip never leaves the dev machine.
 
 GitHub caps a dismissal comment at 280 characters, so both extract-zip comments truncate
 mid-sentence. The alert cannot carry the reasoning — that has to live here.
@@ -57,7 +63,7 @@ is the reminder that closes itself the day a patched lockfile lands on the defau
 
 Applied: glib #42 stays open — it compiles into Linux release builds, and a tauri/wry bump
 carries the fix automatically. extract-zip #86 and #87 are dismissed as tolerable risk —
-dev-only, never shipped, and no fixed release exists.
+dev-only, never shipped, and the only remedy is the deferred webdriverio 10 upgrade in #66.
 
 Every dismissal names the scope evidence, the dependency chain, and the upgrade that would
 remove it, in that order, inside the 280-character limit. The full reasoning goes in an ADR
