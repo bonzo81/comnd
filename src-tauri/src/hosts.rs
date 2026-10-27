@@ -242,7 +242,7 @@ impl HostStore {
         host.id = uuid::Uuid::new_v4().to_string();
         host.created_at = chrono::Utc::now().to_rfc3339();
         host.sort_order = self.hosts.len() as u32;
-        log::info!("Host created: '{}' ({}@{}:{})", host.display_name, host.username, host.hostname, host.port);
+        log::info!("Host created: '{}' ({}:{})", host.display_name, host.hostname, host.port);
         self.hosts.push(host.clone());
         self.save()?;
         Ok(host)

@@ -487,7 +487,10 @@ impl SshSession {
         session_log_dir: Option<String>,
         mut auth_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<Self, String> {
-        log::info!("SSH connecting to {}:{} as '{}' ({}x{})", hostname, port, username, cols, rows);
+        // Usernames are never logged: comnd.log persists to disk and gets
+        // attached to bug reports. host:port and session_id are enough to
+        // correlate a connection.
+        log::info!("SSH connecting to {}:{} ({}x{})", hostname, port, cols, rows);
 
         // Build russh config
         let config = Arc::new(client::Config {
@@ -539,15 +542,15 @@ impl SshSession {
             Self::authenticate(&app_handle, &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
         )
         .await
-        .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
+        .map_err(|_| format!("Authentication timed out after 120s for {}", addr))?
         ?;
 
         if !auth_success {
-            log::warn!("SSH authentication failed for {}@{}", username, addr);
+            log::warn!("SSH authentication failed for {}", addr);
             return Err("Authentication failed — server rejected all offered methods (SSH key, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
-        log::info!("SSH authenticated successfully as {}@{}", username, addr);
+        log::info!("SSH authenticated successfully for {}", addr);
 
         // Open channel and allocate PTY (with timeout)
         let setup = async {
