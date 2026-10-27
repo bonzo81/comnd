@@ -67,6 +67,10 @@ These are non-negotiable. Don't deviate without discussion.
 - Each platform is self-contained — duplication across platforms is intentional
 - See `CONTRIBUTING.md` for the command entry format
 
+## Verification
+
+Smoke tests boot the real debug app against an ephemeral mock SSH host: run `npm run smoke`, and `npm run smoke:mutation` after changing `test/smoke/`. Supported hosts are Linux (via `xvfb-run`) and Windows; macOS is not supported by the driver setup. The full gate list is in `AGENTS.md`.
+
 ## What NOT To Do
 
 - Don't add AI/LLM features — that's post-MVP
