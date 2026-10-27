@@ -31,24 +31,33 @@ the weakest of the #53 acceptance criteria.
 - `npm run smoke:mutation` keeps its shape; the CLI does not change.
 - Keystroke path stays in the frontend. The mutation may stop bytes at the Rust boundary; it
   must not move terminal logic into Rust.
+- The `mutation-check` matcher changes with the mutation. Today it expects
+  `/Command round-trip: expected remote echo exactly once/`, which comes from the mock going
+  quiet. A zero-byte `ssh_input` run fails earlier, in `waitForBytes`, with
+  `Command round-trip: Mock host did not receive <n> bytes`. The matcher must accept that
+  failure and reject the old remote-echo-only one, so a passing unmutated run cannot satisfy it.
 
 ## Done looks like
 
 - [ ] `COMND_SMOKE_MUTATION=ssh_input` forwards zero bytes for typed input — proof: the flag's
       diff sits in app code (`src-tauri/src/lib.rs` / `src-tauri/src/ssh.rs`), and `git diff`
       shows nothing changed in the mock's echo path to make the failure happen.
-- [ ] `npm run smoke:mutation` exits 0 with one expected failure — proof: the output line pasted
-      into the PR.
-- [ ] That failure names the behaviour, not just a byte count — proof: the pasted text reads as a
-      broken feature (for example "mock received 0 bytes"), not a bare mismatch.
+- [ ] `npm run smoke:mutation` exits 0 with one expected failure — proof: the matcher now names
+      the zero-byte `command-round-trip` failure, and the output line is pasted into the PR.
+- [ ] That failure names the behaviour, not just a byte count — proof: the pasted text names the
+      scenario and the expectation, for example `Command round-trip: Mock host did not receive
+      45 bytes; mock received 0 bytes`, so a reader knows which behaviour broke.
 - [ ] Unmutated `npm run smoke` passes 10/10 on Windows and on Linux CI — proof: green run ids.
-- [ ] No mutation in release — proof: the read sits inside `#[cfg(debug_assertions)]`, cited by
-      file and line in the PR.
+- [ ] No mutation in release — proof: the environment read, the mutation helper, and its call
+      site all sit inside the same `#[cfg(debug_assertions)]` boundary, cited by file and line in
+      the PR, or a release-build check proves `COMND_SMOKE_MUTATION` cannot change SSH input.
 
 ## Known gaps (handed over deliberately)
 
 - **Whether the existing mock-side `muteOutput` check stays.** It may run alongside the app-side
   mutation, or be replaced by it. Either is acceptable, as long as `npm run smoke:mutation`
   proves an app-side break.
-- **The target is `ssh_input` byte forwarding**, option 1 in issue #61. If that turns out
-  impractical, the implementer picks the next option and says which and why.
+- **The target is `ssh_input` byte forwarding**, option 1 in issue #61. That is the acceptance
+  contract. If it turns out impractical, the implementer picks the next option and updates the
+  env value, this checklist, and the matcher in the same PR, naming the option and the reason.
+
