@@ -488,9 +488,18 @@ impl SshSession {
         mut auth_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<Self, String> {
         // Usernames are never logged: comnd.log persists to disk and gets
-        // attached to bug reports. host:port is enough to identify a
-        // connection.
-        log::info!("SSH connecting to {}:{} ({}x{})", hostname, port, cols, rows);
+        // attached to bug reports. host:port plus the session id identifies a
+        // connection: the id is an opaque timestamp-minted value, not an
+        // account identity, and it is the join key to the session log file
+        // name built in session_log.rs.
+        log::info!(
+            "SSH connecting to {}:{} ({}x{}) [session {}]",
+            hostname,
+            port,
+            cols,
+            rows,
+            session_id
+        );
 
         // Build russh config
         let config = Arc::new(client::Config {
@@ -546,11 +555,19 @@ impl SshSession {
         ?;
 
         if !auth_success {
-            log::warn!("SSH authentication failed for {}", addr);
+            log::warn!(
+                "SSH authentication failed for {} [session {}]",
+                addr,
+                session_id
+            );
             return Err("Authentication failed — server rejected all offered methods (SSH key, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
-        log::info!("SSH authenticated successfully for {}", addr);
+        log::info!(
+            "SSH authenticated successfully for {} [session {}]",
+            addr,
+            session_id
+        );
 
         // Open channel and allocate PTY (with timeout)
         let setup = async {
