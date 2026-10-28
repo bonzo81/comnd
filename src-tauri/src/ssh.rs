@@ -487,7 +487,19 @@ impl SshSession {
         session_log_dir: Option<String>,
         mut auth_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AuthControl>>,
     ) -> Result<Self, String> {
-        log::info!("SSH connecting to {}:{} as '{}' ({}x{})", hostname, port, username, cols, rows);
+        // Usernames are never logged: comnd.log persists to disk and gets
+        // attached to bug reports. host:port plus the session id identifies a
+        // connection: the id is an opaque timestamp-minted value, not an
+        // account identity, and it is the join key to the session log file
+        // name built in session_log.rs.
+        log::info!(
+            "SSH connecting to {}:{} ({}x{}) [session {}]",
+            hostname,
+            port,
+            cols,
+            rows,
+            session_id
+        );
 
         // Build russh config
         let config = Arc::new(client::Config {
@@ -539,15 +551,23 @@ impl SshSession {
             Self::authenticate(&app_handle, &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
         )
         .await
-        .map_err(|_| format!("Authentication timed out after 120s for {}@{}", username, addr))?
+        .map_err(|_| format!("Authentication timed out after 120s for {}", addr))?
         ?;
 
         if !auth_success {
-            log::warn!("SSH authentication failed for {}@{}", username, addr);
+            log::warn!(
+                "SSH authentication failed for {} [session {}]",
+                addr,
+                session_id
+            );
             return Err("Authentication failed — server rejected all offered methods (SSH key, password, keyboard-interactive). Check the host's saved credentials.".to_string());
         }
 
-        log::info!("SSH authenticated successfully as {}@{}", username, addr);
+        log::info!(
+            "SSH authenticated successfully for {} [session {}]",
+            addr,
+            session_id
+        );
 
         // Open channel and allocate PTY (with timeout)
         let setup = async {
@@ -669,7 +689,14 @@ impl SshSession {
         if let Some(key_path) = key_path {
             let path = Path::new(key_path);
             if path.exists() {
-                log::info!("Attempting SSH key auth with {}", key_path);
+                // The full path leaks the local account name (e.g.
+                // /home/alice/.ssh/id_ed25519), so log the file name only: it
+                // still says which key was tried without naming the account.
+                let key_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "<unnamed>".to_string());
+                log::info!("Attempting SSH key auth with {}", key_name);
                 // RSA signatures need an explicit hash alg (SHA-1 is dead);
                 // everything else ignores it.
                 // 0.60: PrivateKeyWithHashAlg::new is infallible (it ignores
@@ -695,7 +722,7 @@ impl SshSession {
                         // Key auth failed, fall through to password
                     }
                     Err(e) => {
-                        log::warn!("Failed to load SSH key {}: {}. Falling back to password.", key_path, e);
+                        log::warn!("Failed to load SSH key {}: {}. Falling back to password.", key_name, e);
                     }
                 }
             }
