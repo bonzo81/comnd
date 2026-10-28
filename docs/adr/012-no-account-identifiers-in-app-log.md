@@ -55,6 +55,12 @@ file name only, because the full path carries the account name in the home
 directory. Session logs are unchanged: they record the raw terminal stream by
 design, can contain the username, and remain opt-in.
 
+Session id is logged on three lines: connection open, authentication failure and
+authentication success. It is an opaque value minted from a timestamp, not an
+account identity, and it is the join key to the session log file name, which is
+built from host:port and session id in `session_log.rs:33`. Without it, two live
+sessions to the same device cannot be matched to their transcripts.
+
 Implemented in PR #65.
 
 ## Consequences
@@ -66,11 +72,14 @@ Implemented in PR #65.
   accounts needs the user's own knowledge, not the log.
 - Rules out: a future verbose mode that logs usernames. Adding one supersedes
   this ADR.
-- Rejected in review: adding session id to the connection log lines so
-  overlapping attempts could be told apart. It only helps when two connections
-  to the same host are live at once, which needs multi-session — post-MVP — and
-  CodeQL treats `session_id` as a sensitive value, so it would open five more
-  permanent alerts for a case the app cannot produce yet.
+- Reconsidered in review: session id was added to all five connection log lines,
+  then reverted on the mistaken belief that multi-session was post-MVP. It ships:
+  `src/main.ts` keeps one tab and one `SessionChannel` per host. Session id is
+  now logged on three lines, not five, so the diagnostic case is covered without
+  logging the momentary TCP-connect steps. CodeQL treats `session_id` as
+  sensitive, so those three alerts are dismissed under this ADR. Display name was
+  rejected as the correlator: `validate_host` does not enforce uniqueness, and it
+  does not appear in the session-log file name.
 - Not covered: the log still records hostnames, ports and host display names. A
   hostname can be identifying in some environments; this ADR accepts that.
 - Lesson from the work: an error string returned to the frontend is a logging
