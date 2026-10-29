@@ -43,4 +43,6 @@ async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 scraper = "0.19"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
-zip = "2"
+# 9.x clears the zip path-traversal alerts (Dependabot #94/#95/#96) and resolves to a
+# single copy alongside tauri-plugin-updater 2.14.1's `zip = "9"`.
+zip = "9"
