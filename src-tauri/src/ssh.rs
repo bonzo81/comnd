@@ -1594,6 +1594,9 @@ mod tests {
         );
 
         // Positive side: the open and auth-outcome lines carry the session id.
+        // `session_marker` is deliberately kept out of the failure message: CodeQL's
+        // rust/cleartext-logging query counts panic messages as log sinks, and the
+        // captured lines below already show the marker.
         let session_marker = format!("[session {}]", session_id);
         for (what, needle) in [
             ("connection-open", "SSH connecting to"),
@@ -1603,7 +1606,7 @@ mod tests {
                 lines
                     .iter()
                     .any(|line| line.contains(&session_marker) && line.contains(needle)),
-                "the {what} line for {session_marker} was not logged; captured lines:\n{}",
+                "the {what} line for the probe session was not logged; captured lines:\n{}",
                 lines.join("\n")
             );
         }
