@@ -85,3 +85,10 @@ Implemented in PR #65.
 - Lesson from the work: an error string returned to the frontend is a logging
   path. Redaction belongs where the string is built, not only where `log::` is
   called.
+- Guarded two ways: `src-tauri/tests/log_redaction.rs` statically rejects a
+  forbidden identifier inside a `log::` macro, and the unit test
+  `ssh::tests::connect_logs_carry_no_account_identifiers` (issue #68) drives a
+  real connect against the mock SSH server with a capturing logger installed,
+  then asserts what the logger received. The runtime test needs `connect` to
+  take its event sink as a parameter rather than a `tauri::AppHandle`, which is
+  the `ConnectionEvents` seam in `ssh.rs`.
