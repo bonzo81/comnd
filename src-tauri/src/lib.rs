@@ -4,7 +4,10 @@
 //! credential management, config, and KB import.
 
 mod ssh;
-#[cfg(debug_assertions)]
+// The mock SSH server backs the debug-only smoke commands and the unit tests
+// that drive a real connect, so it has to exist in test builds of either
+// profile (`cargo test --release` compiles tests with `debug_assertions` off).
+#[cfg(any(debug_assertions, test))]
 pub mod test_server;
 mod kb;
 mod hosts;

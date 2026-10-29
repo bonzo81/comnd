@@ -27,7 +27,25 @@ struct KnownHostEntry {
     first_seen: String,
 }
 
+/// Test-only override: the runtime log test runs a real connect, whose TOFU
+/// accept would otherwise append an entry to the developer's real
+/// known_hosts.json. Compiled out of production builds.
+#[cfg(test)]
+fn known_hosts_override() -> &'static std::sync::Mutex<Option<PathBuf>> {
+    static OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+        std::sync::OnceLock::new();
+    OVERRIDE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 fn known_hosts_path() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = known_hosts_override()
+        .lock()
+        .ok()
+        .and_then(|override_path| override_path.clone())
+    {
+        return Some(path);
+    }
     Some(crate::paths::app_data_dir().ok()?.join("known_hosts.json"))
 }
 
@@ -125,16 +143,16 @@ fn select_agent_keys(
 /// an explicit user click (phishing surface). The frontend shows an "Open"
 /// button in the connect overlay.
 fn try_open_auth_url(
-    app_handle: &tauri::AppHandle,
+    events: &dyn ConnectionEvents,
     text: &str,
     session_id: u64,
 ) {
     if let Some(url) = extract_https_url(text) {
         log::info!("Auth URL detected: {}", url);
-        let _ = app_handle.emit("ssh-auth-url", SshAuthUrlPayload {
+        events.emit(ConnectionEvent::AuthUrl(SshAuthUrlPayload {
             url,
             session_id,
-        });
+        }));
     }
 }
 
@@ -250,8 +268,67 @@ pub struct SshAuthRoundPayload {
     pub prompts: Vec<SshAuthPromptPayload>,
 }
 
-struct ClientHandler {
+// ─── Connection Event Seam ──────────────────────────────────────────
+
+/// Connection-phase events emitted to the frontend. Shaped like the
+/// `OutputSink` seam in `transcript.rs`: production emits Tauri events, the
+/// unit test observes them. Terminal bytes have their own seam; logging has
+/// none — the test captures it through the global logger.
+pub enum ConnectionEvent {
+    Error(SshEventPayload),
+    Disconnected(SshEventPayload),
+    TofuPending(SshTofuPendingPayload),
+    Tofu(SshEventPayload),
+    AuthUrl(SshAuthUrlPayload),
+    AuthRound(SshAuthRoundPayload),
+    Connected(SshEventPayload),
+}
+
+#[async_trait::async_trait]
+pub trait ConnectionEvents: Send + Sync {
+    fn emit(&self, event: ConnectionEvent);
+    /// Drop a dead session from the shared registry (remote close). Prod
+    /// resolves `AppState` from its handle; the test has nothing to evict.
+    async fn evict(&self, session_id: u64);
+}
+
+/// Prod adapter: the only place the connection path touches `AppHandle`.
+pub struct TauriConnectionEvents {
     app_handle: tauri::AppHandle,
+}
+
+impl TauriConnectionEvents {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+#[async_trait::async_trait]
+impl ConnectionEvents for TauriConnectionEvents {
+    fn emit(&self, event: ConnectionEvent) {
+        let _ = match event {
+            ConnectionEvent::Error(p) => self.app_handle.emit("ssh-error", p),
+            ConnectionEvent::Disconnected(p) => self.app_handle.emit("ssh-disconnected", p),
+            ConnectionEvent::TofuPending(p) => self.app_handle.emit("ssh-tofu-pending", p),
+            ConnectionEvent::Tofu(p) => self.app_handle.emit("ssh-tofu", p),
+            ConnectionEvent::AuthUrl(p) => self.app_handle.emit("ssh-auth-url", p),
+            ConnectionEvent::AuthRound(p) => self.app_handle.emit("ssh-auth-round", p),
+            ConnectionEvent::Connected(p) => self.app_handle.emit("ssh-connected", p),
+        };
+    }
+
+    async fn evict(&self, session_id: u64) {
+        use tauri::Manager;
+        let state = self.app_handle.state::<AppState>();
+        let mut mgr = state.ssh.lock().await;
+        if mgr.take_session(session_id).is_some() {
+            log::debug!("Evicted session {} after remote close", session_id);
+        }
+    }
+}
+
+struct ClientHandler {
+    events: Arc<dyn ConnectionEvents>,
     host_key: String, // "hostname:port"
     session_id: u64,
     transcript: crate::transcript::SharedTranscript,
@@ -277,14 +354,14 @@ impl client::Handler for ClientHandler {
                 return Ok(true);
             } else {
                 log::warn!("HOST KEY CHANGED for {} — prev: {}, new: {}", self.host_key, entry.key_type, key_type);
-                let _ = self.app_handle.emit("ssh-error", SshEventPayload {
+                self.events.emit(ConnectionEvent::Error(SshEventPayload {
                     reason: format!(
                         "HOST KEY HAS CHANGED for {}. This could indicate a man-in-the-middle attack. \
                          Previous key type: {}, new key type: {}. Connection rejected.",
                         self.host_key, entry.key_type, key_type
                     ),
                     session_id: self.session_id,
-                });
+                }));
                 return Ok(false);
             }
         }
@@ -304,12 +381,12 @@ impl client::Handler for ClientHandler {
             let mut map = pending_tofu().lock().expect("tofu map poisoned");
             map.insert(self.session_id, tx);
         }
-        let _ = self.app_handle.emit("ssh-tofu-pending", SshTofuPendingPayload {
+        self.events.emit(ConnectionEvent::TofuPending(SshTofuPendingPayload {
             host_key: self.host_key.clone(),
             fingerprint: fingerprint.clone(),
             key_type: key_type.clone(),
             session_id: self.session_id,
-        });
+        }));
         // Fail-safe: never hang forever on a lost/ignored dialog.
         let accepted = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
             Ok(Ok(true)) => true,
@@ -321,10 +398,10 @@ impl client::Handler for ClientHandler {
         pending_tofu().lock().expect("tofu map poisoned").remove(&self.session_id);
 
         if !accepted {
-            let _ = self.app_handle.emit("ssh-error", SshEventPayload {
+            self.events.emit(ConnectionEvent::Error(SshEventPayload {
                 reason: format!("Host key for {} was not verified — connection rejected.", self.host_key),
                 session_id: self.session_id,
-            });
+            }));
             return Ok(false);
         }
 
@@ -337,10 +414,10 @@ impl client::Handler for ClientHandler {
             },
         );
         let _ = save_known_hosts(&known);
-        let _ = self.app_handle.emit("ssh-tofu", SshEventPayload {
+        self.events.emit(ConnectionEvent::Tofu(SshEventPayload {
             reason: format!("New host key accepted for {} — fingerprint: {}", self.host_key, fingerprint),
             session_id: self.session_id,
-        });
+        }));
         Ok(true)
     }
 
@@ -372,7 +449,7 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         if !banner.is_empty() {
-            try_open_auth_url(&self.app_handle, banner, self.session_id);
+            try_open_auth_url(self.events.as_ref(), banner, self.session_id);
             // Banners are terminal output — they now reach the session log
             // too, instead of only the screen.
             crate::transcript::write_output(&self.transcript, banner.as_bytes());
@@ -386,11 +463,11 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         log::info!("SSH channel closed for {}", self.host_key);
-        let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
+        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
             reason: "channel_closed".to_string(),
             session_id: self.session_id,
-        });
-        Self::evict(&self.app_handle, self.session_id).await;
+        }));
+        self.events.evict(self.session_id).await;
         Ok(())
     }
 
@@ -400,11 +477,11 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         log::info!("SSH channel EOF for {}", self.host_key);
-        let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
+        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
             reason: "channel_eof".to_string(),
             session_id: self.session_id,
-        });
-        Self::evict(&self.app_handle, self.session_id).await;
+        }));
+        self.events.evict(self.session_id).await;
         Ok(())
     }
 
@@ -413,27 +490,14 @@ impl client::Handler for ClientHandler {
         reason: DisconnectReason<Self::Error>,
     ) -> Result<(), Self::Error> {
         log::info!("SSH disconnected for {}", self.host_key);
-        let _ = self.app_handle.emit("ssh-disconnected", SshEventPayload {
+        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
             reason: "connection_lost".to_string(),
             session_id: self.session_id,
-        });
-        Self::evict(&self.app_handle, self.session_id).await;
+        }));
+        self.events.evict(self.session_id).await;
         match reason {
             DisconnectReason::ReceivedDisconnect(_) => Ok(()),
             DisconnectReason::Error(e) => Err(e),
-        }
-    }
-}
-
-impl ClientHandler {
-    /// Remove a dead session from the map so session_count stays honest.
-    /// Idempotent: close/eof/disconnect can all fire for one session.
-    async fn evict(app_handle: &tauri::AppHandle, session_id: u64) {
-        use tauri::Manager;
-        let state = app_handle.state::<AppState>();
-        let mut mgr = state.ssh.lock().await;
-        if mgr.take_session(session_id).is_some() {
-            log::debug!("Evicted session {} after remote close", session_id);
         }
     }
 }
@@ -472,7 +536,8 @@ fn create_session_log(
 
 impl SshSession {
     pub async fn connect(
-        app_handle: tauri::AppHandle,
+        events: Arc<dyn ConnectionEvents>,
+        sink: Box<dyn crate::transcript::OutputSink>,
         hostname: &str,
         port: u16,
         username: &str,
@@ -517,14 +582,10 @@ impl SshSession {
             session_id,
             session_log_timestamps,
         );
-        let transcript = crate::transcript::Transcript::new(
-            session_log,
-            Box::new(crate::transcript::TauriOutputSink::new(app_handle.clone(), session_id)),
-        )
-        .shared();
+        let transcript = crate::transcript::Transcript::new(session_log, sink).shared();
 
         let handler = ClientHandler {
-            app_handle: app_handle.clone(),
+            events: events.clone(),
             host_key,
             session_id,
             transcript: transcript.clone(),
@@ -548,7 +609,7 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(&app_handle, &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
+            Self::authenticate(events.as_ref(), &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
         )
         .await
         .map_err(|_| format!("Authentication timed out after 120s for {}", addr))?
@@ -608,10 +669,10 @@ impl SshSession {
         log::info!("SSH session ready for {}", addr);
 
         // Emit connected event with session_id
-        let _ = app_handle.emit("ssh-connected", SshEventPayload {
+        events.emit(ConnectionEvent::Connected(SshEventPayload {
             reason: "ok".to_string(),
             session_id,
-        });
+        }));
 
         Ok(SshSession {
             session,
@@ -621,7 +682,7 @@ impl SshSession {
     }
 
     async fn authenticate(
-        app_handle: &tauri::AppHandle,
+        events: &dyn ConnectionEvents,
         session: &mut client::Handle<ClientHandler>,
         username: &str,
         hostname: &str,
@@ -789,7 +850,7 @@ impl SshSession {
                     saw_round = true;
                     // Emit any auth URL (browser-auth round detection); the
                     // user opens it from the connect overlay — never auto-open.
-                    try_open_auth_url(app_handle, &instructions, session_id);
+                    try_open_auth_url(events, &instructions, session_id);
                     let mut url_round = extract_https_url(&instructions).is_some();
                     if !instructions.is_empty() {
                         log::info!("Keyboard-interactive instructions: {}", instructions);
@@ -797,7 +858,7 @@ impl SshSession {
                         crate::transcript::write_output(transcript, instructions.as_bytes());
                     }
                     for prompt in &prompts {
-                        try_open_auth_url(app_handle, &prompt.prompt, session_id);
+                        try_open_auth_url(events, &prompt.prompt, session_id);
                         url_round |= extract_https_url(&prompt.prompt).is_some();
                         if !prompt.prompt.is_empty() {
                             crate::transcript::write_output(transcript, prompt.prompt.as_bytes());
@@ -813,13 +874,13 @@ impl SshSession {
                     // who was never asked anything.
                     let responses = match auth_rx.as_mut() {
                         Some(rx) if !url_round && stored_password.is_none() && !prompts.is_empty() => {
-                            let _ = app_handle.emit("ssh-auth-round", SshAuthRoundPayload {
+                            events.emit(ConnectionEvent::AuthRound(SshAuthRoundPayload {
                                 session_id,
                                 prompts: prompts
                                     .iter()
                                     .map(|p| SshAuthPromptPayload { prompt: p.prompt.clone(), echo: p.echo })
                                     .collect(),
-                            });
+                            }));
                             log::info!(
                                 "Keyboard-interactive round {} ({} prompt(s), interactive) — waiting for user",
                                 round,
@@ -854,7 +915,7 @@ impl SshSession {
                     // client-side, like the OpenSSH CLI does.
                     if !saw_round {
                         return Self::password_prompt_fallback(
-                            app_handle, session, username, hostname, session_id, transcript, auth_rx,
+                            events, session, username, hostname, session_id, transcript, auth_rx,
                         )
                         .await;
                     }
@@ -864,7 +925,7 @@ impl SshSession {
                     log::info!("Keyboard-interactive auth not available: {}", e);
                     if !saw_round {
                         return Self::password_prompt_fallback(
-                            app_handle, session, username, hostname, session_id, transcript, auth_rx,
+                            events, session, username, hostname, session_id, transcript, auth_rx,
                         )
                         .await;
                     }
@@ -886,7 +947,7 @@ impl SshSession {
     /// written to the transcript.
     #[allow(clippy::too_many_arguments)]
     async fn password_prompt_fallback(
-        app_handle: &tauri::AppHandle,
+        events: &dyn ConnectionEvents,
         session: &mut client::Handle<ClientHandler>,
         username: &str,
         hostname: &str,
@@ -906,10 +967,10 @@ impl SshSession {
                 crate::transcript::write_output(transcript, b"\r\n");
             }
             crate::transcript::write_output(transcript, prompt.as_bytes());
-            let _ = app_handle.emit("ssh-auth-round", SshAuthRoundPayload {
+            events.emit(ConnectionEvent::AuthRound(SshAuthRoundPayload {
                 session_id,
                 prompts: vec![SshAuthPromptPayload { prompt: prompt.clone(), echo: false }],
-            });
+            }));
             let answers = match await_auth_responses(rx).await {
                 Ok(answers) => answers,
                 Err(_) => {
@@ -1301,6 +1362,259 @@ mod tests {
         discard_cancel_mark(0xC0FFEE).unwrap();
         assert!(!take_cancel_mark(0xC0FFEE).unwrap());
     }
+
+    // ── Runtime guard for ADR-012 (issue #68) ───────────────────────────
+    //
+    // `tests/log_redaction.rs` is the static half of the guard: it scans the
+    // log macros for forbidden variables. This is the runtime half — it drives
+    // a real connect against the mock SSH server and inspects what the logger
+    // actually received.
+
+    /// Lines captured while `CAPTURING` is set. `cargo test` shares one process
+    /// across the lib tests, so the gate plus the probe's unique marker keep a
+    /// concurrent test from making this assertion pass or fail by accident.
+    fn captured_lines() -> &'static std::sync::Mutex<Vec<String>> {
+        static LINES: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+            std::sync::OnceLock::new();
+        LINES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+    }
+
+    fn captured_snapshot() -> Vec<String> {
+        captured_lines()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Serialises the capture window: the logger is process-wide, so two
+    /// capturing tests would otherwise interleave their lines.
+    fn capture_window() -> &'static std::sync::Mutex<()> {
+        static WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        &WINDOW
+    }
+
+    static CAPTURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    struct CaptureLogger;
+
+    impl log::Log for CaptureLogger {
+        fn enabled(&self, _metadata: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            // Gate first: nothing is formatted for lines outside the window.
+            if !CAPTURING.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            // Only the app's own lines: the mock server logs the probe username
+            // through `russh::server`, which is test-harness output, not the
+            // app log this assertion is about.
+            if !record.target().starts_with("comnd") {
+                return;
+            }
+            if let Ok(mut lines) = captured_lines().lock() {
+                lines.push(format!(
+                    "{} {}: {}",
+                    record.level(),
+                    record.target(),
+                    record.args()
+                ));
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    /// The global logger can be installed exactly once per process.
+    fn install_capture_logger() {
+        static LOGGER: CaptureLogger = CaptureLogger;
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        ONCE.get_or_init(|| {
+            log::set_logger(&LOGGER)
+                .expect("capturing logger could not be installed: another logger owns the process");
+            log::set_max_level(log::LevelFilter::Trace);
+        });
+    }
+
+    /// ADR-012: the app log persists to disk and travels in bug reports, so it
+    /// must never carry an account identifier. `[session N]` is the only
+    /// connection join key allowed on the open and auth-outcome lines.
+    #[tokio::test]
+    async fn connect_logs_carry_no_account_identifiers() {
+        use crate::hosts::AgentAuth;
+        use crate::transcript::OutputSink;
+
+        struct DiscardSink;
+        impl OutputSink for DiscardSink {
+            fn emit_output(&self, _encoded: &str) {}
+        }
+
+        struct NoopEvents;
+        #[async_trait::async_trait]
+        impl ConnectionEvents for NoopEvents {
+            fn emit(&self, _event: ConnectionEvent) {}
+            async fn evict(&self, _session_id: u64) {}
+        }
+
+        // Unique per run, so only this connect can put these in a log line.
+        let marker = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock before the epoch")
+                .as_nanos()
+        );
+        let username = format!("probe-user-{marker}");
+        let password = format!("probe-secret-{marker}");
+        let session_id: u64 = 0x0068_0000_0000_0001;
+
+        let temp_root = std::env::temp_dir().join(format!("comnd_log_probe_{marker}"));
+        std::fs::create_dir_all(&temp_root).expect("create probe temp dir");
+        let key_file = temp_root.join("probe_key");
+        // Junk contents: the file must exist so the key-auth path runs, and it
+        // must fail to decode so the "Failed to load SSH key" line is reached.
+        std::fs::write(&key_file, b"not a private key\n").expect("write probe key file");
+        let key_path = key_file.to_string_lossy().into_owned();
+        let temp_root_str = temp_root.to_string_lossy().into_owned();
+
+        // A real connect parks on a first-seen host key and, once accepted,
+        // writes it out. Point that at the probe temp dir so the developer's
+        // real known_hosts.json is never touched.
+        known_hosts_override()
+            .lock()
+            .expect("known-hosts override lock")
+            .replace(temp_root.join("known_hosts.json"));
+        struct KnownHostsGuard;
+        impl Drop for KnownHostsGuard {
+            fn drop(&mut self) {
+                if let Ok(mut override_path) = known_hosts_override().lock() {
+                    *override_path = None;
+                }
+            }
+        }
+        let _known_hosts_guard = KnownHostsGuard;
+
+        install_capture_logger();
+        let _window = capture_window()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let (port, server) = crate::test_server::start_password_only_mock_server(&password).await;
+
+        // Answer the TOFU dialog as the frontend would. The poll outlasts the
+        // 10 s connect timeout, so a handshake that reaches the prompt late is
+        // still answered; the task returns as soon as it fires.
+        let (tofu_done_tx, tofu_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let tofu_task = tokio::spawn(async move {
+            for _ in 0..1_500 {
+                let sender = pending_tofu()
+                    .lock()
+                    .ok()
+                    .and_then(|mut map| map.remove(&session_id));
+                if let Some(sender) = sender {
+                    let _ = sender.send(true);
+                    let _ = tofu_done_tx.send(());
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+
+        captured_lines()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        CAPTURING.store(true, std::sync::atomic::Ordering::SeqCst);
+        let result = SshSession::connect(
+            Arc::new(NoopEvents),
+            Box::new(DiscardSink),
+            "127.0.0.1",
+            port,
+            &username,
+            Some(&password),
+            Some(&key_path),
+            AgentAuth::Off,
+            80,
+            24,
+            session_id,
+            false,
+            true,
+            None,
+            None,
+        )
+        .await;
+        CAPTURING.store(false, std::sync::atomic::Ordering::SeqCst);
+        let lines = captured_snapshot();
+
+        let tofu_answered = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            tofu_done_rx,
+        )
+        .await
+        .is_ok();
+        tofu_task.abort();
+        let session = result.unwrap_or_else(|error| {
+            panic!("connect to the mock SSH server failed: {error}\ncaptured lines:\n{}", lines.join("\n"))
+        });
+        drop(session);
+        server.abort();
+        assert!(
+            tofu_answered,
+            "the test never answered the TOFU prompt: check_server_key did not park on pending_tofu()"
+        );
+
+        // The key path must have been exercised, otherwise the "no key path"
+        // assertion below would pass vacuously.
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Attempting SSH key auth with probe_key")),
+            "the key-auth path did not run; captured lines:\n{}",
+            lines.join("\n")
+        );
+
+        let mut leaked = Vec::new();
+        for line in &lines {
+            for (label, needle) in [
+                ("username", username.as_str()),
+                ("password", password.as_str()),
+                ("key path", key_path.as_str()),
+                ("key path directory", temp_root_str.as_str()),
+            ] {
+                if line.contains(needle) {
+                    leaked.push(format!("{label} in: {line}"));
+                }
+            }
+        }
+        assert!(
+            leaked.is_empty(),
+            "ADR-012 violation: the app log carries an account identifier\n{}\n\ncaptured lines:\n{}",
+            leaked.join("\n"),
+            lines.join("\n")
+        );
+
+        // Positive side: the open and auth-outcome lines carry the session id.
+        // `session_marker` is deliberately kept out of the failure message: CodeQL's
+        // rust/cleartext-logging query counts panic messages as log sinks, and the
+        // captured lines below already show the marker.
+        let session_marker = format!("[session {}]", session_id);
+        for (what, needle) in [
+            ("connection-open", "SSH connecting to"),
+            ("auth-outcome", "SSH authenticated successfully"),
+        ] {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains(&session_marker) && line.contains(needle)),
+                "the {what} line for the probe session was not logged; captured lines:\n{}",
+                lines.join("\n")
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
 }
 
 // ─── SSH Commands ───────────────────────────────────────────────────
@@ -1407,8 +1721,16 @@ pub async fn ssh_connect(
         });
     }
 
+    // Production wiring for the two connection seams, done once per connect:
+    // events (frontend lifecycle/auth notifications) and terminal output.
+    let events = Arc::new(TauriConnectionEvents::new(app_handle.clone()));
+    let sink = Box::new(crate::transcript::TauriOutputSink::new(
+        app_handle.clone(),
+        session_id,
+    ));
     let session = SshSession::connect(
-        app_handle,
+        events,
+        sink,
         &hostname,
         port,
         &username,
