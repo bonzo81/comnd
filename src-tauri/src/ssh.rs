@@ -1503,10 +1503,12 @@ mod tests {
 
         let (port, server) = crate::test_server::start_password_only_mock_server(&password).await;
 
-        // Answer the TOFU dialog as the frontend would.
+        // Answer the TOFU dialog as the frontend would. The poll outlasts the
+        // 10 s connect timeout, so a handshake that reaches the prompt late is
+        // still answered; the task returns as soon as it fires.
         let (tofu_done_tx, tofu_done_rx) = tokio::sync::oneshot::channel::<()>();
         let tofu_task = tokio::spawn(async move {
-            for _ in 0..600 {
+            for _ in 0..1_500 {
                 let sender = pending_tofu()
                     .lock()
                     .ok()
