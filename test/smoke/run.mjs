@@ -153,9 +153,14 @@ async function waitForBytes(browser, length, behavior) {
       timeoutMsg: expectation,
     });
   } catch (error) {
-    const received = await readBytes(browser).catch(() => []);
+    // A failed read must not look like a successful read of zero bytes, or the
+    // mutation matcher would accept a run that never proved the mock got nothing.
+    const received = await readBytes(browser).catch(() => null);
+    const observed = received
+      ? `mock received ${received.length} bytes ${escapeBytes(received)}`
+      : "mock byte count unavailable";
     throw new Error(
-      `${expectation}; mock received ${received.length} bytes ${escapeBytes(received)}; `
+      `${expectation}; ${observed}; `
       + `input state ${JSON.stringify(await inputState(browser))} (waitUntil: ${error.message})`,
     );
   }
@@ -287,17 +292,19 @@ async function sendKeys(browser, keys) {
 
 async function startDriver(dataDir) {
   const port = await freePort();
+  const env = {
+    ...process.env,
+    COMND_DATA_DIR: dataDir,
+    COMND_TEST_MOCK_SECRET: "smoke-secret",
+  };
+  // App-side mutation (issue #61): ssh_send drops typed input, so the mutation
+  // check proves the suite catches broken app code, not a silent mock. Drop any
+  // inherited value first so a normal run never mutates the app.
+  delete env.COMND_SMOKE_MUTATION;
+  if (mutationRun) env.COMND_SMOKE_MUTATION = "ssh_send";
   const driver = spawn("tauri-driver", ["--port", String(port)], {
     cwd: root,
-    env: {
-      ...process.env,
-      COMND_DATA_DIR: dataDir,
-      COMND_TEST_MOCK_SECRET: "smoke-secret",
-      // App-side mutation (issue #61): ssh_send drops typed input, so the
-      // mutation check proves the suite catches broken app code, not a
-      // silent mock. Unset for normal runs.
-      ...(mutationRun ? { COMND_SMOKE_MUTATION: "ssh_send" } : {}),
-    },
+    env,
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
