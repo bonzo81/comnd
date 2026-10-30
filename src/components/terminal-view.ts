@@ -39,6 +39,7 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
+import type { SessionLifecycle } from "../lib/duplicate-session";
 import { AuthInputCollector } from "../lib/auth-input";
 import { ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
   import { confirmDialog } from "../lib/confirm-dialog";
@@ -144,9 +145,9 @@ export class TerminalView {
   private searchBarOpen = false;
   private lastSearchDir = 1;
   private onDetachCb: () => void;
-  private onDisconnectCb: (hostId: string) => void;
-  private onSessionDiedCb: (hostId: string) => void;
-  private onRequestCloseCb: (hostId: string) => void;
+  private onDisconnectCb: () => void;
+  private onSessionDiedCb: () => void;
+  private onRequestCloseCb: () => void;
   private sidePanelOpen = false;
   private sidePanelMode: "kb" | "replay" = "kb";
   private replayItems: ReplayCommand[] = [];
@@ -162,6 +163,9 @@ export class TerminalView {
   /** Set on user cancel/teardown so a late backend rejection doesn't
    * flash an error overlay on an already-abandoned view. */
   private connectCancelled = false;
+  private status: SessionLifecycle = "connecting";
+  /** Observer for status transitions (the app's live-session count). */
+  onStatusChange: ((status: SessionLifecycle) => void) | null = null;
 
   // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
   private tracker: LineTracker;
@@ -197,9 +201,9 @@ export class TerminalView {
 
   constructor(
     onDetach: () => void,
-    onDisconnect: (hostId: string) => void,
-    onSessionDied: (hostId: string) => void,
-    onRequestClose: (hostId: string) => void,
+    onDisconnect: () => void,
+    onSessionDied: () => void,
+    onRequestClose: () => void,
   ) {
     this.onDetachCb = onDetach;
     this.onDisconnectCb = onDisconnect;
@@ -735,7 +739,7 @@ export class TerminalView {
       this.reconnect();
     });
     this.$(".tv-banner-back")!.addEventListener("click", () => {
-      this.onRequestCloseCb(this.host?.id ?? "");
+      this.onRequestCloseCb();
     });
 
     // Window resize → fit terminal → resize PTY
@@ -753,8 +757,10 @@ export class TerminalView {
     window.addEventListener("keydown", this.ctrlWHandler);
   }
 
-  async connect(host: Host) {
-    // If we're already connected to this host, just reattach — no reconnect needed
+  async connect(host: Host, sessionId?: number) {
+    // If this view is already connected to this host, just reattach — no
+    // reconnect needed. Duplicate sessions get their own view, so this only
+    // fires when the same view is asked to connect again.
     if (this.channel.state === "connected" && this.host?.id === host.id) {
       log.info(LogTag.Terminal, `Reattaching to existing session for '${host.display_name}'`);
       this.hideOverlay();
@@ -811,8 +817,9 @@ export class TerminalView {
         this.setProgress(`Connecting to ${host.hostname}:${host.port}...`, 25);
       }
 
-      // Mint session ID, register listeners, open the SSH connection.
-      await this.channel.connect(host.id, { cols, rows });
+      // Register listeners and open the SSH connection. The tab pre-mints
+      // the id so it can key the session before the connection exists.
+      await this.channel.connect(host.id, { cols, rows }, sessionId);
 
       // Reconcile PTY dimensions: a font-driven remeasure (fonts.ready gate)
       // can resize the terminal after cols/rows were captured above but before
@@ -968,7 +975,7 @@ export class TerminalView {
           this.updateStatusBar("disconnected");
           // Notify the app that the session died (green dot) but DON'T close
           // the terminal — the user stays on this tab and can reconnect.
-          this.onSessionDiedCb(this.host.id);
+          this.onSessionDiedCb();
         } else if (wasConnected && this.host) {
           // Clean session end (exit / channel closed / EOF)
           const wrapper = this.terminal?.element?.closest(".app-view") as HTMLElement | null;
@@ -976,10 +983,10 @@ export class TerminalView {
 
           if (terminalVisible) {
             // User was looking at the terminal — close it and return to host list
-            this.onDisconnectCb(this.host.id);
+            this.onDisconnectCb();
           } else {
             // User was in host list — silently clean up green dot
-            this.onSessionDiedCb(this.host.id);
+            this.onSessionDiedCb();
           }
         }
         break;
@@ -1182,7 +1189,17 @@ export class TerminalView {
     }
   }
 
-  private updateStatusBar(status: "connecting" | "connected" | "disconnected" | "error") {
+  /**
+   * Connection status, mirrored from the status bar so callers can tell a live
+   * session from a failed attempt that is only holding its tab open for Retry.
+   */
+  get connectionStatus(): SessionLifecycle {
+    return this.status;
+  }
+
+  private updateStatusBar(status: SessionLifecycle) {
+    const changed = status !== this.status;
+    this.status = status;
     const dot = this.$(".tv-sb-dot");
     const hostEl = this.$(".tv-sb-host");
     const platformEl = this.$(".tv-sb-platform");
@@ -1205,6 +1222,8 @@ export class TerminalView {
       const version = this.host.os_version ? ` ${this.host.os_version}` : "";
       platformEl.textContent = `${label}${version}`;
     }
+
+    if (changed) this.onStatusChange?.(status);
   }
 
   // ─── Navigation / lifecycle ──────────────────────────────────────
@@ -1216,19 +1235,17 @@ export class TerminalView {
   async disconnect() {
     log.info(LogTag.Terminal, "Full disconnect requested");
     this.connectCancelled = true;
-    const hostId = this.host?.id ?? "";
     await this.channel.disconnect();
     this.cleanup();
-    this.onDisconnectCb(hostId);
+    this.onDisconnectCb();
   }
 
   private async cancelConnect() {
     this.connectCancelled = true;
     this.clearOutputBuffer();
-    const hostId = this.host?.id ?? "";
     await this.channel.disconnect();
     this.cleanup();
-    this.onDisconnectCb(hostId);
+    this.onDisconnectCb();
   }
 
   private async reconnect() {

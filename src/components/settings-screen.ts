@@ -10,7 +10,7 @@
 
 import {
   getAppConfig, saveLlmSettings, testLlmConnection, setLogLevel,
-  setLogMaxSize, setLogFilePath, setMaxSessions, setShortcutOverrides, exportData, importData,
+  setLogMaxSize, setLogFilePath, setMaxSessions, setDuplicateSessionPolicy, setShortcutOverrides, exportData, importData,
   setSessionLogging, setSessionLogTimestamps, setSessionLogDir, getSessionLogDir,
   scanMerge, applyMerge, restartApp, MergeConflict,
   AppConfig, listProviders, getProviderState,
@@ -35,6 +35,7 @@ import {
 } from "../lib/timestamps";
 import { checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction } from "../lib/updater";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
+import { normalizeDuplicateSessionPolicy } from "../lib/duplicate-session";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
   import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
@@ -158,6 +159,15 @@ export class SettingsScreen {
     } else {
       this.render();
     }
+  }
+
+  /** Re-read the saved config after another surface persisted a change — the
+   *  duplicate-session dialog writes `duplicate_session_policy` while this
+   *  screen is mounted but hidden, so its cached snapshot would show the old
+   *  value on the next visit. */
+  async reloadConfig() {
+    await this.refreshConfig();
+    if (this.itemId === "general") this.render();
   }
 
   async mount(container: HTMLElement) {
@@ -394,6 +404,7 @@ export class SettingsScreen {
     const logLevel = this.config?.log_level ?? "info";
     const maxSizeMb = this.config?.log_max_size_mb ?? 10;
     const maxSessions = this.config?.max_sessions ?? 30;
+    const dupPolicy = normalizeDuplicateSessionPolicy(this.config?.duplicate_session_policy);
     const opt = (value: TimestampFormat, label: string) =>
       `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
     const levelOpt = (value: string, label: string) =>
@@ -402,6 +413,8 @@ export class SettingsScreen {
       `<option value="${value}" ${maxSizeMb === value ? "selected" : ""}>${label}</option>`;
     const sessionOpt = (value: number, label: string) =>
       `<option value="${value}" ${maxSessions === value ? "selected" : ""}>${label}</option>`;
+    const dupOpt = (value: string, label: string) =>
+      `<option value="${value}" ${dupPolicy === value ? "selected" : ""}>${label}</option>`;
     return `
       <div class="settings-form">
         ${this.row("Timestamp format", `
@@ -425,6 +438,13 @@ export class SettingsScreen {
             ${sessionOpt(0, "Unlimited")}
           </select>`,
           "Prevents runaway resource usage from too many open SSH connections. Applies immediately.", "max-sessions")}
+        ${this.row("When connecting to a host that is already connected", `
+          <select class="form-input form-input-sm" id="duplicate-session-policy">
+            ${dupOpt("ask", "Ask each time (default)")}
+            ${dupOpt("allow", "Always open another session")}
+            ${dupOpt("focus", "Always switch to the existing session")}
+          </select>`,
+          "Controls whether a second session to the same device opens straight away, switches to the running session, or prompts each time.", "duplicate-session-policy")}
         ${this.group("Global Search")}
         ${this.switchRow("search-tags", "Match command tags in search",
           "When off, global search and KB search match command name and aliases only", tagsOn)}
@@ -1181,6 +1201,15 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLSelectElement>("#max-sessions")?.addEventListener("change", (e) => {
       void setMaxSessions(parseInt((e.target as HTMLSelectElement).value, 10));
+    });
+
+    this.container?.querySelector<HTMLSelectElement>("#duplicate-session-policy")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      void setDuplicateSessionPolicy(value)
+        .then(() => this.refreshConfig())
+        .catch(() => {
+          showToast("Failed to save duplicate session policy", "error");
+        });
     });
 
     this.container?.querySelector<HTMLInputElement>("#session-logging")?.addEventListener("change", (e) => {

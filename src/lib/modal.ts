@@ -1,5 +1,5 @@
 /**
- * Shared modal shell — backdrop + panel + Escape/backdrop dismiss + focus.
+ * Shared modal shell ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â backdrop + panel + Escape/backdrop dismiss + focus.
  * One imperative overlay for every dialog so escape handling, backdrop-click
  * dismiss, and focus behavior match. The shell owns only open/close/escape/
  * focus mechanics; content, submit, and error display stay caller-owned.
@@ -25,6 +25,34 @@ export interface ModalHandle {
   readonly panel: HTMLElement; // mount point for the caller's content
 }
 
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function focusableIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) =>
+      !el.hasAttribute("disabled") &&
+      el.tabIndex >= 0 &&
+      !el.hidden &&
+      // Sections collapsed by CSS keep their inputs focusable (credential
+      // fields that do not apply to the chosen auth type), so skip them.
+      !el.closest(".auth-conditional-hidden"),
+  );
+}
+
+/**
+ * Open modals, bottom-most first. Only the topmost one handles Escape and Tab,
+ * so a dialog opened over another (the shortcuts help over the duplicate-session
+ * prompt, say) cannot fight the covered one for focus.
+ */
+const openModals: object[] = [];
+
 export function openModal(opts: ModalOptions): ModalHandle {
   const dismissOnEscape = opts.dismissOnEscape ?? true;
   const dismissOnBackdrop = opts.dismissOnBackdrop ?? true;
@@ -42,17 +70,54 @@ export function openModal(opts: ModalOptions): ModalHandle {
   document.body.appendChild(backdrop);
 
   let closed = false;
+  const token = {};
+  openModals.push(token);
+  const isTopmost = () => openModals[openModals.length - 1] === token;
+
   const onKey = (e: KeyboardEvent) => {
+    if (!isTopmost()) return;
+    if (e.key === "Tab") {
+      trapTab(e);
+      return;
+    }
     if (e.key !== "Escape") return;
     e.preventDefault();
     e.stopPropagation(); // keep Escape away from xterm cascade
     if (dismissOnEscape) dismiss();
+  };
+
+  // Keyboard-first: Tab and Shift+Tab cycle inside the panel instead of
+  // escaping into the terminal behind the backdrop.
+  const trapTab = (e: KeyboardEvent) => {
+    const focusables = focusableIn(panel);
+    if (focusables.length === 0) {
+      e.preventDefault();
+      panel.focus();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = active !== null && panel.contains(active);
+    if (e.shiftKey) {
+      if (!inside || active === first) {
+        e.preventDefault();
+        e.stopPropagation();
+        last.focus();
+      }
+    } else if (!inside || active === last) {
+      e.preventDefault();
+      e.stopPropagation();
+      first.focus();
+    }
   };
   const close = () => {
     if (closed) return;
     closed = true;
     backdrop.remove();
     window.removeEventListener("keydown", onKey, true);
+    const stackIndex = openModals.indexOf(token);
+    if (stackIndex >= 0) openModals.splice(stackIndex, 1);
     if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus();
   };
   const dismiss = () => {

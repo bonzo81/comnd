@@ -3,7 +3,7 @@ import { createHarness } from "./harness";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getHosts, setLogLevel } from "../src/lib/tauri-api";
 
-// The harness is the highest-leverage module in the suite — its interface
+// The harness is the highest-leverage module in the suite â€” its interface
 // is the test surface, so it gets the same treatment (plan-test-harness.md).
 // Two pins at the bottom are order-dependent on purpose: they prove the
 // previous test's harness (and mount) were cleaned up automatically.
@@ -67,6 +67,7 @@ describe("test harness", () => {
       "log_level",
       "log_max_size_mb",
       "max_sessions",
+      "duplicate_session_policy",
       "session_log_dir",
       "session_log_timestamps",
       "session_logging",

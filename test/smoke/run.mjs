@@ -1,7 +1,7 @@
 ﻿import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -271,8 +271,18 @@ async function waitForSessionCleanup(browser, label) {
   });
 }
 
-async function sendKeys(browser, keys) {
-  await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
+async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
+  // With duplicate sessions there is more than one xterm on the page; the
+  // hidden ones keep their own helper textarea, so focus the visible one.
+  if (visibleOnly) {
+    await browser.execute(() => {
+      const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
+        .find((el) => el.style.display !== "none");
+      (wrapper ?? document).querySelector(".xterm-helper-textarea")?.focus();
+    });
+  } else {
+    await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
+  }
   const sequence = Array.isArray(keys) ? keys : [...keys];
   // A modifier chord must stay in one command, otherwise WebKit releases the
   // modifier before the character arrives (Ctrl+W becomes a plain "w").
@@ -573,6 +583,193 @@ async function main() {
           await waitForBytes(browser, expected.length, "Ctrl+W passthrough"),
           expected,
           "Ctrl+W passthrough: expected byte 0x17 at mock",
+        );
+      },
+    },
+    {
+      name: "duplicate-session",
+      async run(browser, dataDir) {
+        // Session logging is opt-in; turn it on so the two sessions each
+        // produce their own log file for the same host:port.
+        await invoke(browser, "set_session_logging", { enabled: true });
+        const host = await createAndConnect(browser, dataDir);
+        await waitForConnection(browser);
+
+        // window.__comndTerminal only tracks the newest terminal, so read each
+        // tab's rendered rows and ghost text from its own wrapper.
+        const wrapperState = () => browser.execute(() =>
+          [...document.querySelectorAll(".session-tab-wrapper")].map((wrapper) => {
+            const ghost = wrapper.querySelector(".ghost-text");
+            return {
+              visible: wrapper.style.display !== "none",
+              text: wrapper.querySelector(".xterm-rows")?.textContent ?? "",
+              ghost: ghost && getComputedStyle(ghost).display !== "none" ? ghost.textContent : null,
+            };
+          }));
+        const tabLabels = () => browser.execute(() =>
+          [...document.querySelectorAll(".session-tab-label")].map((el) => el.textContent));
+        const tabCount = () =>
+          browser.execute(() => document.querySelectorAll(".session-tab").length);
+
+        // Second connect to the same host via the nav panel row. The row's
+        // dblclick handler is the pointer connect path; dispatch it directly
+        // because a real double-click lands on the drag-source button inside
+        // the row and can be swallowed by the drag threshold.
+        const reconnect = () => browser.execute((id) => {
+          document
+            .querySelector(`.nav-host-row[data-host-id="${id}"]`)
+            ?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        }, host.id);
+
+        assert.equal(await tabCount(), 1, "Duplicate session: expected one tab after the first connect");
+
+        await reconnect();
+        await browser.waitUntil(
+          async () => browser.execute(() => !!document.querySelector(".duplicate-session-dialog")),
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Duplicate session: the already-connected dialog did not appear",
+          },
+        );
+        assert.equal(
+          (await (await browser.$("#duplicate-session-title")).getText()).trim(),
+          `${host.display_name} is already connected`,
+          "Duplicate session: dialog title must name the device",
+        );
+        assert(
+          await browser.execute(() =>
+            document.activeElement?.classList.contains("duplicate-session-new")),
+          "Duplicate session: focus must start on the primary action",
+        );
+        assert.equal(
+          await browser.execute(() => document.querySelectorAll(".duplicate-session-dialog").length),
+          1,
+          "Duplicate session: the second connect must open exactly one dialog",
+        );
+
+        // Escape cancels: no second session, no tab switch. A W3C key action
+        // reaches the focused dialog button; the dialog shell dismisses on the
+        // window capture listener.
+        await browser.action("key").down("\uE00C").up("\uE00C").perform();
+        await browser.waitUntil(
+          async () => browser.execute(() => !document.querySelector(".duplicate-session-dialog")),
+          {
+            timeout: 5_000,
+            interval: 100,
+            timeoutMsg: "Duplicate session: Escape did not dismiss the dialog",
+          },
+        );
+        assert.equal(await tabCount(), 1, "Duplicate session: Escape must not open a session");
+
+        // "Open another session" creates an independent second session.
+        await reconnect();
+        await (await browser.$(".duplicate-session-new")).click();
+        await browser.waitUntil(async () => (await tabCount()) === 2, {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: expected two tabs after 'Open another session'",
+        });
+        assert.deepEqual(
+          await tabLabels(),
+          [host.display_name, host.display_name],
+          "Duplicate session: both tabs must show the same host name with no suffix",
+        );
+        await browser.waitUntil(async () => browser.execute(() =>
+          document.querySelectorAll(".tv-sb-dot.sb-connected").length === 2), {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: both sessions did not reach the connected state",
+        });
+
+        // Same host:port, two sessions, two log files with distinct ids.
+        const logDir = path.join(dataDir, "session-logs");
+        await browser.waitUntil(async () =>
+          existsSync(logDir) && readdirSync(logDir).length >= 2, {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: expected one session log per live session",
+        });
+        const logNames = readdirSync(logDir);
+        assert.equal(
+          logNames.length,
+          2,
+          `Duplicate session: expected 2 session logs, saw ${logNames.join(", ")}`,
+        );
+        const sessionIds = logNames.map((name) => name.replace(/\.log$/, "").split("_").pop());
+        assert.notEqual(
+          sessionIds[0],
+          sessionIds[1],
+          "Duplicate session: the two sessions must log under distinct session ids",
+        );
+
+        // Suggestion state is per session: typing in the new tab must not
+        // reach the other session's ghost text or terminal.
+        await browser.execute(() => {
+          const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
+            .find((el) => el.style.display !== "none");
+          const toggle = wrapper?.querySelector(".tv-suggestions-btn");
+          if (toggle && toggle.getAttribute("aria-pressed") !== "true") toggle.click();
+        });
+        await sendKeys(browser, "ip r", { visibleOnly: true });
+        await browser.waitUntil(async () => {
+          const state = await wrapperState();
+          return state[1]?.visible === true && state[1]?.ghost === "oute";
+        }, {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: expected the new session to show its own ghost suggestion",
+        });
+        const typed = await wrapperState();
+        assert.equal(
+          typed[0].ghost,
+          null,
+          "Duplicate session: the first session must keep its own (empty) suggestion state",
+        );
+        assert(
+          !typed[0].text.includes("ip r"),
+          "Duplicate session: input must not leak into the other session",
+        );
+
+        // Switching tabs keeps each session's own suggestion state.
+        await (await browser.$$(".session-tab"))[0].click();
+        const switched = await wrapperState();
+        assert.equal(switched[0].visible, true, "Duplicate session: the first tab should now be visible");
+        assert.equal(
+          switched[0].ghost,
+          null,
+          "Duplicate session: switching tabs must not copy suggestion state",
+        );
+        assert.equal(
+          switched[1].ghost,
+          "oute",
+          "Duplicate session: the other session keeps its own suggestion",
+        );
+
+        // Closing one session leaves the other responsive.
+        await (await browser.$$(".session-tab-close"))[1].click();
+        await browser.execute(() => [...document.querySelectorAll("button")]
+          .find((button) => button.textContent?.trim() === "Close Session")
+          ?.click());
+        await browser.waitUntil(async () => (await tabCount()) === 1, {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: closing one tab did not leave exactly one session",
+        });
+        await sendKeys(browser, "alive", { visibleOnly: true });
+        await browser.waitUntil(async () => {
+          const state = await wrapperState();
+          return state.length === 1 && state[0].text.includes("alive");
+        }, {
+          timeout: WAIT_MS,
+          interval: 100,
+          timeoutMsg: "Duplicate session: the surviving session stopped responding after the other closed",
+        });
+        const status = await browser.execute(() =>
+          document.querySelector(".sb-sessions")?.textContent?.trim() ?? "");
+        assert(
+          status.includes("1 session"),
+          `Duplicate session: status bar should report one session, saw ${status}`,
         );
       },
     },

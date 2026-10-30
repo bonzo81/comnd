@@ -325,6 +325,8 @@ export interface AppConfig {
   log_max_size_mb: number;
   log_file_path: string | null;
   max_sessions: number;
+  /** "ask" | "allow" | "focus" — connect to an already-connected host. */
+  duplicate_session_policy: string;
   session_logging: boolean;
   session_log_timestamps: boolean;
   session_log_dir: string | null;
@@ -350,6 +352,11 @@ export async function setLogMaxSize(maxMb: number): Promise<void> {
 
 export async function setMaxSessions(max: number): Promise<void> {
   return invoke<void>("set_max_sessions", { max });
+}
+
+/** Persist the duplicate-session policy ("ask" | "allow" | "focus"). */
+export async function setDuplicateSessionPolicy(policy: string): Promise<void> {
+  return invoke<void>("set_duplicate_session_policy", { policy });
 }
 
 /** Replace all user shortcut overrides (docs/specs/11). Empty map = defaults. */

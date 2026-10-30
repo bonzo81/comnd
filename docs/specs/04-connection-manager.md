@@ -38,6 +38,35 @@
 * Collapsible groups by site, role, or custom tag (e.g. "DC Switches", "London Core", "F5 Prod")
 * MVP: flat list with manual ordering. Design the row height and layout so groups can be added later without a redesign.
 
+## Multiple Sessions to the Same Host
+
+A host entry may have more than one live SSH session. Sessions are independent: each
+has its own PTY, shadow buffer, suggestion/ghost-text state, and session log file.
+
+**Tabs are keyed by session id, not host id.** Duplicate sessions to one host get
+separate tabs, and both tabs show the same display name (no counter suffix). Closing
+one tab disconnects only that session; the other stays connected and responsive.
+
+**Connecting to an already-connected host** is governed by
+`duplicate_session_policy` in `AppConfig` (Settings → General → "When connecting to a
+host that is already connected"):
+
+| Policy | Behaviour |
+|---|---|
+| `ask` (default) | Show the duplicate-session dialog |
+| `allow` | Open another session immediately |
+| `focus` | Switch to the running session immediately |
+
+The dialog title names the device: "<display name> is already connected". Its actions
+are **Open another session** (primary, focused first), **Go to existing session**, and
+**Cancel**. `Esc` and a backdrop click both cancel, leaving the app untouched. A
+"Remember my choice" checkbox persists the choice as the policy; cancelling is never
+remembered.
+
+**Session limit.** When `max_sessions` is reached (`0` means unlimited) the dialog does
+not offer **Open another session**. It states that the limit is reached and offers only
+**Go to existing session** and **Cancel**.
+
 ## Empty State (First Run)
 
 The first thing every new user sees. This screen determines whether they continue or close the app.

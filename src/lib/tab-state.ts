@@ -1,16 +1,19 @@
 // Pure tab transition logic — DOM side effects stay in main.ts.
-export interface TabState {
-  hostId: string;
+// Tabs are keyed by session id (not host id): two live sessions to the same
+// host are independent tabs, so closing or activating one never touches the
+// other.
+export interface TabState<K extends string | number = string> {
+  id: K;
   active: boolean;
 }
 
-export function activateTab(tabs: TabState[], hostId: string): TabState[] {
-  return tabs.map((t) => ({ ...t, active: t.hostId === hostId }));
+export function activateTab<K extends string | number>(tabs: TabState<K>[], id: K): TabState<K>[] {
+  return tabs.map((t) => ({ ...t, active: t.id === id }));
 }
 
-export function closeTab(tabs: TabState[], hostId: string): TabState[] {
-  if (!tabs.some((t) => t.hostId === hostId)) return tabs;
-  const next = tabs.filter((t) => t.hostId !== hostId);
+export function closeTab<K extends string | number>(tabs: TabState<K>[], id: K): TabState<K>[] {
+  if (!tabs.some((t) => t.id === id)) return tabs;
+  const next = tabs.filter((t) => t.id !== id);
   if (next.length === 0) return next;
   // Activate last remaining tab
   return next.map((t, i) => ({ ...t, active: i === next.length - 1 }));

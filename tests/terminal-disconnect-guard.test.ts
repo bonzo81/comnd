@@ -13,12 +13,12 @@ const host = {
 } as never;
 
 function makeView() {
-  const calls: { cb: string; hostId: string }[] = [];
+  const calls: { cb: string }[] = [];
   const view = new TerminalView(
-    () => calls.push({ cb: "detach", hostId: "" }),
-    (hostId) => calls.push({ cb: "disconnect", hostId }),
-    (hostId) => calls.push({ cb: "session-died", hostId }),
-    () => calls.push({ cb: "request-close", hostId: "" }),
+    () => calls.push({ cb: "detach" }),
+    () => calls.push({ cb: "disconnect" }),
+    () => calls.push({ cb: "session-died" }),
+    () => calls.push({ cb: "request-close" }),
   );
   const container = document.createElement("div");
   view.mount(container);
@@ -76,7 +76,7 @@ describe("ssh-disconnected before ever connected", () => {
     await emitTauri("ssh-disconnected", { reason: "channel_closed", session_id: ch.sessionId });
     await tick();
 
-    expect(calls).toContainEqual({ cb: "disconnect", hostId: "h1" });
+    expect(calls).toContainEqual({ cb: "disconnect" });
 
     ch.dispose();
     wrapper.remove();

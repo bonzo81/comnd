@@ -201,6 +201,26 @@ select.form-input {
   color: var(--color-text-primary);
 }
 
+/* ─── Duplicate-session dialog ──────────────────────────────────── */
+.duplicate-session-remember-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.duplicate-session-remember-row input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.duplicate-session-limit {
+  color: var(--color-warning);
+}
+
 /* â”€â”€â”€ Keyboard Shortcuts Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .shortcuts-modal {
   background: var(--color-surface-elevated);

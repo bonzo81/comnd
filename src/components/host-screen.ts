@@ -515,6 +515,15 @@ export class HostScreen {
     document.addEventListener("keydown", this._keyHandler);
   }
 
+  /**
+   * Re-attach the list's document key handler without re-rendering. Needed when
+   * a connect that unmounted the screen ends up staying on Connections (the
+   * duplicate-session prompt was cancelled), leaving Arrow/Enter/Delete dead.
+   */
+  rebindGlobalKeys() {
+    this.bindGlobalKeys();
+  }
+
   // ─── Keyboard ───────────────────────────────────────────────────
 
   private handleKey(e: KeyboardEvent) {
