@@ -162,6 +162,7 @@ function makeFactories(): FixtureFactories {
       log_max_size_mb: 10,
       log_file_path: null,
       max_sessions: 6,
+      duplicate_session_policy: "ask",
       session_logging: true,
       session_log_timestamps: false,
       session_log_dir: null,

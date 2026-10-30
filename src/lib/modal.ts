@@ -25,6 +25,21 @@ export interface ModalHandle {
   readonly panel: HTMLElement; // mount point for the caller's content
 }
 
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function focusableIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => !el.hasAttribute("disabled") && el.tabIndex >= 0 && !el.hidden,
+  );
+}
+
 export function openModal(opts: ModalOptions): ModalHandle {
   const dismissOnEscape = opts.dismissOnEscape ?? true;
   const dismissOnBackdrop = opts.dismissOnBackdrop ?? true;
@@ -43,10 +58,40 @@ export function openModal(opts: ModalOptions): ModalHandle {
 
   let closed = false;
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Tab") {
+      trapTab(e);
+      return;
+    }
     if (e.key !== "Escape") return;
     e.preventDefault();
     e.stopPropagation(); // keep Escape away from xterm cascade
     if (dismissOnEscape) dismiss();
+  };
+
+  // Keyboard-first: Tab and Shift+Tab cycle inside the panel instead of
+  // escaping into the terminal behind the backdrop.
+  const trapTab = (e: KeyboardEvent) => {
+    const focusables = focusableIn(panel);
+    if (focusables.length === 0) {
+      e.preventDefault();
+      panel.focus();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = active !== null && panel.contains(active);
+    if (e.shiftKey) {
+      if (!inside || active === first) {
+        e.preventDefault();
+        e.stopPropagation();
+        last.focus();
+      }
+    } else if (!inside || active === last) {
+      e.preventDefault();
+      e.stopPropagation();
+      first.focus();
+    }
   };
   const close = () => {
     if (closed) return;

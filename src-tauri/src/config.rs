@@ -36,6 +36,12 @@ pub struct AppConfig {
     /// Maximum concurrent SSH sessions. Default 30. 0 = unlimited.
     #[serde(default = "default_max_sessions")]
     pub max_sessions: u32,
+    /// What to do when connecting to a host that already has a live session:
+    /// "ask" (prompt), "allow" (open another session), "focus" (switch to the
+    /// existing session). Defaults to "ask" so older config files keep the
+    /// prompt. See docs/specs/04-connection-manager.md.
+    #[serde(default = "default_duplicate_session_policy")]
+    pub duplicate_session_policy: String,
     /// Per-session output logging to file. Opt-in; defaults to false.
     #[serde(default)]
     pub session_logging: bool,
@@ -74,6 +80,7 @@ impl Default for AppConfig {
             log_max_size_mb: default_log_max_size_mb(),
             log_file_path: None,
             max_sessions: default_max_sessions(),
+            duplicate_session_policy: default_duplicate_session_policy(),
             session_logging: false,
             session_log_timestamps: true,
             session_log_dir: None,
@@ -110,6 +117,10 @@ fn default_log_max_size_mb() -> u32 {
 
 fn default_max_sessions() -> u32 {
     30
+}
+
+fn default_duplicate_session_policy() -> String {
+    "ask".to_string()
 }
 
 fn default_true() -> bool {
@@ -282,6 +293,18 @@ impl ConfigStore {
     /// Update the max concurrent SSH sessions and persist.
     pub fn save_max_sessions(&mut self, max: u32) -> Result<(), String> {
         self.config.max_sessions = max;
+        self.persist()
+    }
+
+    /// Update the duplicate-session policy and persist.
+    /// Only "ask", "allow" and "focus" are accepted.
+    pub fn save_duplicate_session_policy(&mut self, policy: String) -> Result<(), String> {
+        let policy = policy.to_ascii_lowercase();
+        match policy.as_str() {
+            "ask" | "allow" | "focus" => {}
+            _ => return Err(format!("Invalid duplicate session policy: {}", policy)),
+        }
+        self.config.duplicate_session_policy = policy;
         self.persist()
     }
 
@@ -518,6 +541,17 @@ pub async fn set_max_sessions(
 }
 
 #[tauri::command]
+pub async fn set_duplicate_session_policy(
+    policy: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.save_duplicate_session_policy(policy.clone())?;
+    log::info!("Duplicate session policy set to {}", policy);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn set_shortcuts(
     overrides: std::collections::HashMap<String, String>,
     state: tauri::State<'_, AppState>,
@@ -620,6 +654,38 @@ mod tests {
         assert_eq!(config.log_max_size_mb, 10);
         assert!(config.log_file_path.is_none());
         assert!(!config.session_logging);
+        assert_eq!(config.duplicate_session_policy, "ask");
+    }
+
+    #[test]
+    fn test_legacy_config_defaults_duplicate_session_policy() {
+        // A config.json written before issue #67 has no policy field and must
+        // still load, defaulting to the prompt.
+        let legacy = r#"{"log_level":"info","max_sessions":30}"#;
+        let parsed: AppConfig = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.duplicate_session_policy, "ask");
+    }
+
+    #[test]
+    fn test_save_duplicate_session_policy_validates_and_persists() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let config_path = dir.join("config.json");
+        let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
+
+        store.save_duplicate_session_policy("allow".to_string()).unwrap();
+        let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        assert_eq!(fresh.get().duplicate_session_policy, "allow");
+
+        store.save_duplicate_session_policy("focus".to_string()).unwrap();
+        let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        assert_eq!(fresh.get().duplicate_session_policy, "focus");
+
+        // Unknown values are rejected and leave the stored policy alone.
+        assert!(store.save_duplicate_session_policy("bogus".to_string()).is_err());
+        let fresh = ConfigStore::new_with_path(config_path).unwrap();
+        assert_eq!(fresh.get().duplicate_session_policy, "focus");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -81,17 +81,24 @@ export class SessionChannel {
   }
 
   /**
-   * Mint a session ID, register listeners, and open the SSH connection.
+   * Register listeners and open the SSH connection.
    * Idempotent — drops any prior listeners first so reconnect is safe.
+   * `sessionId` lets the caller pre-mint the id (so a tab can be keyed by it
+   * before the connection exists); omitted on reconnect, which mints a new
+   * transport id while the tab keeps its original key.
    * Sets state to "error" and rethrows if the connect IPC fails.
    */
-  async connect(hostId: string, opts: { cols: number; rows: number }): Promise<void> {
+  async connect(
+    hostId: string,
+    opts: { cols: number; rows: number },
+    sessionId?: number,
+  ): Promise<void> {
     this.unlistenAll();
 
     this._state = "connecting";
     this.cleanDisconnect = false;
     this.connectedAtLeastOnce = false;
-    const sid = mintSessionId();
+    const sid = sessionId ?? mintSessionId();
     this._sessionId = sid;
 
     await this.registerListeners(sid);

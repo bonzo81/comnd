@@ -19,6 +19,13 @@ import { escHtml } from "./lib/format";
 import { confirmDialog } from "./lib/confirm-dialog";
 import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
+import { mintSessionId } from "./lib/session-id";
+import {
+  isAtSessionLimit, normalizeDuplicateSessionPolicy, resolveDuplicateSessionAction,
+  type DuplicateSessionPolicy,
+} from "./lib/duplicate-session";
+import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
+import { getAppConfig, setDuplicateSessionPolicy } from "./lib/tauri-api";
 import { getAppTheme, setAppTheme } from "./lib/theme";
 import {
   isReadingComfortEnabled, enable as rcEnable, disable as rcDisable,
@@ -51,6 +58,9 @@ document.fonts?.load("14px 'JetBrains Mono'", "W")?.catch(() => {});
 type AppView = "connections" | "terminal" | "knowledge-base" | "replay" | "settings";
 
 interface SessionTab {
+  /** Tab key — the SSH session id, not the host id. Two live sessions to the
+   *  same host are independent tabs with their own id. */
+  sessionId: number;
   host: Host;
   view: TerminalView;
   wrapper: HTMLElement;
@@ -60,7 +70,6 @@ class App {
   private currentView: AppView = "connections";
   private container: HTMLElement;
   private hostScreen: HostScreen;
-  private activeHost: Host | null = null;
 
   // Persistent wrapper elements — never destroyed
   private hostScreenWrapper: HTMLElement;
@@ -75,14 +84,18 @@ class App {
   private bodyRow: HTMLElement;
   private navPanel: NavPanel;
 
-  // Session tabs — one per connected host
-  private tabs = new Map<string, SessionTab>();
-  private activeTabId: string | null = null;
+  // Session tabs — one per live SSH session, keyed by session id. A host may
+  // appear in more than one tab (issue #67).
+  private tabs = new Map<number, SessionTab>();
+  private activeTabId: number | null = null;
   private sessionTabBar: HTMLElement | null = null;
   private terminalArea: HTMLElement;
 
-  // Track which host IDs have an active SSH session
-  activeSessions = new Set<string>();
+  /** Host ids that currently have at least one live session. Derived from
+   *  `tabs` so duplicate sessions collapse to one connected host. */
+  get activeSessions(): Set<string> {
+    return new Set([...this.tabs.values()].map((t) => t.host.id));
+  }
 
   // Global shortcuts modal (lives in app tab bar, visible in all views)
   private showShortcuts = false;
@@ -191,7 +204,7 @@ class App {
 
     // Mount host screen (recent sessions list)
     this.hostScreen = new HostScreen(
-      this.onConnect.bind(this),
+      (host) => void this.onConnect(host),
       () => this.activeSessions,
       () => void this.navPanel.refresh(),
     );
@@ -208,7 +221,7 @@ class App {
       },
       onConnectHost: (hostId) => {
         const host = this.navPanel.getHost(hostId);
-        if (host) this.onConnect(host);
+        if (host) void this.onConnect(host);
       },
       onEditHost: (hostId) => {
         this.showView("connections");
@@ -334,7 +347,7 @@ class App {
     searchWrap.className = "title-bar-search-wrap";
     this.globalSearch = new GlobalSearch(
       searchWrap,
-      (h) => this.onConnect(h),
+      (h) => void this.onConnect(h),
       (p, c) => {
         this.showView("knowledge-base");
         this.kbScreen.openCommand(p, c);
@@ -552,7 +565,7 @@ class App {
     sessions.title = "Show terminal";
     sessions.setAttribute("aria-label", "Show terminal");
     sessions.addEventListener("click", () => {
-      if (this.activeSessions.size > 0) this.showView("terminal");
+      if (this.tabs.size > 0) this.showView("terminal");
     });
 
     const view = document.createElement("span");
@@ -613,7 +626,7 @@ class App {
 
   private refreshStatusBar() {
     if (!this.sbSessions || !this.sbView) return;
-    const n = this.activeSessions.size;
+    const n = this.tabs.size;
     this.sbSessions.innerHTML = `<span class="sb-dot${n > 0 ? " on" : ""}">●</span>${n} session${n === 1 ? "" : "s"}`;
     const labels: Record<AppView, string> = {
       connections: "Connections",
@@ -772,37 +785,93 @@ class App {
     this.refreshStatusBar();
   }
 
-  private onConnect(host: Host) {
-    this.activeSessions.add(host.id);
-    this.navPanel.refreshSessionDots();
+  /**
+   * Connect entry point. Resolves the duplicate-session policy first: a host
+   * that already has a live session may open a second one, focus the existing
+   * one, or prompt (issue #67).
+   */
+  private async onConnect(host: Host) {
+    const openForHost = [...this.tabs.values()].filter((t) => t.host.id === host.id);
 
-    // Existing tab → activate and switch to terminal view
-    const existing = this.tabs.get(host.id);
-    if (existing) {
-      this.activateTab(host.id);
-      this.showView("terminal");
-      return;
+    if (openForHost.length > 0) {
+      let policy: DuplicateSessionPolicy = "ask";
+      let maxSessions = 0;
+      try {
+        const config = await getAppConfig();
+        policy = normalizeDuplicateSessionPolicy(config.duplicate_session_policy);
+        maxSessions = config.max_sessions ?? 0;
+      } catch (err) {
+        log.warn(LogTag.App, "Could not read app config, using defaults:", err);
+      }
+
+      const atLimit = isAtSessionLimit(this.tabs.size, maxSessions);
+      const action = resolveDuplicateSessionAction({ policy, atLimit });
+
+      if (action === "focus") {
+        this.focusExistingSession(host.id);
+        return;
+      }
+
+      if (action !== "new") {
+        const result = await openDuplicateSessionDialog({
+          deviceName: host.display_name,
+          atLimit,
+          maxSessions,
+        });
+
+        if (result.choice === "cancel") return;
+        if (result.choice === "focus") {
+          this.focusExistingSession(host.id);
+          return;
+        }
+
+        // "Remember my choice" — persist only real choices, never cancel.
+        const remembered = policyForRememberedChoice(result.choice, result.remember);
+        if (remembered) {
+          setDuplicateSessionPolicy(remembered).catch((err) => {
+            log.warn(LogTag.App, "Could not save duplicate session policy:", err);
+          });
+        }
+      }
     }
 
-    // Create new tab
+    this.openSession(host);
+  }
+
+  /** Activate the oldest live session for a host. */
+  private focusExistingSession(hostId: string) {
+    const existing = [...this.tabs.values()].find((t) => t.host.id === hostId);
+    if (!existing) return;
+    this.activateTab(existing.sessionId);
+    this.showView("terminal");
+  }
+
+  /** Create an independent session and its own tab. */
+  private openSession(host: Host) {
+    // The tab is keyed by the session id, so it must exist before the view.
+    // The id is minted here and handed to the SSH channel; a reconnect inside
+    // TerminalView mints a fresh transport id while the tab keeps this key.
+    const sessionId = mintSessionId();
+
     const wrapper = document.createElement("div");
     wrapper.className = "app-view session-tab-wrapper";
     wrapper.style.display = "";
     this.terminalArea.appendChild(wrapper);
 
     const view = new TerminalView(
-      () => this.onDetach(host.id),
-      (hostId) => this.onFullDisconnect(hostId),
-      (hostId) => this.onSessionDied(hostId),
-      (hostId) => this.closeTab(hostId),
+      () => this.onDetach(sessionId),
+      () => this.onFullDisconnect(sessionId),
+      () => this.onSessionDied(sessionId),
+      () => this.closeTab(sessionId),
     );
     view.mount(wrapper);
 
-    this.tabs.set(host.id, { host, view, wrapper });
-    this.activateTab(host.id);
+    this.tabs.set(sessionId, { sessionId, host, view, wrapper });
+    this.activateTab(sessionId);
     this.showView("terminal");
+    this.navPanel.refreshSessionDots();
 
-    view.connect(host).catch((err) => {
+    view.connect(host, sessionId).catch((err) => {
       // Safety net: TerminalView.connect logs its primary failure path
       // (terminal-view.ts "Connection failed: …"). This fires only if it
       // throws before that — LogTag.Ssh marks the connection lifecycle.
@@ -810,16 +879,15 @@ class App {
     });
   }
 
-  private activateTab(hostId: string) {
-    const tab = this.tabs.get(hostId);
+  private activateTab(sessionId: number) {
+    const tab = this.tabs.get(sessionId);
     if (!tab) return;
-    this.activeTabId = hostId;
-    this.activeHost = tab.host;
+    this.activeTabId = sessionId;
 
     // Pure transition — exactly one tab active (see tab-state.ts)
-    const order = activateTabState(this.tabStates(), hostId);
+    const order = activateTabState(this.tabStates(), sessionId);
     for (const t of order) {
-      const entry = this.tabs.get(t.hostId);
+      const entry = this.tabs.get(t.id);
       if (entry) entry.wrapper.style.display = t.active ? "" : "none";
     }
 
@@ -833,8 +901,8 @@ class App {
     this.renderSessionTabBar();
   }
 
-  private closeTab(hostId: string) {
-    const tab = this.tabs.get(hostId);
+  private closeTab(sessionId: number) {
+    const tab = this.tabs.get(sessionId);
     if (!tab) return;
 
     const doClose = () => {
@@ -849,8 +917,8 @@ class App {
   /**
    * Back button — keep SSH session alive, just switch view.
    */
-  private onDetach(hostId: string) {
-    log.info(LogTag.App, `Detached from terminal for host ${hostId} (session stays active)`);
+  private onDetach(sessionId: number) {
+    log.info(LogTag.App, `Detached from terminal for session ${sessionId} (session stays active)`);
     this.showView("connections");
     this.hostScreen.refresh();
   }
@@ -858,50 +926,37 @@ class App {
   /**
    * Session actually ended. Remove tab, return to host list.
    */
-  private onFullDisconnect(hostId: string) {
-    log.info(LogTag.App, `Session ended for host ${hostId}`);
-    const tab = this.tabs.get(hostId);
-    if (tab) {
-      this.tabs.delete(hostId);
-      tab.wrapper.remove();
-    }
-    this.activeSessions.delete(hostId);
-    this.navPanel.refreshSessionDots();
-    if (this.activeHost?.id === hostId) {
-      this.activeHost = null;
-    }
-    if (this.activeTabId === hostId) {
-      this.activeTabId = null;
-      // Pure transition — activate last remaining tab (see tab-state.ts)
-      const next = closeTabState(this.tabStates(), hostId);
-      if (next.length > 0) {
-        this.activateTab(next[next.length - 1].hostId);
-      } else {
-        this.showView("connections");
-      }
-    }
-    this.renderSessionTabBar();
-    this.refreshStatusBar();
-    this.hostScreen.refresh();
+  private onFullDisconnect(sessionId: number) {
+    log.info(LogTag.App, `Session ${sessionId} ended`);
+    this.removeSessionTab(sessionId);
   }
 
   /**
    * Session died silently. Remove tab, refresh dots.
    */
-  private onSessionDied(hostId: string) {
-    log.info(LogTag.App, `Session silently ended for host ${hostId}`);
-    const tab = this.tabs.get(hostId);
+  private onSessionDied(sessionId: number) {
+    log.info(LogTag.App, `Session ${sessionId} silently ended`);
+    this.removeSessionTab(sessionId);
+  }
+
+  /**
+   * Drop a tab. Other tabs — including other sessions to the same host — are
+   * left untouched.
+   */
+  private removeSessionTab(sessionId: number) {
+    const tab = this.tabs.get(sessionId);
     if (tab) {
-      this.tabs.delete(hostId);
+      this.tabs.delete(sessionId);
       tab.wrapper.remove();
     }
-    this.activeSessions.delete(hostId);
     this.navPanel.refreshSessionDots();
-    if (this.activeTabId === hostId) {
+
+    if (this.activeTabId === sessionId) {
       this.activeTabId = null;
-      const next = closeTabState(this.tabStates(), hostId);
+      // Pure transition — activate last remaining tab (see tab-state.ts)
+      const next = closeTabState(this.tabStates(), sessionId);
       if (next.length > 0) {
-        this.activateTab(next[next.length - 1].hostId);
+        this.activateTab(next[next.length - 1].id);
       } else if (this.currentView === "terminal") {
         this.showView("connections");
       }
@@ -913,10 +968,10 @@ class App {
 
   // ─── Session Tab Bar ─────────────────────────────────────────────
 
-  private tabStates(): TabState[] {
-    return [...this.tabs.keys()].map((hostId) => ({
-      hostId,
-      active: hostId === this.activeTabId,
+  private tabStates(): TabState<number>[] {
+    return [...this.tabs.keys()].map((sessionId) => ({
+      id: sessionId,
+      active: sessionId === this.activeTabId,
     }));
   }
 
@@ -930,22 +985,25 @@ class App {
     }
 
     this.sessionTabBar.innerHTML = "";
-    for (const [hostId, tab] of this.tabs) {
+    for (const [sessionId, tab] of this.tabs) {
       const el = document.createElement("div");
-      el.className = "session-tab" + (hostId === this.activeTabId ? " active" : "");
-      el.dataset.hostId = hostId;
+      el.className = "session-tab" + (sessionId === this.activeTabId ? " active" : "");
+      el.dataset.sessionId = String(sessionId);
+      el.dataset.hostId = tab.host.id;
       el.setAttribute("role", "tab");
-      el.setAttribute("aria-selected", String(hostId === this.activeTabId));
+      el.setAttribute("aria-selected", String(sessionId === this.activeTabId));
       el.tabIndex = 0;
       el.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          this.activateTab(hostId);
+          this.activateTab(sessionId);
         }
       });
 
       const label = document.createElement("span");
       label.className = "session-tab-label";
+      // Duplicate sessions to one host share the same label — the tab bar
+      // does not disambiguate them.
       label.textContent = tab.host.display_name;
 
       const close = document.createElement("button");
@@ -954,12 +1012,12 @@ class App {
       close.setAttribute("aria-label", `Close session ${tab.host.display_name}`);
       close.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.closeTab(hostId);
+        this.closeTab(sessionId);
       });
 
       el.appendChild(label);
       el.appendChild(close);
-      el.addEventListener("click", () => this.activateTab(hostId));
+      el.addEventListener("click", () => this.activateTab(sessionId));
       this.sessionTabBar.appendChild(el);
     }
   }

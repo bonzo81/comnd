@@ -434,6 +434,7 @@ pub fn run() {
                 config::set_log_level,
                 config::set_log_max_size,
                 config::set_max_sessions,
+                config::set_duplicate_session_policy,
                 config::set_shortcuts,
                 config::get_session_log_dir,
                 config::set_session_log_dir,
