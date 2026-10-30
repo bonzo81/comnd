@@ -201,6 +201,58 @@ async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), 
     Ok(())
 }
 
+// The mock NetBox server is the real client's peer, not a second simulator:
+// the suite starts it in-process, points the app at its base URL through the
+// normal settings UI, and inspects the requests the app actually made.
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_netbox_server(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let mock = netbox::mock::MockNetBox::start().await;
+    let base_url = mock.base_url.clone();
+    let mut slot = state.netbox_mock.lock().map_err(|e| e.to_string())?;
+    if let Some(previous) = slot.take() {
+        previous.stop();
+    }
+    *slot = Some(mock);
+    Ok(base_url)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_netbox_set_scenario(
+    scenario: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let slot = state.netbox_mock.lock().map_err(|e| e.to_string())?;
+    match slot.as_ref() {
+        Some(mock) => mock.set_scenario(&scenario),
+        None => Err("Mock NetBox server is not running".to_string()),
+    }
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_netbox_requests(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<netbox::mock::RecordedRequest>, String> {
+    let slot = state.netbox_mock.lock().map_err(|e| e.to_string())?;
+    match slot.as_ref() {
+        Some(mock) => Ok(mock.requests()),
+        None => Err("Mock NetBox server is not running".to_string()),
+    }
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_stop_netbox_server(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut slot = state.netbox_mock.lock().map_err(|e| e.to_string())?;
+    if let Some(mock) = slot.take() {
+        mock.stop();
+    }
+    Ok(())
+}
+
 /// Open (creating if needed) the log file at `path`, lock perms on unix, and
 /// append a size-capped writer to `writers`.
 fn open_log_file(
@@ -406,6 +458,8 @@ pub fn run() {
                 netbox: Mutex::new(netbox_store),
                 platforms: Mutex::new(platform_registry),
                 log_status: Mutex::new(log_fallback_reason),
+                #[cfg(debug_assertions)]
+                netbox_mock: Mutex::new(None),
             });
 
             Ok(())
@@ -495,6 +549,14 @@ pub fn run() {
                 test_smoke_client_closed,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
+                #[cfg(debug_assertions)]
+                test_netbox_server,
+                #[cfg(debug_assertions)]
+                test_netbox_set_scenario,
+                #[cfg(debug_assertions)]
+                test_netbox_requests,
+                #[cfg(debug_assertions)]
+                test_stop_netbox_server,
             ]
         })
         .run(tauri::generate_context!())

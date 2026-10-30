@@ -32,4 +32,9 @@ pub struct AppState {
     /// Human-readable reason the custom log path fell back to the default at
     /// startup, if any. Pulled by the frontend on mount (no emit race).
     pub log_status: Mutex<Option<String>>,
+    /// Debug-only handle to the in-process mock NetBox server that the
+    /// app-level NetBox suite (`npm run smoke:netbox`) drives. Compiled out
+    /// of release builds along with its commands.
+    #[cfg(debug_assertions)]
+    pub netbox_mock: Mutex<Option<crate::netbox::mock::MockNetBox>>,
 }
