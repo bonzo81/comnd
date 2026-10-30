@@ -237,8 +237,7 @@ fn add_to_zip(
 ) -> Result<(), String> {
     if path.is_dir() {
         // Add the directory entry itself
-        let dir_options = options.clone();
-        zip.add_directory(archive_name, dir_options)
+        zip.add_directory(archive_name, options)
             .map_err(|e| format!("Failed to add dir {} to zip: {}", archive_name, e))?;
         // Recurse into children
         let entries = std::fs::read_dir(path)
@@ -1099,5 +1098,74 @@ mod tests {
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
         let _ = std::fs::remove_dir_all(&resource_dir);
+    }
+
+    // app_data_dir() honours COMND_DATA_DIR only in debug builds, so this test must
+    // not run under `cargo test --release` — it would touch the real user data dir.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn test_export_import_roundtrip() {
+        // COMND_DATA_DIR is process-global; keep env manipulation to one test at a time.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let root = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let src_dir = root.join("src-data");
+        let dst_dir = root.join("dst-data");
+        std::fs::create_dir_all(src_dir.join("knowledge-base").join("linux-bash")).unwrap();
+        std::fs::create_dir_all(&dst_dir).unwrap();
+
+        let files = [
+            ("hosts.json", "{\"hosts\":[{\"id\":\"h1\",\"name\":\"router\"}]}"),
+            ("groups.json", "{\"groups\":[{\"id\":\"g1\",\"name\":\"core\"}]}"),
+            ("config.json", "{\"theme\":\"dark\"}"),
+            ("known_hosts.json", "{\"hosts\":[{\"fingerprint\":\"SHA256:abc\"}]}"),
+            ("knowledge-base/linux-bash/net.yaml", "commands:\n  - show version\n"),
+        ];
+        for (rel, body) in files {
+            std::fs::write(src_dir.join(rel), body).unwrap();
+        }
+
+        // Destination-only entry: Overwrite must drop it rather than merge.
+        let stale_dir = dst_dir.join("knowledge-base").join("stale-platform");
+        std::fs::create_dir_all(&stale_dir).unwrap();
+        std::fs::write(stale_dir.join("old.yaml"), "commands: []\n").unwrap();
+
+        let zip_path = root.join("comnd-backup.zip");
+        let prev = std::env::var_os("COMND_DATA_DIR");
+
+        std::env::set_var("COMND_DATA_DIR", &src_dir);
+        assert_eq!(
+            app_data_dir().unwrap(),
+            src_dir,
+            "COMND_DATA_DIR override must be honoured"
+        );
+        export_data(&zip_path).unwrap();
+
+        // Import into a second data dir so the originals stay around to compare against.
+        std::env::set_var("COMND_DATA_DIR", &dst_dir);
+        let imported = import_data(&zip_path, ImportMode::Overwrite);
+
+        // Restore before asserting, so a failure cannot leak the override.
+        match prev {
+            Some(v) => std::env::set_var("COMND_DATA_DIR", v),
+            None => std::env::remove_var("COMND_DATA_DIR"),
+        }
+        imported.unwrap();
+
+        assert!(
+            !stale_dir.exists(),
+            "Overwrite must remove destination-only knowledge-base entries"
+        );
+
+        for (rel, _) in files {
+            assert_eq!(
+                std::fs::read(dst_dir.join(rel)).unwrap(),
+                std::fs::read(src_dir.join(rel)).unwrap(),
+                "{rel} must survive export -> import"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
