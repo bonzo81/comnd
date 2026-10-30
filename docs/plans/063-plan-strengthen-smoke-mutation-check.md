@@ -1,6 +1,6 @@
 # Plan: Strengthen the smoke mutation check (issue #61)
 
-Status: Approved; implementation not started.
+Status: Approved; implemented (issue #61).
 Spec: bonzo81/comnd#61. Task prompt: none yet.
 
 ## Goal
@@ -33,13 +33,13 @@ the weakest of the #53 acceptance criteria.
   must not move terminal logic into Rust.
 - The `mutation-check` matcher changes with the mutation. Today it expects
   `/Command round-trip: expected remote echo exactly once/`, which comes from the mock going
-  quiet. A zero-byte `ssh_input` run fails earlier, in `waitForBytes`, with
+  quiet. A zero-byte `ssh_send` run fails earlier, in `waitForBytes`, with
   `Command round-trip: Mock host did not receive <n> bytes`. The matcher must accept that
   failure and reject the old remote-echo-only one, so a passing unmutated run cannot satisfy it.
 
 ## Done looks like
 
-- [ ] `COMND_SMOKE_MUTATION=ssh_input` forwards zero bytes for typed input — proof: the flag's
+- [ ] `COMND_SMOKE_MUTATION=ssh_send` forwards zero bytes for typed input — proof: the flag's
       diff sits in app code (`src-tauri/src/lib.rs` / `src-tauri/src/ssh.rs`), and `git diff`
       shows nothing changed in the mock's echo path to make the failure happen.
 - [ ] `npm run smoke:mutation` exits 0 with one expected failure — proof: the matcher now names
@@ -57,7 +57,9 @@ the weakest of the #53 acceptance criteria.
 - **Whether the existing mock-side `muteOutput` check stays.** It may run alongside the app-side
   mutation, or be replaced by it. Either is acceptable, as long as `npm run smoke:mutation`
   proves an app-side break.
-- **The target is `ssh_input` byte forwarding**, option 1 in issue #61. That is the acceptance
-  contract. If it turns out impractical, the implementer picks the next option and updates the
-  env value, this checklist, and the matcher in the same PR, naming the option and the reason.
+- **The target is `ssh_send` byte forwarding**, option 1 in issue #61. The issue calls the
+  command `ssh_input`, but the registered Tauri command is `ssh_send` (`src-tauri/src/ssh.rs`,
+  registered in `src-tauri/src/lib.rs`), so that is the env value. If it turns out impractical,
+  the implementer picks the next option and updates the env value, this checklist, and the
+  matcher in the same PR, naming the option and the reason.
 

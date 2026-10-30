@@ -1779,6 +1779,16 @@ pub async fn ssh_connect(
     Ok(())
 }
 
+/// Debug-only smoke mutation (issue #61). With `COMND_SMOKE_MUTATION=ssh_send`
+/// the SSH input boundary drops every byte, so the smoke suite proves it
+/// catches a broken app rather than a silent mock. Compiled out of release.
+#[cfg(debug_assertions)]
+fn smoke_mutation_active(name: &str) -> bool {
+    std::env::var("COMND_SMOKE_MUTATION")
+        .map(|value| value == name)
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn ssh_send(
     session_id: u64,
@@ -1792,6 +1802,14 @@ pub async fn ssh_send(
         mgr.get_session(session_id)
             .ok_or_else(|| "Session not found".to_string())?
     };
+    #[cfg(debug_assertions)]
+    if smoke_mutation_active("ssh_send") {
+        log::warn!(
+            "Smoke mutation COMND_SMOKE_MUTATION=ssh_send: dropping {} bytes of SSH input",
+            data.len()
+        );
+        return Ok(());
+    }
     session.send(data.as_bytes()).await
 }
 

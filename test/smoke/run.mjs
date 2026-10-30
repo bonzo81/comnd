@@ -144,18 +144,19 @@ async function inputState(browser) {
   }).catch(() => null);
 }
 
-async function waitForBytes(browser, length) {
+async function waitForBytes(browser, length, behavior) {
+  const expectation = `${behavior}: Mock host did not receive ${length} bytes`;
   try {
     await browser.waitUntil(async () => (await readBytes(browser)).length >= length, {
       timeout: WAIT_MS,
       interval: 50,
-      timeoutMsg: `Mock host did not receive ${length} bytes`,
+      timeoutMsg: expectation,
     });
   } catch (error) {
     const received = await readBytes(browser).catch(() => []);
     throw new Error(
-      `${error.message}; mock received ${received.length} bytes ${escapeBytes(received)}; `
-      + `input state ${JSON.stringify(await inputState(browser))}`,
+      `${expectation}; mock received ${received.length} bytes ${escapeBytes(received)}; `
+      + `input state ${JSON.stringify(await inputState(browser))} (waitUntil: ${error.message})`,
     );
   }
   return readBytes(browser);
@@ -292,6 +293,10 @@ async function startDriver(dataDir) {
       ...process.env,
       COMND_DATA_DIR: dataDir,
       COMND_TEST_MOCK_SECRET: "smoke-secret",
+      // App-side mutation (issue #61): ssh_send drops typed input, so the
+      // mutation check proves the suite catches broken app code, not a
+      // silent mock. Unset for normal runs.
+      ...(mutationRun ? { COMND_SMOKE_MUTATION: "ssh_send" } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -394,14 +399,14 @@ async function launchAndConnect(browser, dataDir) {
   return host;
 }
 
-async function commandRoundTrip(browser, dataDir, muteOutput = false) {
-  await createAndConnect(browser, dataDir, { muteOutput });
+async function commandRoundTrip(browser, dataDir) {
+  await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
   const command = "echo smoke";
   const expected = [...Buffer.from(`${command}\r`)];
   await sendKeys(browser, command);
   await sendKeys(browser, "\uE007");
-  const actual = await waitForBytes(browser, expected.length);
+  const actual = await waitForBytes(browser, expected.length, "Command round-trip");
   assertBytes(actual, expected, "Command round-trip: mock received exact bytes once");
   const deadline = Date.now() + 5_000;
   let text = await terminalText(browser);
@@ -430,8 +435,12 @@ async function main() {
   if (mutationRun) {
     const result = await runCase({
       name: "mutation-check",
-      expectedFailure: /Command round-trip: expected remote echo exactly once/,
-      run: (browser, dataDir) => commandRoundTrip(browser, dataDir, true),
+      // The app drops input at ssh_send, so the mock never receives the
+      // command and waitForBytes fails first. This must not match the old
+      // muteOutput failure (expected remote echo exactly once), otherwise a
+      // passing unmutated run could satisfy the check.
+      expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes/,
+      run: (browser, dataDir) => commandRoundTrip(browser, dataDir),
     });
     console.log(`PASS mutation-check â€” ${result}`);
     return;
@@ -464,7 +473,7 @@ async function main() {
         await sendKeys(browser, "\uE004");
         await sendKeys(browser, "\uE007");
         const expected = [...Buffer.from("ip route\r")];
-        const actual = await waitForBytes(browser, expected.length);
+        const actual = await waitForBytes(browser, expected.length, "Suggestion accept");
         assertBytes(actual, expected, "Suggestion accept: only the completion remainder was sent");
         await waitForTerminal(browser, "ip route");
         assert.equal(countOccurrences(await terminalText(browser), "ip route"), 1);
@@ -477,7 +486,7 @@ async function main() {
         await sendKeys(browser, "zzzz");
         await sendKeys(browser, "\uE004");
         const expected = [...Buffer.from("zzzz\t")];
-        const actual = await waitForBytes(browser, expected.length);
+        const actual = await waitForBytes(browser, expected.length, "Tab passthrough");
         assertBytes(actual, expected, "Tab passthrough: expected 0x09 at mock with no ghost suggestion");
       },
     },
@@ -553,7 +562,11 @@ async function main() {
         await sendKeys(browser, "alpha beta");
         await sendKeys(browser, ["\uE009", "w", "\uE000"]);
         const expected = [...Buffer.from("alpha beta"), 0x17];
-        assertBytes(await waitForBytes(browser, expected.length), expected, "Ctrl+W passthrough: expected byte 0x17 at mock");
+        assertBytes(
+          await waitForBytes(browser, expected.length, "Ctrl+W passthrough"),
+          expected,
+          "Ctrl+W passthrough: expected byte 0x17 at mock",
+        );
       },
     },
     {
