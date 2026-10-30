@@ -24,6 +24,14 @@ mutation behavior are restricted to Rust debug builds. Each scenario receives
 its own temporary data directory and test-only secret through its process
 environment.
 
+Amended 2026-10-30: recorded where the mutation applies, after issue #61 moved it from
+the mock host into the `ssh_send` command.
+
+The mutation check breaks app code rather than test infrastructure: setting
+`COMND_SMOKE_MUTATION=ssh_send` makes the `ssh_send` command drop typed input
+before it reaches the SSH session, so a passing run proves the harness observes
+real app behaviour. The mock host's echo path stays intact.
+
 ## Consequences
 
 - Tests cover the desktop webview, Tauri commands, real Rust SSH client, and
@@ -31,5 +39,8 @@ environment.
 - Linux CI requires Xvfb, WebKitWebDriver, and tauri-driver; Windows local
   runs require a matching Edge WebDriver.
 - macOS smoke coverage remains unsupported by this external-driver setup.
+- Because the mutation drops input, the expected failure surfaces in
+  `waitForBytes` as zero bytes received; the matcher accepts only that form and
+  names the scenario it broke.
 - The buffer hook and mock controls are absent from release Rust builds and
   normal production frontend builds.

@@ -162,6 +162,7 @@ Before marking a task complete:
 - Rust changes: run `cargo check --all-targets` in `src-tauri/`. It must exit 0.
 - Rust tests: run `cargo test` in `src-tauri/`. It must exit 0 (CI runs this on every PR).
 - Smoke tests: run `npm run smoke` when a change touches the keystroke path, the suggestion controller, the terminal view, or the smoke suite itself. It boots the real debug app against an ephemeral mock host; see `docs/plans/062-plan-full-app-ssh-smoke-tests.md`. Supported hosts are Linux (needs `xvfb-run`) and Windows. macOS is not supported by the driver setup and no smoke coverage is claimed there, so a driver or toolchain failure on macOS is not a product regression. Add `npm run smoke:mutation` when you change `test/smoke/` or the mock host. That run expects one named failure and exits 0 when it appears. CI runs both on every PR.
+- On Windows, `npm run smoke` rewrites line endings in `src-tauri/Cargo.toml` and `src-tauri/gen/schemas/*.json` (LF to CRLF) with no content change, so `git status` lists them as modified while `git diff` shows nothing. Revert them with `git checkout --` before committing.
 - Make sure that agent results match the expected outcomes.
 - Windows/PowerShell agents: cargo and npm print progress to stderr, which PowerShell renders as error records even on success — judge by exit code or final output lines, not error-record styling. Quote-sensitive `gh` filters (`--jq`, GraphQL queries) are safer written to a file and passed with `-F key=@file`; for anything past a trivial ASCII filter prefer dumping the JSON and parsing it, since non-ASCII or hyphenated comparisons inside the expression get mangled even in single quotes. PowerShell 5.1's `>` redirect writes UTF-16LE, so read that dump back with an encoding fallback rather than assuming UTF-8. Write commit messages with `[System.IO.File]::WriteAllLines` plus `UTF8Encoding($false)`; PowerShell 5.1's `Set-Content -Encoding utf8` prepends a BOM, which corrupts the subject and fails commitlint.
 
@@ -184,6 +185,7 @@ Conventional Commits are enforced in CI on pull requests (the `commitlint` job i
 
 - Subject: imperative mood, lowercase, no trailing period, 72 characters max
 - Body: wrapped at 100 characters, explain what and why
+- A body line that begins `word: ` (for example `code: …` or `app: …`) is parsed as a footer token and triggers the `footer-leading-blank` warning. Reword it so it does not start with a token and colon.
 - Breaking change: `!` after the type, or a `BREAKING CHANGE: reason` footer
 - One logical change per commit
 - Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`; scope is optional and free-form
@@ -209,4 +211,4 @@ Issues are tracked in GitHub Issues (`bonzo81/comnd`) via the `gh` CLI. See `doc
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
-Reviewed: 2026-10-19
+Reviewed: 2026-10-30
