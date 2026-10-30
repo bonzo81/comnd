@@ -28,11 +28,15 @@ now contract:
    and `overlay` flags by `netbox_id`. A device that disappears from NetBox disappears from the
    cache and from the tree; a device that appears is added; a renamed device keeps its flags.
    Nothing accumulates, so a second sync of unchanged data is a no-op on the tree.
-2. **A failed refresh leaves the previously synced tree untouched.** `netbox_sync` validates,
-   fetches devices, fetches geography, builds entries, and only then calls `apply_sync`. Every
-   failure path returns before `apply_sync`, so `netbox-cache.json` is not rewritten and the
-   host tree still shows the last good sync. The UI reports the error and no success toast
-   appears.
+2. **A refresh that fails before `apply_sync` leaves the previously synced tree untouched.**
+   `netbox_sync` validates, fetches devices, fetches geography, builds entries, and only then
+   calls `apply_sync`. Each failure path that returns before `apply_sync` leaves
+   `netbox-cache.json` unchanged, and the host tree still shows the last good sync. The UI
+   reports the error and no success toast appears. This guarantee does not cover a failed write
+   inside `apply_sync`: that write happens after the in-memory cache has been replaced, so a
+   disk error there can leave the tree showing refreshed data while the refresh reports an
+   error. The suite asserts the pre-`apply_sync` guarantee, which is the one the fetch paths
+   (401/403/429/5xx, truncated pagination) can violate.
 
 Geography is a partial exception and stays as designed in plan 016: `fetch_geo` degrades an
 erroring geography read to an empty table rather than failing the sync. Device failures are the
@@ -89,8 +93,8 @@ which this suite deliberately does not touch: no production NetBox access, no AP
 - `test/smoke/lib/harness.mjs`: helpers extracted from `run.mjs` (`runCase`, `invoke`,
   `buildApp`, `startDriver`, `waitForDriver`, `freePort`, `pause`, `withTimeout`, Xvfb
   bootstrap). `runCase` gained `env` and `teardown` hooks so each suite can own its teardown,
-  and now records a failing suite teardown as a cleanup error: a scenario that passed, or failed
-  on purpose, cannot report PASS while the mock or its temp directory was left behind.
+  and now records a failing suite teardown as a cleanup error once the app window is up, so no
+  scenario can report PASS while its mock or its temp directory was left behind.
 - `test/smoke/netbox.mjs`: the NetBox scenarios.
 - `package.json`: `smoke:netbox` script.
 - `.github/workflows/ci.yml`: `smoke-netbox` job beside `smoke`.

@@ -170,6 +170,7 @@ export async function runCase(test, suite = {}) {
   let error;
   let cleanupError;
   let teardownError;
+  let appReady = false;
 
   try {
     const started = await startDriver(dataDir, suite.env);
@@ -186,6 +187,7 @@ export async function runCase(test, suite = {}) {
     });
     await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
     await (await browser.$("body")).waitForExist({ timeout: 20_000 });
+    appReady = true;
     // A wedged WebDriver session otherwise blocks the whole job until its timeout.
     await withTimeout(test.run(browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
   } catch (caught) {
@@ -230,19 +232,19 @@ export async function runCase(test, suite = {}) {
     }
   }
 
-  // A teardown failure is only noise when the scenario already failed for an
-  // unrelated reason (the app may have died before the debug command existed).
-  // A scenario that passed, or failed on purpose, must have torn down cleanly.
-  const deliberate =
-    test.expectedFailure && error && test.expectedFailure.test(String(error.message ?? error));
-  if (teardownError && (!error || deliberate)) {
+  // Before the app window is up the suite's debug command may not exist yet, so
+  // a teardown failure there is not actionable. Afterwards it is: a scenario
+  // that reports PASS must have stopped the mock it started.
+  if (teardownError && appReady) {
     cleanupError ??= teardownError;
   }
   if (existsSync(dataDir)) {
     cleanupError ??= new Error(`Temporary app data was not removed: ${dataDir}`);
   }
   if (cleanupError) {
-    throw new Error(`${test.name}: cleanup failed: ${cleanupError.message}`, { cause: error });
+    // Keep the scenario's own failure visible instead of replacing it.
+    const after = error ? ` (after: ${error.message})` : "";
+    throw new Error(`${test.name}: cleanup failed: ${cleanupError.message}${after}`, { cause: error });
   }
   if (test.expectedFailure) {
     assert(error, `${test.name}: expected the deliberate failure, but the behavior passed`);
