@@ -74,7 +74,6 @@ Smoke tests boot the real debug app against an ephemeral mock SSH host: run `npm
 ## What NOT To Do
 
 - Don't add AI/LLM features — that's post-MVP
-- Don't implement multi-tab/multi-session — post-MVP
 - Don't use `serde_yml` or `serde_yaml` — use `yaml_serde`
 - Don't overlay the sidebar on the terminal
 - Don't use `Ctrl+W` for anything — it must pass through to remote
