@@ -13,7 +13,8 @@
     "tauri": "tauri",
     "build:smoke": "tsc && vite build --mode smoke",
     "smoke": "node test/smoke/run.mjs",
-    "smoke:mutation": "node test/smoke/run.mjs --mutation"
+    "smoke:mutation": "node test/smoke/run.mjs --mutation",
+    "smoke:netbox": "node test/smoke/netbox.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
