@@ -166,6 +166,26 @@ describe("openModal", () => {
       expect(event.defaultPrevented).toBe(false);
     });
 
+    it("skips controls collapsed by CSS instead of hidden attributes", () => {
+      // Collapsed section last in the DOM, so it is the element the trap would
+      // otherwise wrap to.
+      const collapsed =
+        '<button id="a">A</button>' +
+        '<button id="c">C</button>' +
+        '<div class="auth-conditional-hidden"><input id="secret" /></div>';
+
+      open({ content: collapsed, initialFocus: "#a" });
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true }),
+      );
+      expect(document.activeElement).toBe(getOverlay()!.querySelector("#c"));
+      handles.pop()!.close();
+
+      open({ content: collapsed, initialFocus: "#c" });
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true }));
+      expect(document.activeElement).toBe(getOverlay()!.querySelector("#a"));
+    });
+
     it("keeps focus on the panel when it has no focusable children", () => {
       open({ content: "<p>text only</p>" });
       const panel = getOverlay()!.querySelector<HTMLElement>(".modal-panel")!;

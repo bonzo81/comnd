@@ -164,6 +164,8 @@ export class TerminalView {
    * flash an error overlay on an already-abandoned view. */
   private connectCancelled = false;
   private status: SessionLifecycle = "connecting";
+  /** Observer for status transitions (the app's live-session count). */
+  onStatusChange: ((status: SessionLifecycle) => void) | null = null;
 
   // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
   private tracker: LineTracker;
@@ -1196,6 +1198,7 @@ export class TerminalView {
   }
 
   private updateStatusBar(status: SessionLifecycle) {
+    const changed = status !== this.status;
     this.status = status;
     const dot = this.$(".tv-sb-dot");
     const hostEl = this.$(".tv-sb-host");
@@ -1219,6 +1222,8 @@ export class TerminalView {
       const version = this.host.os_version ? ` ${this.host.os_version}` : "";
       platformEl.textContent = `${label}${version}`;
     }
+
+    if (changed) this.onStatusChange?.(status);
   }
 
   // ─── Navigation / lifecycle ──────────────────────────────────────

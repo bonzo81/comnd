@@ -1,5 +1,5 @@
 /**
- * Shared modal shell — backdrop + panel + Escape/backdrop dismiss + focus.
+ * Shared modal shell ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â backdrop + panel + Escape/backdrop dismiss + focus.
  * One imperative overlay for every dialog so escape handling, backdrop-click
  * dismiss, and focus behavior match. The shell owns only open/close/escape/
  * focus mechanics; content, submit, and error display stay caller-owned.
@@ -36,7 +36,13 @@ const FOCUSABLE_SELECTOR = [
 
 function focusableIn(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (el) => !el.hasAttribute("disabled") && el.tabIndex >= 0 && !el.hidden,
+    (el) =>
+      !el.hasAttribute("disabled") &&
+      el.tabIndex >= 0 &&
+      !el.hidden &&
+      // Sections collapsed by CSS keep their inputs focusable (credential
+      // fields that do not apply to the chosen auth type), so skip them.
+      !el.closest(".auth-conditional-hidden"),
   );
 }
 

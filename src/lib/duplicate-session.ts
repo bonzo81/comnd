@@ -40,6 +40,11 @@ export function isAtSessionLimit(openSessions: number, maxSessions: number): boo
 /** Connection status of a session view, as far as the limit is concerned. */
 export type SessionLifecycle = "connecting" | "connected" | "disconnected" | "error";
 
+/** True while the session occupies a backend slot (connecting or up). */
+export function isLiveSession(state: SessionLifecycle): boolean {
+  return state === "connecting" || state === "connected";
+}
+
 /**
  * Sessions that occupy a backend slot. A failed attempt keeps its tab open so
  * the user can retry, but holds no SSH session, so it must not consume the
@@ -48,7 +53,7 @@ export type SessionLifecycle = "connecting" | "connected" | "disconnected" | "er
 export function countLiveSessions(states: Iterable<SessionLifecycle>): number {
   let live = 0;
   for (const state of states) {
-    if (state === "connecting" || state === "connected") live += 1;
+    if (isLiveSession(state)) live += 1;
   }
   return live;
 }

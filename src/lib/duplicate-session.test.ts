@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countLiveSessions,
   isAtSessionLimit,
+  isLiveSession,
   normalizeDuplicateSessionPolicy,
   resolveDuplicateSessionAction,
 } from "./duplicate-session";
@@ -30,6 +31,15 @@ describe("isAtSessionLimit", () => {
     expect(isAtSessionLimit(29, 30)).toBe(false);
     expect(isAtSessionLimit(30, 30)).toBe(true);
     expect(isAtSessionLimit(31, 30)).toBe(true);
+  });
+});
+
+describe("isLiveSession", () => {
+  it("is true only while the session occupies a backend slot", () => {
+    expect(isLiveSession("connecting")).toBe(true);
+    expect(isLiveSession("connected")).toBe(true);
+    expect(isLiveSession("disconnected")).toBe(false);
+    expect(isLiveSession("error")).toBe(false);
   });
 });
 

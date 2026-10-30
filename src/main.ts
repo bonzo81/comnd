@@ -21,7 +21,7 @@ import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { mintSessionId } from "./lib/session-id";
 import {
-  countLiveSessions, isAtSessionLimit, normalizeDuplicateSessionPolicy,
+  countLiveSessions, isAtSessionLimit, isLiveSession, normalizeDuplicateSessionPolicy,
   resolveDuplicateSessionAction, type DuplicateSessionPolicy,
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
@@ -629,7 +629,7 @@ class App {
 
   private refreshStatusBar() {
     if (!this.sbSessions || !this.sbView) return;
-    const n = this.tabs.size;
+    const n = this.liveSessionCount;
     this.sbSessions.innerHTML = `<span class="sb-dot${n > 0 ? " on" : ""}">●</span>${n} session${n === 1 ? "" : "s"}`;
     const labels: Record<AppView, string> = {
       connections: "Connections",
@@ -794,7 +794,12 @@ class App {
    * one, or prompt (issue #67).
    */
   private async onConnect(host: Host) {
-    const openForHost = [...this.tabs.values()].filter((t) => t.host.id === host.id);
+    // Only live sessions count as "already connected": a failed attempt keeps
+    // its tab open for Retry but holds no SSH session, so it must neither
+    // trigger the prompt nor be focused instead of connecting.
+    const openForHost = [...this.tabs.values()].filter(
+      (t) => t.host.id === host.id && isLiveSession(t.view.connectionStatus),
+    );
 
     if (openForHost.length > 0) {
       // One prompt per host at a time — a second connect while the dialog is
@@ -828,14 +833,17 @@ class App {
           });
 
           // "Remember my choice" — persist real choices, including "go to the
-          // existing session", before branching so neither is lost.
+          // existing session", before branching so neither is lost. Awaited
+          // while the prompt guard is still held: a connect racing this save
+          // would otherwise read the stale policy and prompt again.
           const remembered = policyForRememberedChoice(result.choice, result.remember);
           if (remembered) {
-            setDuplicateSessionPolicy(remembered)
-              .then(() => this.settingsScreen.reloadConfig())
-              .catch((err) => {
-                log.warn(LogTag.App, "Could not save duplicate session policy:", err);
-              });
+            try {
+              await setDuplicateSessionPolicy(remembered);
+              await this.settingsScreen.reloadConfig();
+            } catch (err) {
+              log.warn(LogTag.App, "Could not save duplicate session policy:", err);
+            }
           }
 
           if (result.choice === "cancel") {
@@ -874,7 +882,11 @@ class App {
 
   /** Activate the oldest live session for a host. */
   private focusExistingSession(hostId: string) {
-    const existing = [...this.tabs.values()].find((t) => t.host.id === hostId);
+    const candidates = [...this.tabs.values()].filter((t) => t.host.id === hostId);
+    // Prefer a live session; fall back to any tab so the choice is never a
+    // no-op if the session died while the prompt was open.
+    const existing =
+      candidates.find((t) => isLiveSession(t.view.connectionStatus)) ?? candidates[0];
     if (!existing) return;
     this.activateTab(existing.sessionId);
     this.showView("terminal");
@@ -898,6 +910,9 @@ class App {
       () => this.onSessionDied(sessionId),
       () => this.closeTab(sessionId),
     );
+    // Failed attempts keep their tab open for Retry but hold no SSH session,
+    // so the status bar must follow each transition, not just tab add/remove.
+    view.onStatusChange = () => this.refreshStatusBar();
     view.mount(wrapper);
 
     this.tabs.set(sessionId, { sessionId, host, view, wrapper });
@@ -1019,12 +1034,30 @@ class App {
     }
 
     this.sessionTabBar.innerHTML = "";
+
+    // Duplicate sessions to one host share a visible label by design, so the
+    // accessible name carries the position instead — it still contains the
+    // visible text, keeping WCAG 2.5.3 "label in name" intact.
+    const perHost = new Map<string, number>();
+    for (const tab of this.tabs.values()) {
+      perHost.set(tab.host.id, (perHost.get(tab.host.id) ?? 0) + 1);
+    }
+    const hostIndex = new Map<string, number>();
+
     for (const [sessionId, tab] of this.tabs) {
+      const hostTotal = perHost.get(tab.host.id) ?? 1;
+      const index = (hostIndex.get(tab.host.id) ?? 0) + 1;
+      hostIndex.set(tab.host.id, index);
+      const sessionSuffix = hostTotal > 1 ? `, session ${index} of ${hostTotal}` : "";
+
       const el = document.createElement("div");
       el.className = "session-tab" + (sessionId === this.activeTabId ? " active" : "");
       el.dataset.sessionId = String(sessionId);
       el.dataset.hostId = tab.host.id;
       el.setAttribute("role", "tab");
+      if (sessionSuffix) {
+        el.setAttribute("aria-label", `${tab.host.display_name}${sessionSuffix}`);
+      }
       el.setAttribute("aria-selected", String(sessionId === this.activeTabId));
       el.tabIndex = 0;
       el.addEventListener("keydown", (e) => {
@@ -1043,7 +1076,7 @@ class App {
       const close = document.createElement("button");
       close.className = "session-tab-close";
       close.textContent = "×";
-      close.setAttribute("aria-label", `Close session ${tab.host.display_name}`);
+      close.setAttribute("aria-label", `Close session ${tab.host.display_name}${sessionSuffix}`);
       close.addEventListener("click", (e) => {
         e.stopPropagation();
         this.closeTab(sessionId);
