@@ -34,3 +34,25 @@ Added:
 Why: a commit body line beginning `app: ` tripped the rule twice, and the
 warning names a blank-line problem rather than the real cause, so the fix took
 several attempts.
+
+## 2026-10-30 (issue #67)
+
+Source: issue #67, allowing concurrent sessions to the same host.
+
+### Verification Requirements
+
+Added:
+
+> The driver is not bundled: on Windows the suite needs `msedgedriver.exe` on
+> `PATH`, at the version matching the installed WebView2 runtime (download
+> `msedgedriver.microsoft.com/<version>/edgedriver_win64.zip`); a missing or
+> mismatched driver fails every scenario with `can not find binary
+> msedgedriver.exe in the PATH`. Inside scenarios, poll with
+> `browser.execute(() => !!document.querySelector(".sel"))` — a `waitUntil`
+> predicate built on `(await browser.$(".sel")).isExisting()` never turns false,
+> so it times out on a dialog that has already closed.
+
+Why: the smoke suite could not run at all on Windows until the matching driver
+was downloaded, and the new duplicate-session scenario then hung on its
+`dialog is gone` wait because an `isExisting()` predicate cannot observe a
+closed dialog — it reports the last successful lookup forever.
