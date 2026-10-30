@@ -37,6 +37,22 @@ export function isAtSessionLimit(openSessions: number, maxSessions: number): boo
   return maxSessions > 0 && openSessions >= maxSessions;
 }
 
+/** Connection status of a session view, as far as the limit is concerned. */
+export type SessionLifecycle = "connecting" | "connected" | "disconnected" | "error";
+
+/**
+ * Sessions that occupy a backend slot. A failed attempt keeps its tab open so
+ * the user can retry, but holds no SSH session, so it must not consume the
+ * limit — the backend counts only live sessions (`mgr.session_count()`).
+ */
+export function countLiveSessions(states: Iterable<SessionLifecycle>): number {
+  let live = 0;
+  for (const state of states) {
+    if (state === "connecting" || state === "connected") live += 1;
+  }
+  return live;
+}
+
 export function resolveDuplicateSessionAction(input: {
   policy: DuplicateSessionPolicy;
   atLimit: boolean;

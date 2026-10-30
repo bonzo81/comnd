@@ -39,6 +39,7 @@ import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
+import type { SessionLifecycle } from "../lib/duplicate-session";
 import { AuthInputCollector } from "../lib/auth-input";
 import { ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
   import { confirmDialog } from "../lib/confirm-dialog";
@@ -162,6 +163,7 @@ export class TerminalView {
   /** Set on user cancel/teardown so a late backend rejection doesn't
    * flash an error overlay on an already-abandoned view. */
   private connectCancelled = false;
+  private status: SessionLifecycle = "connecting";
 
   // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
   private tracker: LineTracker;
@@ -1185,7 +1187,16 @@ export class TerminalView {
     }
   }
 
-  private updateStatusBar(status: "connecting" | "connected" | "disconnected" | "error") {
+  /**
+   * Connection status, mirrored from the status bar so callers can tell a live
+   * session from a failed attempt that is only holding its tab open for Retry.
+   */
+  get connectionStatus(): SessionLifecycle {
+    return this.status;
+  }
+
+  private updateStatusBar(status: SessionLifecycle) {
+    this.status = status;
     const dot = this.$(".tv-sb-dot");
     const hostEl = this.$(".tv-sb-host");
     const platformEl = this.$(".tv-sb-platform");

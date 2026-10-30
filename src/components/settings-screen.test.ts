@@ -323,4 +323,33 @@ describe("SettingsScreen — duplicate-session policy freshness", () => {
     await screen.reloadConfig();
     expect(select().value).toBe("allow");
   });
+
+  it("refreshes the cached config after saving the policy from the dropdown", async () => {
+    const h = createHarness();
+    let config = h.fixtures.appConfig({ duplicate_session_policy: "ask" });
+    h.ipc.mockImpl("get_app_config", () => config);
+    h.ipc.mock("get_session_log_dir", "");
+    h.ipc.mockImpl("set_duplicate_session_policy", (args) => {
+      config = h.fixtures.appConfig({
+        duplicate_session_policy: (args as { policy: string }).policy,
+      });
+      return null;
+    });
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem("general");
+    const select = () => container.querySelector<HTMLSelectElement>("#duplicate-session-policy")!;
+    expect(select().value).toBe("ask");
+
+    // Without the refresh, the cached snapshot keeps saying "ask" and the
+    // dropdown snaps back when the user returns to General.
+    select().value = "focus";
+    select().dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    screen.setItem("appearance");
+    screen.setItem("general");
+    expect(select().value).toBe("focus");
+  });
 });

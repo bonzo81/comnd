@@ -21,8 +21,8 @@ import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { mintSessionId } from "./lib/session-id";
 import {
-  isAtSessionLimit, normalizeDuplicateSessionPolicy, resolveDuplicateSessionAction,
-  type DuplicateSessionPolicy,
+  countLiveSessions, isAtSessionLimit, normalizeDuplicateSessionPolicy,
+  resolveDuplicateSessionAction, type DuplicateSessionPolicy,
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
 import { getAppConfig, setDuplicateSessionPolicy } from "./lib/tauri-api";
@@ -88,6 +88,9 @@ class App {
   // appear in more than one tab (issue #67).
   private tabs = new Map<number, SessionTab>();
   private activeTabId: number | null = null;
+  /** Host ids with a duplicate-session prompt on screen, so a repeated connect
+   *  cannot stack a second dialog. */
+  private pendingDuplicatePrompt = new Set<string>();
   private sessionTabBar: HTMLElement | null = null;
   private terminalArea: HTMLElement;
 
@@ -794,50 +797,79 @@ class App {
     const openForHost = [...this.tabs.values()].filter((t) => t.host.id === host.id);
 
     if (openForHost.length > 0) {
-      let policy: DuplicateSessionPolicy = "ask";
-      let maxSessions = 0;
+      // One prompt per host at a time — a second connect while the dialog is
+      // up would stack a second dialog and leave a request hanging.
+      if (this.pendingDuplicatePrompt.has(host.id)) return;
+      this.pendingDuplicatePrompt.add(host.id);
       try {
-        const config = await getAppConfig();
-        policy = normalizeDuplicateSessionPolicy(config.duplicate_session_policy);
-        maxSessions = config.max_sessions ?? 0;
-      } catch (err) {
-        log.warn(LogTag.App, "Could not read app config, using defaults:", err);
-      }
+        let policy: DuplicateSessionPolicy = "ask";
+        let maxSessions = 0;
+        try {
+          const config = await getAppConfig();
+          policy = normalizeDuplicateSessionPolicy(config.duplicate_session_policy);
+          maxSessions = config.max_sessions ?? 0;
+        } catch (err) {
+          log.warn(LogTag.App, "Could not read app config, using defaults:", err);
+        }
 
-      const atLimit = isAtSessionLimit(this.tabs.size, maxSessions);
-      const action = resolveDuplicateSessionAction({ policy, atLimit });
+        const atLimit = isAtSessionLimit(this.liveSessionCount, maxSessions);
+        const action = resolveDuplicateSessionAction({ policy, atLimit });
 
-      if (action === "focus") {
-        this.focusExistingSession(host.id);
-        return;
-      }
-
-      if (action !== "new") {
-        const result = await openDuplicateSessionDialog({
-          deviceName: host.display_name,
-          atLimit,
-          maxSessions,
-        });
-
-        if (result.choice === "cancel") return;
-        if (result.choice === "focus") {
+        if (action === "focus") {
           this.focusExistingSession(host.id);
           return;
         }
 
-        // "Remember my choice" — persist only real choices, never cancel.
-        const remembered = policyForRememberedChoice(result.choice, result.remember);
-        if (remembered) {
-          setDuplicateSessionPolicy(remembered)
-            .then(() => this.settingsScreen.reloadConfig())
-            .catch((err) => {
-              log.warn(LogTag.App, "Could not save duplicate session policy:", err);
-            });
+        if (action !== "new") {
+          const result = await openDuplicateSessionDialog({
+            deviceName: host.display_name,
+            atLimit,
+            maxSessions,
+          });
+
+          // "Remember my choice" — persist real choices, including "go to the
+          // existing session", before branching so neither is lost.
+          const remembered = policyForRememberedChoice(result.choice, result.remember);
+          if (remembered) {
+            setDuplicateSessionPolicy(remembered)
+              .then(() => this.settingsScreen.reloadConfig())
+              .catch((err) => {
+                log.warn(LogTag.App, "Could not save duplicate session policy:", err);
+              });
+          }
+
+          if (result.choice === "cancel") {
+            // connectToHost() unbinds the host-list keys before connecting, so
+            // a cancelled connect must give them back.
+            this.restoreConnectionsKeyboard();
+            return;
+          }
+          if (result.choice === "focus") {
+            this.focusExistingSession(host.id);
+            return;
+          }
         }
+      } finally {
+        this.pendingDuplicatePrompt.delete(host.id);
       }
     }
 
     this.openSession(host);
+  }
+
+  /**
+   * Sessions occupying a backend slot. A failed attempt keeps its tab open for
+   * Retry but holds no SSH session, so it must not count against the limit.
+   */
+  private get liveSessionCount(): number {
+    return countLiveSessions(
+      [...this.tabs.values()].map((t) => t.view.connectionStatus),
+    );
+  }
+
+  /** Rebind the host-list keys after a connect that stayed on Connections. */
+  private restoreConnectionsKeyboard() {
+    if (this.currentView === "connections") this.hostScreen.rebindGlobalKeys();
   }
 
   /** Activate the oldest live session for a host. */

@@ -176,4 +176,35 @@ describe("openModal", () => {
       expect(document.activeElement).toBe(panel);
     });
   });
+
+  describe("stacked modals", () => {
+    it("lets only the topmost modal handle Escape", () => {
+      const bottom = open({ content: '<button id="b1">B</button>' });
+      const top = open({ content: '<button id="t1">T</button>' });
+      pressKey("Escape");
+      expect(top.panel.isConnected).toBe(false);
+      expect(bottom.panel.isConnected).toBe(true);
+    });
+
+    it("traps Tab inside the topmost modal only", () => {
+      open({ content: '<button id="b1">B</button><button id="b2">B2</button>' });
+      const top = open({
+        content: '<button id="t1">T</button><button id="t2">T2</button>',
+        initialFocus: "#t2",
+      });
+      const event = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(top.panel.querySelector("#t1"));
+    });
+
+    it("hands keyboard control back when the top modal closes", () => {
+      const bottom = open({ content: '<button id="b1">B</button>' });
+      const top = open({ content: '<button id="t1">T</button>' });
+      pressKey("Escape");
+      expect(top.panel.isConnected).toBe(false);
+      pressKey("Escape");
+      expect(bottom.panel.isConnected).toBe(false);
+    });
+  });
 });

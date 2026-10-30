@@ -40,6 +40,13 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * Open modals, bottom-most first. Only the topmost one handles Escape and Tab,
+ * so a dialog opened over another (the shortcuts help over the duplicate-session
+ * prompt, say) cannot fight the covered one for focus.
+ */
+const openModals: object[] = [];
+
 export function openModal(opts: ModalOptions): ModalHandle {
   const dismissOnEscape = opts.dismissOnEscape ?? true;
   const dismissOnBackdrop = opts.dismissOnBackdrop ?? true;
@@ -57,7 +64,12 @@ export function openModal(opts: ModalOptions): ModalHandle {
   document.body.appendChild(backdrop);
 
   let closed = false;
+  const token = {};
+  openModals.push(token);
+  const isTopmost = () => openModals[openModals.length - 1] === token;
+
   const onKey = (e: KeyboardEvent) => {
+    if (!isTopmost()) return;
     if (e.key === "Tab") {
       trapTab(e);
       return;
@@ -98,6 +110,8 @@ export function openModal(opts: ModalOptions): ModalHandle {
     closed = true;
     backdrop.remove();
     window.removeEventListener("keydown", onKey, true);
+    const stackIndex = openModals.indexOf(token);
+    if (stackIndex >= 0) openModals.splice(stackIndex, 1);
     if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus();
   };
   const dismiss = () => {

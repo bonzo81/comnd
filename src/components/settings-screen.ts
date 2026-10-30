@@ -1204,9 +1204,12 @@ export class SettingsScreen {
     });
 
     this.container?.querySelector<HTMLSelectElement>("#duplicate-session-policy")?.addEventListener("change", (e) => {
-      void setDuplicateSessionPolicy((e.target as HTMLSelectElement).value).catch(() => {
-        showToast("Failed to save duplicate session policy", "error");
-      });
+      const value = (e.target as HTMLSelectElement).value;
+      void setDuplicateSessionPolicy(value)
+        .then(() => this.refreshConfig())
+        .catch(() => {
+          showToast("Failed to save duplicate session policy", "error");
+        });
     });
 
     this.container?.querySelector<HTMLInputElement>("#session-logging")?.addEventListener("change", (e) => {

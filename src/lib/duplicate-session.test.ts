@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countLiveSessions,
   isAtSessionLimit,
   normalizeDuplicateSessionPolicy,
   resolveDuplicateSessionAction,
@@ -29,6 +30,20 @@ describe("isAtSessionLimit", () => {
     expect(isAtSessionLimit(29, 30)).toBe(false);
     expect(isAtSessionLimit(30, 30)).toBe(true);
     expect(isAtSessionLimit(31, 30)).toBe(true);
+  });
+});
+
+describe("countLiveSessions", () => {
+  it("counts connecting and connected sessions", () => {
+    expect(countLiveSessions(["connecting", "connected", "connected"])).toBe(3);
+  });
+
+  it("ignores failed and disconnected tabs so the limit is not reached early", () => {
+    expect(countLiveSessions(["connected", "error", "disconnected"])).toBe(1);
+  });
+
+  it("is zero with no tabs", () => {
+    expect(countLiveSessions([])).toBe(0);
   });
 });
 
