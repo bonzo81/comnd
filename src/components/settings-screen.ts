@@ -161,6 +161,15 @@ export class SettingsScreen {
     }
   }
 
+  /** Re-read the saved config after another surface persisted a change — the
+   *  duplicate-session dialog writes `duplicate_session_policy` while this
+   *  screen is mounted but hidden, so its cached snapshot would show the old
+   *  value on the next visit. */
+  async reloadConfig() {
+    await this.refreshConfig();
+    if (this.itemId === "general") this.render();
+  }
+
   async mount(container: HTMLElement) {
     this.container = container;
     try {

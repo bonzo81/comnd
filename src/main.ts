@@ -828,9 +828,11 @@ class App {
         // "Remember my choice" — persist only real choices, never cancel.
         const remembered = policyForRememberedChoice(result.choice, result.remember);
         if (remembered) {
-          setDuplicateSessionPolicy(remembered).catch((err) => {
-            log.warn(LogTag.App, "Could not save duplicate session policy:", err);
-          });
+          setDuplicateSessionPolicy(remembered)
+            .then(() => this.settingsScreen.reloadConfig())
+            .catch((err) => {
+              log.warn(LogTag.App, "Could not save duplicate session policy:", err);
+            });
         }
       }
     }
