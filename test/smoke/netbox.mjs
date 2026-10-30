@@ -11,7 +11,8 @@
 // fixtures. It is NOT evidence of compatibility with any real NetBox version.
 //
 // The suite supplies COMND_TEST_MOCK_NETBOX_TOKEN because CI has no OS keyring:
-// the debug-only override in credentials.rs answers every token read with it.
+// the debug-only store in credentials.rs is seeded with it and then honours the
+// UI's token saves, so the workflows below still prove the save path works.
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
@@ -28,10 +29,11 @@ import {
   WAIT_MS,
 } from "./lib/harness.mjs";
 
-// Typed into the form so Test Connection proves the value the user entered
-// reaches the backend. The stored token comes from the suite environment (a
-// debug-only override, since CI has no keyring), so syncs use a Bearer token
-// while this one is a legacy Token-scheme token.
+// Typed into the form, saved through Save Connection, and confirmed from the
+// mock's request log: it is a legacy (non-`nbt_`) token, so every request it
+// authenticates shows the `Token` scheme instead of the environment seed's
+// `Bearer` scheme. A Save Connection that silently stopped writing the token
+// would fall back to the seed and fail that assertion.
 const TYPED_TOKEN = "smoke-legacy-token";
 
 // Nav toggle glyphs (unicode escapes keep this file ASCII).
@@ -323,6 +325,14 @@ const tests = [
       const baseUrl = await invoke(browser, "test_netbox_server");
       assert.match(baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/, "the mock must be a loopback instance");
 
+      // CI has no keychain, so the suite's environment token seeds the debug
+      // store: the backend reports a stored token before the UI saves one.
+      assert.equal(
+        (await invoke(browser, "netbox_get_config")).has_token,
+        true,
+        "the environment token must seed the debug secret store",
+      );
+
       await openNetboxSettings(browser);
       // A first-run form: everything below the switch is inert until the
       // source is enabled, so the suite has to follow the user's order.
@@ -604,6 +614,18 @@ const tests = [
       await configureSource(browser);
       assert.equal(await syncAndWait(browser, /^Synced 5 devices/), SYNC_OK_TOAST);
       await waitForDeviceRows(browser, 4);
+      // Nav groups start collapsed, so without this the row snapshot below
+      // would be empty and the "tree untouched" assertions would be vacuous.
+      for (const id of [
+        "__netbox__",
+        "__netbox__:region:emea",
+        "__netbox__:site:dc1",
+        "__netbox__:site:dc2",
+        "__netbox__:loc:rack-1",
+        "__netbox__:loc:rack-2",
+      ]) {
+        await expandGroup(browser, id);
+      }
 
       const before = {
         cache: readFileSync(cachePath(dataDir), "utf8"),
@@ -613,6 +635,7 @@ const tests = [
         rows: await hostRowIds(browser),
       };
       assert.equal(before.devices.length, 4);
+      assert.equal(before.rows.length, 4, "the expanded tree must render all four synced hosts");
 
       // Test Connection does not read Retry-After, the device fetch does, so
       // the 429 wording differs between the two paths by design.
@@ -692,6 +715,47 @@ const tests = [
         );
         assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
       }
+
+      // A failure after page 1 has already been read: the sync must abandon
+      // rather than persist the truncated page it did get.
+      const seen = (await invoke(browser, "test_netbox_requests")).length;
+      await invoke(browser, "test_netbox_set_scenario", { scenario: "second_page_error" });
+      await clearToasts(browser);
+      await click(browser, "#netbox-sync-btn");
+      assert.equal(
+        await waitForToast(browser, /^Sync failed:/),
+        "Sync failed: NetBox server error (HTTP 500)",
+        "second_page_error: a mid-pagination failure must be reported",
+      );
+      assert.deepEqual(
+        (await toastMessages(browser)).filter((message) => message.startsWith("Synced")),
+        [],
+        "second_page_error: a partial sync must never report success",
+      );
+      const added = (await invoke(browser, "test_netbox_requests"))
+        .slice(seen)
+        .map((request) => request.path);
+      assert.deepEqual(
+        added,
+        [EXPECTED_PATHS[1], EXPECTED_PATHS[2]],
+        "second_page_error: the sync must stop at the failed second page",
+      );
+      assert.deepEqual(
+        await invoke(browser, "netbox_get_devices"),
+        before.devices,
+        "second_page_error: a partial sync must not rewrite the cached devices",
+      );
+      assert.deepEqual(
+        await hostRowIds(browser),
+        before.rows,
+        "second_page_error: a partial sync must not change the displayed tree",
+      );
+      assert.equal(
+        readFileSync(cachePath(dataDir), "utf8"),
+        before.cache,
+        "second_page_error: a partial sync must leave netbox-cache.json byte-identical",
+      );
+      assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
     },
   },
   {
@@ -735,19 +799,22 @@ const tests = [
         requests.every((request) => request.has_auth),
         "every request must carry an Authorization header",
       );
-      const probe = requests.find((request) => request.path === PROBE_PATH);
-      assert.equal(probe.auth_scheme, "Token", "the probe used the token typed into the form");
+      // Save Connection stored the typed legacy token, so it — not the
+      // environment seed — must authenticate everything, Test Connection
+      // included. A save that silently stopped writing would leave the seed in
+      // place and surface here as the wrong scheme.
       assert.deepEqual(
-        [...new Set(requests.filter((r) => r.path !== PROBE_PATH).map((r) => r.auth_scheme))],
-        ["Bearer"],
-        "sync and choices use the stored nbt_ token (Bearer), which CI supplies via the debug override",
+        [...new Set(requests.map((request) => request.auth_scheme))],
+        ["Token"],
+        "every request must use the legacy token typed into the form",
       );
     },
   },
   {
     // Definition of done: cleanup verified after a forced failure. runCase
-    // checks the temp data dir is gone before it honours expectedFailure, so
-    // reaching this scenario's PASS proves teardown and removal still ran.
+    // records any suite-teardown error and checks the temp data dir is gone
+    // before it honours expectedFailure, so reaching this scenario's PASS
+    // proves the mock was stopped and the directory removed anyway.
     name: "cleanup-on-failure",
     expectedFailure: /forced cleanup probe/,
     async run(browser, dataDir) {
@@ -761,7 +828,7 @@ const tests = [
 ];
 
 const netboxSuite = {
-  // CI has no OS keyring; the debug-only override stands in for the token.
+  // CI has no OS keyring; the debug-only store is seeded from this token.
   env: { COMND_TEST_MOCK_NETBOX_TOKEN: "nbt_smoke.token" },
   teardown: (browser) => invoke(browser, "test_stop_netbox_server"),
 };

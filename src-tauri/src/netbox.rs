@@ -1943,8 +1943,15 @@ pub(crate) mod mock {
     /// Scenarios the app-level suite can drive. `ok` is the initial state;
     /// switching keeps the base URL stable so a refresh reuses the same
     /// configured instance.
-    pub(crate) const SCENARIOS: [&str; 6] =
-        ["ok", "refresh", "unauthorized", "forbidden", "throttled", "server_error"];
+    pub(crate) const SCENARIOS: [&str; 7] = [
+        "ok",
+        "refresh",
+        "unauthorized",
+        "forbidden",
+        "throttled",
+        "server_error",
+        "second_page_error",
+    ];
 
     /// One request the mock saw. `has_auth` records only whether an
     /// Authorization header was present, and `auth_scheme` only its first
@@ -2063,6 +2070,11 @@ pub(crate) mod mock {
                 (devices_page1(), devices_page2())
             };
             if path.contains("offset=100") {
+                // Page 1 already reached the client, so the suite uses this to
+                // prove a mid-sync error is never persisted as a truncated sync.
+                if scenario == "second_page_error" {
+                    return error_response("server_error").expect("the server_error fixture must exist");
+                }
                 return page(None, second);
             }
             let next = format!(
@@ -2361,6 +2373,22 @@ mod tests {
                 .unwrap_err();
             assert!(err.contains(needle), "{} -> {}", scenario, err);
         }
+
+        // A failure after page 1 must surface as an error: the suite relies on
+        // this to prove a truncated sync is never treated as success.
+        mock.set_scenario("second_page_error").unwrap();
+        let err = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap_err();
+        assert!(err.contains("server error"), "second_page_error -> {}", err);
+        let last = mock.requests().last().cloned().unwrap();
+        assert!(
+            last.path.contains("offset=100"),
+            "the second page was never attempted: {}",
+            last.path
+        );
+
         assert!(mock.set_scenario("nope").is_err());
 
         // A legacy (non-`nbt_`) token uses the Token scheme. The recorder keeps

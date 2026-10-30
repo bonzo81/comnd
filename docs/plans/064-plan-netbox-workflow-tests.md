@@ -50,15 +50,15 @@ ones that must be atomic.
    `test_netbox_set_scenario`, `test_netbox_requests`, `test_stop_netbox_server`. The handle
    lives in `AppState` behind `#[cfg(debug_assertions)]`, and the commands are registered with
    matching attributes, so release builds contain neither the commands nor the mock.
-3. **Token from the environment, not the keychain.** CI has no OS keychain, and the keychain
-   backend fails with an error rather than "no entry" there. `credentials::get_secret` therefore
-   consults `COMND_TEST_MOCK_NETBOX_TOKEN` before the keychain for the NetBox token key only,
-   debug builds only. `save_secret` and `delete_secret` for that key become no-ops while the
-   override is active, so the UI's Save Connection step works without a keychain. The same seam
-   covers the default-password key: `netbox_save_config` always deletes that key and
-   `netbox_get_status` reads it, which would fail the save on a keychain-less runner, so while
-   the override is set the delete is a no-op and the read reports "no entry". Host credential
-   keys are deliberately not bypassed — only the two NetBox keys are.
+3. **Token from an in-memory store, not the keychain.** CI has no OS keychain, and the keychain
+   backend fails with an error rather than "no entry" there. While `COMND_TEST_MOCK_NETBOX_TOKEN`
+   is set, debug builds serve the two NetBox keys — the API token and the default password that
+   `netbox_save_config` always clears and `netbox_get_status` always reads — from a process-local
+   store seeded with that environment token. The store honours saves and deletes exactly like the
+   keychain, so the UI's Save Connection step still has to write the token the user typed: if it
+   silently stopped writing, syncs would fall back to the seed's token and the request audit's
+   `Token`-scheme assertion would fail. Host credential keys keep using the OS keychain — only the
+   two NetBox keys are diverted. Release builds contain none of this.
 4. **Isolation per scenario.** Each scenario gets a fresh `COMND_DATA_DIR` temp directory and a
    freshly launched app, so cache files and config never leak between scenarios. The temp
    directory and every process the runner owns are removed on success and after a forced
@@ -81,13 +81,16 @@ which this suite deliberately does not touch: no production NetBox access, no AP
 
 - `src-tauri/src/netbox.rs`: mock moved to `mod mock` (recorder, scenario switch, synthetic
   fixtures incl. a device with no primary IP, an unmapped platform and a device missing every
-  optional field); new unit test pinning the recorder and the scenarios.
-- `src-tauri/src/credentials.rs`: debug-only `COMND_TEST_MOCK_NETBOX_TOKEN` override plus unit
-  test.
+  optional field); new unit test pinning the recorder and the scenarios, including the
+  `second_page_error` scenario that fails page 2 so a mid-pagination error can be exercised.
+- `src-tauri/src/credentials.rs`: debug-only `COMND_TEST_MOCK_NETBOX_TOKEN`-seeded in-memory
+  store for the two NetBox keys, plus unit test.
 - `src-tauri/src/state.rs`, `src-tauri/src/lib.rs`: mock handle and the four debug commands.
 - `test/smoke/lib/harness.mjs`: helpers extracted from `run.mjs` (`runCase`, `invoke`,
   `buildApp`, `startDriver`, `waitForDriver`, `freePort`, `pause`, `withTimeout`, Xvfb
-  bootstrap). `runCase` gained `env` and `teardown` hooks so each suite can own its teardown.
+  bootstrap). `runCase` gained `env` and `teardown` hooks so each suite can own its teardown,
+  and now records a failing suite teardown as a cleanup error: a scenario that passed, or failed
+  on purpose, cannot report PASS while the mock or its temp directory was left behind.
 - `test/smoke/netbox.mjs`: the NetBox scenarios.
 - `package.json`: `smoke:netbox` script.
 - `.github/workflows/ci.yml`: `smoke-netbox` job beside `smoke`.
@@ -99,12 +102,12 @@ UI, and stops the mock in teardown.
 
 | # | Scenario | Assertions |
 |---|---|---|
-| 1 | `configure-and-test` | URL and token typed into Settings; Test connection reports success; `netbox_get_config` returns the entered URL and `has_token: true` (the token value itself is never asserted or printed); the probe the UI sent carried an `Authorization` header using the typed token's `Token` scheme, proving the form value reached the backend. |
+| 1 | `configure-and-test` | Before the UI saves anything, `netbox_get_config` already reports `has_token: true`, proving the environment token seeded the debug store. URL and token are then typed into Settings; Test connection reports success; after Save Connection, `netbox_get_config` returns the entered URL and `has_token: true` (the token value itself is never asserted or printed); the probe the UI sent carried an `Authorization` header using the typed token's `Token` scheme, proving the form value reached the backend. |
 | 2 | `sync-pagination` | Sync walks both API pages; tree shows hosts `netbox:101`, `netbox:102` under `__netbox__:region:emea` → `__netbox__:site:dc1` → `__netbox__:loc:rack-1`/`rack-2`, `netbox:103` under `__netbox__:site:dc2`, and `netbox:106` (no site) directly under `__netbox__`; persisted cache holds the same ids, addresses and folder ids; the report records five synced devices, one without a primary IP, one skipped platform (`juniper-junos`), and the success toast states both skip reasons. |
 | 3 | `refresh-changes` | After switching to the `refresh` scenario, the renamed device shows its new name and address, the removed device is gone, no host id appears twice, and a locally added host is still present and unmodified. |
 | 4 | `missing-fields` | Device with no primary IP is absent from the tree and counted in the report; device with an unmapped platform is skipped and named in the toast; device missing site, location, tags, status and description still lands, directly under `__netbox__`, with no error. |
-| 5 | `error-paths` | For each of 401, 403, 429 and 500: a message naming the problem appears, no success toast appears, the tree is unchanged, and the cache file is byte-identical to before the attempt. The 429 message names the retry delay on the sync path, where `Retry-After` is read; Test Connection does not read that header and says to wait and retry. |
-| 6 | `request-audit` | Every recorded request is a GET; the set covers the device list (both pages), the test-connection probe, regions, sites, locations, device roles and tags, and nothing outside it; per-endpoint counts match one probe plus one geo and one choices round per sync; every request carried an `Authorization` header, with the probe on the typed token's scheme and the rest on the stored token's. |
+| 5 | `error-paths` | The tree is expanded first and asserted to hold all four synced hosts, so the "unchanged" checks cannot pass vacuously. For each of 401, 403, 429 and 500: a message naming the problem appears, no success toast appears, the tree is unchanged, and the cache file is byte-identical to before the attempt. The 429 message names the retry delay on the sync path, where `Retry-After` is read; Test Connection does not read that header and says to wait and retry. A `second_page_error` case then fails page 2 after page 1 succeeded: the failure is reported, no success toast appears, the sync stops at the failed page (exactly two new requests, page 1 then page 2), and devices, tree and cache are unchanged. |
+| 6 | `request-audit` | Every recorded request is a GET; the set covers the device list (both pages), the test-connection probe, regions, sites, locations, device roles and tags, and nothing outside it; per-endpoint counts match one probe plus one geo and one choices round per sync; every request carried an `Authorization` header, and all of them used the `Token` scheme of the legacy token saved through the UI — a save that stopped writing would fall back to the seeded `nbt_` token's `Bearer` scheme and fail here. |
 | 7 | `cleanup-on-failure` | A deliberately failing scenario still stops the mock, removes the temp data dir and leaves no app or driver process behind; the failure message names the behaviour that broke. |
 
 ## Local command

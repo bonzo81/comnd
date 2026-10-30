@@ -169,6 +169,7 @@ export async function runCase(test, suite = {}) {
   let browser;
   let error;
   let cleanupError;
+  let teardownError;
 
   try {
     const started = await startDriver(dataDir, suite.env);
@@ -206,8 +207,8 @@ export async function runCase(test, suite = {}) {
     if (browser) {
       try {
         await withTimeout(teardown(browser), 15_000, "suite teardown");
-      } catch {
-        // The app may have failed before the debug command became available.
+      } catch (caught) {
+        teardownError = caught;
       }
       try {
         await withTimeout(browser.deleteSession(), 20_000, "session teardown");
@@ -229,6 +230,14 @@ export async function runCase(test, suite = {}) {
     }
   }
 
+  // A teardown failure is only noise when the scenario already failed for an
+  // unrelated reason (the app may have died before the debug command existed).
+  // A scenario that passed, or failed on purpose, must have torn down cleanly.
+  const deliberate =
+    test.expectedFailure && error && test.expectedFailure.test(String(error.message ?? error));
+  if (teardownError && (!error || deliberate)) {
+    cleanupError ??= teardownError;
+  }
   if (existsSync(dataDir)) {
     cleanupError ??= new Error(`Temporary app data was not removed: ${dataDir}`);
   }
