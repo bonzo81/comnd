@@ -1117,12 +1117,19 @@ mod tests {
 
         let files = [
             ("hosts.json", "{\"hosts\":[{\"id\":\"h1\",\"name\":\"router\"}]}"),
+            ("groups.json", "{\"groups\":[{\"id\":\"g1\",\"name\":\"core\"}]}"),
             ("config.json", "{\"theme\":\"dark\"}"),
+            ("known_hosts.json", "{\"hosts\":[{\"fingerprint\":\"SHA256:abc\"}]}"),
             ("knowledge-base/linux-bash/net.yaml", "commands:\n  - show version\n"),
         ];
         for (rel, body) in files {
             std::fs::write(src_dir.join(rel), body).unwrap();
         }
+
+        // Destination-only entry: Overwrite must drop it rather than merge.
+        let stale_dir = dst_dir.join("knowledge-base").join("stale-platform");
+        std::fs::create_dir_all(&stale_dir).unwrap();
+        std::fs::write(stale_dir.join("old.yaml"), "commands: []\n").unwrap();
 
         let zip_path = root.join("comnd-backup.zip");
         let prev = std::env::var_os("COMND_DATA_DIR");
@@ -1145,6 +1152,11 @@ mod tests {
             None => std::env::remove_var("COMND_DATA_DIR"),
         }
         imported.unwrap();
+
+        assert!(
+            !stale_dir.exists(),
+            "Overwrite must remove destination-only knowledge-base entries"
+        );
 
         for (rel, _) in files {
             assert_eq!(
