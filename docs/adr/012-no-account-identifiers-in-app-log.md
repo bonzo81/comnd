@@ -92,3 +92,27 @@ Implemented in PR #65.
   then asserts what the logger received. The runtime test needs `connect` to
   take its event sink as a parameter rather than a `tauri::AppHandle`, which is
   the `ConnectionEvents` seam in `ssh.rs`.
+- Test builds of both profiles compile the mock server: `src-tauri/src/lib.rs:10`
+  gates `test_server` on `any(debug_assertions, test)`, not `debug_assertions`
+  alone, so the runtime guard above also runs under `cargo test --release`.
+  `debug_assertions` alone broke `cargo check --release --all-targets` with
+  E0433: the unit test calls `test_server::start_password_only_mock_server`
+  (`ssh.rs:1504`) and the module was not in the crate. Gating the test itself on
+  `debug_assertions` instead would keep that build clean but silently skip this
+  ADR's runtime guard in the release profile, so it was rejected. Release
+  binaries are unchanged: neither flag is set there, and the
+  `debug_assertions`-only smoke commands at `lib.rs:144` keep their own gate.
+- Cost of that gate: CodeQL's Rust analysis (default setup, `build-mode: none`)
+  appears to evaluate `test` as set and `debug_assertions` as unset, so widening
+  the gate pulled `test_server.rs` into the analysed set for the first time. The
+  mock server takes `&password`, so its returned port became a taint source; it
+  flows through the new test into `connect` and out at the three `addr` log
+  lines (`ssh.rs:596`, `605`, `669`), raising `rust/cleartext-logging` alerts
+  #9, #10 and #28. That cfg model is observed behaviour, not documented
+  upstream. All three are dismissed as false positives: the logged value is
+  host:port, two predate this work and are open on `main`, and the third is
+  reachable only from test code. Dropping `addr` from those lines was
+  considered and rejected, because it contradicts the host:port acceptance in
+  the Decision above and changes what production writes to `comnd.log`. Expect
+  the same alerts to reappear on any future PR touching `connect`; dismiss them
+  under this ADR rather than editing the log.
