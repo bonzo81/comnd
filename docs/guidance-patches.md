@@ -14,8 +14,10 @@ Added:
 
 > On Windows, `npm run smoke` rewrites line endings in `src-tauri/Cargo.toml`
 > and `src-tauri/gen/schemas/*.json` (LF to CRLF) with no content change, so
-> `git status` lists them as modified while `git diff` shows nothing. Revert
-> them with `git checkout --` before committing.
+> `git status` lists them as modified while `git diff` shows nothing. Before
+> committing, run `git diff -- <file>` on each listed file: revert it with
+> `git checkout -- <file>` only when that prints nothing, and keep it when it
+> shows real edits.
 
 Why: every smoke run left those three files listed as modified with an empty
 diff, which made the working tree look dirty before each commit and risked
