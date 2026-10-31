@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/bonzo81/comnd/compare/v0.5.0...v0.6.0) (2026-10-31)
+
+
+### Features
+
+* **sessions:** allow concurrent sessions to the same host ([#80](https://github.com/bonzo81/comnd/issues/80)) ([7c2a21a](https://github.com/bonzo81/comnd/commit/7c2a21a7e31c5633b062ace423ef8eb3b0a33a5d))
+
+
+### Bug Fixes
+
+* **deps:** bump russh, fast-uri and vitest to patched releases ([#63](https://github.com/bonzo81/comnd/issues/63)) ([9182885](https://github.com/bonzo81/comnd/commit/918288520a148cd44707b264221640f937de0c88))
+* **deps:** bump rustls to 0.23.46 and vite to 6.4.5 ([#81](https://github.com/bonzo81/comnd/issues/81)) ([56f7fe4](https://github.com/bonzo81/comnd/commit/56f7fe41eecb05d6153ab1afbc3f02603cafac63))
+* **deps:** bump zip to 9.x to clear dependabot alerts ([#73](https://github.com/bonzo81/comnd/issues/73)) ([90d4f0b](https://github.com/bonzo81/comnd/commit/90d4f0b16317dce652b19df39d29efc78af120e1))
+* **logging:** stop writing usernames to the app log ([#65](https://github.com/bonzo81/comnd/issues/65)) ([451903b](https://github.com/bonzo81/comnd/commit/451903b27a87a1e07336b289143e6e6df1ac00fa))
+
 ## [0.5.0](https://github.com/bonzo81/comnd/compare/v0.4.1...v0.5.0) (2026-10-19)
 
 
