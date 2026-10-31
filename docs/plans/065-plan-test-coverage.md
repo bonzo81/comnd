@@ -84,8 +84,8 @@ the table CI needs.
 Both coverage steps run on the `ubuntu-22.04` leg only. The numbers do not vary by OS and the
 report is an artifact, not a gate, so running them three times would only triple the runtime.
 
-- `coverage-frontend` — `actions/upload-artifact@v4`, path `coverage/`, 7-day retention.
-- `coverage-rust` — same action, paths `src-tauri/target/coverage-html/` and
+- `coverage-frontend` — `actions/upload-artifact@v7`, path `coverage/`, 7-day retention.
+- `coverage-rust` — `actions/upload-artifact@v7`, paths `src-tauri/target/coverage-html/` and
   `src-tauri/target/coverage.lcov`, 7-day retention.
 
 Both uploads are gated on `github.event_name == 'pull_request'`. Nothing leaves GitHub: there
