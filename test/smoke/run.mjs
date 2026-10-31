@@ -199,6 +199,14 @@ async function waitForSessionCleanup(browser, label) {
   });
 }
 
+async function waitForHostList(browser, label) {
+  await browser.waitUntil(async () => (await inputState(browser))?.hostList === true, {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: `${label}: host list did not return after the disconnect`,
+  });
+}
+
 async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
   // With duplicate sessions there is more than one xterm on the page; the
   // hidden ones keep their own helper textarea, so focus the visible one.
@@ -374,7 +382,7 @@ async function main() {
         await sendKeys(browser, "disconnect");
         await sendKeys(browser, "\uE007");
         try {
-          await (await browser.$(".hs-host-list")).waitForDisplayed({ timeout: WAIT_MS });
+          await waitForHostList(browser, "Server disconnect");
         } catch (error) {
           const received = await readBytes(browser).catch(() => []);
           throw new Error(
