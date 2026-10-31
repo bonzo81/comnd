@@ -1,97 +1,25 @@
-﻿import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
-import net from "node:net";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { remote } from "webdriverio";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+import {
+  buildApp,
+  invoke,
+  pause,
+  runCase,
+  runSuite,
+  runUnderXvfb,
+  WAIT_MS,
+} from "./lib/harness.mjs";
+
 const mutationRun = process.argv.includes("--mutation");
-const appPath = path.join(
-  root,
-  "src-tauri",
-  "target",
-  "debug",
-  process.platform === "win32" ? "comnd.exe" : "comnd",
-);
 
-const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const SCENARIO_TIMEOUT_MS = 180_000;
-
-// CI runners are slow (debug build, Xvfb, WebKit); a tight wait turns runner
-// latency into a false failure. The per-scenario cap still bounds the suite.
-const WAIT_MS = 30_000;
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timerPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} did not finish within ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timerPromise]).finally(() => clearTimeout(timer));
-}
-
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-async function waitForDriver(driver, port, driverLog) {
-  const until = Date.now() + 15_000;
-  while (Date.now() < until) {
-    if (driver.exitCode !== null) {
-      await pause(100);
-      throw new Error(
-        `tauri-driver exited before becoming ready (code ${driver.exitCode}): ${driverLog() || "no stderr output"}`,
-      );
-    }
-    try {
-      await new Promise((resolve, reject) => {
-        const socket = net.connect(port, "127.0.0.1", () => {
-          socket.destroy();
-          resolve();
-        });
-        socket.once("error", reject);
-      });
-      return;
-    } catch {
-      await pause(100);
-    }
-  }
-  throw new Error("tauri-driver did not listen within 15 seconds; check tauri-driver and the platform WebDriver");
-}
-
-function buildApp() {
-  const result = spawnSync(
-    "npm",
-    ["run", "tauri", "--", "build", "--debug", "--no-bundle", "--config", "src-tauri/tauri.smoke.conf.json"],
-    {
-      cwd: root,
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    },
-  );
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Smoke app build failed with exit code ${result.status}`);
-  if (!existsSync(appPath)) throw new Error(`Smoke app binary not found: ${appPath}`);
-}
-
-async function invoke(browser, command, args = {}) {
-  return browser.execute(
-    (name, payload) => window.__TAURI_INTERNALS__.invoke(name, payload),
-    command,
-    args,
-  );
-}
+// The SSH suite's only per-run difference: the mutation run makes the app drop
+// typed input at ssh_send, so a passing check cannot be satisfied by a silent
+// mock. Teardown is the harness default (stop the SSH mock).
+const sshSuite = {
+  env: mutationRun ? { COMND_SMOKE_MUTATION: "ssh_send" } : {},
+};
 
 async function terminalText(browser) {
   return browser.execute(() => {
@@ -300,111 +228,6 @@ async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
   }
 }
 
-async function startDriver(dataDir) {
-  const port = await freePort();
-  const env = {
-    ...process.env,
-    COMND_DATA_DIR: dataDir,
-    COMND_TEST_MOCK_SECRET: "smoke-secret",
-  };
-  // App-side mutation (issue #61): ssh_send drops typed input, so the mutation
-  // check proves the suite catches broken app code, not a silent mock. Drop any
-  // inherited value first so a normal run never mutates the app.
-  delete env.COMND_SMOKE_MUTATION;
-  if (mutationRun) env.COMND_SMOKE_MUTATION = "ssh_send";
-  const driver = spawn("tauri-driver", ["--port", String(port)], {
-    cwd: root,
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  let stderr = "";
-  driver.stderr.on("data", (chunk) => {
-    if (stderr.length < 4000) stderr += chunk.toString();
-  });
-  return { driver, port, driverLog: () => stderr.trim() };
-}
-
-async function runCase(test) {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  let driver;
-  let browser;
-  let error;
-  let cleanupError;
-
-  try {
-    const started = await startDriver(dataDir);
-    driver = started.driver;
-    await waitForDriver(driver, started.port, started.driverLog);
-    browser = await remote({
-      hostname: "127.0.0.1",
-      port: started.port,
-      path: "/",
-      logLevel: "error",
-      capabilities: {
-        "tauri:options": { application: appPath },
-      },
-    });
-    await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
-    await (await browser.$("body")).waitForExist({ timeout: 20_000 });
-    // A wedged WebDriver session otherwise blocks the whole job until its timeout.
-    await withTimeout(test.run(browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
-  } catch (caught) {
-    error = caught;
-    if (browser) {
-      const state = await withTimeout(browser.execute(() => ({
-        text: document.body.innerText,
-        terminal: !!document.querySelector(".tv-terminal"),
-        connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
-      })), 15_000, "failure state capture").catch(() => null);
-      if (state) {
-        error = new Error(
-          `${caught.message}\nVisible app text: ${state.text}\nTerminal mounted: ${state.terminal}; connected: ${state.connected}`,
-          { cause: caught },
-        );
-      }
-    }
-  } finally {
-    if (browser) {
-      try {
-        await withTimeout(invoke(browser, "test_stop_mock_server"), 15_000, "mock server stop");
-      } catch {
-        // The app may have failed before the debug command became available.
-      }
-      try {
-        await withTimeout(browser.deleteSession(), 20_000, "session teardown");
-      } catch (caught) {
-        cleanupError ??= caught;
-      }
-    }
-    if (driver && driver.exitCode === null) {
-      driver.kill();
-      await Promise.race([
-        new Promise((resolve) => driver.once("exit", resolve)),
-        pause(5_000),
-      ]);
-    }
-    try {
-      await rm(dataDir, { recursive: true, force: true });
-    } catch (caught) {
-      cleanupError ??= caught;
-    }
-  }
-
-  if (existsSync(dataDir)) {
-    cleanupError ??= new Error(`Temporary app data was not removed: ${dataDir}`);
-  }
-  if (cleanupError) {
-    throw new Error(`${test.name}: cleanup failed: ${cleanupError.message}`, { cause: error });
-  }
-  if (test.expectedFailure) {
-    assert(error, `${test.name}: expected the deliberate failure, but the behavior passed`);
-    assert.match(String(error.message ?? error), test.expectedFailure);
-    return `EXPECTED FAILURE: ${error.message}`;
-  }
-  if (error) throw new Error(`${test.name}: ${error.message}`, { cause: error });
-  return null;
-}
-
 async function launchAndConnect(browser, dataDir) {
   const host = await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
@@ -436,16 +259,7 @@ async function commandRoundTrip(browser, dataDir) {
 }
 
 async function main() {
-  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.COMND_SMOKE_XVFB) {
-    const result = spawnSync("xvfb-run", ["-a", process.execPath, fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-      cwd: root,
-      env: { ...process.env, COMND_SMOKE_XVFB: "1" },
-      stdio: "inherit",
-    });
-    if (result.error) throw result.error;
-    process.exitCode = result.status ?? 1;
-    return;
-  }
+  if (runUnderXvfb(import.meta.url)) return;
 
   buildApp();
 
@@ -458,8 +272,8 @@ async function main() {
       // passing unmutated run could satisfy the check.
       expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes/,
       run: (browser, dataDir) => commandRoundTrip(browser, dataDir),
-    });
-    console.log(`PASS mutation-check â€” ${result}`);
+    }, sshSuite);
+    console.log(`PASS mutation-check — ${result}`);
     return;
   }
 
@@ -796,19 +610,7 @@ async function main() {
     },
   ];
 
-  let failures = 0;
-  for (const test of tests) {
-    try {
-      const expected = await runCase(test);
-      console.log(`PASS ${test.name}${expected ? ` â€” ${expected}` : ""}`);
-    } catch (error) {
-      failures += 1;
-      console.error(`FAIL ${test.name}: ${error.message}`);
-    }
-  }
-  // The driver's grandchildren can inherit its stderr pipe, so returning
-  // normally leaves Node alive and the CI job hangs until its own timeout.
-  process.exit(failures ? 1 : 0);
+  await runSuite(tests, sshSuite);
 }
 
 main().catch((error) => {

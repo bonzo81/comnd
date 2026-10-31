@@ -112,6 +112,45 @@ jobs:
       - name: smoke mutation check
         run: xvfb-run -a npm run smoke:mutation
 
+  smoke-netbox:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install Linux and WebDriver dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-2.1.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.1.0 --locked
+
+      - name: NetBox workflow smoke tests
+        run: xvfb-run -a npm run smoke:netbox
+
   commitlint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04

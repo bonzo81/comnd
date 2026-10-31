@@ -111,8 +111,90 @@ fn legacy_key(key: &str) -> Option<&str> {
     key.strip_prefix("host:")
 }
 
+/// Debug-only NetBox API token seed for the app-level NetBox smoke suite
+/// (`npm run smoke:netbox`). CI runners have no OS keychain, so the suite
+/// supplies the mock instance's token through the environment. Debug builds
+/// only — a release binary never reads it.
+#[cfg(debug_assertions)]
+fn test_mock_netbox_token() -> Option<String> {
+    std::env::var("COMND_TEST_MOCK_NETBOX_TOKEN")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+}
+
+/// Debug-only: the two NetBox keychain entries live in an in-memory store
+/// while the mock token is set, so CI needs no keychain. Host secrets keep
+/// using the OS keychain.
+#[cfg(debug_assertions)]
+fn is_netbox_test_key(key: &str) -> bool {
+    key == crate::netbox::TOKEN_KEY || key == crate::netbox::DEFAULT_PW_KEY
+}
+
+/// The store behind `is_netbox_test_key`. It is seeded with the environment
+/// token, then honours saves and deletes exactly like the keychain, so the
+/// app-level suite can tell a working Save Connection apart from one that
+/// never wrote the token. `None` when the override is inactive.
+#[cfg(debug_assertions)]
+fn netbox_test_store(
+    key: &str,
+) -> Option<std::sync::MutexGuard<'static, Option<std::collections::HashMap<String, String>>>> {
+    if test_mock_netbox_token().is_none() || !is_netbox_test_key(key) {
+        return None;
+    }
+    static STORE: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> =
+        std::sync::Mutex::new(None);
+    let mut store = STORE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if store.is_none() {
+        let mut secrets = std::collections::HashMap::new();
+        if let Some(token) = test_mock_netbox_token() {
+            secrets.insert(crate::netbox::TOKEN_KEY.to_string(), token);
+        }
+        *store = Some(secrets);
+    }
+    Some(store)
+}
+
+/// `Some(current value)` when the in-memory store owns `key`, `None` when the
+/// keychain does.
+#[cfg(debug_assertions)]
+fn netbox_test_get(key: &str) -> Option<Option<String>> {
+    netbox_test_store(key).map(|store| store.as_ref().and_then(|secrets| secrets.get(key).cloned()))
+}
+
+#[cfg(debug_assertions)]
+fn netbox_test_save(key: &str, secret: &str) -> bool {
+    match netbox_test_store(key) {
+        Some(mut store) => {
+            if let Some(secrets) = store.as_mut() {
+                secrets.insert(key.to_string(), secret.to_string());
+            }
+            true
+        }
+        None => false,
+    }
+}
+
+#[cfg(debug_assertions)]
+fn netbox_test_delete(key: &str) -> bool {
+    match netbox_test_store(key) {
+        Some(mut store) => {
+            if let Some(secrets) = store.as_mut() {
+                secrets.remove(key);
+            }
+            true
+        }
+        None => false,
+    }
+}
+
 /// Save a secret under `key` in the OS keychain.
 pub fn save_secret(key: &str, secret: &str) -> Result<(), String> {
+    // Debug-only: the NetBox smoke suite's in-memory store stands in for the
+    // keychain, which CI does not have.
+    #[cfg(debug_assertions)]
+    if netbox_test_save(key, secret) {
+        return Ok(());
+    }
     keyring::Entry::new("comnd", key)
         .and_then(|e| e.set_password(secret))
         .map_err(|e| e.to_string())
@@ -123,6 +205,13 @@ pub fn save_secret(key: &str, secret: &str) -> Result<(), String> {
 /// legacy bare `<id>` entry is consulted. The new key is written on the
 /// next save, so no one-time migration pass is needed.
 pub fn get_secret(key: &str) -> Result<Option<String>, String> {
+    // Debug-only override, consulted before the keychain: on CI the
+    // keychain backend fails outright (Err, not NoEntry), so a fallback
+    // after it would never be reached.
+    #[cfg(debug_assertions)]
+    if let Some(stored) = netbox_test_get(key) {
+        return Ok(stored);
+    }
     match keyring::Entry::new("comnd", key).and_then(|e| e.get_password()) {
         Ok(pw) => Ok(Some(pw)),
         Err(keyring::Error::NoEntry) => match legacy_key(key) {
@@ -139,6 +228,12 @@ pub fn get_secret(key: &str) -> Result<Option<String>, String> {
 
 /// Delete the secret under `key` (and its legacy bare-id twin for host keys).
 pub fn delete_secret(key: &str) -> Result<(), String> {
+    // Debug-only: the NetBox smoke suite's in-memory store stands in for the
+    // keychain, which CI does not have.
+    #[cfg(debug_assertions)]
+    if netbox_test_delete(key) {
+        return Ok(());
+    }
     delete_entry(key)?;
     if let Some(legacy) = legacy_key(key) {
         let _ = delete_entry(legacy);
@@ -231,6 +326,45 @@ mod tests {
         assert_eq!(legacy_key("host:abc-123"), Some("abc-123"));
         assert_eq!(legacy_key("source:netbox"), None);
         assert_eq!(legacy_key("plain"), None);
+    }
+
+    /// Debug-only mock token store (plan 064): the app-level NetBox suite runs
+    /// on CI where no OS keychain exists, so the NetBox keys are served from
+    /// an in-memory store seeded with the environment token.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_netbox_token_env_override() {
+        const VAR: &str = "COMND_TEST_MOCK_NETBOX_TOKEN";
+        // Sole reader of this variable — nothing else can race it.
+        std::env::set_var(VAR, "nbt_mock.token");
+        assert_eq!(
+            get_secret(crate::netbox::TOKEN_KEY).unwrap().as_deref(),
+            Some("nbt_mock.token"),
+            "the environment token must seed the store"
+        );
+        // Saves are honoured, so the suite can prove the UI wrote the token it
+        // was given instead of inheriting the seeded one.
+        save_secret(crate::netbox::TOKEN_KEY, "typed.token").unwrap();
+        assert_eq!(
+            get_secret(crate::netbox::TOKEN_KEY).unwrap().as_deref(),
+            Some("typed.token")
+        );
+        delete_secret(crate::netbox::TOKEN_KEY).unwrap();
+        assert_eq!(get_secret(crate::netbox::TOKEN_KEY).unwrap(), None);
+        // The NetBox config save path clears the default-password entry on
+        // every write; that cleanup must not need a keychain either.
+        save_secret(crate::netbox::DEFAULT_PW_KEY, "ignored").unwrap();
+        assert_eq!(
+            get_secret(crate::netbox::DEFAULT_PW_KEY).unwrap().as_deref(),
+            Some("ignored")
+        );
+        delete_secret(crate::netbox::DEFAULT_PW_KEY).unwrap();
+        assert_eq!(get_secret(crate::netbox::DEFAULT_PW_KEY).unwrap(), None);
+        // Host secrets are untouched by the NetBox store.
+        assert!(!is_netbox_test_key(&host_key("host-1")));
+        std::env::remove_var(VAR);
+        assert!(test_mock_netbox_token().is_none());
+        assert!(netbox_test_store(crate::netbox::TOKEN_KEY).is_none());
     }
 
     fn empty_registry() -> crate::secrets::ProviderRegistry {
