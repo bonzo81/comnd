@@ -308,8 +308,13 @@ const SENTINEL = { ok: "sentinel" };
 
 describe("tauri-api wrapper contract", () => {
   it("covers every wrapper, with no duplicate command names", () => {
-    // Tripwire: add a row when you add a wrapper.
-    expect(cases).toHaveLength(75);
+    // A wrapper with no row here would never be exercised or checked against Rust.
+    const exported = Object.entries(api)
+      .filter(([, value]) => typeof value === "function")
+      .map(([name]) => name)
+      .sort();
+    expect(cases.map((c) => c.name).sort()).toEqual(exported);
+
     const cmds = cases.map((c) => c.cmd);
     expect(new Set(cmds).size).toBe(cmds.length);
   });

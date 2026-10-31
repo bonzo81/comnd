@@ -222,6 +222,12 @@ describe("SessionChannel", () => {
 
     // Prompts addressed to another session must not surface in this one.
     transport.emit("ssh-tofu", { reason: "other session", session_id: stale });
+    transport.emit("ssh-tofu-pending", {
+      host_key: "ssh-ed25519 BBBB",
+      fingerprint: "SHA256:def456",
+      key_type: "ssh-ed25519",
+      session_id: stale,
+    });
     transport.emit("ssh-auth-url", { url: "https://evil.example", session_id: stale });
 
     expect(events.filter((e) => e.type === "tofu")).toEqual([
