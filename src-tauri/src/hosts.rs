@@ -864,4 +864,122 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // ─── last_connected + group CRUD (coverage gaps R1/R2) ──────────
+
+    /// A store backed by a real temp dir, so `save()` actually writes.
+    fn temp_store() -> (std::path::PathBuf, HostStore) {
+        let dir = std::env::temp_dir().join(format!(
+            "comnd-hosts-crud-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let store = HostStore::new(&dir).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn test_touch_sets_last_connected_and_persists() {
+        let (dir, mut store) = temp_store();
+        let created = store
+            .create(make_host("R1", "10.0.0.1"), &PlatformRegistry::builtin())
+            .unwrap();
+        assert!(created.last_connected.is_none());
+
+        store.touch(&created.id).unwrap();
+
+        let mut all = store.get_all().unwrap();
+        let stamp = all.remove(0).last_connected.expect("last_connected set");
+        assert!(!stamp.is_empty());
+
+        // Written through to disk, not just held in memory.
+        let on_disk: Vec<Host> = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("hosts.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(on_disk[0].last_connected, Some(stamp));
+
+        // An unknown id is a silent no-op: no error, no new host, no write.
+        let before = std::fs::read_to_string(dir.join("hosts.json")).unwrap();
+        store.touch("no-such-id").unwrap();
+        assert_eq!(store.get_all().unwrap().len(), 1);
+        assert_eq!(std::fs::read_to_string(dir.join("hosts.json")).unwrap(), before);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_group_crud_assigns_ids_and_persists() {
+        let (dir, mut store) = temp_store();
+        let blank_group = |name: &str, parent: Option<String>| HostGroup {
+            id: String::new(),
+            name: name.to_string(),
+            parent_id: parent,
+            sort_order: 0,
+            color: None,
+            icon: None,
+            created_at: String::new(),
+        };
+
+        let core = store.create_group(blank_group("Core", None)).unwrap();
+        assert!(!core.id.is_empty(), "create_group assigns an id");
+        assert!(!core.created_at.is_empty(), "create_group stamps created_at");
+        assert_eq!(core.sort_order, 0);
+
+        let edge = store
+            .create_group(blank_group("Edge", Some(core.id.clone())))
+            .unwrap();
+        assert_eq!(edge.sort_order, 1, "second group takes the next sort_order");
+
+        // Renaming persists, and does not resurrect a second copy.
+        let mut renamed = core.clone();
+        renamed.name = "Core Renamed".to_string();
+        store.update_group(renamed).unwrap();
+
+        let on_disk: Vec<HostGroup> = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(on_disk.len(), 2);
+        assert_eq!(on_disk[0].name, "Core Renamed");
+        assert_eq!(on_disk[0].id, core.id);
+
+        store.delete_group(&edge.id).unwrap();
+        let remaining = store.get_groups().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, core.id);
+        let on_disk: Vec<HostGroup> = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(on_disk.len(), 1, "delete_group persists the removal");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_group_crud_unknown_id_errors() {
+        let (dir, mut store) = temp_store();
+        let ghost = HostGroup {
+            id: "ghost".to_string(),
+            name: "Ghost".to_string(),
+            parent_id: None,
+            sort_order: 0,
+            color: None,
+            icon: None,
+            created_at: String::new(),
+        };
+
+        assert_eq!(
+            store.update_group(ghost).unwrap_err(),
+            "Host group not found: ghost"
+        );
+        assert_eq!(
+            store.delete_group("ghost").unwrap_err(),
+            "Host group not found: ghost"
+        );
+        assert!(store.get_groups().unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

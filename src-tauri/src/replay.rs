@@ -3,7 +3,7 @@
 //! entry with `{{name}}` markers. See docs/specs/09-command-replay.md.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::platform::PlatformRegistry;
 use crate::state::AppState;
@@ -35,14 +35,46 @@ fn file_path() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("replay.json"))
 }
 
-fn load() -> Result<Vec<ReplayCommand>, String> {
-    let path = file_path()?;
-    Ok(crate::paths::load_json_or_preserve(&path))
+/// Read the command list at `path`. `load_json_or_preserve` treats a corrupt
+/// file as empty and renames it aside, so a bad file can't break startup.
+fn load_at(path: &Path) -> Vec<ReplayCommand> {
+    crate::paths::load_json_or_preserve(path)
 }
 
-fn save(cmds: &[ReplayCommand]) -> Result<(), String> {
+fn save_at(path: &Path, cmds: &[ReplayCommand]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(cmds).map_err(|e| e.to_string())?;
-    secure_write(&file_path()?, json.as_bytes())
+    secure_write(path, json.as_bytes())
+}
+
+/// Insert or replace `cmd` in the list at `path`. New entries get an id and
+/// timestamp; an update whose id is gone is an error, not a silent insert.
+fn upsert_at(path: &Path, cmd: &ReplayCommand) -> Result<(), String> {
+    let mut cmds = load_at(path);
+    if cmd.id.is_empty() {
+        // New entry
+        let mut new = cmd.clone();
+        new.id = uuid::Uuid::new_v4().to_string();
+        new.created_at = chrono::Utc::now().to_rfc3339();
+        cmds.push(new);
+    } else {
+        match cmds.iter_mut().find(|c| c.id == cmd.id) {
+            Some(existing) => *existing = cmd.clone(),
+            None => return Err(format!("No such command: {}", cmd.id)),
+        }
+    }
+    save_at(path, &cmds)
+}
+
+/// Remove `id` from the list at `path`, erroring when nothing matched so the
+/// UI can't report a delete that never happened.
+fn delete_at(path: &Path, id: &str) -> Result<(), String> {
+    let mut cmds = load_at(path);
+    let before = cmds.len();
+    cmds.retain(|c| c.id != id);
+    if cmds.len() == before {
+        return Err(format!("No such command: {}", id));
+    }
+    save_at(path, &cmds)
 }
 
 /// Validate a replay command's user-editable fields before persisting.
@@ -84,7 +116,7 @@ pub fn validate(cmd: &ReplayCommand, platforms: &PlatformRegistry) -> Result<(),
 
 #[tauri::command]
 pub async fn replay_list() -> Result<Vec<ReplayCommand>, String> {
-    load()
+    Ok(load_at(&file_path()?))
 }
 
 #[tauri::command]
@@ -94,32 +126,13 @@ pub async fn replay_save(
 ) -> Result<ReplayCommand, String> {
     let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
     validate(&cmd, &platforms)?;
-    let mut cmds = load()?;
-    if cmd.id.is_empty() {
-        // New entry
-        let mut new = cmd.clone();
-        new.id = uuid::Uuid::new_v4().to_string();
-        new.created_at = chrono::Utc::now().to_rfc3339();
-        cmds.push(new.clone());
-    } else {
-        match cmds.iter_mut().find(|c| c.id == cmd.id) {
-            Some(existing) => *existing = cmd.clone(),
-            None => return Err(format!("No such command: {}", cmd.id)),
-        }
-    }
-    save(&cmds)?;
+    upsert_at(&file_path()?, &cmd)?;
     Ok(cmd)
 }
 
 #[tauri::command]
 pub async fn replay_delete(id: String) -> Result<(), String> {
-    let mut cmds = load()?;
-    let before = cmds.len();
-    cmds.retain(|c| c.id != id);
-    if cmds.len() == before {
-        return Err(format!("No such command: {}", id));
-    }
-    save(&cmds)
+    delete_at(&file_path()?, &id)
 }
 
 #[cfg(test)]
@@ -171,6 +184,54 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_oversized_and_malformed_fields() {
+        // Each cap guards a stored command that cannot be rendered or
+        // substituted safely, so the exact message matters to the user.
+        let mut c = sample();
+        c.variables.clear();
+        c.command = "x".repeat(MAX_COMMAND + 1);
+        assert_eq!(
+            validate(&c, &PlatformRegistry::builtin()).unwrap_err(),
+            format!("Command exceeds {} characters", MAX_COMMAND)
+        );
+
+        let mut c = sample();
+        c.variables = (0..=MAX_VARS)
+            .map(|i| ReplayVariable {
+                name: format!("v{}", i),
+            })
+            .collect();
+        c.command = c
+            .variables
+            .iter()
+            .map(|v| format!("{{{{{}}}}}", v.name))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            validate(&c, &PlatformRegistry::builtin()).unwrap_err(),
+            format!("Too many variables (max {})", MAX_VARS)
+        );
+
+        let mut c = sample();
+        c.variables = vec![ReplayVariable {
+            name: "   ".to_string(),
+        }];
+        assert_eq!(
+            validate(&c, &PlatformRegistry::builtin()).unwrap_err(),
+            "Variable name is required"
+        );
+
+        let mut c = sample();
+        c.variables = vec![ReplayVariable {
+            name: "n".repeat(MAX_VAR_NAME + 1),
+        }];
+        assert_eq!(
+            validate(&c, &PlatformRegistry::builtin()).unwrap_err(),
+            format!("Variable name exceeds {} characters", MAX_VAR_NAME)
+        );
+    }
+
+    #[test]
     fn test_validate_custom_platform_when_in_registry() {
         let dir = std::env::temp_dir().join(format!("comnd_replay_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
@@ -192,5 +253,76 @@ mod tests {
             out = out.replace(&format!("{{{{{}}}}}", v.name), "Gi0/1");
         }
         assert_eq!(out, "show running-config interface Gi0/1");
+    }
+
+    // ─── replay.json round-trip (coverage gap R3) ──────────────────
+
+    fn temp_replay_path() -> (std::path::PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "comnd-replay-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("replay.json");
+        (dir, path)
+    }
+
+    #[test]
+    fn test_upsert_assigns_id_and_round_trips_through_disk() {
+        let (dir, path) = temp_replay_path();
+        let mut c = sample();
+        // An entry with no variables still round-trips.
+        c.variables.clear();
+
+        upsert_at(&path, &c).unwrap();
+
+        let stored = load_at(&path);
+        assert_eq!(stored.len(), 1);
+        assert!(!stored[0].id.is_empty(), "new entry gets an id");
+        assert!(!stored[0].created_at.is_empty(), "new entry gets created_at");
+        assert_eq!(stored[0].command, c.command);
+        assert_eq!(stored[0].platform, "cisco-iosxe");
+
+        // Editing an existing id replaces in place, keeping the id and
+        // created_at, and does not append a second entry.
+        let mut edited = stored[0].clone();
+        edited.command = "show version".to_string();
+        upsert_at(&path, &edited).unwrap();
+
+        let stored = load_at(&path);
+        assert_eq!(stored.len(), 1, "update must not append");
+        assert_eq!(stored[0].id, edited.id);
+        assert_eq!(stored[0].command, "show version");
+        assert_eq!(stored[0].created_at, edited.created_at);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_upsert_and_delete_unknown_id_error() {
+        let (dir, path) = temp_replay_path();
+
+        let mut ghost = sample();
+        ghost.id = "ghost".to_string();
+        assert_eq!(
+            upsert_at(&path, &ghost).unwrap_err(),
+            "No such command: ghost"
+        );
+        assert!(!path.exists(), "a rejected update must not create the file");
+
+        // Seeded entry survives a delete of something else, then deletes.
+        upsert_at(&path, &sample()).unwrap();
+        assert_eq!(
+            delete_at(&path, "ghost").unwrap_err(),
+            "No such command: ghost"
+        );
+        assert_eq!(load_at(&path).len(), 1, "failed delete keeps the entry");
+
+        let id = load_at(&path)[0].id.clone();
+        delete_at(&path, &id).unwrap();
+        assert!(load_at(&path).is_empty(), "delete persists the removal");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

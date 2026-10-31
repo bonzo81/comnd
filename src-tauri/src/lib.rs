@@ -1,4 +1,4 @@
-//! comnd — Tauri backend
+//! comnd â€” Tauri backend
 //!
 //! Handles: SSH connections (russh), KB loading/querying,
 //! credential management, config, and KB import.
@@ -34,7 +34,7 @@ use config::{ConfigStore, parse_log_level_filter};
 use platform::PlatformRegistry;
 use state::AppState;
 
-// ─── Log MultiWriter ────────────────────────────────────────────────
+// â”€â”€â”€ Log MultiWriter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Caps dependency crates (russh, tao, ...) at warn: their debug output is
 /// wire/crypto chatter and dumps raw SSH packets (usernames, key material)
@@ -109,12 +109,12 @@ impl std::io::Write for MultiWriter {
     }
 }
 
-// ─── Browser URL Opener ─────────────────────────────────────────────
+// â”€â”€â”€ Browser URL Opener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 fn open_url(url: &str) {
     log::info!("Opening URL in browser: {}", url);
     let _ = if cfg!(target_os = "windows") {
-        // Avoid `cmd /C start` — cmd.exe re-parses the URL and shell
+        // Avoid `cmd /C start` â€” cmd.exe re-parses the URL and shell
         // metacharacters (&, |, >) in the URL can chain arbitrary commands.
         // `explorer.exe` opens URLs via ShellExecute without shell parsing.
         StdCommand::new("explorer.exe").arg(url).spawn()
@@ -139,7 +139,7 @@ async fn open_url_cmd(url: String) -> Result<(), String> {
     Ok(())
 }
 
-// ÔöÇÔöÇÔöÇ Test Commands (debug only) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+// Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡ Test Commands (debug only) Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡
 
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -279,7 +279,7 @@ fn open_log_file(
         .append(true)
         .open(path)
         .map_err(|e| format!("open log file {}: {}", path.display(), e))?;
-    // Log holds hostnames/usernames ÔÇö lock perms on unix.
+    // Log holds hostnames/usernames Ã”Ã‡Ã¶ lock perms on unix.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -295,7 +295,7 @@ fn open_log_file(
 /// the default (`paths::log_dir()/comnd.log`, `used_custom = false`). A
 /// non-absolute custom path is rejected (the logger runs before CWD
 /// stabilizes) and falls back to the default. Otherwise the custom path is
-/// returned as-is ÔÇö open/create failures are handled by the caller, which
+/// returned as-is Ã”Ã‡Ã¶ open/create failures are handled by the caller, which
 /// knows whether to surface a fallback warning.
 fn resolve_log_path(custom: Option<&str>) -> (std::path::PathBuf, bool) {
     let default = || {
@@ -313,7 +313,7 @@ fn resolve_log_path(custom: Option<&str>) -> (std::path::PathBuf, bool) {
     (path, true)
 }
 
-// ÔöÇÔöÇÔöÇ App Entry ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+// Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡ App Entry Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -359,7 +359,7 @@ pub fn run() {
         .build();
     let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
         vec![Box::new(std::io::stderr())];
-    // File logging ÔÇö always on (dev + release). A user who sets a custom
+    // File logging Ã”Ã‡Ã¶ always on (dev + release). A user who sets a custom
     // path expects it to work regardless of build mode.
     let mut log_fallback_reason: Option<String> = None;
     {
@@ -387,7 +387,7 @@ pub fn run() {
     // Install a panic hook so panics are captured in comnd.log instead of
     // vanishing into the void. The default hook prints to stderr only, which
     // a desktop app user never sees. This hook logs at error level (going
-    // through MultiWriter ÔåÆ file + stderr) and then chains to the previous
+    // through MultiWriter Ã”Ã¥Ã† file + stderr) and then chains to the previous
     // hook to preserve the default unwind/backtrace behaviour.
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -402,7 +402,7 @@ pub fn run() {
         } else {
             "<non-string panic payload>".to_string()
         };
-        log::error!("PANIC at {} ÔÇö {}", location, msg);
+        log::error!("PANIC at {} Ã”Ã‡Ã¶ {}", location, msg);
         // Chain to the previous hook for default behaviour (backtrace, abort
         // if panic=abort, etc.).
         prev_hook(info);
@@ -414,13 +414,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // P1.4 — in-app updater (minisign-signed; ADR-006) + relaunch after install.
+        // P1.4 â€” in-app updater (minisign-signed; ADR-006) + relaunch after install.
         // The updater plugin has no `init()`; it is configured via tauri.conf.json and
         // registered through its Builder.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
-            // Resolve KB path ÔÇö in dev, it's relative to project root
+            // Resolve KB path Ã”Ã‡Ã¶ in dev, it's relative to project root
             let resource_dir = app.path()
                 .resource_dir()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
@@ -441,7 +441,7 @@ pub fn run() {
                     ConfigStore::new_with_path(data_dir.join("config.json"))
                 })
                 .unwrap_or_else(|e| {
-                    log::error!("Failed to create config store: {}. Using in-memory fallback ÔÇö settings will not persist.", e);
+                    log::error!("Failed to create config store: {}. Using in-memory fallback Ã”Ã‡Ã¶ settings will not persist.", e);
                     ConfigStore::in_memory()
                 });
 
@@ -576,6 +576,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn test_resolve_log_path_none_uses_default() {
@@ -642,5 +643,162 @@ mod tests {
         // Restore
         let _ = take_hook();
         set_hook(saved);
+    }
+
+    // â”€â”€â”€ Log writers (coverage gaps R4/R5/R6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    fn meta(target: &'static str, level: log::Level) -> log::Metadata<'static> {
+        log::Metadata::builder().target(target).level(level).build()
+    }
+
+    #[test]
+    fn test_dep_cap_logger_caps_dependency_targets() {
+        let sink = SharedSink::default();
+        let writer = MultiWriter(vec![Box::new(sink.clone())]);
+        let logger = DepCapLogger(simplelog::WriteLogger::new(
+            log::LevelFilter::Info,
+            simplelog::Config::default(),
+            writer,
+        ));
+
+        // Dependency chatter above warn is dropped: russh/tao debug output is
+        // wire and crypto detail that would land in the log file.
+        for target in ["russh", "russh::cipher", "tao", "tauri_runtime"] {
+            assert!(
+                !log::Log::enabled(&logger, &meta(target, log::Level::Info)),
+                "{} info should be capped",
+                target
+            );
+            assert!(!log::Log::enabled(&logger, &meta(target, log::Level::Debug)));
+            assert!(!log::Log::enabled(&logger, &meta(target, log::Level::Trace)));
+        }
+        // Warnings and errors from dependencies still get through.
+        assert!(log::Log::enabled(&logger, &meta("russh", log::Level::Warn)));
+        assert!(log::Log::enabled(&logger, &meta("russh", log::Level::Error)));
+        // App crates are not capped.
+        assert!(log::Log::enabled(&logger, &meta("comnd_lib", log::Level::Trace)));
+        assert!(log::Log::enabled(&logger, &meta("comnd", log::Level::Debug)));
+
+        // The cap is enforced on the write path too, not only in enabled():
+        // a dependency record must never reach the file, an app record must.
+        log::Log::log(
+            &logger,
+            &log::Record::builder()
+                .args(format_args!("wire-detail"))
+                .level(log::Level::Info)
+                .target("russh::cipher")
+                .build(),
+        );
+        assert_eq!(
+            *sink.0.lock().unwrap(),
+            b"",
+            "a capped record reached the sink"
+        );
+        log::Log::log(
+            &logger,
+            &log::Record::builder()
+                .args(format_args!("app-detail"))
+                .level(log::Level::Info)
+                .target("comnd_lib::ssh")
+                .build(),
+        );
+        log::Log::flush(&logger);
+        let text = String::from_utf8_lossy(&sink.0.lock().unwrap()).to_string();
+        assert!(text.contains("app-detail"), "sink got: {text}");
+        assert!(!text.contains("wire-detail"), "sink got: {text}");
+    }
+
+    #[test]
+    fn test_size_cap_writer_truncates_at_cap() {
+        let dir = std::env::temp_dir().join(format!(
+            "comnd-logcap-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("comnd.log");
+
+        // A cap of 10 bytes: the write that reaches it truncates the file.
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        let mut capped = SizeCapWriter::new(file, path.clone(), 10);
+        capped.write_all(b"0123456789").unwrap();
+        capped.flush().unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            0,
+            "reaching the cap truncates instead of growing"
+        );
+
+        // Writing after a truncate starts a fresh file.
+        capped.write_all(b"abc").unwrap();
+        capped.flush().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc");
+
+        // A cap of 0 disables the check entirely.
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        let mut uncapped = SizeCapWriter::new(file, path.clone(), 0);
+        uncapped.write_all(&[b'x'; 64]).unwrap();
+        uncapped.flush().unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 67);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `Write` sink that keeps its bytes where the test can read them.
+    #[derive(Clone, Default)]
+    struct SharedSink(std::sync::Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_multi_writer_fans_out_and_propagates_errors() {
+        let first = SharedSink::default();
+        let second = SharedSink::default();
+        let mut writer = MultiWriter(vec![Box::new(first.clone()), Box::new(second.clone())]);
+        writer.write_all(b"hello").unwrap();
+        assert_eq!(
+            writer.write(b"!").unwrap(),
+            1,
+            "returns the buffer length, not the summed sink total"
+        );
+        writer.flush().unwrap();
+        assert_eq!(*first.0.lock().unwrap(), b"hello!");
+        assert_eq!(
+            *second.0.lock().unwrap(),
+            b"hello!",
+            "every sink receives the same bytes"
+        );
+
+        struct Failing;
+        impl Write for Failing {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("sink is down"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("sink is down"))
+            }
+        }
+        let mut writer = MultiWriter(vec![Box::new(Failing)]);
+        assert!(
+            writer.write(b"x").is_err(),
+            "a failing sink must fail the write, not be swallowed"
+        );
+        assert!(writer.flush().is_err(), "flush failures propagate too");
     }
 }
