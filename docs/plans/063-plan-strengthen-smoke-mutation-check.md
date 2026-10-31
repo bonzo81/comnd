@@ -1,6 +1,7 @@
 # Plan: Strengthen the smoke mutation check (issue #61)
 
-Status: Approved; implemented (issue #61).
+Status: Approved; implemented (issue #61). Strengthened by issue #78, which added the
+activation signal described under Known gaps.
 Spec: bonzo81/comnd#61. Task prompt: none yet.
 
 ## Goal
@@ -54,6 +55,9 @@ the weakest of the #53 acceptance criteria.
 
 ## Known gaps (handed over deliberately)
 
+- **Resolved by issue #78.** Zero bytes at the mock no longer satisfies the check on its
+  own: the debug-only `test_smoke_mutation_drops` command reports the bytes the drop
+  discarded, and the runner requires a non-zero count in the expected failure.
 - **Whether the existing mock-side `muteOutput` check stays.** It may run alongside the app-side
   mutation, or be replaced by it. Either is acceptable, as long as `npm run smoke:mutation`
   proves an app-side break.
