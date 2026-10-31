@@ -144,7 +144,7 @@ unproven before the tests.
 | F5 | `src/components/host-screen.ts:717-766` | Save-time validation blocking the IPC call, and a rejected `saveHost` leaving the form open with the error visible |
 | F6 | `src/lib/tauri-api.ts:116-758` | The argument mapping of all 75 IPC wrappers — that each sends the right command name and payload, and returns the IPC result |
 | F7 | `src/lib/tauri-api.ts` ↔ `src-tauri/src/lib.rs:476-570` | That no wrapper names a command the Rust side does not register (silent `invoke` rejection at runtime) |
-| F8 | `src/components/settings-screen.ts:1137,1195,1199,1203,1216,1220` | Deferred — see [Deferred](#deferred) |
+| F8 | `src/components/settings-screen.ts:1195,1199,1203,1216,1220` | Deferred — see [Deferred](#deferred) |
 
 ### Rust
 
@@ -265,14 +265,21 @@ existing `ENV_LOCK` test. This was approved as part of the gap list.
 
 ## Deferred
 
-**F8 — settings saves fail silently.** `src/components/settings-screen.ts` fires six config
+**F8 — settings saves fail silently.** `src/components/settings-screen.ts` fires five config
 writes as `void setX(...)` with no `.catch`
-(lines 1137, 1195, 1199, 1203, 1216, 1220 — log level, log max size, max sessions, session
-logging, session log timestamps, shortcut overrides). If the IPC rejects, the rejection is
-unhandled: no toast appears and the control keeps showing the new value, so the UI can display
-a setting that was never persisted. The neighbouring handlers
+(lines 1195, 1199, 1203, 1216, 1220 — log level, log max size, max sessions, session logging,
+session log timestamps). Each is an `invoke<void>` against a command that returns `Err` on an
+invalid value or a failed save (`set_log_level`, `src-tauri/src/config.rs:494`), and `src/`
+registers no `unhandledrejection` listener, so the rejection is unhandled: no toast appears and
+the control keeps showing the new value, so the UI can display a setting that was never
+persisted until the pane next re-reads the config. The neighbouring handlers
 (`#duplicate-session-policy` at 1208, `#session-log-dir` at 1225, `#log-file-path` at 1257)
 already catch and toast, so the behaviour is inconsistent within one screen.
+
+Not defect sites, checked: `setShortcutOverrides` (1137) has a catch, and `setTimestampFormat`
+(1191), `setSearchIncludeTags` (1179), `setAutoCopyEnabled` (1183),
+`setOutputHighlightEnabled` (1187), `setAppTheme` (1298) and `setTerminalFontSize` (1308) are
+synchronous `localStorage` writes that cannot reject.
 
 Fixing this means choosing between reverting the control to the persisted value and toasting,
 and that decision was not taken. **No test was added here** — a test that asserted today's
