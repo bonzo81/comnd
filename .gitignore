@@ -5,6 +5,9 @@ target/
 node_modules/
 dist/
 
+# Coverage reports (local only; CI uploads them as PR artifacts)
+coverage/
+
 # OS
 .DS_Store
 Thumbs.db
