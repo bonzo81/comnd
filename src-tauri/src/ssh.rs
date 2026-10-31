@@ -1789,6 +1789,18 @@ fn smoke_mutation_active(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Bytes the smoke mutation has dropped in this app process. The runner reads
+/// this after the expected failure, so zero bytes at the mock is not accepted
+/// as proof that the drop ran (issue #78).
+#[cfg(debug_assertions)]
+static SMOKE_MUTATION_DROPPED_BYTES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(debug_assertions)]
+pub fn smoke_mutation_dropped_bytes() -> u64 {
+    SMOKE_MUTATION_DROPPED_BYTES.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 #[tauri::command]
 pub async fn ssh_send(
     session_id: u64,
@@ -1804,6 +1816,8 @@ pub async fn ssh_send(
     };
     #[cfg(debug_assertions)]
     if smoke_mutation_active("ssh_send") {
+        SMOKE_MUTATION_DROPPED_BYTES
+            .fetch_add(data.len() as u64, std::sync::atomic::Ordering::SeqCst);
         log::warn!(
             "Smoke mutation COMND_SMOKE_MUTATION=ssh_send: dropping {} bytes of SSH input",
             data.len()

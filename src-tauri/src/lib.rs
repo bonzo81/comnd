@@ -190,6 +190,14 @@ async fn test_smoke_client_closed(state: tauri::State<'_, AppState>) -> Result<b
     Ok(closed.load(std::sync::atomic::Ordering::SeqCst))
 }
 
+/// Bytes the `ssh_send` smoke mutation dropped. The runner reads this after the
+/// expected failure so a zero-byte mock reading alone cannot satisfy the check.
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_mutation_drops() -> Result<u64, String> {
+    Ok(ssh::smoke_mutation_dropped_bytes())
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 async fn test_stop_mock_server(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -547,6 +555,8 @@ pub fn run() {
                 test_smoke_received,
                 #[cfg(debug_assertions)]
                 test_smoke_client_closed,
+                #[cfg(debug_assertions)]
+                test_smoke_mutation_drops,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
                 #[cfg(debug_assertions)]

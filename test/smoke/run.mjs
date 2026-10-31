@@ -44,6 +44,20 @@ async function readBytes(browser) {
   return Array.from(await invoke(browser, "test_smoke_received"));
 }
 
+// Zero bytes at the mock cannot distinguish "the app dropped the input" from
+// "the frontend never sent it" (issue #78). The app reports how many bytes its
+// drop branch discarded, and only a non-zero count proves the mutation ran.
+async function mutationActivation(browser) {
+  try {
+    const dropped = await invoke(browser, "test_smoke_mutation_drops");
+    return dropped > 0
+      ? `mutation activation: ssh_send dropped ${dropped} bytes`
+      : "mutation activation missing: ssh_send drop never ran (0 bytes dropped)";
+  } catch (error) {
+    return `mutation activation unavailable: ${error.message}`;
+  }
+}
+
 function escapeBytes(bytes) {
   return `[${bytes.map((byte) => (byte === 0x09 ? "0x09" : byte >= 0x20 && byte < 0x7f
     ? JSON.stringify(String.fromCharCode(byte))
@@ -272,16 +286,32 @@ async function main() {
   buildApp();
 
   if (mutationRun) {
-    const result = await runCase({
-      name: "mutation-check",
-      // The app drops input at ssh_send, so the mock never receives the
-      // command and waitForBytes fails first. This must not match the old
-      // muteOutput failure (expected remote echo exactly once), otherwise a
-      // passing unmutated run could satisfy the check.
-      expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes/,
-      run: (browser, dataDir) => commandRoundTrip(browser, dataDir),
-    }, sshSuite);
-    console.log(`PASS mutation-check — ${result}`);
+    try {
+      const result = await runCase({
+        name: "mutation-check",
+        // The app drops input at ssh_send, so the mock never receives the
+        // command and waitForBytes fails first. That failure alone is not
+        // enough: the app must also report a non-zero drop count, otherwise a
+        // frontend that never reaches ssh_send would satisfy the check. This
+        // must not match the old muteOutput failure (expected remote echo
+        // exactly once) either, so a passing unmutated run cannot satisfy it.
+        expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes[\s\S]*mutation activation: ssh_send dropped [1-9]\d* bytes/,
+        run: async (browser, dataDir) => {
+          try {
+            await commandRoundTrip(browser, dataDir);
+          } catch (error) {
+            throw new Error(`${error.message}; ${await mutationActivation(browser)}`);
+          }
+          throw new Error("Command round-trip: passed, but the mutation was supposed to drop input");
+        },
+      }, sshSuite);
+      console.log(`PASS mutation-check — ${result}`);
+    } catch (error) {
+      throw new Error(
+        `mutation-check: the ssh_send drop was not proven active: ${error.message}`,
+        { cause: error },
+      );
+    }
     return;
   }
 
