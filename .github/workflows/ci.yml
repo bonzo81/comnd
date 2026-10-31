@@ -48,7 +48,7 @@ jobs:
 
       - name: upload frontend coverage
         if: matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-frontend
           path: coverage/
@@ -118,7 +118,7 @@ jobs:
 
       - name: upload rust coverage
         if: matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-rust
           path: |
