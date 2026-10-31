@@ -227,20 +227,40 @@ const groupLabel = (browser, id) =>
     return row?.querySelector(".nav-item-label")?.textContent?.trim() ?? "";
   }, id);
 
-/** Expand a nav group, tolerating an already-expanded state from a prior run. */
+/**
+ * Expand a nav group, tolerating an already-expanded state from a prior run.
+ *
+ * Clicks the button through the DOM rather than with a pointer click: expanding
+ * a sibling mounts its rows with a `nav-expanding` animation, so a pointer
+ * click's computed in-view centre can be stale by the time the driver
+ * dispatches it, and WebKitGTK then drops the click without reporting an
+ * error. Clicking the element itself is geometry-free, and the retry covers a
+ * click that lands during a re-render.
+ */
 async function expandGroup(browser, id) {
   await (await browser.$(`.nav-group-row[data-group-id="${id}"]`)).waitForExist({ timeout: WAIT_MS });
-  if ((await groupToggle(browser, id)) === COLLAPSED) {
-    await click(browser, `.nav-group-row[data-group-id="${id}"] > .nav-item`);
-  }
-  try {
-    await browser.waitUntil(async () => (await groupToggle(browser, id)) === EXPANDED, {
-      timeout: WAIT_MS,
-      interval: 100,
-      timeoutMsg: `nav group ${id} did not expand`,
-    });
-  } catch (error) {
-    throw new Error(`${error.message}; its toggle shows ${JSON.stringify(await groupToggle(browser, id))}`);
+  const clickButton = () =>
+    browser.execute((groupId) => {
+      const button = document.querySelector(`.nav-group-row[data-group-id="${groupId}"] > .nav-item`);
+      if (!button) throw new Error(`no nav button for ${groupId}`);
+      button.click();
+    }, id);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    if ((await groupToggle(browser, id)) === EXPANDED) return;
+    await clickButton();
+    try {
+      await browser.waitUntil(async () => (await groupToggle(browser, id)) === EXPANDED, {
+        timeout: WAIT_MS,
+        interval: 100,
+      });
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        throw new Error(
+          `nav group ${id} did not expand; its toggle shows ${JSON.stringify(await groupToggle(browser, id))}`,
+        );
+      }
+    }
   }
 }
 
