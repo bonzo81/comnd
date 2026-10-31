@@ -32,6 +32,12 @@ The mutation check breaks app code rather than test infrastructure: setting
 before it reaches the SSH session, so a passing run proves the harness observes
 real app behaviour. The mock host's echo path stays intact.
 
+Amended 2026-10-31: after issue #78, the debug-only `test_smoke_mutation_drops`
+command reports how many bytes the drop discarded. The mutation run reads it
+after the expected failure and passes only when the count is non-zero, so a
+frontend that never reaches `ssh_send` fails the check even though the mock
+still receives zero bytes.
+
 ## Consequences
 
 - Tests cover the desktop webview, Tauri commands, real Rust SSH client, and
@@ -40,7 +46,8 @@ real app behaviour. The mock host's echo path stays intact.
   runs require a matching Edge WebDriver.
 - macOS smoke coverage remains unsupported by this external-driver setup.
 - Because the mutation drops input, the expected failure surfaces in
-  `waitForBytes` as zero bytes received; the matcher accepts only that form and
-  names the scenario it broke.
+  `waitForBytes` as zero bytes received; the matcher accepts only that form,
+  requires the app-reported non-zero drop count, and names the scenario it
+  broke.
 - The buffer hook and mock controls are absent from release Rust builds and
   normal production frontend builds.
