@@ -36,7 +36,9 @@ Amended 2026-10-31: after issue #78, the debug-only `test_smoke_mutation_drops`
 command reports how many bytes the drop discarded. The mutation run reads it
 after the expected failure and passes only when the count is non-zero, so a
 frontend that never reaches `ssh_send` fails the check even though the mock
-still receives zero bytes.
+still receives zero bytes. The count is read inside the scenario's `run`,
+because `runCase` destroys the WebDriver session in `finally` — once the
+scenario returns there is no channel left to read it.
 
 ## Consequences
 
@@ -51,3 +53,8 @@ still receives zero bytes.
   broke.
 - The buffer hook and mock controls are absent from release Rust builds and
   normal production frontend builds.
+- The mutation check is verified by breaking the drop: add
+  `if (data.length >= 0) return;` inside the connected branch of `sendData` in
+  `src/components/terminal-view.ts`, ahead of `sshSend`. A bare `return;` at the
+  top of `sendData` instead fails the smoke build on `tsc` (`TS2345` on the
+  `sessionId` narrowing).
