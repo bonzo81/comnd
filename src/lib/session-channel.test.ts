@@ -10,14 +10,20 @@ import { SessionChannel, type SessionEvent, type SessionTransport } from "./sess
 class InMemoryTransport implements SessionTransport {
   connectedWith: number | null = null;
   disconnected: number[] = [];
+  /** Set to make connect() reject, as the real IPC does when the host is gone. */
+  connectError: Error | null = null;
+  /** Set to make disconnect() reject, as the real IPC does on an unknown session. */
+  disconnectError: Error | null = null;
   private handlers = new Map<string, ((p: unknown) => void)[]>();
 
   async connect(_hostId: string, _opts: { cols: number; rows: number }, sessionId: number): Promise<void> {
     this.connectedWith = sessionId;
+    if (this.connectError) throw this.connectError;
   }
 
   async disconnect(sessionId: number): Promise<void> {
     this.disconnected.push(sessionId);
+    if (this.disconnectError) throw this.disconnectError;
   }
 
   async listen(name: string, handler: (payload: unknown) => void): Promise<UnlistenFn> {
@@ -157,5 +163,86 @@ describe("SessionChannel", () => {
     expect(
       events.filter((e) => e.type === "auth-interactive" || e.type === "auth-round"),
     ).toEqual([]);
+  });
+
+  it("sets state to error and rethrows when the connect IPC rejects", async () => {
+    const { transport, channel, events } = mk();
+    transport.connectError = new Error("ssh_connect: host not found");
+
+    await expect(channel.connect("h1", { cols: 80, rows: 24 })).rejects.toThrow(
+      "ssh_connect: host not found",
+    );
+    expect(channel.state).toBe("error");
+    // Nothing is emitted: the caller handles the rejection, not the event bus.
+    expect(events).toEqual([]);
+  });
+
+  it("stops delivering events after the unsubscribe function runs", async () => {
+    const { transport, channel } = mk();
+    const seen: SessionEvent[] = [];
+    const off = channel.on((e) => seen.push(e));
+    await channel.connect("h1", { cols: 80, rows: 24 });
+
+    transport.emit("ssh-error", { reason: "first", session_id: channel.sessionId });
+    off();
+    transport.emit("ssh-error", { reason: "second", session_id: channel.sessionId });
+
+    expect(seen).toEqual([{ type: "error", reason: "first" }]);
+  });
+
+  it("resolves disconnect even when the transport rejects, and still swallows the drop", async () => {
+    const { transport, channel, events } = mk();
+    await channel.connect("h1", { cols: 80, rows: 24 });
+    transport.emit("ssh-connected", { reason: "", session_id: channel.sessionId });
+    transport.disconnectError = new Error("no such session");
+
+    await expect(channel.disconnect()).resolves.toBeUndefined();
+    expect(transport.disconnected).toEqual([channel.sessionId]);
+
+    transport.emit("ssh-disconnected", { reason: "user", session_id: channel.sessionId });
+    expect(events.some((e) => e.type === "disconnected")).toBe(false);
+  });
+
+  it("forwards TOFU and auth-url prompts from this session only", async () => {
+    const { transport, channel, events } = mk();
+    await channel.connect("h1", { cols: 80, rows: 24 });
+    transport.emit("ssh-connected", { reason: "", session_id: channel.sessionId });
+    const active = channel.sessionId;
+    if (active === null) throw new Error("expected an active session id after connect");
+    const stale = active + 1;
+
+    transport.emit("ssh-tofu", { reason: "host key changed", session_id: channel.sessionId });
+    transport.emit("ssh-tofu-pending", {
+      host_key: "ssh-ed25519 AAAA",
+      fingerprint: "SHA256:abc123",
+      key_type: "ssh-ed25519",
+      session_id: channel.sessionId,
+    });
+    transport.emit("ssh-auth-url", { url: "https://idp.example/device", session_id: channel.sessionId });
+
+    // Prompts addressed to another session must not surface in this one.
+    transport.emit("ssh-tofu", { reason: "other session", session_id: stale });
+    transport.emit("ssh-tofu-pending", {
+      host_key: "ssh-ed25519 BBBB",
+      fingerprint: "SHA256:def456",
+      key_type: "ssh-ed25519",
+      session_id: stale,
+    });
+    transport.emit("ssh-auth-url", { url: "https://evil.example", session_id: stale });
+
+    expect(events.filter((e) => e.type === "tofu")).toEqual([
+      { type: "tofu", reason: "host key changed" },
+    ]);
+    expect(events.filter((e) => e.type === "tofu-pending")).toEqual([
+      {
+        type: "tofu-pending",
+        hostKey: "ssh-ed25519 AAAA",
+        fingerprint: "SHA256:abc123",
+        keyType: "ssh-ed25519",
+      },
+    ]);
+    expect(events.filter((e) => e.type === "auth-url")).toEqual([
+      { type: "auth-url", url: "https://idp.example/device" },
+    ]);
   });
 });

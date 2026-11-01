@@ -790,6 +790,96 @@ mod tests {
     }
 
     #[test]
+    fn test_corrupt_config_is_preserved_and_startup_uses_defaults() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        // Truncated JSON carrying a plaintext key: the migration cannot parse
+        // it, so it must bail out before reaching the keychain, and startup
+        // must still come up on defaults without destroying the user's file.
+        let corrupt = r#"{"ollama_api_key":"migrate-me","log_level":"#;
+        std::fs::write(&config_path, corrupt).unwrap();
+
+        let store = ConfigStore::new(&dir).unwrap();
+
+        assert_eq!(store.config.log_level, "info");
+        assert_eq!(store.config.llm_base_url, "http://localhost:11434");
+        assert!(!config_path.exists(), "corrupt config should be moved aside");
+
+        let preserved: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("config.json.corrupt-"))
+            })
+            .collect();
+        assert_eq!(preserved.len(), 1, "expected one preserved copy");
+        assert_eq!(std::fs::read_to_string(&preserved[0]).unwrap(), corrupt);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_plaintext_migration_leaves_keyless_config_untouched() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        // An empty plaintext key must not be migrated to the keychain, and
+        // migration never rewrites the file, so the bytes survive startup.
+        let raw = r#"{"ollama_api_key":"","log_level":"debug"}"#;
+        std::fs::write(&config_path, raw).unwrap();
+
+        let store = ConfigStore::new(&dir).unwrap();
+
+        assert_eq!(store.config.log_level, "debug");
+        assert_eq!(std::fs::read_to_string(&config_path).unwrap(), raw);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_fresh_profile_starts_on_defaults_without_writing_config() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // No config.json yet: startup must come up on defaults and must not
+        // create the file just by reading, so nothing is written before the
+        // user changes a setting.
+        let store = ConfigStore::new(&dir).unwrap();
+
+        assert_eq!(store.config.log_level, "info");
+        assert_eq!(store.config.max_sessions, 30);
+        assert!(
+            !dir.join("config.json").exists(),
+            "startup should not create config.json"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_config_without_plaintext_key_is_left_untouched() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        // Already-migrated config: no ollama_api_key field, so there is nothing
+        // to move and the file must be preserved byte for byte.
+        let raw = r#"{"log_level":"warn","llm_model":"qwen3"}"#;
+        std::fs::write(&config_path, raw).unwrap();
+
+        let store = ConfigStore::new(&dir).unwrap();
+
+        assert_eq!(store.config.log_level, "warn");
+        assert_eq!(store.config.llm_model, "qwen3");
+        assert_eq!(std::fs::read_to_string(&config_path).unwrap(), raw);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_provider_config_roundtrip() {
         let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
         let config_path = dir.join("config.json");
