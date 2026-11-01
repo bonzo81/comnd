@@ -39,8 +39,9 @@ jobs:
       - name: unit tests (vitest)
         run: npm run test
 
-      # Coverage runs on one leg only: the numbers are identical on every OS
-      # and the report is a PR artifact, not a gate. See
+      # Coverage runs on one leg only, so the reports are a Linux baseline: `#[cfg]`
+      # gated code differs per OS and the macOS/Windows paths are unmeasured. The
+      # report is a PR artifact, not a gate. See
       # docs/plans/065-plan-test-coverage.md.
       - name: unit test coverage (vitest, v8)
         if: matrix.platform == 'ubuntu-22.04'
@@ -85,7 +86,9 @@ jobs:
         run: cargo test -- --nocapture
         working-directory: src-tauri
 
-      # Rust coverage runs on one leg only (see the frontend job comment).
+      # Rust coverage runs on one leg only (see the frontend job comment), so it is a
+      # Linux baseline: `#[cfg(unix)]` / `#[cfg(windows)]` change which lines exist
+      # and run, and the macOS/Windows paths are unmeasured.
       # Branch coverage needs nightly (`-Z coverage-options=branch`), which
       # would instrument a different compiler than the shipping build, so it
       # is a documented limitation rather than a step here.

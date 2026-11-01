@@ -62,8 +62,10 @@ for the table, `report --html` and `report --lcov` for the artifacts, because th
 one output format per invocation. `llvm-tools-preview` is installed with `rustup component
 add` rather than by switching toolchains.
 
-Both jobs measure on `ubuntu-22.04` only: the numbers are identical across the matrix, and
-three copies of the same report waste runner time. Both upload on `pull_request` only, via
+Both jobs measure on `ubuntu-22.04` only, so the reports are a Linux baseline rather than a
+cross-platform one: `#[cfg(unix)]` / `#[cfg(windows)]` change which lines exist and which run, so
+the macOS and Windows paths are unmeasured. Running three copies of a report that differs per OS
+would also triple runner time for no comparable number. Both upload on `pull_request` only, via
 `actions/upload-artifact@v7` with 7-day retention - `coverage-frontend` from `coverage/`, and
 `coverage-rust` from `target/coverage-html/` plus `target/coverage.lcov`.
 

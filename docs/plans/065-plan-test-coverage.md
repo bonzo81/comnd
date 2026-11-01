@@ -81,8 +81,12 @@ the table CI needs.
 
 ## CI
 
-Both coverage steps run on the `ubuntu-22.04` leg only. The numbers do not vary by OS and the
-report is an artifact, not a gate, so running them three times would only triple the runtime.
+Both coverage steps run on the `ubuntu-22.04` leg only, so the reports are a **Linux baseline**,
+not a cross-platform one. The numbers can differ by OS: `#[cfg(unix)]` / `#[cfg(windows)]` change
+which lines exist and which run, and there are 16 such sites in `src-tauri/src`, so a macOS or
+Windows run would measure a different set of lines. The report is an artifact, not a gate, so
+running it three times would only triple the runtime; macOS and Windows coverage stays unmeasured
+and no claim is made about it.
 
 - `coverage-frontend` — `actions/upload-artifact@v7`, path `coverage/`, 7-day retention.
 - `coverage-rust` — `actions/upload-artifact@v7`, paths `src-tauri/target/coverage-html/` and
@@ -155,7 +159,7 @@ unproven before the tests.
 | R3 | `src-tauri/src/replay.rs:81-113` | `validate` boundary branches: oversized command, too many variables, empty/oversized variable name |
 | R4 | `src-tauri/src/replay.rs:40-112` | `upsert` / `delete` round-tripping through disk, id assignment, and unknown-id errors |
 | R5 | `src-tauri/src/lib.rs:43-58` | `DepCapLogger` both suppressing dependency-target records and letting application records through to the sink |
-| R6 | `src-tauri/src/lib.rs:62-93` | `SizeCapWriter` truncating at the cap and reporting the short write |
+| R6 | `src-tauri/src/lib.rs:62-93` | `SizeCapWriter` truncating the file to zero bytes once a write reaches the cap, still returning the full buffer length, and starting a fresh file on the next write |
 | R7 | `src-tauri/src/config.rs:212-224,423-446` | Corrupt-config preservation on startup, the plaintext-API-key migration, and that a keyless or fresh profile is left untouched |
 
 ### Confirmed not-gaps
@@ -245,7 +249,7 @@ stay explicitly mocked.
 `src-tauri/src/lib.rs` (3 tests) — gaps R5, R6, R7:
 
 - `test_dep_cap_logger_caps_dependency_targets` — a `russh::cipher` Info record never reaches the sink while a `comnd_lib::ssh` Info record does, and `flush()` reaches the sink.
-- `test_size_cap_writer_truncates_at_cap` — a write past the cap is truncated to exactly the cap and reports a short write.
+- `test_size_cap_writer_truncates_at_cap` — the write that reaches the cap truncates the file to zero bytes and still returns the full buffer length (so `write_all` does not see a short write), the next write starts a fresh file, and `max_bytes == 0` disables the check.
 - `test_multi_writer_fans_out_and_propagates_errors` — every sink receives the bytes, and a failing sink's error is returned.
 
 `src-tauri/src/config.rs` (4 tests) — gap R7:
@@ -316,7 +320,8 @@ work, not part of this change.
    unsupported instead.
 4. **`include: ["src/**/*.ts"]` in the Vitest config.** Otherwise a module with no importing
    test vanishes from the report and looks like it does not exist.
-5. **Coverage on the ubuntu leg only.** Same numbers everywhere; the artifact is what matters.
+5. **Coverage on the ubuntu leg only.** A Linux baseline, not a cross-platform one — `#[cfg]`-gated
+   lines differ per OS, so the macOS and Windows paths are unmeasured. The artifact is what matters.
 6. **Artifacts, not a service.** No third-party upload, no token, no `permissions` change.
 
 ## Verification
@@ -337,8 +342,9 @@ cargo llvm-cov report    -> TOTAL 19971 5428 72.82% | 1659 711 57.14% | 11672 33
 Not run, and why:
 
 - **Rust branch coverage** — needs a nightly toolchain; see [Tooling](#rust--cargo-llvm-cov-091).
-- **`cargo llvm-cov` on macOS** — not attempted; the numbers are OS-independent and CI covers
-  the Linux leg.
+- **`cargo llvm-cov` on macOS and Windows** — not attempted. The numbers are *not* OS-independent:
+  conditional compilation changes which lines exist and run, so this report is a Linux baseline and
+  the macOS- and Windows-only paths are unmeasured. CI covers the Linux leg.
 - **Smoke suite** — this change touches no keystroke path, suggestion controller, terminal view
   or smoke file, so `npm run smoke` was not required by `AGENTS.md`. The CI run for the pull
   request still executes it.
