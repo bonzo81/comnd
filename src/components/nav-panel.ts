@@ -512,7 +512,9 @@ export class NavPanel {
         this.render();
       });
     }
-    if (prevFocus >= 0 && !this.renaming) {
+    // A context menu owns focus while it is open (initContextMenu focuses its
+    // first item), so the row restore below must not steal it back.
+    if (prevFocus >= 0 && !this.renaming && !ctxMenu) {
       const els = this.focusables();
       const el = els[Math.min(prevFocus, els.length - 1)];
       if (el) this.focusEl(el);
@@ -799,6 +801,10 @@ export class NavPanel {
         this.bindRowEvents(el);
       });
     });
+    // Rows inserted outside `render()` are fresh elements, so they would
+    // otherwise join the tab order individually and break the roving
+    // tabindex the panel documents (one Tab stop, arrows within).
+    this.applyRovingTabindex();
     return this.groupChildRows(row);
   }
 
@@ -1082,12 +1088,20 @@ export class NavPanel {
             });
             break;
           }
-          case "configure":
+          case "configure": {
+            // Re-render before opening: the context menu close tears the row
+            // down, so focus must land on the row that survives before
+            // openModal() records it as the element to restore on close.
+            this.render();
+            const row = this.container.querySelector<HTMLElement>(
+              `.nav-host-row[data-host-id="${ctx.id}"] > .nav-item`,
+            );
+            row?.focus();
             void new NetBoxConfigureDialog(ctx.id, () => {
               void this.refresh().then(() => this.cb.onTreeChanged());
             }).open();
-            this.render();
             break;
+          }
           case "disable":
             void this.disableNetboxHost(ctx.id);
             break;

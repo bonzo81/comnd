@@ -159,6 +159,28 @@ describe("openModal", () => {
       }
     });
 
+    it("pulls focus back when it leaves the panel without a Tab keydown", () => {
+      // A webdriver can perform a backwards move while reporting shiftKey:
+      // false, so containment must not depend on reading the key event.
+      const before = document.createElement("button");
+      document.body.appendChild(before);
+      try {
+        open({ content, initialFocus: "#b" });
+        const after = document.createElement("button");
+        document.body.appendChild(after);
+        try {
+          after.focus();
+          expect(document.activeElement).toBe(getOverlay()!.querySelector("#a"));
+          before.focus();
+          expect(document.activeElement).toBe(getOverlay()!.querySelector("#c"));
+        } finally {
+          after.remove();
+        }
+      } finally {
+        before.remove();
+      }
+    });
+
     it("leaves in-panel forward Tab alone so the browser can move focus", () => {
       open({ content, initialFocus: "#a" });
       const event = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });

@@ -171,6 +171,15 @@ jobs:
       - name: smoke mutation check
         run: xvfb-run -a npm run smoke:mutation
 
+      - name: smoke mutation check (focus)
+        run: xvfb-run -a npm run smoke -- --mutation=focus
+
+      - name: smoke mutation check (name)
+        run: xvfb-run -a npm run smoke -- --mutation=name
+
+      - name: smoke mutation check (layout)
+        run: xvfb-run -a npm run smoke -- --mutation=layout
+
   smoke-netbox:
     runs-on: ubuntu-22.04
     timeout-minutes: 50
