@@ -384,13 +384,6 @@ impl ConfigStore {
         self.persist()
     }
 
-    /// Remove a host source's config and persist.
-    #[cfg(test)]
-    pub fn clear_host_source(&mut self, id: &str) -> Result<(), String> {
-        self.config.host_sources.remove(id);
-        self.persist()
-    }
-
     /// Remove a provider's config (and its keyring secret) and persist.
     #[cfg(test)]
     pub fn clear_provider(&mut self, id: &str) -> Result<(), String> {
