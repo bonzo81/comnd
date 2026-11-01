@@ -264,36 +264,33 @@ impl ConfigStore {
         context_length: u32,
     ) -> Result<(), String> {
         save_llm_api_key(api_key.clone())?;
-        self.config.llm_api_format = api_format;
-        self.config.llm_base_url = base_url;
-        self.config.llm_model = model;
-        self.config.llm_api_key = api_key;
-        self.config.llm_context_length = context_length;
-        self.persist()
+        self.apply_and_persist(|config| {
+            config.llm_api_format = api_format;
+            config.llm_base_url = base_url;
+            config.llm_model = model;
+            config.llm_api_key = api_key;
+            config.llm_context_length = context_length;
+        })
     }
 
     /// Update the log level and persist.
     pub fn save_log_level(&mut self, level: String) -> Result<(), String> {
-        self.config.log_level = level;
-        self.persist()
+        self.apply_and_persist(|config| config.log_level = level)
     }
 
     /// Update the log file size cap (MB, 0 = off) and persist.
     pub fn save_log_max_size_mb(&mut self, max_mb: u32) -> Result<(), String> {
-        self.config.log_max_size_mb = max_mb;
-        self.persist()
+        self.apply_and_persist(|config| config.log_max_size_mb = max_mb)
     }
 
     /// Update the custom log file path (None = default) and persist.
     pub fn save_log_file_path(&mut self, path: Option<String>) -> Result<(), String> {
-        self.config.log_file_path = path;
-        self.persist()
+        self.apply_and_persist(|config| config.log_file_path = path)
     }
 
     /// Update the max concurrent SSH sessions and persist.
     pub fn save_max_sessions(&mut self, max: u32) -> Result<(), String> {
-        self.config.max_sessions = max;
-        self.persist()
+        self.apply_and_persist(|config| config.max_sessions = max)
     }
 
     /// Update the duplicate-session policy and persist.
@@ -304,8 +301,7 @@ impl ConfigStore {
             "ask" | "allow" | "focus" => {}
             _ => return Err(format!("Invalid duplicate session policy: {}", policy)),
         }
-        self.config.duplicate_session_policy = policy;
-        self.persist()
+        self.apply_and_persist(|config| config.duplicate_session_policy = policy)
     }
 
     /// Replace the user shortcut overrides and persist (docs/specs/11).
@@ -314,26 +310,22 @@ impl ConfigStore {
         &mut self,
         overrides: std::collections::HashMap<String, String>,
     ) -> Result<(), String> {
-        self.config.shortcuts = overrides;
-        self.persist()
+        self.apply_and_persist(|config| config.shortcuts = overrides)
     }
 
     /// Update session logging enabled/disabled and persist.
     pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {
-        self.config.session_logging = enabled;
-        self.persist()
+        self.apply_and_persist(|config| config.session_logging = enabled)
     }
 
     /// Update session log timestamps enabled/disabled and persist.
     pub fn save_session_log_timestamps(&mut self, enabled: bool) -> Result<(), String> {
-        self.config.session_log_timestamps = enabled;
-        self.persist()
+        self.apply_and_persist(|config| config.session_log_timestamps = enabled)
     }
 
     /// Update custom session log directory and persist. `None` = use default.
     pub fn save_session_log_dir(&mut self, dir: Option<String>) -> Result<(), String> {
-        self.config.session_log_dir = dir;
-        self.persist()
+        self.apply_and_persist(|config| config.session_log_dir = dir)
     }
 
     // ─── Provider config (chunk 6) ─────────────────────────────────
@@ -357,8 +349,9 @@ impl ConfigStore {
 
     /// Replace a provider's non-secret config and persist.
     pub fn save_provider_config(&mut self, id: String, value: serde_json::Value) -> Result<(), String> {
-        self.config.providers.insert(id, value);
-        self.persist()
+        self.apply_and_persist(|config| {
+            config.providers.insert(id, value);
+        })
     }
 
     // ─── Host source config (NetBox plan §8.1) ─────────────────────
@@ -380,16 +373,18 @@ impl ConfigStore {
 
     /// Replace a host source's non-secret config and persist.
     pub fn save_host_source_config(&mut self, id: &str, value: serde_json::Value) -> Result<(), String> {
-        self.config.host_sources.insert(id.to_string(), value);
-        self.persist()
+        self.apply_and_persist(|config| {
+            config.host_sources.insert(id.to_string(), value);
+        })
     }
 
     /// Remove a provider's config (and its keyring secret) and persist.
     #[cfg(test)]
     pub fn clear_provider(&mut self, id: &str) -> Result<(), String> {
-        self.config.providers.remove(id);
         save_provider_secret(id, None)?;
-        self.persist()
+        self.apply_and_persist(|config| {
+            config.providers.remove(id);
+        })
     }
 
     /// Get the writable KB path (in app data directory).
@@ -398,6 +393,22 @@ impl ConfigStore {
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("knowledge-base")
+    }
+
+    /// Apply a config change and persist it. If the write fails, restore the
+    /// previous config so `get_app_config` never reports a value that was not
+    /// saved to disk.
+    fn apply_and_persist<F>(&mut self, change: F) -> Result<(), String>
+    where
+        F: FnOnce(&mut AppConfig),
+    {
+        let previous = self.config.clone();
+        change(&mut self.config);
+        if let Err(e) = self.persist() {
+            self.config = previous;
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn persist(&self) -> Result<(), String> {
@@ -677,6 +688,32 @@ mod tests {
         assert!(store.save_duplicate_session_policy("bogus".to_string()).is_err());
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert_eq!(fresh.get().duplicate_session_policy, "focus");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_failed_persist_rolls_back_in_memory_config() {
+        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let config_path = dir.join("config.json");
+        let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
+        store.save_log_level("info".to_string()).unwrap();
+        let before = store.get().clone();
+
+        // secure_write writes `<name>.tmp` before renaming it over the target.
+        // A directory at that path makes the write fail on every platform.
+        std::fs::create_dir(config_path.with_extension("tmp")).unwrap();
+
+        assert!(store.save_log_level("debug".to_string()).is_err());
+        assert_eq!(store.get().log_level, before.log_level);
+        assert!(store.save_session_logging(!before.session_logging).is_err());
+        assert_eq!(store.get().session_logging, before.session_logging);
+        assert!(store.save_max_sessions(before.max_sessions + 1).is_err());
+        assert_eq!(store.get().max_sessions, before.max_sessions);
+
+        // get_app_config serves this in-memory config, so a rejected save must
+        // not leave the new value visible there.
+        assert_eq!(store.get().log_level, "info");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

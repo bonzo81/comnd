@@ -276,6 +276,11 @@ was never persisted. Each handler now catches the rejection, toasts `Failed to s
 resets its own control from the stored config. `src/components/settings-screen.test.ts` covers
 all five rejecting paths and one succeeding path.
 
+The backend had the matching defect: `ConfigStore::save_*` mutated the in-memory config before
+`persist()`, so a failed write still returned the new value from `get_app_config`. All config
+writes now go through `apply_and_persist`, which restores the previous config when the write
+fails; `test_failed_persist_rolls_back_in_memory_config` covers the rollback.
+
 ## Observations (not fixed)
 
 `renderReplayTemplate` escapes twice: it runs `escHtml(command)` and then `escHtml(name)` on a
