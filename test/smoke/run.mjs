@@ -74,10 +74,15 @@ const sshSuite = {
     ...(mutationCategory ? { COMND_SMOKE_MUTATION: mutationCategory } : {}),
   },
   // The accessibility scenarios may start the NetBox mock as well, so stop
-  // whichever mock is running instead of only the SSH one.
+  // whichever mock is running instead of only the SSH one. Both Rust commands
+  // return Ok when nothing is running, so a rejection here is a real failure.
   async teardown(browser) {
-    await invoke(browser, "test_stop_mock_server").catch(() => {});
-    await invoke(browser, "test_stop_netbox_server").catch(() => {});
+    const results = await Promise.allSettled([
+      invoke(browser, "test_stop_mock_server"),
+      invoke(browser, "test_stop_netbox_server"),
+    ]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   },
 };
 
@@ -230,9 +235,21 @@ async function installSmokeHelpers(browser) {
       return `${tag}${id}${cls}`;
     };
 
+    // ARIA gives `dialog`/`alertdialog` no name from contents, and a form
+    // control is named by its label rather than by its own text, so neither
+    // may be satisfied by the text inside it.
+    const namedByContent = (el) => {
+      const tag = el.tagName.toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea") return false;
+      const role = el.getAttribute("role");
+      return role !== "dialog" && role !== "alertdialog" && role !== "textbox"
+        && role !== "combobox" && role !== "listbox" && role !== "searchbox";
+    };
+
     // Accessible name, computed the way a user of a screen reader would hear
-    // it for the cases this app uses: aria-labelledby, aria-label, contents,
-    // title, then a nested image's alt text.
+    // it for the cases this app uses: aria-labelledby, aria-label, a native
+    // label, contents (only where contents name the element), title, then a
+    // nested image's alt text.
     const nameOf = (el) => {
       const labelledBy = el.getAttribute("aria-labelledby");
       if (labelledBy) {
@@ -257,7 +274,7 @@ async function installSmokeHelpers(browser) {
           .trim();
         if (labelText) return labelText;
       }
-      const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+      const text = namedByContent(el) ? (el.textContent ?? "").replace(/\s+/g, " ").trim() : "";
       if (text) return text;
       const title = el.getAttribute("title")?.trim();
       if (title) return title;
@@ -288,6 +305,10 @@ async function installSmokeHelpers(browser) {
       nameOf,
       shown,
       focusStyle,
+      /** The last keydown the page saw, for failure messages. */
+      lastKey() {
+        return window.__comndSmokeLastKey ?? null;
+      },
       active() {
         const el = document.activeElement;
         return {
@@ -375,6 +396,12 @@ async function installSmokeHelpers(browser) {
         return out;
       },
     };
+    // The driver's modifier reporting is not reliable on every platform, so
+    // keep the last key event for failure messages.
+    window.__comndSmokeLastKey = null;
+    document.addEventListener("keydown", (event) => {
+      window.__comndSmokeLastKey = { key: event.key, shiftKey: event.shiftKey };
+    }, true);
   });
 }
 
@@ -382,9 +409,10 @@ async function installSmokeHelpers(browser) {
  * Focus targets where the app deliberately handles Tab itself, so a real Tab
  * press changes app state instead of moving focus: the global search input
  * toggles its Hosts/Commands mode (07-keyboard-shortcuts.md) and the terminal
- * forwards Tab to the remote device (context-sensitive Tab). The walk records
- * these stops and then steps over them programmatically, so the rest of the
- * order is still reached by real Tab presses.
+ * forwards Tab to the remote device (context-sensitive Tab). Neither has a
+ * keyboard route onwards — Escape in the search box blurs to the body, which
+ * restarts the order rather than continuing it — so the walk records the stop
+ * reached by a real Tab press and then steps over it programmatically.
  */
 const TAB_INTERCEPTORS = [".title-bar-search-input", ".xterm-helper-textarea"];
 
@@ -403,16 +431,30 @@ async function tabWalk(browser, max = 20, { reset = true } = {}) {
       document.body.setAttribute("tabindex", "-1");
       document.body.focus();
       document.body.removeAttribute("tabindex");
+      window.__comndSmokeStopSeq = 0;
+      for (const tagged of document.querySelectorAll("[data-comnd-stop]")) {
+        tagged.removeAttribute("data-comnd-stop");
+      }
     });
   }
   const stops = [];
   let tabInterceptors = 0;
   for (let index = 0; index < max; index += 1) {
     await browser.keys("\uE004");
-    const state = await browser.execute(() => ({
-      ...window.__comndSmoke.active(),
-      ...window.__comndSmoke.focusStyle(document.activeElement),
-    }));
+    const state = await browser.execute(() => {
+      const el = document.activeElement;
+      // Tag the stop so its unfocused style can be read after the walk.
+      if (el && el !== document.body && !el.hasAttribute("data-comnd-stop")) {
+        const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
+        window.__comndSmokeStopSeq = seq;
+        el.setAttribute("data-comnd-stop", String(seq));
+      }
+      return {
+        ...window.__comndSmoke.active(),
+        ...window.__comndSmoke.focusStyle(el),
+        styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
+      };
+    });
     if (!state.tag || state.tag === "body") break;
     stops.push(state);
     const intercepted = await browser.execute((selectors) => selectors.some(
@@ -447,6 +489,25 @@ async function tabWalk(browser, max = 20, { reset = true } = {}) {
       && stops[0].id === state.id
       && stops[0].cls === state.cls) break;
   }
+  // Read the same stops while they are NOT focused, so an indicator that is
+  // always drawn (the inset border on a settings toggle, say) cannot pass for
+  // one that appears on focus. Focus is handed back afterwards so a caller
+  // that continues the walk with `reset: false` carries on from here.
+  const resting = await browser.execute(() => {
+    const last = document.activeElement;
+    if (last && last !== document.body) last.blur();
+    document.body.setAttribute("tabindex", "-1");
+    document.body.focus();
+    document.body.removeAttribute("tabindex");
+    const out = {};
+    for (const el of document.querySelectorAll("[data-comnd-stop]")) {
+      out[el.getAttribute("data-comnd-stop")] = window.__comndSmoke.focusStyle(el);
+      el.removeAttribute("data-comnd-stop");
+    }
+    if (last && last !== document.body && last.isConnected) last.focus();
+    return out;
+  });
+  for (const stop of stops) stop.resting = resting[stop.styleKey] ?? null;
   return { stops, tabInterceptors };
 }
 
@@ -468,10 +529,20 @@ function assertNamed(stop, label) {
 function assertFocusVisible(stop, label) {
   const outlined = stop.outlineStyle !== "none" && parseFloat(stop.outlineWidth) > 0;
   const shadowed = stop.boxShadow !== "none" || !/^(none )*none$/.test(stop.pseudoShadow);
+  const resting = stop.resting;
+  // A visible indicator is not enough on its own: it has to differ from the
+  // unfocused style, or a permanently drawn border or shadow would pass.
+  const changed = !!resting
+    && (stop.outlineStyle !== resting.outlineStyle
+      || stop.outlineWidth !== resting.outlineWidth
+      || stop.boxShadow !== resting.boxShadow
+      || stop.pseudoShadow !== resting.pseudoShadow);
   assert(
-    outlined || shadowed,
+    (outlined || shadowed) && changed,
     `${label}: ${stopLabel(stop)} has no visible focus indicator `
-    + `(outline ${stop.outlineStyle} ${stop.outlineWidth}, box-shadow ${stop.boxShadow})`,
+    + `(outline ${stop.outlineStyle} ${stop.outlineWidth}, box-shadow ${stop.boxShadow}; `
+    + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"}, `
+    + `box-shadow ${resting?.boxShadow ?? "?"})`,
   );
 }
 
@@ -486,48 +557,154 @@ function assertNothingClipped(violations, label) {
   assert(violations.length === 0, `${label}: ${violations.join(", ")}`);
 }
 
-/** Tab and Shift+Tab must never leave the open modal panel. */
-async function assertModalTrap(browser, panelSelector, label) {
+/**
+ * Tab and Shift+Tab must never leave the open modal panel: the walk has to
+ * visit every focusable control exactly once, wrap at both ends, keep a
+ * visible focus indicator on each stop, and the dialog itself must be named.
+ */
+async function assertModalTrap(browser, panelSelector, label, { expectedControls } = {}) {
   await installSmokeHelpers(browser);
-  const inside = (selector) => browser.execute((sel) => {
+  const inspect = (selector) => browser.execute((sel) => {
     const panel = document.querySelector(sel);
+    const el = document.activeElement;
+    if (el && panel && panel.contains(el) && !el.hasAttribute("data-comnd-stop")) {
+      const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
+      window.__comndSmokeStopSeq = seq;
+      el.setAttribute("data-comnd-stop", String(seq));
+    }
     return {
-      inside: !!panel && panel.contains(document.activeElement),
+      inside: !!panel && panel.contains(el),
       active: window.__comndSmoke.active(),
       name: panel ? window.__comndSmoke.nameOf(panel) : "",
+      focus: window.__comndSmoke.focusStyle(el),
+      styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
+      lastKey: window.__comndSmoke.lastKey(),
+      // The controls the trap itself can wrap to, counted the same way.
+      focusableCount: panel
+        ? [...panel.querySelectorAll(
+          "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),"
+          + "textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
+        )].filter((element) => {
+          // A radio group is a single tab stop: its checked button, else its first.
+          if (element.type === "radio" && element.name) {
+            const group = [...panel.querySelectorAll(
+              `input[type="radio"][name="${CSS.escape(element.name)}"]`,
+            )];
+            if ((group.find((radio) => radio.checked) ?? group[0]) !== element) return false;
+          }
+          return !element.hasAttribute("disabled")
+            && element.tabIndex >= 0
+            && !element.hidden
+            && !element.closest(".auth-conditional-hidden")
+            && element.getClientRects().length > 0;
+        }).length
+        : 0,
     };
   }, selector);
 
   const describeActive = (active) => `${active.tag}${active.id ? `#${active.id}` : ""}`
     + `${active.cls ? `.${active.cls.trim().split(/\s+/).slice(0, 3).join(".")}` : ""}`;
+  // A driver does not always report the modifier it acted with, so a trapped
+  // escape and a driver quirk look alike; the key state goes in the message.
+  const keyHint = (lastKey) => (lastKey
+    ? ` (last keydown ${JSON.stringify(lastKey.key)}, shiftKey ${lastKey.shiftKey})`
+    : "");
 
-  const names = [];
-  for (let step = 0; step < 10; step += 1) {
+  const forward = [];
+  for (let step = 0; step < 12; step += 1) {
     await browser.keys("\uE004");
-    const state = await inside(panelSelector);
+    const state = await inspect(panelSelector);
     assert(
       state.inside,
-      `${label}: Tab moved focus out of the dialog to ${describeActive(state.active)}`,
+      `${label}: Tab moved focus out of the dialog to ${describeActive(state.active)}`
+      + keyHint(state.lastKey),
     );
-    names.push({ name: state.active.name, control: describeActive(state.active) });
+    forward.push(state);
+    if (forward.length > 1 && forward[0].styleKey === state.styleKey) break;
   }
-  for (let step = 0; step < 3; step += 1) {
+
+  const wrapped = forward.length > 1 && forward[0].styleKey === forward.at(-1).styleKey;
+  const cycle = wrapped ? forward.slice(0, -1) : forward;
+  assert(
+    wrapped,
+    `${label}: 12 Tab presses did not return focus to ${describeActive(forward[0].active)}, `
+    + `so the forward wrap is unproven (stops: ${JSON.stringify(cycle.map((s) => describeActive(s.active)))})`,
+  );
+  assert(
+    cycle.length === forward[0].focusableCount,
+    `${label}: the trap cycled through ${cycle.length} control(s) but the dialog exposes `
+    + `${forward[0].focusableCount}, so a control is unreachable or repeated `
+    + `(stops: ${JSON.stringify(cycle.map((s) => describeActive(s.active)))})`,
+  );
+  if (expectedControls) {
+    // Class order in the markup is not the point, so compare sorted tokens.
+    const sortClasses = (description) => {
+      const [tagAndId, ...classes] = description.split(".");
+      return [tagAndId, ...classes.sort()].join(".");
+    };
+    const seen = cycle.map((state) => sortClasses(describeActive(state.active))).sort();
+    assert.deepEqual(
+      seen,
+      expectedControls.map(sortClasses).sort(),
+      `${label}: the dialog's tab stops are not the expected set`,
+    );
+  }
+  for (const state of cycle) {
+    assert(
+      state.active.name.length > 0,
+      `${label}: ${describeActive(state.active)} is a tab stop inside the dialog `
+      + `with no accessible name`,
+    );
+  }
+
+  // A full backwards cycle from the first control has to land back on it,
+  // visiting only controls the forward walk saw.
+  const cycleKeys = new Set(cycle.map((state) => state.styleKey));
+  for (let step = 0; step < cycle.length; step += 1) {
     await browser.keys(["\uE008", "\uE004", "\uE000"]);
-    const state = await inside(panelSelector);
+    const state = await inspect(panelSelector);
     assert(
       state.inside,
-      `${label}: Shift+Tab moved focus out of the dialog to ${describeActive(state.active)}`,
+      `${label}: Shift+Tab moved focus out of the dialog to ${describeActive(state.active)}`
+      + keyHint(state.lastKey),
     );
-  }
-  for (const stop of names) {
     assert(
-      stop.name.length > 0,
-      `${label}: ${stop.control} is a tab stop inside the dialog with no accessible name`,
+      cycleKeys.has(state.styleKey),
+      `${label}: Shift+Tab reached ${describeActive(state.active)}, which the forward walk `
+      + `never visited`,
     );
   }
-  const named = await inside(panelSelector);
+  const backAtStart = await inspect(panelSelector);
+  assert(
+    backAtStart.styleKey === cycle[0].styleKey,
+    `${label}: ${cycle.length} Shift+Tab presses from ${describeActive(cycle[0].active)} ended on `
+    + `${describeActive(backAtStart.active)}, so the backwards wrap is broken`,
+  );
+
+  // Read the stops again while nothing is focused, so a permanently drawn
+  // border or shadow cannot pass for a focus indicator.
+  const resting = await browser.execute((sel) => {
+    const panel = document.querySelector(sel);
+    if (!panel) return {};
+    const restore = panel.getAttribute("tabindex");
+    panel.setAttribute("tabindex", "-1");
+    panel.focus();
+    const out = {};
+    for (const el of panel.querySelectorAll("[data-comnd-stop]")) {
+      out[el.getAttribute("data-comnd-stop")] = window.__comndSmoke.focusStyle(el);
+      el.removeAttribute("data-comnd-stop");
+    }
+    if (restore === null) panel.removeAttribute("tabindex");
+    else panel.setAttribute("tabindex", restore);
+    return out;
+  }, panelSelector);
+  for (const state of cycle) {
+    assertFocusVisible({ ...state.active, ...state.focus, resting: resting[state.styleKey] ?? null }, label);
+  }
+
+  const named = await inspect(panelSelector);
   assert(named.name.length > 0, `${label}: the dialog itself has no accessible name`);
-  return names.map((stop) => stop.name);
+  return cycle.map((state) => state.active.name);
 }
 
 /** Escape through a real W3C key action: the modal shell listens on window capture. */
@@ -1098,8 +1275,16 @@ async function main() {
           "Duplicate session: the second connect must open exactly one dialog",
         );
 
-        // Tab and Shift+Tab stay inside the dialog, and the dialog is named.
-        await assertModalTrap(browser, ".modal-panel", "Duplicate session");
+        // Tab and Shift+Tab stay inside the dialog, the dialog is named, and
+        // its tab stops are exactly the four controls it renders.
+        await assertModalTrap(browser, ".modal-panel", "Duplicate session", {
+          expectedControls: [
+            "input.duplicate-session-remember",
+            "button.duplicate-session-cancel.btn-text",
+            "button.duplicate-session-focus.btn-text",
+            "button.duplicate-session-new.btn-primary",
+          ],
+        });
 
         // Escape cancels: no second session, no tab switch. A W3C key action
         // reaches the focused dialog button; the dialog shell dismisses on the
@@ -1325,7 +1510,14 @@ async function main() {
           await browser.execute(() => document.querySelector("#rsv-text") === document.activeElement),
           "Keyboard focus: the replay dialog must put initial focus in the command field",
         );
-        await assertModalTrap(browser, ".modal-panel", "Keyboard focus");
+        await assertModalTrap(browser, ".modal-panel", "Keyboard focus", {
+          expectedControls: [
+            "textarea#rsv-text.form-input",
+            "select#rsv-platform.form-input",
+            "button#rsv-cancel.btn-text",
+            "button#rsv-save.btn-primary",
+          ],
+        });
         await pressEscape(browser);
         await browser.waitUntil(
           async () => browser.execute(() => !document.querySelector(".modal-panel")),
@@ -1753,25 +1945,86 @@ async function main() {
         const panel = await browser.execute(() => {
           const element = document.querySelector(".modal-panel");
           const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
           return {
-            scrollHeight: element.scrollHeight,
-            clientHeight: element.clientHeight,
             overflowY: style.overflowY,
             name: window.__comndSmoke.nameOf(element),
+            top: rect.top,
+            bottom: rect.bottom,
+            viewportHeight: window.innerHeight,
           };
         });
         assert(panel.name.length > 0, "Dialog overflow: the dialog has no accessible name");
-        if (panel.scrollHeight > panel.clientHeight) {
-          assert(
-            panel.overflowY === "auto" || panel.overflowY === "scroll",
-            `Dialog overflow: the dialog is taller than the window but does not scroll `
-            + `(${panel.scrollHeight}px of content in ${panel.clientHeight}px, overflow-y ${panel.overflowY})`,
-          );
-        }
+        assert(
+          panel.top >= -1 && panel.bottom <= panel.viewportHeight + 1,
+          `Dialog overflow: the dialog does not fit the window `
+          + `(${Math.round(panel.top)}-${Math.round(panel.bottom)} in ${panel.viewportHeight}px)`,
+        );
         assertNothingClipped(await browser.execute(() => window.__comndSmoke.clipped(".modal-panel")),
           "Dialog overflow: the dialog clips a control");
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.overlaps(".modal-panel")), [],
           "Dialog overflow: dialog controls overlap");
+
+        // The replay dialog is short, so its content is lengthened: the scroll
+        // path has to hold whether or not this particular dialog overflows.
+        const forced = await browser.execute(() => {
+          const element = document.querySelector(".modal-panel");
+          const spacer = document.createElement("div");
+          spacer.id = "smoke-dialog-overflow";
+          // The replay dialog is a flex column, so the spacer has to refuse to
+          // shrink or it contributes no height at all.
+          spacer.style.flex = "0 0 auto";
+          spacer.style.height = "2000px";
+          element.appendChild(spacer);
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return {
+            scrollHeight: element.scrollHeight,
+            clientHeight: element.clientHeight,
+            overflowY: style.overflowY,
+            top: rect.top,
+            bottom: rect.bottom,
+            viewportHeight: window.innerHeight,
+          };
+        });
+        assert(
+          forced.scrollHeight > forced.clientHeight,
+          `Dialog overflow: the dialog does not scroll its content `
+          + `(${forced.scrollHeight}px of content in ${forced.clientHeight}px)`,
+        );
+        assert(
+          forced.overflowY === "auto" || forced.overflowY === "scroll",
+          `Dialog overflow: the dialog's content is taller than it but overflow-y is ${forced.overflowY}`,
+        );
+        assert(
+          forced.top >= -1 && forced.bottom <= forced.viewportHeight + 1,
+          `Dialog overflow: the dialog grew past the window instead of scrolling `
+          + `(${Math.round(forced.top)}-${Math.round(forced.bottom)} in ${forced.viewportHeight}px)`,
+        );
+        const scrolled = await browser.execute(() => {
+          const element = document.querySelector(".modal-panel");
+          element.scrollTop = element.scrollHeight;
+          const atEnd = element.scrollTop > 0;
+          element.scrollTop = 0;
+          const box = element.getBoundingClientRect();
+          const cancel = element.querySelector("#rsv-cancel")?.getBoundingClientRect();
+          return {
+            atEnd,
+            boxTop: box.top,
+            boxBottom: box.bottom,
+            cancelTop: cancel?.top ?? null,
+            cancelBottom: cancel?.bottom ?? null,
+          };
+        });
+        assert(scrolled.atEnd, "Dialog overflow: the dialog did not scroll to its end");
+        assert(
+          scrolled.cancelTop !== null
+            && scrolled.cancelTop >= scrolled.boxTop - 1
+            && scrolled.cancelBottom <= scrolled.boxBottom + 1,
+          "Dialog overflow: the dialog's actions are not reachable after scrolling "
+          + `(${Math.round(scrolled.cancelTop ?? -1)}-${Math.round(scrolled.cancelBottom ?? -1)} `
+          + `outside ${Math.round(scrolled.boxTop)}-${Math.round(scrolled.boxBottom)})`,
+        );
         await pressEscape(browser);
         await browser.waitUntil(
           async () => browser.execute(() => !document.querySelector(".modal-panel")),
@@ -1813,7 +2066,10 @@ async function main() {
         const hostId = await netboxRow();
 
         // Focus the row's own button first: it is the invoking element the
-        // dialog must hand focus back to, and it is the keyboard tab stop.
+        // dialog must hand focus back to, and it is the keyboard tab stop. The
+        // contextmenu event is dispatched because Shift+F10 support differs
+        // between the WebKit and WebView2 drivers; everything after that is
+        // real key input, so the menu's own keyboard handling opens the dialog.
         await browser.execute((id) => {
           const row = document.querySelector(`.nav-host-row[data-host-id="${id}"]`);
           const button = row?.querySelector(".nav-item");
@@ -1822,12 +2078,48 @@ async function main() {
           row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 120, clientY: 240 }));
         }, hostId);
         await (await browser.$('.ctx-item[data-action="configure"]')).waitForExist({ timeout: WAIT_MS });
-        await browser.execute(() => document.querySelector('.ctx-item[data-action="configure"]')?.click());
+        const menuFocus = await browser.execute(() => {
+          const menu = document.querySelector("#nav-context-menu");
+          const first = menu?.querySelector(".ctx-item:not(.ctx-disabled)");
+          const active = document.activeElement;
+          return {
+            ok: !!first && active === first,
+            menu: !!menu,
+            first: first?.textContent?.trim() ?? null,
+            active: `${active?.tagName?.toLowerCase() ?? "?"}${active?.id ? `#${active.id}` : ""}`
+              + `${active?.className ? `.${String(active.className).trim().split(/\s+/).join(".")}` : ""}`
+              + ` (${(active?.textContent ?? "").trim().slice(0, 40)})`,
+          };
+        });
+        assert(
+          menuFocus.ok,
+          `NetBox configure: opening the context menu must move focus to its first item `
+          + `(menu ${menuFocus.menu ? `present, first item ${JSON.stringify(menuFocus.first)}` : "missing"}; `
+          + `focus is on ${menuFocus.active})`,
+        );
+        let reached = false;
+        for (let step = 0; step < 12; step += 1) {
+          reached = await browser.execute(() =>
+            document.activeElement?.dataset?.action === "configure");
+          if (reached) break;
+          await browser.action("key").down("\uE015").up("\uE015").perform();
+        }
+        assert(reached, "NetBox configure: ArrowDown never reached the Configure menu item");
+        await browser.action("key").down("\uE007").up("\uE007").perform();
         await (await browser.$("#nb-cfg-title")).waitForExist({ timeout: WAIT_MS });
 
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.unnamed(".modal-panel")), [],
           "NetBox configure: the dialog has controls with no accessible name");
-        await assertModalTrap(browser, ".modal-panel", "NetBox configure");
+        await assertModalTrap(browser, ".modal-panel", "NetBox configure", {
+          expectedControls: [
+            "input.form-input",
+            "input.form-input",
+            "input",
+            "textarea.form-input",
+            "button#nb-cfg-cancel.btn-text",
+            "button.btn-primary",
+          ],
+        });
 
         await pressEscape(browser);
         await browser.waitUntil(

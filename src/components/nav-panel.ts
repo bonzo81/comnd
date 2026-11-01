@@ -512,7 +512,9 @@ export class NavPanel {
         this.render();
       });
     }
-    if (prevFocus >= 0 && !this.renaming) {
+    // A context menu owns focus while it is open (initContextMenu focuses its
+    // first item), so the row restore below must not steal it back.
+    if (prevFocus >= 0 && !this.renaming && !ctxMenu) {
       const els = this.focusables();
       const el = els[Math.min(prevFocus, els.length - 1)];
       if (el) this.focusEl(el);

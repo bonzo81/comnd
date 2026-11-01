@@ -288,7 +288,9 @@ select.form-input {
 .auth-conditional {
   margin-bottom: var(--space-1);
   overflow: hidden;
-  transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease, padding 0.2s ease;
+  visibility: visible;
+  transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease, padding 0.2s ease,
+    visibility 0s linear;
   max-height: 120px;
   opacity: 1;
 }
@@ -301,6 +303,12 @@ select.form-input {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   overflow: hidden;
+  /* Collapsed fields must leave the tab order: opacity alone leaves an
+     invisible control that keyboard focus can still land on. The delay keeps
+     the fade-out animation intact before the fields become unreachable. */
+  visibility: hidden;
+  transition: opacity 0.2s ease, max-height 0.2s ease, margin 0.2s ease, padding 0.2s ease,
+    visibility 0s linear 0.2s;
 }
 
 /* Secret-manager field is taller (provider + reference + test row). */
