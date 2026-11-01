@@ -317,12 +317,25 @@ async function installSmokeHelpers(browser) {
       };
     };
 
+    // Roving-group candidates. A collapsed nav section keeps its rows laid
+    // out (so they still have client rects) but visibility:hidden, and such a
+    // row cannot take focus, so it is not a tab stop.
+    const groupItems = (root, selector) => {
+      if (!root) return [];
+      return [...root.querySelectorAll(selector)].filter((el) => (
+        el.getClientRects().length > 0
+        && getComputedStyle(el).visibility === "visible"
+        && !el.disabled
+      ));
+    };
+
     window.__comndSmoke = {
       describe,
       nameOf,
       authorName,
       shown,
       focusStyle,
+      groupItems,
       /** The last keydown the page saw, for failure messages. */
       lastKey() {
         return window.__comndSmokeLastKey ?? null;
@@ -562,6 +575,76 @@ function assertFocusVisible(stop, label) {
     + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"}, `
     + `box-shadow ${resting?.boxShadow ?? "?"})`,
   );
+}
+
+/**
+ * Roving tabindex groups (the nav panel and the settings icon nav) keep one
+ * Tab stop and move between their items with arrow keys, so a Tab walk alone
+ * would only ever reach the stop it started on. Entry focus is set
+ * programmatically to that single stop — the caller has already seen the walk
+ * record it — and every move after that is a real key press. After each move
+ * exactly one item may be a tab stop, and it must be the focused one.
+ */
+async function assertRovingGroup(browser, { group, item, label }) {
+  await installSmokeHelpers(browser);
+  const state = () => browser.execute(({ groupSel, itemSel }) => {
+    const root = document.querySelector(groupSel);
+    if (!root) return null;
+    const items = window.__comndSmoke.groupItems(root, itemSel);
+    const active = document.activeElement;
+    return {
+      count: items.length,
+      index: items.indexOf(active),
+      tabStops: items.filter((el) => el.tabIndex === 0).length,
+      stops: items.filter((el) => el.tabIndex === 0)
+        .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`
+          + `[${JSON.stringify((el.textContent ?? "").trim().slice(0, 18))}]`),
+      focus: active ? window.__comndSmoke.focusStyle(active) : null,
+      name: active ? window.__comndSmoke.nameOf(active) : "",
+    };
+  }, { groupSel: group, itemSel: item });
+
+  const count = await browser.execute(({ groupSel, itemSel }) => {
+    const root = document.querySelector(groupSel);
+    if (!root) return 0;
+    const items = window.__comndSmoke.groupItems(root, itemSel);
+    (items.find((el) => el.tabIndex === 0) ?? items[0])?.focus();
+    return items.length;
+  }, { groupSel: group, itemSel: item });
+  assert(count >= 2, `${label}: ${group} needs at least two items, saw ${count}`);
+
+  const start = await state();
+  assert.equal(start.index >= 0, true, `${label}: the roving stop in ${group} did not take focus`);
+  assert.equal(start.tabStops, 1, `${label}: ${group} must expose exactly one Tab stop, saw ${start.tabStops} (${start.stops.join(", ")})`);
+  // The nav panel clamps at either end, so step away from the end it started on.
+  const forward = start.index < start.count - 1;
+  const step = forward ? "\uE015" : "\uE013";
+  const back = forward ? "\uE013" : "\uE015";
+
+  await browser.keys(step);
+  const moved = await state();
+  assert.equal(
+    moved.index,
+    start.index + (forward ? 1 : -1),
+    `${label}: ${forward ? "ArrowDown" : "ArrowUp"} did not move focus one item in ${group}`,
+  );
+  assert.equal(moved.tabStops, 1, `${label}: ${group} left more than one Tab stop after an arrow move`);
+  assert(moved.name.length > 0, `${label}: the ${group} item reached by arrow key has no accessible name`);
+
+  await browser.keys(back);
+  const returned = await state();
+  assert.equal(returned.index, start.index, `${label}: the reverse arrow did not return to the original item`);
+  assert.equal(returned.tabStops, 1, `${label}: ${group} left more than one Tab stop after the reverse arrow`);
+
+  // The item that was moved to is unfocused again, so its resting style can be
+  // read and compared with the style it had while focused.
+  const resting = await browser.execute(({ groupSel, itemSel, index }) => {
+    const root = document.querySelector(groupSel);
+    if (!root) return null;
+    const items = window.__comndSmoke.groupItems(root, itemSel);
+    return items[index] ? window.__comndSmoke.focusStyle(items[index]) : null;
+  }, { groupSel: group, itemSel: item, index: moved.index });
+  assertFocusVisible({ ...moved.focus, resting }, `${label}: arrow move`);
 }
 
 function assertNamedControls(violations, label) {
@@ -1476,6 +1559,14 @@ async function main() {
         }
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.unnamed("body")), [],
           "Keyboard focus: the connection manager has unnamed controls");
+        // The nav panel is a roving tabindex group: Tab reaches one item and
+        // the arrows move between them, so a Tab walk alone cannot prove the
+        // rest of the panel is reachable.
+        await assertRovingGroup(browser, {
+          group: ".nav-panel",
+          item: ".nav-section-header, .nav-item",
+          label: "Keyboard focus: nav panel",
+        });
 
         // Settings: reached by activating the focused title-bar button with
         // Enter, which is the keyboard path a user takes.
@@ -1496,6 +1587,11 @@ async function main() {
         }
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.unnamed("body")), [],
           "Keyboard focus: settings has unnamed controls");
+        await assertRovingGroup(browser, {
+          group: ".settings-nav",
+          item: ".settings-nav-item",
+          label: "Keyboard focus: settings nav",
+        });
 
         // KB import is an embedded tab panel rather than a modal (approved
         // deviation: reachability and names only, no trap to assert).
@@ -1932,6 +2028,13 @@ async function main() {
         await expandNavGroup(browser, nestedGroup.id);
         await (await browser.$(`.nav-group-row[data-group-id="${nestedGroup.id}"]`))
           .waitForDisplayed({ timeout: WAIT_MS });
+        // Rows a group expand inserts belong to the same roving group: the
+        // whole panel stays one Tab stop with the arrows moving inside it.
+        await assertRovingGroup(browser, {
+          group: ".nav-panel",
+          item: ".nav-section-header, .nav-item",
+          label: "Expanded folder tree: nav panel",
+        });
 
         assertNothingClipped(await browser.execute(() => window.__comndSmoke.clipped(".nav-panel")),
           "Small window: the nav panel clips a control");

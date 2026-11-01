@@ -801,6 +801,10 @@ export class NavPanel {
         this.bindRowEvents(el);
       });
     });
+    // Rows inserted outside `render()` are fresh elements, so they would
+    // otherwise join the tab order individually and break the roving
+    // tabindex the panel documents (one Tab stop, arrows within).
+    this.applyRovingTabindex();
     return this.groupChildRows(row);
   }
 
