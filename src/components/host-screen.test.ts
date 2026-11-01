@@ -5,9 +5,15 @@
  * silently lost.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness } from "../../tests/harness";
 import { HostScreen } from "./host-screen";
+
+const mounted: HostScreen[] = [];
+
+afterEach(() => {
+  for (const screen of mounted.splice(0)) screen.unmount();
+});
 
 async function openHostForm() {
   const h = createHarness();
@@ -23,6 +29,7 @@ async function openHostForm() {
     () => new Set<string>(),
   );
   await screen.mount(container);
+  mounted.push(screen);
   screen.openNewConnection();
 
   await vi.waitFor(() => expect(document.querySelector("#hs-host-form")).not.toBeNull());
