@@ -1082,12 +1082,20 @@ export class NavPanel {
             });
             break;
           }
-          case "configure":
+          case "configure": {
+            // Re-render before opening: the context menu close tears the row
+            // down, so focus must land on the row that survives before
+            // openModal() records it as the element to restore on close.
+            this.render();
+            const row = this.container.querySelector<HTMLElement>(
+              `.nav-host-row[data-host-id="${ctx.id}"] > .nav-item`,
+            );
+            row?.focus();
             void new NetBoxConfigureDialog(ctx.id, () => {
               void this.refresh().then(() => this.cb.onTreeChanged());
             }).open();
-            this.render();
             break;
+          }
           case "disable":
             void this.disableNetboxHost(ctx.id);
             break;
