@@ -5,6 +5,7 @@ import {
   isLiveSession,
   normalizeDuplicateSessionPolicy,
   resolveDuplicateSessionAction,
+  resolveSessionLimit,
 } from "./duplicate-session";
 
 describe("normalizeDuplicateSessionPolicy", () => {
@@ -34,6 +35,23 @@ describe("isAtSessionLimit", () => {
   });
 });
 
+describe("resolveSessionLimit", () => {
+  it("treats 0 as unlimited", () => {
+    expect(resolveSessionLimit(1000, 0)).toBe("below");
+  });
+
+  it("is at the limit once open sessions reach the cap", () => {
+    expect(resolveSessionLimit(29, 30)).toBe("below");
+    expect(resolveSessionLimit(30, 30)).toBe("at");
+    expect(resolveSessionLimit(31, 30)).toBe("at");
+  });
+
+  it("reports an unknown cap when the config could not be read", () => {
+    expect(resolveSessionLimit(0, null)).toBe("unknown");
+    expect(resolveSessionLimit(1000, null)).toBe("unknown");
+  });
+});
+
 describe("isLiveSession", () => {
   it("is true only while the session occupies a backend slot", () => {
     expect(isLiveSession("connecting")).toBe(true);
@@ -59,23 +77,36 @@ describe("countLiveSessions", () => {
 
 describe("resolveDuplicateSessionAction", () => {
   it("asks by default", () => {
-    expect(resolveDuplicateSessionAction({ policy: "ask", atLimit: false })).toBe("prompt");
+    expect(resolveDuplicateSessionAction({ policy: "ask", limit: "below" })).toBe("prompt");
   });
 
   it("opens a second session when the policy allows it", () => {
-    expect(resolveDuplicateSessionAction({ policy: "allow", atLimit: false })).toBe("new");
+    expect(resolveDuplicateSessionAction({ policy: "allow", limit: "below" })).toBe("new");
   });
 
   it("focuses the existing session when the policy says so", () => {
-    expect(resolveDuplicateSessionAction({ policy: "focus", atLimit: false })).toBe("focus");
+    expect(resolveDuplicateSessionAction({ policy: "focus", limit: "below" })).toBe("focus");
   });
 
   it("never offers a second session at the limit", () => {
-    expect(resolveDuplicateSessionAction({ policy: "ask", atLimit: true })).toBe("prompt-limit");
-    expect(resolveDuplicateSessionAction({ policy: "allow", atLimit: true })).toBe("prompt-limit");
+    expect(resolveDuplicateSessionAction({ policy: "ask", limit: "at" })).toBe("prompt-limit");
+    expect(resolveDuplicateSessionAction({ policy: "allow", limit: "at" })).toBe("prompt-limit");
   });
 
   it("focuses the existing session at the limit under the focus policy", () => {
-    expect(resolveDuplicateSessionAction({ policy: "focus", atLimit: true })).toBe("focus");
+    expect(resolveDuplicateSessionAction({ policy: "focus", limit: "at" })).toBe("focus");
+  });
+
+  it("never offers a second session when the limit is unknown", () => {
+    expect(resolveDuplicateSessionAction({ policy: "ask", limit: "unknown" })).toBe(
+      "prompt-limit-unknown",
+    );
+    expect(resolveDuplicateSessionAction({ policy: "allow", limit: "unknown" })).toBe(
+      "prompt-limit-unknown",
+    );
+  });
+
+  it("focuses the existing session when the limit is unknown under the focus policy", () => {
+    expect(resolveDuplicateSessionAction({ policy: "focus", limit: "unknown" })).toBe("focus");
   });
 });

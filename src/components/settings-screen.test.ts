@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { createHarness } from "../../tests/harness";
-import type { NetBoxConfig } from "../lib/tauri-api";
+import type { AppConfig, NetBoxConfig } from "../lib/tauri-api";
 import { SettingsScreen } from "./settings-screen";
 
 async function renderNetbox(showEmptyFolders = false) {
@@ -301,6 +301,126 @@ describe("SettingsScreen — stale async page loads", () => {
 
     expect(document.activeElement).toBe(railBtn);
     expect(container.querySelector(".settings-nav-item.active")?.getAttribute("data-item-id")).toBe("general");
+  });
+});
+
+describe("SettingsScreen — rejected config writes (#87)", () => {
+  afterEach(() => {
+    document.querySelectorAll(".toast").forEach((el) => el.remove());
+  });
+
+  async function setup(overrides: Partial<AppConfig> = {}) {
+    const h = createHarness();
+    let stored = h.fixtures.appConfig(overrides);
+    h.ipc.mockImpl("get_app_config", () => structuredClone(stored));
+    h.ipc.mock("get_session_log_dir", "");
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    return {
+      h,
+      container,
+      screen,
+      stored: () => stored,
+      persist: (patch: Partial<AppConfig>) => {
+        stored = { ...stored, ...patch };
+      },
+    };
+  }
+
+  it("toasts and restores the stored log level when set_log_level rejects", async () => {
+    const { h, container, screen, stored } = await setup({ log_level: "info" });
+    h.ipc.mockImpl("set_log_level", () => {
+      throw new Error("invalid level");
+    });
+    screen.setItem("logging");
+    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
+    select.value = "debug";
+    select.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Failed to save log level"));
+    await vi.waitFor(() => expect(select.value).toBe(stored().log_level));
+  });
+
+  it("toasts and restores the stored log file size when set_log_max_size rejects", async () => {
+    const { h, container, screen, stored } = await setup({ log_max_size_mb: 10 });
+    h.ipc.mockImpl("set_log_max_size", () => {
+      throw new Error("save failed");
+    });
+    screen.setItem("logging");
+    const select = container.querySelector<HTMLSelectElement>("#log-max-size")!;
+    select.value = "50";
+    select.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("Failed to save log file size"),
+    );
+    await vi.waitFor(() => expect(select.value).toBe(String(stored().log_max_size_mb)));
+  });
+
+  it("toasts and restores the stored session limit when set_max_sessions rejects", async () => {
+    const { h, container, screen, stored } = await setup({ max_sessions: 30 });
+    h.ipc.mockImpl("set_max_sessions", () => {
+      throw new Error("save failed");
+    });
+    screen.setItem("general");
+    const select = container.querySelector<HTMLSelectElement>("#max-sessions")!;
+    select.value = "50";
+    select.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("Failed to save session limit"),
+    );
+    await vi.waitFor(() => expect(select.value).toBe(String(stored().max_sessions)));
+  });
+
+  it("toasts and restores the stored session logging flag when set_session_logging rejects", async () => {
+    const { h, container, screen, stored } = await setup({ session_logging: true });
+    h.ipc.mockImpl("set_session_logging", () => {
+      throw new Error("save failed");
+    });
+    screen.setItem("logging");
+    const input = container.querySelector<HTMLInputElement>("#session-logging")!;
+    input.click();
+    expect(input.checked).toBe(false);
+
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("Failed to save session logging"),
+    );
+    await vi.waitFor(() => expect(input.checked).toBe(stored().session_logging));
+  });
+
+  it("toasts and restores the stored timestamps flag when set_session_log_timestamps rejects", async () => {
+    const { h, container, screen, stored } = await setup({ session_log_timestamps: false });
+    h.ipc.mockImpl("set_session_log_timestamps", () => {
+      throw new Error("save failed");
+    });
+    screen.setItem("logging");
+    const input = container.querySelector<HTMLInputElement>("#session-log-timestamps")!;
+    input.click();
+    expect(input.checked).toBe(true);
+
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain("Failed to save session log timestamps"),
+    );
+    await vi.waitFor(() => expect(input.checked).toBe(stored().session_log_timestamps));
+  });
+
+  it("keeps a log level change that the backend persisted", async () => {
+    const { h, container, screen, stored, persist } = await setup({ log_level: "info" });
+    h.ipc.mockImpl("set_log_level", (args) => {
+      persist({ log_level: (args as { level: string }).level });
+      return null;
+    });
+    screen.setItem("logging");
+    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
+    select.value = "debug";
+    select.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => expect(stored().log_level).toBe("debug"));
+    await vi.waitFor(() => expect(h.ipc.calls("get_app_config")).toHaveLength(2));
+    expect(select.value).toBe("debug");
+    expect(document.body.textContent).not.toContain("Failed to save log level");
   });
 });
 
