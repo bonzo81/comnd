@@ -287,6 +287,23 @@ async function installSmokeHelpers(browser) {
       return "";
     };
 
+    // ARIA 1.2 gives `dialog` and `alertdialog` an author-only name source, so
+    // a heading inside the panel does not name it: only aria-labelledby or
+    // aria-label will do.
+    const authorName = (el) => {
+      const labelledBy = el.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const text = labelledBy
+          .split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (text) return text;
+      }
+      return el.getAttribute("aria-label")?.trim() ?? "";
+    };
+
     // Every focus indicator this app uses: an outline, a box-shadow, or a
     // pseudo-element that draws the ring.
     const focusStyle = (el) => {
@@ -303,6 +320,7 @@ async function installSmokeHelpers(browser) {
     window.__comndSmoke = {
       describe,
       nameOf,
+      authorName,
       shown,
       focusStyle,
       /** The last keydown the page saw, for failure messages. */
@@ -575,7 +593,7 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
     return {
       inside: !!panel && panel.contains(el),
       active: window.__comndSmoke.active(),
-      name: panel ? window.__comndSmoke.nameOf(panel) : "",
+      name: panel ? window.__comndSmoke.authorName(panel) : "",
       focus: window.__comndSmoke.focusStyle(el),
       styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
       lastKey: window.__comndSmoke.lastKey(),
@@ -703,7 +721,11 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
   }
 
   const named = await inspect(panelSelector);
-  assert(named.name.length > 0, `${label}: the dialog itself has no accessible name`);
+  assert(
+    named.name.length > 0,
+    `${label}: the dialog panel has no author-provided name `
+    + `(neither aria-labelledby nor aria-label)`,
+  );
   return cycle.map((state) => state.active.name);
 }
 
