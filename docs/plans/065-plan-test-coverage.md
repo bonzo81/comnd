@@ -148,7 +148,6 @@ unproven before the tests.
 | F5 | `src/components/host-screen.ts:717-766` | Save-time validation blocking the IPC call, and a rejected `saveHost` leaving the form open with the error visible |
 | F6 | `src/lib/tauri-api.ts:116-758` | The argument mapping of all 75 IPC wrappers — that each sends the right command name and payload, and returns the IPC result |
 | F7 | `src/lib/tauri-api.ts` ↔ `src-tauri/src/lib.rs:476-570` | That no wrapper names a command the Rust side does not register (silent `invoke` rejection at runtime) |
-| F8 | `src/components/settings-screen.ts:1195,1199,1203,1216,1220` | Deferred — see [Deferred](#deferred) |
 
 ### Rust
 
@@ -267,31 +266,20 @@ behaviour is unchanged (`replay_save` still returns the pre-assignment struct). 
 seam the only way to reach the persistence code was through `app_data_dir()`, which races the
 existing `ENV_LOCK` test. This was approved as part of the gap list.
 
-## Deferred
+## Resolved gaps
 
-**F8 — settings saves fail silently.** `src/components/settings-screen.ts` fires five config
-writes as `void setX(...)` with no `.catch`
-(lines 1195, 1199, 1203, 1216, 1220 — log level, log max size, max sessions, session logging,
-session log timestamps). Each is an `invoke<void>` against a command that returns `Err` on an
-invalid value or a failed save (`set_log_level`, `src-tauri/src/config.rs:494`), and `src/`
-registers no `unhandledrejection` listener, so the rejection is unhandled: no toast appears and
-the control keeps showing the new value, so the UI can display a setting that was never
-persisted until the pane next re-reads the config. The neighbouring handlers
-(`#duplicate-session-policy` at 1208, `#session-log-dir` at 1225, `#log-file-path` at 1257)
-already catch and toast, so the behaviour is inconsistent within one screen.
+**F8 — settings saves fail silently (fixed, #87).** The five config writes in
+`src/components/settings-screen.ts` (log level, log max size, max sessions, session logging,
+session log timestamps) previously ran as `void setX(...)` with no `.catch`. A rejected
+`invoke` was therefore unhandled: no toast appeared and the control kept showing a value that
+was never persisted. Each handler now catches the rejection, toasts `Failed to save …`, and
+resets its own control from the stored config. `src/components/settings-screen.test.ts` covers
+all five rejecting paths and one succeeding path.
 
-Not defect sites, checked: `setShortcutOverrides` (1137) has a catch, and `setTimestampFormat`
-(1191), `setSearchIncludeTags` (1179), `setAutoCopyEnabled` (1183),
-`setOutputHighlightEnabled` (1187), `setAppTheme` (1298) and `setTerminalFontSize` (1308) are
-synchronous `localStorage` writes that cannot reject.
-
-Fixing this means choosing between reverting the control to the persisted value and toasting,
-and that decision was not taken. **No test was added here** — a test that asserted today's
-silent-failure behaviour would freeze the defect. Tracked as a deferred gap rather than
-implied covered.
-
-**F8's measurement limit:** the screen sits at 44.68% lines and its remaining uncovered lines
-are the per-setting handler bodies, which the deferred defect is part of.
+The backend had the matching defect: `ConfigStore::save_*` mutated the in-memory config before
+`persist()`, so a failed write still returned the new value from `get_app_config`. All config
+writes now go through `apply_and_persist`, which restores the previous config when the write
+fails; `test_failed_persist_rolls_back_in_memory_config` covers the rollback.
 
 ## Observations (not fixed)
 

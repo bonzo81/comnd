@@ -67,6 +67,11 @@ remembered.
 not offer **Open another session**. It states that the limit is reached and offers only
 **Go to existing session** and **Cancel**.
 
+If the config read fails, the app does not know the limit, and an unknown limit is never
+treated as unlimited. The dialog then states that the session limit could not be checked
+(without naming a number) and likewise offers only **Go to existing session** and
+**Cancel**, with the existing session focused first.
+
 ## Empty State (First Run)
 
 The first thing every new user sees. This screen determines whether they continue or close the app.

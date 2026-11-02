@@ -49,6 +49,25 @@ describe("openDuplicateSessionDialog", () => {
     await expect(result).resolves.toEqual({ choice: "focus", remember: false });
   });
 
+  it("names an unchecked limit and offers no second session", async () => {
+    const result = openDuplicateSessionDialog({
+      deviceName: "core-sw1",
+      atLimit: false,
+      maxSessions: 0,
+      limitUnknown: true,
+    });
+    const dialog = panel();
+    expect(dialog.querySelector(".duplicate-session-new")).toBeNull();
+    expect(dialog.querySelector(".duplicate-session-focus")).not.toBeNull();
+    expect(dialog.textContent).toContain("session limit could not be checked");
+    expect(dialog.textContent).not.toContain("session limit of");
+    expect(dialog.textContent).not.toContain("Open another session");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("duplicate-session-title");
+    expect(document.activeElement).toBe(dialog.querySelector(".duplicate-session-focus"));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    await expect(result).resolves.toEqual({ choice: "cancel", remember: false });
+  });
+
   it("resolves cancel on Escape", async () => {
     const result = openDuplicateSessionDialog({
       deviceName: "core-sw1",

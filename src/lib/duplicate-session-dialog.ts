@@ -17,6 +17,8 @@ export interface DuplicateSessionDialogOptions {
   atLimit: boolean;
   /** Effective session cap; only used in the at-limit explanation. */
   maxSessions: number;
+  /** True when the config read failed, so no cap is known. */
+  limitUnknown?: boolean;
 }
 
 export interface DuplicateSessionDialogResult {
@@ -33,17 +35,22 @@ export function openDuplicateSessionDialog(
   opts: DuplicateSessionDialogOptions,
 ): Promise<DuplicateSessionDialogResult> {
   const name = escHtml(opts.deviceName);
+  const limitUnknown = opts.limitUnknown === true;
+  // An unchecked cap removes "Open another session" just like a reached one.
+  const restricted = limitUnknown || opts.atLimit;
 
   return new Promise((resolve) => {
-    const body = opts.atLimit
-      ? `<p class="modal-intro">The session limit of ${opts.maxSessions} is reached, so a second session cannot be opened. Switch to the session that is already running?</p>`
-      : `<p class="modal-intro">Open a second session to this device, or switch to the session that is already running?</p>`;
+    const body = limitUnknown
+      ? `<p class="modal-intro">The session limit could not be checked, so a second session cannot be offered. Switch to the session that is already running?</p>`
+      : opts.atLimit
+        ? `<p class="modal-intro">The session limit of ${opts.maxSessions} is reached, so a second session cannot be opened. Switch to the session that is already running?</p>`
+        : `<p class="modal-intro">Open a second session to this device, or switch to the session that is already running?</p>`;
 
-    const limitHint = opts.atLimit
+    const limitHint = opts.atLimit && !limitUnknown
       ? `<p class="form-hint duplicate-session-limit">Close a session to open another.</p>`
       : "";
 
-    const newButton = opts.atLimit
+    const newButton = restricted
       ? ""
       : `<button type="button" class="btn-primary duplicate-session-new">Open another session</button>`;
 
@@ -59,13 +66,13 @@ export function openDuplicateSessionDialog(
         </label>
         <div class="form-actions">
           <button type="button" class="btn-text duplicate-session-cancel">Cancel</button>
-          <button type="button" class="${opts.atLimit ? "btn-primary" : "btn-text"} duplicate-session-focus">Go to existing session</button>
+          <button type="button" class="${restricted ? "btn-primary" : "btn-text"} duplicate-session-focus">Go to existing session</button>
           ${newButton}
         </div>
       `,
       // Focus starts on the primary action: a new session when offered, the
       // existing session when the limit leaves no second session.
-      initialFocus: opts.atLimit ? ".duplicate-session-focus" : ".duplicate-session-new",
+      initialFocus: restricted ? ".duplicate-session-focus" : ".duplicate-session-new",
       onDismiss: () => resolve({ choice: "cancel", remember: false }),
     });
 

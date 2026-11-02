@@ -3,7 +3,8 @@
  * already has a live session.
  *
  * Pure logic only; the dialog and IPC live elsewhere. `maxSessions === 0`
- * means unlimited, matching the backend check in `ssh.rs`.
+ * means unlimited, matching the backend check in `ssh.rs`; `null` means the
+ * config could not be read and the cap is unknown, which is never unlimited.
  */
 
 export type DuplicateSessionPolicy = "ask" | "allow" | "focus";
@@ -14,6 +15,8 @@ export type DuplicateSessionAction =
   | "prompt"
   /** Ask, but the session limit leaves only "go to existing"/"cancel". */
   | "prompt-limit"
+  /** Ask, but the limit could not be checked, so no second session is offered. */
+  | "prompt-limit-unknown"
   /** Open an independent second session without asking. */
   | "new"
   /** Activate the session that is already running. */
@@ -35,6 +38,21 @@ export function normalizeDuplicateSessionPolicy(
 /** True when another session cannot be opened. `0` = unlimited. */
 export function isAtSessionLimit(openSessions: number, maxSessions: number): boolean {
   return maxSessions > 0 && openSessions >= maxSessions;
+}
+
+/** What the app knows about the session cap for this connect. */
+export type SessionLimitState = "below" | "at" | "unknown";
+
+/**
+ * Resolve the cap. `null` means the config read failed: the cap is unknown,
+ * not unlimited, so it must not fall through to the unrestricted path.
+ */
+export function resolveSessionLimit(
+  openSessions: number,
+  maxSessions: number | null,
+): SessionLimitState {
+  if (maxSessions === null) return "unknown";
+  return isAtSessionLimit(openSessions, maxSessions) ? "at" : "below";
 }
 
 /** Connection status of a session view, as far as the limit is concerned. */
@@ -60,9 +78,13 @@ export function countLiveSessions(states: Iterable<SessionLifecycle>): number {
 
 export function resolveDuplicateSessionAction(input: {
   policy: DuplicateSessionPolicy;
-  atLimit: boolean;
+  limit: SessionLimitState;
 }): DuplicateSessionAction {
-  if (input.atLimit) {
+  if (input.limit === "unknown") {
+    // The cap could not be read — never promise a session the backend may refuse.
+    return input.policy === "focus" ? "focus" : "prompt-limit-unknown";
+  }
+  if (input.limit === "at") {
     // Never promise a second session the backend would refuse.
     return input.policy === "focus" ? "focus" : "prompt-limit";
   }

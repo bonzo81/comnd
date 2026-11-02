@@ -21,8 +21,8 @@ import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { mintSessionId } from "./lib/session-id";
 import {
-  countLiveSessions, isAtSessionLimit, isLiveSession, normalizeDuplicateSessionPolicy,
-  resolveDuplicateSessionAction, type DuplicateSessionPolicy,
+  countLiveSessions, isLiveSession, normalizeDuplicateSessionPolicy,
+  resolveDuplicateSessionAction, resolveSessionLimit, type DuplicateSessionPolicy,
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
 import { getAppConfig, setDuplicateSessionPolicy } from "./lib/tauri-api";
@@ -808,7 +808,8 @@ class App {
       this.pendingDuplicatePrompt.add(host.id);
       try {
         let policy: DuplicateSessionPolicy = "ask";
-        let maxSessions = 0;
+        // null = the cap could not be read; that is unknown, not unlimited.
+        let maxSessions: number | null = null;
         try {
           const config = await getAppConfig();
           policy = normalizeDuplicateSessionPolicy(config.duplicate_session_policy);
@@ -817,8 +818,8 @@ class App {
           log.warn(LogTag.App, "Could not read app config, using defaults:", err);
         }
 
-        const atLimit = isAtSessionLimit(this.liveSessionCount, maxSessions);
-        const action = resolveDuplicateSessionAction({ policy, atLimit });
+        const limit = resolveSessionLimit(this.liveSessionCount, maxSessions);
+        const action = resolveDuplicateSessionAction({ policy, limit });
 
         if (action === "focus") {
           this.focusExistingSession(host.id);
@@ -828,8 +829,9 @@ class App {
         if (action !== "new") {
           const result = await openDuplicateSessionDialog({
             deviceName: host.display_name,
-            atLimit,
-            maxSessions,
+            atLimit: limit === "at",
+            maxSessions: maxSessions ?? 0,
+            limitUnknown: limit === "unknown",
           });
 
           // "Remember my choice" — persist real choices, including "go to the
