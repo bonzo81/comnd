@@ -1,0 +1,94 @@
+{
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "devicePixelRatio": 2,
+  "appTheme": "dark",
+  "terminalTheme": "dark",
+  "readingComfort": "off",
+  "terminalFontSize": 14,
+  "suggestions": "enabled via the terminal toolbar toggle",
+  "shots": [
+    {
+      "file": "01-connections.png",
+      "screen": "Connections",
+      "state": "Recent Sessions with three seeded hosts; nav tree with the Core network folder expanded and Edge collapsed",
+      "sha256": "49386b442fc970aa4dee7dc81f37b1e5cbf1dbda52039d354628dfefbe84025b",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "02-dialog-new-connection.png",
+      "screen": "New connection dialog",
+      "state": "empty form opened with Ctrl+N",
+      "sha256": "9b82565c1c9eeb4417a66a4177733c9bd95b1ffaa060c7b4a3241a1f1b6a2ca1",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "03-dialog-shortcuts.png",
+      "screen": "Keyboard shortcuts dialog",
+      "state": "opened from the status-bar keyboard button; shortcut list at the top",
+      "sha256": "6ad2af25740cdcf3352cd4bbd716a839e8d1a467bc042b3b2543caee00483820",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "04-knowledge-base.png",
+      "screen": "Knowledge Base",
+      "state": "default platform, first command selected, detail panel populated",
+      "sha256": "e4244a8760571eb452b8153ebde578d52f0d08adf8fae823b312eb1baf55ef01",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "05-dialog-confirm-delete.png",
+      "screen": "Delete confirmation dialog",
+      "state": "in-app confirm dialog over the Knowledge Base, raised by the command Delete button",
+      "sha256": "46ef1ba2306062be8f04fdb08a05545640da3dd7aa462092fd033bcfb4df9ddb",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "06-replay.png",
+      "screen": "Command Replay",
+      "state": "three seeded commands across three platforms, one with a {{variable}}",
+      "sha256": "31198443bf6806577b7c986fbcfdaf358c8e791aeb76c9e97c3487327cad84e6",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "07-settings-general.png",
+      "screen": "Settings",
+      "state": "General pane",
+      "sha256": "c6a9985bc909a6cbaf47959cbf34bb4c5529c2b16a214560824a563ef848034e",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "08-terminal-sidebar-closed.png",
+      "screen": "Terminal",
+      "state": "\"ip \" typed at the mock prompt: 1 command row(s) (ip) with ghost text \"addr\"; side panel closed",
+      "sha256": "1b526ebedb6eaecf61a88fc7d236f1c6da7e2ae629e015682e62a9169275e71a",
+      "width": 2560,
+      "height": 1600
+    },
+    {
+      "file": "09-terminal-sidebar-open.png",
+      "screen": "Terminal",
+      "state": "same command line with the side panel open showing the ip command detail",
+      "sha256": "2d8dc23f15f3999b9309b1a96db80f692ca3f9c0b111c50c5d6fe9ea3a9948ec",
+      "width": 2560,
+      "height": 1600
+    }
+  ],
+  "terminalSuggestion": {
+    "choices": 0,
+    "ghost": "addr",
+    "names": [
+      "ip"
+    ],
+    "rows": 1
+  }
+}
