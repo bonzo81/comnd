@@ -126,6 +126,9 @@ jobs:
         # cargo-llvm-cov 0.9.1 exits 1 without printing a reason on a floor miss,
         # so the TOTAL row from the report step above is the explanation. Floors
         # and their derivation: docs/plans/065-plan-test-coverage.md §Targeted gates.
+        # These are whole-report totals, not per-area floors: cargo-llvm-cov has no
+        # per-glob threshold, and the alternative (per-file) is excluded by #88.
+        # The trade-off is documented in the same section.
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           echo "floors: lines 70%, regions 72%"

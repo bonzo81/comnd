@@ -116,10 +116,13 @@ every "not measured" limit - stands unchanged.
 requests". It has: #56 recorded the post-test baseline on the `ubuntu-22.04` leg (frontend 48.59%
 lines; Rust 71.05% lines / 72.82% regions), and the suites have moved only with deliberate test
 changes since. Issue #88 therefore asked for the narrow, targeted shape this ADR anticipated,
-explicitly not a whole-tree percentage.
+explicitly not a whole-tree percentage. That rule holds for the frontend, which can be gated
+per glob. Rust cannot be: `cargo llvm-cov` thresholds are whole-report or per-file, so the Rust
+side takes two total floors as a tripwire and the limit is recorded below.
 
-**Decision.** Four floors, lines-based, each ~1-1.5 pp under the recorded baseline. No global
-percentage target, no per-file enforcement, no third-party service, no `continue-on-error`.
+**Decision.** Four floors, three on lines and one on regions, each ~1-1.5 pp under the recorded
+baseline. No global percentage target, no per-file enforcement, no third-party service, no
+`continue-on-error`.
 
 | Area | Enforced by | Floor | Baseline | Headroom |
 |---|---|---|---|---|
@@ -135,10 +138,22 @@ Why this shape:
   would sit low enough to be meaningless or fail on unrelated churn; a per-file floor would encode
   the current shape of every file, including the ones a `State`/`AppHandle` signature keeps out of
   reach of `#[test]`.
-- **Lines only.** v8 attributes branches through source maps, so branch floors fail refactors that
-  keep behaviour tested; Vitest counts each arrow as a function, so function floors fall on a
-  hoisted callback. Rust branch coverage is still unmeasurable on stable (see above) and no floor
-  claims it - the report continues to print `0 0 -`.
+- **The Rust floors are totals, and that is the only shape available.** `cargo llvm-cov` has no
+  per-glob threshold: it offers the whole report (`--fail-under-lines`, `--fail-under-regions`,
+  `--fail-under-functions`) or per file (`--fail-under-file-lines`), and per-file is excluded here.
+  So the Rust side is an aggregate tripwire, not a per-area floor: a gain elsewhere can offset a
+  regression in a module this protects, and a large unrelated addition can fail it. Accepted
+  because the floors sit ~1 pp under the measured totals, so about a hundred uncovered lines must
+  move before either trips, and because #88's rule was "no global percentage *target*" - a floor
+  below the current measurement is not a number anyone is asked to reach. Scoping the report with
+  an inverted `--ignore-filename-regex` was rejected: unreadable, silently drifts as files are
+  added, and would gate a number that no longer matches the `TOTAL` in the report above it.
+- **Lines, plus Rust regions.** v8 attributes branches through source maps, so branch floors fail
+  refactors that keep behaviour tested; Vitest counts each arrow as a function, so function floors
+  fall on a hoisted callback. Rust branch coverage is still unmeasurable on stable (see above) and
+  no floor claims it - the report continues to print `0 0 -`. Rust does get a region floor as well
+  as a line floor, because `cargo llvm-cov` attributes regions to expressions, which catches a
+  dead branch inside a line that still executes.
 - **Headroom under, not at, the baseline.** A new defensive branch or two must not fail a pull
   request; a deleted test file must. Both were checked: deleting `host-screen.test.ts` takes that
   glob to 32.12% and deleting `replay.test.ts` takes the other to 95.10%, and each fails.

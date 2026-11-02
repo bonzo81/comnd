@@ -310,8 +310,8 @@ freezes it — the escaping tests assert that markup is inert, not the exact ent
 
 ## Targeted gates
 
-Issue #88 turned these reports into a regression gate: four floors, all lines-based, all below the
-recorded Linux baseline.
+Issue #88 turned these reports into a regression gate: four floors, three on lines and one on
+regions, all below the recorded Linux baseline.
 
 | Area | Where it is enforced | Floor | Baseline (post-#86, ubuntu leg) | Headroom |
 |---|---|---|---|---|
@@ -331,7 +331,7 @@ per-file spread there is genuine (`replay.rs` 88.89% down to `lib.rs` 41.91%, th
 `State`/`AppHandle` measurement limit), so a per-file Rust floor would encode the shape of the code
 rather than the health of the suite.
 
-Lines is the only metric gated, on both sides:
+Lines and regions are the only metrics gated:
 
 - **Branches (frontend)** — v8 attributes branches through source maps, which makes it the
   noisiest column; a floor on it fails on refactors that keep every behaviour tested.
@@ -340,11 +340,37 @@ Lines is the only metric gated, on both sides:
 - **Rust branches** — not measurable on stable at all (see
   [Tooling](#rust--cargo-llvm-cov-091)); no floor claims it, and the report still prints `0 0 -`.
 - **Lines** — the one metric both toolchains report directly and the one issue #56 quotes.
+- **Rust regions** — gated as well as lines, because `cargo llvm-cov` attributes a region to an
+  expression rather than a line, so a line-level floor can miss a branch that stops executing
+  inside a still-covered line. Regions move less per refactor, hence the smaller headroom. There
+  is no frontend region metric.
 
 Not gated, deliberately: a global percentage target, per-file enforcement
 (`--fail-under-file-lines`, `coverage.thresholds.perFile`), any third-party coverage service, and
 anything that needs `continue-on-error` to stay green. If a floor later proves noisy the fix is to
 loosen or delete it and record why here — not to mute the step.
+
+### The Rust floors are totals, not per-area
+
+`cargo llvm-cov` offers thresholds at exactly two granularities: the whole report
+(`--fail-under-lines`, `--fail-under-regions`, `--fail-under-functions`) and per file
+(`--fail-under-file-lines`). It has no per-glob or per-directory form, and the per-file form is
+excluded by #88, so a Rust floor shaped like the frontend globs is not expressible with this tool.
+
+That makes the Rust gate an aggregate tripwire rather than a per-area floor, with the two
+properties an aggregate gate always has: a coverage gain elsewhere can offset a regression inside
+a module this change set out to protect, and a large unrelated addition can fail it. Both are
+accepted deliberately. The floors sit ~1 pp under the measured totals, so roughly a hundred
+uncovered lines have to move before either trips — far more than the churn of a normal pull
+request — and #88's instruction was specifically "no global percentage *target*": these are floors
+below the current measurement, not a number anyone is asked to reach, and no percentage goal is set
+anywhere. The remaining limit is real and is stated here rather than glossed: the Rust side is not
+a per-area gate.
+
+The alternative considered and rejected was scoping the report with an inverted
+`--ignore-filename-regex`. The expression is unreadable, its meaning drifts silently as files are
+added, and the floor would then gate a number that does not match the `TOTAL` a reader sees in the
+report above it.
 
 ### Headroom
 
@@ -421,7 +447,8 @@ exit 0
   changing these file names.
 - **Only the listed files are gated.** A new untested module elsewhere lowers the total but trips
   no frontend floor. The Rust floors are the only whole-tree check, and they are totals, so a large
-  addition can be offset by unrelated coverage elsewhere.
+  addition can be offset by unrelated coverage elsewhere — see
+  [The Rust floors are totals](#the-rust-floors-are-totals-not-per-area).
 
 ## Decisions
 
@@ -438,13 +465,17 @@ exit 0
    lines differ per OS, so the macOS and Windows paths are unmeasured. The artifact and the gate
    both live there.
 6. **Artifacts, not a service.** No third-party upload, no token, no `permissions` change.
-7. **Targeted per-glob floors, not a global target (#88).** A whole-tree percentage on these
-   numbers would be set low enough to be meaningless or would fail on unrelated churn. A glob per
-   module group fails only when the tests protecting that group lose coverage, which is the
-   behaviour worth blocking a pull request for.
-8. **Lines only, on both sides.** Branches are noisy through source maps on the frontend and
-   unavailable on stable for Rust; functions count each arrow. Lines is the one metric both
-   toolchains report directly, and no floor claims Rust branch coverage.
+7. **Targeted per-glob floors on the frontend, no global target (#88).** A whole-tree frontend
+   percentage on these numbers would be set low enough to be meaningless or would fail on unrelated
+   churn. A glob per module group fails only when the tests protecting that group lose coverage,
+   which is the behaviour worth blocking a pull request for. The Rust side cannot take that shape:
+   `cargo llvm-cov` has no per-glob threshold, so its two floors are totals — a deliberate,
+   documented compromise, see [The Rust floors are totals](#the-rust-floors-are-totals-not-per-area).
+8. **Lines on both sides, plus Rust regions.** Branches are noisy through source maps on the
+   frontend and unavailable on stable for Rust; functions count each arrow. Lines is the one
+   metric both toolchains report directly, and no floor claims Rust branch coverage. Rust also
+   gets a region floor, because `cargo llvm-cov` attributes regions to expressions and so catches
+   a dead branch inside a still-covered line.
 9. **Headroom under the recorded baseline, not at it.** Each floor sits ~1–1.5 pp under the
    post-#86 measurement so a new defensive branch or two passes and a deleted test file does not.
    The numbers and the arithmetic are in [Targeted gates](#targeted-gates).
@@ -476,9 +507,11 @@ The failing path and the no-op check are recorded in [Targeted gates](#targeted-
 Not run, and why:
 
 - **Rust branch coverage** — needs a nightly toolchain; see [Tooling](#rust--cargo-llvm-cov-091).
-- **`cargo llvm-cov` on macOS and Windows** — not attempted. The numbers are *not* OS-independent:
-  conditional compilation changes which lines exist and run, so this report is a Linux baseline and
-  the macOS- and Windows-only paths are unmeasured. CI covers the Linux leg.
+- **`cargo llvm-cov` on macOS** — not attempted, and CI does not run it there either, so
+  macOS-only paths stay unmeasured. Windows *was* re-run locally (the totals above are that run),
+  but CI still measures only the Linux leg. The numbers are *not* OS-independent: conditional
+  compilation changes which lines exist and run, so the recorded baseline is a Linux baseline and
+  the Windows figures are a local cross-check against it.
 - **Smoke suite** — this change touches no keystroke path, suggestion controller, terminal view
   or smoke file, so `npm run smoke` was not required by `AGENTS.md`. The CI run for the pull
   request still executes it.
