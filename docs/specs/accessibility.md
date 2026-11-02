@@ -20,7 +20,9 @@ Implemented and verified by code review + build:
   `*:focus-visible` outline (2px accent, see `src/styles/main.css`) plus
   component-specific focus styles for context-menu items, session tabs, KB
   command rows, host rows, and nav items. No control suppresses the outline
-  without a replacement focus treatment.
+  without a replacement focus treatment. Native checkboxes and radios take the
+  same ring on `:focus`, because WebKit paints those controls itself and does
+  not report the `:focus-visible` outline for them.
 - Keyboard operation: the nav panel has roving tabindex with
   Arrow/Enter/Left/Right tree navigation; host list and KB command list
   support Arrow/Enter; context menus open with Shift+F10 (host list) and

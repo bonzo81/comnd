@@ -405,3 +405,13 @@ textarea:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+
+/* WebKit paints a native checkbox or radio itself and does not report the
+   accent outline for one, so a keyboard user on Linux gets no focus ring from
+   the `:focus-visible` rules above. Give these controls the same ring on
+   `:focus` so the indicator is drawn by the app on every platform. */
+input[type="checkbox"]:focus,
+input[type="radio"]:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
