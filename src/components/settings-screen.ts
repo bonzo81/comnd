@@ -1191,34 +1191,58 @@ export class SettingsScreen {
       setTimestampFormat((e.target as HTMLSelectElement).value as TimestampFormat);
     });
 
+    let logLevelSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#log-level")?.addEventListener("change", (e) => {
-      void setLogLevel((e.target as HTMLSelectElement).value)
-        .then(() => this.refreshConfig())
+      const seq = ++logLevelSaveSeq;
+      const level = (e.target as HTMLSelectElement).value;
+      void setLogLevel(level)
+        .then(() => {
+          if (this.config) this.config.log_level = level;
+          return this.refreshConfig();
+        })
         .catch(async () => {
           showToast("Failed to save log level", "error");
-          await this.refreshConfig();
+          const fetched = await getAppConfig().catch(() => null);
+          if (seq !== logLevelSaveSeq) return;
+          if (fetched) this.config = fetched;
           const select = this.container?.querySelector<HTMLSelectElement>("#log-level");
           if (select) select.value = this.config?.log_level ?? "info";
         });
     });
 
+    let logMaxSizeSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#log-max-size")?.addEventListener("change", (e) => {
-      void setLogMaxSize(parseInt((e.target as HTMLSelectElement).value, 10))
-        .then(() => this.refreshConfig())
+      const seq = ++logMaxSizeSaveSeq;
+      const maxMb = parseInt((e.target as HTMLSelectElement).value, 10);
+      void setLogMaxSize(maxMb)
+        .then(() => {
+          if (this.config) this.config.log_max_size_mb = maxMb;
+          return this.refreshConfig();
+        })
         .catch(async () => {
           showToast("Failed to save log file size", "error");
-          await this.refreshConfig();
+          const fetched = await getAppConfig().catch(() => null);
+          if (seq !== logMaxSizeSaveSeq) return;
+          if (fetched) this.config = fetched;
           const select = this.container?.querySelector<HTMLSelectElement>("#log-max-size");
           if (select) select.value = String(this.config?.log_max_size_mb ?? 10);
         });
     });
 
+    let maxSessionsSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#max-sessions")?.addEventListener("change", (e) => {
-      void setMaxSessions(parseInt((e.target as HTMLSelectElement).value, 10))
-        .then(() => this.refreshConfig())
+      const seq = ++maxSessionsSaveSeq;
+      const max = parseInt((e.target as HTMLSelectElement).value, 10);
+      void setMaxSessions(max)
+        .then(() => {
+          if (this.config) this.config.max_sessions = max;
+          return this.refreshConfig();
+        })
         .catch(async () => {
           showToast("Failed to save session limit", "error");
-          await this.refreshConfig();
+          const fetched = await getAppConfig().catch(() => null);
+          if (seq !== maxSessionsSaveSeq) return;
+          if (fetched) this.config = fetched;
           const select = this.container?.querySelector<HTMLSelectElement>("#max-sessions");
           if (select) select.value = String(this.config?.max_sessions ?? 30);
         });
@@ -1233,23 +1257,39 @@ export class SettingsScreen {
         });
     });
 
+    let sessionLoggingSaveSeq = 0;
     this.container?.querySelector<HTMLInputElement>("#session-logging")?.addEventListener("change", (e) => {
-      void setSessionLogging((e.target as HTMLInputElement).checked)
-        .then(() => this.refreshConfig())
+      const seq = ++sessionLoggingSaveSeq;
+      const enabled = (e.target as HTMLInputElement).checked;
+      void setSessionLogging(enabled)
+        .then(() => {
+          if (this.config) this.config.session_logging = enabled;
+          return this.refreshConfig();
+        })
         .catch(async () => {
           showToast("Failed to save session logging", "error");
-          await this.refreshConfig();
+          const fetched = await getAppConfig().catch(() => null);
+          if (seq !== sessionLoggingSaveSeq) return;
+          if (fetched) this.config = fetched;
           const input = this.container?.querySelector<HTMLInputElement>("#session-logging");
           if (input) input.checked = this.config?.session_logging ?? true;
         });
     });
 
+    let sessionLogTimestampsSaveSeq = 0;
     this.container?.querySelector<HTMLInputElement>("#session-log-timestamps")?.addEventListener("change", (e) => {
-      void setSessionLogTimestamps((e.target as HTMLInputElement).checked)
-        .then(() => this.refreshConfig())
+      const seq = ++sessionLogTimestampsSaveSeq;
+      const enabled = (e.target as HTMLInputElement).checked;
+      void setSessionLogTimestamps(enabled)
+        .then(() => {
+          if (this.config) this.config.session_log_timestamps = enabled;
+          return this.refreshConfig();
+        })
         .catch(async () => {
           showToast("Failed to save session log timestamps", "error");
-          await this.refreshConfig();
+          const fetched = await getAppConfig().catch(() => null);
+          if (seq !== sessionLogTimestampsSaveSeq) return;
+          if (fetched) this.config = fetched;
           const input = this.container?.querySelector<HTMLInputElement>("#session-log-timestamps");
           if (input) input.checked = this.config?.session_log_timestamps ?? true;
         });
