@@ -1,6 +1,7 @@
 # Plan: test coverage reports and confirmed high-risk gaps (issue #56)
 
-Status: Implemented; verification recorded below.
+Status: Implemented; verification recorded below. The targeted gates deferred here ship under
+issue #88 — see [Targeted gates](#targeted-gates) and `docs/adr/016-targeted-coverage-floors.md`.
 Spec: bonzo81/comnd#56. Builds on the Vitest harness from
 `docs/plans/054-plan-test-harness.md` and the CI jobs in `.github/workflows/ci.yml`.
 
@@ -33,8 +34,8 @@ Excluded, and why:
   the WebDriver smoke suite (`docs/plans/062-plan-full-app-ssh-smoke-tests.md`), not by unit
   tests. It is **not** covered by anything in this report.
 
-No thresholds are configured. A gate needs a measured, stable baseline first; see
-[Targeted gates](#targeted-gates).
+Two per-area line floors are configured in `vitest.config.ts`, with no global percentage and no
+per-file check; see [Targeted gates](#targeted-gates) for the floors and their derivation.
 
 ### Rust — `cargo-llvm-cov` 0.9.1
 
@@ -84,16 +85,17 @@ the table CI needs.
 Both coverage steps run on the `ubuntu-22.04` leg only, so the reports are a **Linux baseline**,
 not a cross-platform one. The numbers can differ by OS: `#[cfg(unix)]` / `#[cfg(windows)]` change
 which lines exist and which run, and there are 16 such sites in `src-tauri/src`, so a macOS or
-Windows run would measure a different set of lines. The report is an artifact, not a gate, so
-running it three times would only triple the runtime; macOS and Windows coverage stays unmeasured
-and no claim is made about it.
+Windows run would measure a different set of lines. Running it three times would triple the
+runtime for numbers that are not comparable, so the floors are enforced on the Linux leg only;
+macOS and Windows coverage stays unmeasured and no claim is made about it.
 
 - `coverage-frontend` — `actions/upload-artifact@v7`, path `coverage/`, 7-day retention.
-- `coverage-rust` — `actions/upload-artifact@v7`, paths `src-tauri/target/coverage-html/` and
-  `src-tauri/target/coverage.lcov`, 7-day retention.
+- `coverage-rust` — `actions/upload-artifact@v7`, paths `src-tauri/target/coverage-html/`,
+  `src-tauri/target/coverage.lcov` and `src-tauri/target/coverage.json`, 7-day retention.
 
-Both uploads are gated on `github.event_name == 'pull_request'`. Nothing leaves GitHub: there
-is no Codecov/Coveralls/third-party upload, and the workflow's `permissions` stay at
+Both uploads are gated on `github.event_name == 'pull_request'` and both use `if: always()`, so
+a red floor still publishes the report needed to read it. Nothing leaves GitHub: there is no
+Codecov/Coveralls/third-party upload, and the workflow's `permissions` stay at
 `contents: read`.
 
 `cargo-llvm-cov` is installed the same way the workflow already installs `tauri-driver` — an
@@ -290,12 +292,81 @@ freezes it — the escaping tests assert that markup is inert, not the exact ent
 
 ## Targeted gates
 
-None, deliberately. Issue #56 asks for a baseline first, and a global percentage gate on these
-numbers would either be set low enough to be meaningless or fail on unrelated churn. The
-targeted gates worth considering once a second measurement exists are narrow and behavioural,
-for example "`src/lib/tauri-api.ts` stays at 100% lines and every wrapper has a contract row"
-(the tripwire in `ipc-contract.test.ts` already enforces the second half). Those are follow-up
-work, not part of this change.
+Issue #88 added the gate this section originally deferred. It is not a global percentage and not
+a per-file check: four **per-area line floors**, each over an area that maps to behaviour the
+tests above brought under measurement. Rust branch coverage is still unmeasured and no floor
+claims it.
+
+| Area | Files | Baseline lines | Floor | Headroom | Re-measured at #92 |
+|---|---|---|---|---|---|
+| frontend `src/lib/**` | 44 modules at baseline | 1790/2184 = 81.96% | 78% | 3.96pp ≈ 86 lines | 1810/2239 = 80.84% |
+| frontend `src/components/**` | 11 modules at baseline | 1319/4199 = 31.41% | 29% | 2.41pp ≈ 101 lines | 1372/4259 = 32.21% |
+| rust core stores | `hosts.rs` + `replay.rs` + `config.rs` | 1110/1642 = 67.60% | 65% | 2.60pp ≈ 43 lines | 1150/1684 = 68.29% |
+| rust command layer | `lib.rs` | 202/484 = 41.74% | 35% | 6.74pp ≈ 33 lines | 202/501 = 40.32% |
+
+Derivation: floor = baseline − headroom, for example 81.96 − 3.96 = 78.00 for `src/lib/**`.
+The last column re-takes the same measurement after one more merged change (#92), which is the
+check that the headroom survives real churn before the floor ships.
+
+The baselines table above is global (3102/6383, 8293/11672) and was not recorded per area, so
+the per-area baselines are decomposed from the `coverage-frontend` / `coverage-rust` artifacts
+of the #86 CI run at the same commit. Those runs total 3109/6383 and 8266/11657 — a
+same-measurement difference of 0.11pp and 0.14pp. Where the two disagree the artifact number is
+used, because it is the higher of the two for the frontend and the lower for Rust: the
+conservative side in each case.
+
+Why each floor exists:
+
+- `src/lib/**` — every frontend test added under #56/#86 lives here (replay, host-filters,
+  session-channel, the 75-row `tauri-api` IPC contract, shortcuts, suggestion engine and
+  controller, shadow buffer, line tracker, updater, reading comfort, logger). It is the only
+  area where deleting one of those test files moves the number, because `src/components/` is
+  dominated by untested screens.
+- `src/components/**` — holds the host-screen F5 and settings-screen F8 tests. The floor is low
+  on purpose: the area also holds untested screens (`replay-screen.ts` 0%, `kb-import-dialog.ts`
+  0.5%) and a new screen is 100–3400 lines, so an untested screen must not trip it. Its job is
+  to catch a removed test file or a deleted component, not to demand coverage of new UI.
+- rust core stores — R1–R4 and R7. This is the highest-signal Rust area (67.60%), so a 2.6pp
+  floor catches a dropped test module.
+- rust command layer — R5 and R6 (`DepCapLogger`, `SizeCapWriter`, `MultiWriter`), which no
+  other gate sees. It is the loosest floor because `lib.rs` is mostly `#[tauri::command]` glue
+  that a plain `#[test]` cannot reach without an app handle, so its denominator only grows:
+  #86 to #92 added 17 uncovered lines and cost 1.42pp. 35% absorbs about one and a half more
+  changes at that rate; 36% (22 lines of headroom) was rejected as too tight.
+
+Headroom reasoning. Same-commit measurement variance is 0.11pp (frontend) and 0.14pp (Rust), so
+every floor is 19–48× the observed noise. The rest is budget for legitimate growth: #86 to #92
+moved the four areas by −1.12pp, +0.80pp, +0.69pp and −1.42pp with no test deleted. Rust unit
+tests live inside the measured files, so deleting a Rust test lowers the ratio by the line count
+of the code it tested, not by the test's own lines — the floors are sized to catch a dropped
+*module* (tens to hundreds of lines), not a single removed assertion.
+
+Mechanism:
+
+- Frontend: two glob-keyed `coverage.thresholds` entries in `vitest.config.ts`. Vitest 4 applies
+  a threshold set only to the files its glob matches, and applies no global threshold when no
+  top-level `lines` is set, so the config expresses exactly two area floors.
+- Rust: `cargo-llvm-cov` 0.9.1 has only `--fail-under-lines` (global) and
+  `--fail-under-file-lines` (per-file, ruled out here), so `scripts/check-rust-coverage.mjs`
+  reads `cargo llvm-cov report --json --summary-only`, sums `summary.lines` for the files each
+  area names, and exits non-zero with the area, its actual percentage, the floor and the
+  shortfall. It also fails when a configured file is missing from the report, so a rename cannot
+  shrink an area and quietly raise its percentage. Cost: one extra `report` invocation (about a
+  second, reusing the saved profdata), a `actions/setup-node` step on the ubuntu leg, and
+  `scripts/check-rust-coverage.test.mjs` as a unit test for the summation. The rejected
+  alternative — several `report --ignore-filename-regex '(?!…)' --fail-under-lines N` runs —
+  hides the file list inside an inverted regex, names no area on failure, and cannot tell a
+  renamed file from a passing area.
+- Both floors run on the `ubuntu-22.04` leg only, with no `continue-on-error` anywhere.
+
+When a floor trips: add a test, or lower the floor in the same pull request and record the new
+derivation in this section. Muting the step is not an option; a floor that proves flaky is
+loosened or removed, and the reason is recorded here.
+
+Still not done, deliberately: the per-file ideas this section used to float (for example
+"`src/lib/tauri-api.ts` stays at 100% lines") stay out of scope, because per-file enforcement
+turns every new module into a red build. The `ipc-contract.test.ts` tripwire already enforces
+the behavioural half of that one.
 
 ## Decisions
 
@@ -311,6 +382,14 @@ work, not part of this change.
 5. **Coverage on the ubuntu leg only.** A Linux baseline, not a cross-platform one — `#[cfg]`-gated
    lines differ per OS, so the macOS and Windows paths are unmeasured. The artifact is what matters.
 6. **Artifacts, not a service.** No third-party upload, no token, no `permissions` change.
+7. **Per-area floors instead of a global percentage or a per-file check (#88).** A global number
+   is dominated by `src/components/`, and `perFile`/`--fail-under-file-lines` fails every new
+   module on arrival. Four floors over areas that map to the #86 tests, each with stated
+   headroom; see [Targeted gates](#targeted-gates).
+8. **A checked-in script for the Rust floors.** `cargo-llvm-cov` 0.9.1 has no per-area threshold,
+   so `scripts/check-rust-coverage.mjs` sums `report --json` per area and also fails when a
+   configured file is missing, which an `--ignore-filename-regex` run cannot do. Recorded in
+   `docs/adr/016-targeted-coverage-floors.md`, which supersedes ADR 014's "not a gate" clause.
 
 ## Verification
 
@@ -326,6 +405,23 @@ cargo test               -> test result: ok. 255 passed; 0 failed  (lib)
 npm run test:coverage    -> Lines 48.59% (3102/6383)
 cargo llvm-cov report    -> TOTAL 19971 5428 72.82% | 1659 711 57.14% | 11672 3379 71.05% | 0 0 -
 ```
+
+The floors added under #88 were checked the same way, with the commands and their output in that
+pull request:
+
+- A no-op run passes both gates: `npm run test:coverage` exits 0 with the two threshold sets
+  silent, and `npm run test:coverage:rust` prints each area's actual percentage against its
+  floor and exits 0.
+- A deliberate drop fails both, and each failure names the floor. An untested ~210-line
+  `src/lib/` module takes `src/lib/**` to 73.9% and Vitest exits 1 with
+  `ERROR: Coverage for lines (73.9%) does not meet "src/lib/**" threshold (78%)`. An untested
+  600-line `src/components/` module takes that area to 28.23% and Vitest exits 1 with
+  `ERROR: Coverage for lines (28.23%) does not meet "src/components/**" threshold (29%)` while
+  `src/lib/**` stays green at 80.83% — which is what proves the two globs are scoped
+  independently rather than one silently matching nothing. ~120 uncovered lines in `config.rs`
+  take the core-stores area to 63.61% and the script exits 1 with
+  `FAIL rust core stores (hosts.rs + replay.rs + config.rs): 1150/1808 = 63.61% is below the
+  floor of 65.00% (1176 covered lines needed, 26 short)`. All three drops were reverted.
 
 Not run, and why:
 

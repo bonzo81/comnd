@@ -40,15 +40,17 @@ jobs:
         run: npm run test
 
       # Coverage runs on one leg only, so the reports are a Linux baseline: `#[cfg]`
-      # gated code differs per OS and the macOS/Windows paths are unmeasured. The
-      # report is a PR artifact, not a gate. See
-      # docs/plans/065-plan-test-coverage.md.
+      # gated code differs per OS and the macOS/Windows paths are unmeasured.
+      # The two line floors live in vitest.config.ts, so this step is the frontend
+      # gate as well as the report; docs/plans/065-plan-test-coverage.md holds the
+      # derivation.
       - name: unit test coverage (vitest, v8)
         if: matrix.platform == 'ubuntu-22.04'
         run: npm run test:coverage
 
       - name: upload frontend coverage
-        if: matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
+        # `always()` so a red floor still uploads the report you need to read it.
+        if: always() && matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-frontend
@@ -117,16 +119,31 @@ jobs:
           cargo llvm-cov report
           cargo llvm-cov report --html --output-dir target/coverage-html
           cargo llvm-cov report --lcov --output-path target/coverage.lcov
+          # Per-file line counts for the floors below. cargo-llvm-cov 0.9.1 has
+          # no per-area threshold, so scripts/check-rust-coverage.mjs sums these.
+          cargo llvm-cov report --json --summary-only --output-path target/coverage.json
         working-directory: src-tauri
 
+      - name: set up node for the rust coverage floors
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: rust coverage floors
+        if: matrix.platform == 'ubuntu-22.04'
+        run: npm run test:coverage:rust
+
       - name: upload rust coverage
-        if: matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
+        # `always()` so a red floor still uploads the report you need to read it.
+        if: always() && matrix.platform == 'ubuntu-22.04' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-rust
           path: |
             src-tauri/target/coverage-html/
             src-tauri/target/coverage.lcov
+            src-tauri/target/coverage.json
           retention-days: 7
 
   smoke:

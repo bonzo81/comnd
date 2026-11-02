@@ -1,7 +1,9 @@
 # 014. Coverage comes from v8 and cargo-llvm-cov, ships as Actions artifacts, and is not a gate
 
 Date: 2026-10-31
-Status: Accepted
+Status: Accepted, amended by ADR-016
+Superseded by: ADR-016, for the "coverage is a report, never a gate" clause only. The rest of
+this decision stands.
 
 ## Context
 Issue #56 asked for reproducible frontend and Rust coverage reports and for the confirmed
