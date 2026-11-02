@@ -201,6 +201,18 @@ function countOccurrences(text, value) {
  */
 async function installSmokeHelpers(browser) {
   await browser.execute(() => {
+    // A focus ring drawn with a CSS transition is still animating when the
+    // style is read straight after the key press, so the read records the
+    // ring's starting width (0px) instead of the settled one. Removing
+    // transitions does not change a settled computed value, it only removes
+    // the wait, so this is injected once per document, before any walk.
+    if (!document.getElementById("comnd-smoke-no-transitions")) {
+      const style = document.createElement("style");
+      style.id = "comnd-smoke-no-transitions";
+      style.textContent = "*, *::before, *::after { transition: none !important; }";
+      document.head.append(style);
+    }
+
     if (window.__comndSmoke) return;
 
     // xterm renders its own accessibility tree; it is not app markup.
@@ -1824,6 +1836,11 @@ async function main() {
         // so the element that jump lands on is never the one a Tab press is
         // observed on. This proves it is focusable and how it looks focused.
         await assertScriptFocusStop(browser, "#tv-sidebar-resizer", "Terminal focus");
+
+        // The session tab is a tab stop of its own, and its ring is drawn
+        // through a CSS transition, so it is the case that proves the read is
+        // taken after the ring has settled.
+        await assertScriptFocusStop(browser, ".session-tab", "Terminal focus");
 
         // Close by keyboard, from the same toggle.
         await browser.execute(() => document.querySelector(".tv-panel-btn")?.focus());
