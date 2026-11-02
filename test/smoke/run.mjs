@@ -235,6 +235,10 @@ async function installSmokeHelpers(browser) {
       return `${tag}${id}${cls}`;
     };
 
+    // A glyph-only label ("×", "▸") is not something a screen reader can
+    // announce, so contents only name an element when they carry a word.
+    const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
+
     // ARIA gives `dialog`/`alertdialog` no name from contents, and a form
     // control is named by its label rather than by its own text, so neither
     // may be satisfied by the text inside it.
@@ -275,7 +279,7 @@ async function installSmokeHelpers(browser) {
         if (labelText) return labelText;
       }
       const text = namedByContent(el) ? (el.textContent ?? "").replace(/\s+/g, " ").trim() : "";
-      if (text) return text;
+      if (text && hasWords(text)) return text;
       const title = el.getAttribute("title")?.trim();
       if (title) return title;
       // HTML-AAM's last fallback for a text field: the placeholder. The replay
@@ -307,13 +311,28 @@ async function installSmokeHelpers(browser) {
     // Every focus indicator this app uses: an outline, a box-shadow, or a
     // pseudo-element that draws the ring.
     const focusStyle = (el) => {
-      if (!el) return { outlineStyle: "none", outlineWidth: "0px", boxShadow: "none", pseudoShadow: "none" };
+      if (!el) {
+        return {
+          outlineStyle: "none",
+          outlineWidth: "0px",
+          outlineColor: "transparent",
+          boxShadow: "none",
+          pseudoShadow: "none",
+        };
+      }
       const style = getComputedStyle(el);
+      // The two pseudo-element shadow lists are joined with a comma so they
+      // stay separate layers; "none" is dropped so it cannot mask a real ring.
+      const pseudoShadow = ["::before", "::after"]
+        .map((pseudo) => getComputedStyle(el, pseudo).boxShadow)
+        .filter((shadow) => shadow !== "none")
+        .join(", ") || "none";
       return {
         outlineStyle: style.outlineStyle,
         outlineWidth: style.outlineWidth,
+        outlineColor: style.outlineColor,
         boxShadow: style.boxShadow,
-        pseudoShadow: `${getComputedStyle(el, "::before").boxShadow} ${getComputedStyle(el, "::after").boxShadow}`,
+        pseudoShadow,
       };
     };
 
@@ -557,24 +576,97 @@ function assertNamed(stop, label) {
   assert(stop.name.length > 0, `${label}: ${stopLabel(stop)} is a tab stop with no accessible name`);
 }
 
+/**
+ * Alpha channel of a computed CSS colour. A ring that is painted but fully
+ * transparent is not seen, so it must not satisfy the focus check.
+ */
+function colorAlpha(color) {
+  const value = String(color ?? "").trim().toLowerCase();
+  if (!value || value === "none" || value === "transparent") return 0;
+  const rgb = /^rgba?\(([^)]+)\)$/.exec(value);
+  if (rgb) {
+    const parts = rgb[1].split(/[,/]/).map((part) => part.trim()).filter(Boolean);
+    return parts.length >= 4 ? parseFloat(parts[3]) : 1;
+  }
+  const modern = /^color\(([^)]+)\)$/.exec(value);
+  if (modern) {
+    const parts = modern[1].split(/[\s/]+/).filter(Boolean);
+    return parts.length >= 4 ? parseFloat(parts[3]) : 1;
+  }
+  // Named colours, hex and currentcolor all paint.
+  return 1;
+}
+
+/** True when a box-shadow list paints at least one layer in a visible colour. */
+function shadowVisible(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.toLowerCase() === "none") return false;
+  const layers = text
+    .split(/,(?![^(]*\))/)
+    .map((layer) => layer.trim())
+    .filter((layer) => layer && layer.toLowerCase() !== "none");
+  return layers.some((layer) => {
+    const color = layer.match(/rgba?\([^)]*\)|color\([^)]*\)|#[0-9a-f]{3,8}|\btransparent\b/i);
+    // A layer with no colour token uses currentColor, which paints.
+    return color ? colorAlpha(color[0]) > 0 : true;
+  });
+}
+
 function assertFocusVisible(stop, label) {
-  const outlined = stop.outlineStyle !== "none" && parseFloat(stop.outlineWidth) > 0;
-  const shadowed = stop.boxShadow !== "none" || !/^(none )*none$/.test(stop.pseudoShadow);
+  const outlined = stop.outlineStyle !== "none"
+    && parseFloat(stop.outlineWidth) > 0
+    && colorAlpha(stop.outlineColor) > 0;
+  const shadowed = shadowVisible(stop.boxShadow) || shadowVisible(stop.pseudoShadow);
   const resting = stop.resting;
   // A visible indicator is not enough on its own: it has to differ from the
   // unfocused style, or a permanently drawn border or shadow would pass.
   const changed = !!resting
     && (stop.outlineStyle !== resting.outlineStyle
       || stop.outlineWidth !== resting.outlineWidth
+      || stop.outlineColor !== resting.outlineColor
       || stop.boxShadow !== resting.boxShadow
       || stop.pseudoShadow !== resting.pseudoShadow);
   assert(
     (outlined || shadowed) && changed,
     `${label}: ${stopLabel(stop)} has no visible focus indicator `
-    + `(outline ${stop.outlineStyle} ${stop.outlineWidth}, box-shadow ${stop.boxShadow}; `
-    + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"}, `
-    + `box-shadow ${resting?.boxShadow ?? "?"})`,
+    + `(outline ${stop.outlineStyle} ${stop.outlineWidth} ${stop.outlineColor}, `
+    + `box-shadow ${stop.boxShadow}, pseudo ${stop.pseudoShadow}; `
+    + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"} `
+    + `${resting?.outlineColor ?? "?"}, box-shadow ${resting?.boxShadow ?? "?"}, `
+    + `pseudo ${resting?.pseudoShadow ?? "?"})`,
   );
+}
+
+/**
+ * Assert that a specific element can take focus, is named, and draws a focus
+ * ring. Used for a stop the keyboard walk cannot record: when the walk steps
+ * over a Tab interceptor it focuses the next candidate itself, so the element
+ * that jump lands on is never the one a Tab press is observed on. This proves
+ * the element is focusable and how it looks while focused, not that Tab
+ * reaches it.
+ */
+async function assertScriptFocusStop(browser, selector, label) {
+  const probe = await browser.execute((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    if (document.activeElement === el) el.blur();
+    const resting = window.__comndSmoke.focusStyle(el);
+    el.focus();
+    return {
+      took: document.activeElement === el,
+      tabIndex: el.tabIndex,
+      resting,
+      active: window.__comndSmoke.active(),
+      focused: window.__comndSmoke.focusStyle(document.activeElement),
+    };
+  }, selector);
+  assert(probe, `${label}: ${selector} is not in the document`);
+  assert(probe.took, `${label}: ${selector} cannot take focus (tabIndex ${probe.tabIndex})`);
+  const stop = { ...probe.active, ...probe.focused, resting: probe.resting };
+  assertNamed(stop, label);
+  assertFocusVisible(stop, label);
+  await browser.execute((sel) => document.querySelector(sel)?.blur(), selector);
+  return stop;
 }
 
 /**
@@ -1714,7 +1806,7 @@ async function main() {
 
         // With the sidebar open, its own controls are the next tab stops and
         // they are named and visibly focused.
-        const panelStops = await tabFrom(browser, 6);
+        const panelStops = await tabFrom(browser, 10);
         assert(
           panelStops.some((stop) => String(stop.cls).includes("sb-toggle")),
           `Terminal focus: the open sidebar is not reachable with Tab; saw `
@@ -1724,6 +1816,14 @@ async function main() {
           assertNamed(stop, "Terminal focus");
           assertFocusVisible(stop, "Terminal focus");
         }
+
+        // The splitter between terminal and sidebar is a real tab stop while
+        // the sidebar is open, so it must be named and visibly focused like
+        // any other control. The keyboard walk cannot record it: stepping over
+        // the terminal's Tab interceptor focuses the next candidate directly,
+        // so the element that jump lands on is never the one a Tab press is
+        // observed on. This proves it is focusable and how it looks focused.
+        await assertScriptFocusStop(browser, "#tv-sidebar-resizer", "Terminal focus");
 
         // Close by keyboard, from the same toggle.
         await browser.execute(() => document.querySelector(".tv-panel-btn")?.focus());
@@ -1917,7 +2017,9 @@ async function main() {
           );
           return browser.execute(() => {
             const root = getComputedStyle(document.documentElement);
-            const nav = document.querySelector(".nav-panel");
+            // .app-nav carries the nav chrome background; .nav-panel is a
+            // transparent flex column inside it and would always read empty.
+            const nav = document.querySelector(".app-nav");
             return {
               theme: document.documentElement.dataset.theme,
               bg: root.getPropertyValue("--color-surface-primary").trim(),
@@ -1943,6 +2045,15 @@ async function main() {
           3,
           `Theme: dark, light and solarized-light must render distinct chrome, saw `
           + `${JSON.stringify([...backgrounds])}`,
+        );
+        // The token existing is not the same as it reaching the chrome: the
+        // nav panel has to repaint for each theme too.
+        const navBackgrounds = new Set(Object.values(applied).map((entry) => entry.navBackground));
+        assert.equal(
+          navBackgrounds.size,
+          3,
+          `Theme: the nav panel must repaint for each theme, saw `
+          + `${JSON.stringify([...navBackgrounds])}`,
         );
         await applyTheme("dark");
 
