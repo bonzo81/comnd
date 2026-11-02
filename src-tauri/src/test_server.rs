@@ -60,6 +60,10 @@ struct MockHandler {
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     /// Set when the client closes the shell channel or SSH connection.
     closed: Option<Arc<AtomicBool>>,
+    /// Every PTY size the client has asked for: the initial `pty_request`
+    /// and each `window_change_request`. Lets the smoke suite prove the
+    /// sidebar resize reaches the remote instead of only the DOM.
+    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     /// Mutation-test mode: accept input but suppress all shell responses.
     mute_output: bool,
 }
@@ -263,6 +267,7 @@ struct MockServer {
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
+    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     mute_output: bool,
 }
 
@@ -275,6 +280,7 @@ impl server::Server for MockServer {
             kbd_int: self.kbd_int.clone(),
             received: self.received.clone(),
             closed: self.closed.clone(),
+            pty_sizes: self.pty_sizes.clone(),
             mute_output: self.mute_output,
         }
     }
@@ -434,13 +440,38 @@ impl server::Handler for MockHandler {
         &mut self,
         channel: ChannelId,
         _term: &str,
-        _col_width: u32,
-        _row_height: u32,
+        col_width: u32,
+        row_height: u32,
         _pix_width: u32,
         _pix_height: u32,
         _modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if let Some(sizes) = &self.pty_sizes {
+            if let Ok(mut sizes) = sizes.lock() {
+                sizes.push((col_width, row_height));
+            }
+        }
+        session.channel_success(channel)?;
+        Ok(())
+    }
+
+    /// Record terminal resizes so the smoke suite can assert the PTY followed
+    /// the sidebar (issue #89).
+    async fn window_change_request(
+        &mut self,
+        channel: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if let Some(sizes) = &self.pty_sizes {
+            if let Ok(mut sizes) = sizes.lock() {
+                sizes.push((col_width, row_height));
+            }
+        }
         session.channel_success(channel)?;
         Ok(())
     }
@@ -549,9 +580,11 @@ pub async fn start_smoke_mock_server(
     tokio::task::JoinHandle<()>,
     Arc<std::sync::Mutex<Vec<u8>>>,
     Arc<AtomicBool>,
+    Arc<std::sync::Mutex<Vec<(u32, u32)>>>,
 ) {
     let received = Arc::new(std::sync::Mutex::new(Vec::new()));
     let closed = Arc::new(AtomicBool::new(false));
+    let pty_sizes = Arc::new(std::sync::Mutex::new(Vec::new()));
     let persona = if reject_auth {
         KbdIntPersona::Password {
             expected: "not-the-smoke-secret".into(),
@@ -563,21 +596,23 @@ pub async fn start_smoke_mock_server(
         persona,
         Some(received.clone()),
         Some(closed.clone()),
+        Some(pty_sizes.clone()),
         mute_output,
     )
     .await;
-    (port, handle, received, closed)
+    (port, handle, received, closed, pty_sizes)
 }
 
 /// Persona-driven server bootstrap shared by both public constructors.
 async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::JoinHandle<()>) {
-    start_mock_server_inner(kbd_int, None, None, false).await
+    start_mock_server_inner(kbd_int, None, None, None, false).await
 }
 
 async fn start_mock_server_inner(
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
+    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     mute_output: bool,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
@@ -605,6 +640,7 @@ async fn start_mock_server_inner(
             kbd_int,
             received,
             closed,
+            pty_sizes,
             mute_output,
         };
         let running = server.run_on_socket(config, &socket);
@@ -866,6 +902,7 @@ mod tests {
             kbd_int: KbdIntPersona::BrowserAuth,
             received: None,
             closed: None,
+            pty_sizes: None,
             mute_output: false,
         };
         let e = MockHandler::ESC;
@@ -902,6 +939,7 @@ mod tests {
             kbd_int: KbdIntPersona::BrowserAuth,
             received: None,
             closed: None,
+            pty_sizes: None,
             mute_output: false,
         };
 

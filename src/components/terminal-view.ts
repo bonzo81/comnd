@@ -617,10 +617,15 @@ export class TerminalView {
     this.initTerminal();
 
     // Toolbar buttons are state toggles, not text entry — keep keyboard
-    // focus in the terminal instead of moving it to the clicked button
+    // focus in the terminal instead of moving it to the clicked button.
+    // Keyboard activation (Enter/Space) has no mouse position (detail 0) and
+    // must keep focus on the button, or the toggle cannot be operated twice.
     const topbar = this.$(".tv-topbar")!;
     topbar.addEventListener("mousedown", (e) => e.preventDefault());
-    topbar.addEventListener("click", () => this.terminal?.focus());
+    topbar.addEventListener("click", (event: MouseEvent) => {
+      if (event.detail === 0) return;
+      this.terminal?.focus();
+    });
 
     // Right-click context menu on the terminal area
     this.$(".tv-terminal-wrap")!.addEventListener("contextmenu", (e: MouseEvent) => {

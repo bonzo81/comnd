@@ -20,7 +20,9 @@ Implemented and verified by code review + build:
   `*:focus-visible` outline (2px accent, see `src/styles/main.css`) plus
   component-specific focus styles for context-menu items, session tabs, KB
   command rows, host rows, and nav items. No control suppresses the outline
-  without a replacement focus treatment.
+  without a replacement focus treatment. Native checkboxes and radios take the
+  same ring on `:focus`, because WebKit paints those controls itself and does
+  not report the `:focus-visible` outline for them.
 - Keyboard operation: the nav panel has roving tabindex with
   Arrow/Enter/Left/Right tree navigation; host list and KB command list
   support Arrow/Enter; context menus open with Shift+F10 (host list) and
@@ -31,6 +33,38 @@ Implemented and verified by code review + build:
 - The document language is set (`lang="en"` in `index.html`); all icons are
   decorative SVGs marked `aria-hidden="true"`; icon-only buttons carry
   `aria-label`.
+
+## Automated checks in the smoke suite (2026-11)
+
+`npm run smoke` asserts the keyboard and layout claims above against the real
+app, and `npm run smoke -- --mutation=focus|name|layout` proves each category of
+assertion still fails when that behaviour is deliberately broken. What the
+suite covers:
+
+- Keyboard reachability and a visible focus indicator on the connection
+  manager, the terminal with the side panel open and closed, settings, and the
+  duplicate-session, KB import, replay-save and NetBox-configure dialogs.
+- Modal focus trapped while open and restored to the invoking element on close.
+- An accessible name on every control that has no visible label, and error
+  toasts announced rather than merely drawn: a polite live region, an `alert`
+  role on the error toast, and a named dismiss button.
+- The side panel resizing the terminal and driving the PTY size change, never
+  overlaying it (ADR-003).
+- Dark, light and solarized themes, Reading Comfort mode and enlarged text.
+- Small windows, long host names, an expanded folder tree and a scrolling
+  dialog, with no clipped or overlapping controls.
+
+These are automated assertions, not an audit. They read computed styles, the
+accessibility tree and layout geometry, and they only pass for the states they
+visit. They are evidence towards WCAG 2.1 AA, not proof of conformance, and
+they do not replace the manual screen reader checklist below.
+
+The assertions found four real defects when they were written, all now fixed:
+credential fields stayed focusable while collapsed on the host form (WCAG
+2.4.7); the nav panel restored focus to a row after a context menu opened from
+the keyboard; rows revealed by expanding a folder each became their own Tab
+stop instead of joining the roving tabindex group; and a native checkbox
+reported no focus ring under WebKitGTK.
 
 ## Manual verification checklist
 

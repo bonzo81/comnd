@@ -273,6 +273,27 @@ class HarnessImpl implements Harness {
 
 let installed = false;
 
+/** Minimal in-memory Storage, so tests never depend on the platform's. */
+function createStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    get length(): number {
+      return items.size;
+    },
+    key: (index: number) => [...items.keys()][index] ?? null,
+    getItem: (key: string) => items.get(String(key)) ?? null,
+    setItem: (key: string, value: string) => {
+      items.set(String(key), String(value));
+    },
+    removeItem: (key: string) => {
+      items.delete(String(key));
+    },
+    clear: () => {
+      items.clear();
+    },
+  } as Storage;
+}
+
 /** Bootstrap the fake environment. Idempotent; called from tests/setup.ts
  *  (and lazily by createHarness, so direct runs still work). */
 export function install(): void {
@@ -302,6 +323,19 @@ export function install(): void {
         removeEventListener: () => {},
         dispatchEvent: () => false,
       }),
+    });
+  }
+
+  // Web Storage: Node 26 defines these globals itself and leaves
+  // `localStorage` undefined unless the process was started with
+  // --localstorage-file. Vitest's jsdom environment skips globals that already
+  // exist, so the app would see the unusable one. Install an in-memory Storage
+  // either way, so behaviour does not depend on the Node version.
+  for (const key of ["localStorage", "sessionStorage"] as const) {
+    Object.defineProperty(globalThis, key, {
+      value: createStorage(),
+      configurable: true,
+      writable: true,
     });
   }
 

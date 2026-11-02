@@ -40,6 +40,20 @@ still receives zero bytes. The count is read inside the scenario's `run`,
 because `runCase` destroys the WebDriver session in `finally` — once the
 scenario returns there is no channel left to read it.
 
+Amended 2026-11-02: after issue #89, the mutation carries a category. The flag
+accepts `ssh_send`, `focus`, `name` and `layout`; a bare `--mutation` still means
+`ssh_send`, so `npm run smoke:mutation` is unchanged. Rust gates the whole path
+on `debug_assertions` and returns the active category through the debug-only
+`test_smoke_mutation` command; the frontend records it on
+`document.documentElement.dataset.smokeMutation`, and each category's scenario
+asserts that marker before reporting its failure, so a category cannot pass by
+breaking nothing. The three frontend categories inject their regression from
+`src/lib/smoke-mutation.ts` before `new App()`: `focus` removes every visible
+focus indicator, `name` strips `aria-label`, `aria-labelledby` and `title` from
+controls with no visible text, and `layout` positions the sidebar over the
+terminal instead of resizing it — the ADR-003 violation the resize assertion
+exists to catch.
+
 ## Consequences
 
 - Tests cover the desktop webview, Tauri commands, real Rust SSH client, and
@@ -53,6 +67,12 @@ scenario returns there is no channel left to read it.
   broke.
 - The buffer hook and mock controls are absent from release Rust builds and
   normal production frontend builds.
+- Each mutation category breaks exactly one scenario and reports two facts: the
+  assertion's own failure message and `mutation activation: <category> applied`.
+  Only the `ssh_send` run also requires the non-zero drop count, because only it
+  touches the SSH path. The three frontend categories sit behind the same
+  `#[cfg(debug_assertions)]` command and the `smoke` Vite mode, so neither the
+  command nor the module ships in a release build.
 - The mutation check is verified by breaking the drop: add
   `if (data.length >= 0) return;` inside the connected branch of `sendData` in
   `src/components/terminal-view.ts`, ahead of `sshSend`. A bare `return;` at the

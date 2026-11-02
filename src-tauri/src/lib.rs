@@ -157,7 +157,7 @@ async fn test_smoke_server(
     mute_output: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<u16, String> {
-    let (port, handle, received, closed) =
+    let (port, handle, received, closed, pty_sizes) =
         test_server::start_smoke_mock_server(reject_auth, mute_output).await;
     let mut mgr = state.ssh.lock().await;
     if let Some(previous) = mgr.take_test_server_handle() {
@@ -166,7 +166,29 @@ async fn test_smoke_server(
     mgr.set_test_server_handle(handle);
     mgr.set_test_server_received(received);
     mgr.set_test_server_closed(closed);
+    mgr.set_test_server_pty_sizes(pty_sizes);
     Ok(port)
+}
+
+/// The active smoke mutation category, or `None`. The frontend reads this at
+/// boot so it can apply a focus/name/layout regression the runner then has to
+/// catch (issue #89). Debug builds only; there is no release path.
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_mutation() -> Result<Option<String>, String> {
+    Ok(ssh::smoke_mutation_name())
+}
+
+/// Every PTY size the mock host has been asked for, oldest first.
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_pty_sizes(state: tauri::State<'_, AppState>) -> Result<Vec<(u32, u32)>, String> {
+    let mgr = state.ssh.lock().await;
+    let sizes = mgr
+        .test_server_pty_sizes()
+        .ok_or_else(|| "Smoke test server is not recording PTY sizes".to_string())?;
+    let sizes = sizes.lock().map_err(|e| e.to_string())?.clone();
+    Ok(sizes)
 }
 
 #[cfg(debug_assertions)]
@@ -557,6 +579,10 @@ pub fn run() {
                 test_smoke_client_closed,
                 #[cfg(debug_assertions)]
                 test_smoke_mutation_drops,
+                #[cfg(debug_assertions)]
+                test_smoke_mutation,
+                #[cfg(debug_assertions)]
+                test_smoke_pty_sizes,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
                 #[cfg(debug_assertions)]

@@ -56,3 +56,42 @@ Why: the smoke suite could not run at all on Windows until the matching driver
 was downloaded, and the new duplicate-session scenario then hung on its
 `dialog is gone` wait because an `isExisting()` predicate cannot observe a
 closed dialog — it reports the last successful lookup forever.
+
+## 2026-11-02 (issue #89)
+
+Source: issue #89, keyboard and accessibility assertions in the smoke suite.
+
+### Verification Requirements
+
+Changed:
+
+> Add `npm run smoke:mutation` when you change `test/smoke/` or the mock host,
+> and `npm run smoke -- --mutation=focus|name|layout` when you touch the focus,
+> accessible-name or layout assertions. Every mutation run must produce exactly
+> one named expected failure and exit 0 when it appears; a clean pass means the
+> assertion no longer catches the class of bug it exists to catch. The bare
+> `--mutation` (`npm run smoke:mutation`) breaks the SSH send path, so its
+> failure must also report the app's non-zero `ssh_send` drop count. The three
+> category runs instead must report their own assertion's failure message plus
+> `mutation activation: <category> applied`, and carry no `ssh_send` count. CI
+> runs `npm run smoke` and all four mutation runs on every PR.
+
+Why: the file described one mutation run, so an agent touching the focus or
+layout assertions had no reason to run the category that covers them, and the
+`ssh_send` drop-count requirement read as applying to every mutation run.
+
+Added:
+
+> CI resolves Node from `lts/*` (four jobs in `ci.yml`); there is no `engines`
+> field and no `.nvmrc`, so a new LTS can break `npm run test` on every OS with
+> no code change. Node 26 defines `localStorage` and `sessionStorage` on
+> `globalThis` but leaves them `undefined` unless the process starts with
+> `--localstorage-file`, and Vitest's jsdom environment does not overwrite
+> globals that already exist — `tests/harness.ts` therefore installs an
+> in-memory `Storage` for both. Reproduce a CI-only frontend failure locally
+> with `npm exec --yes --package=node@<version> -- node
+> node_modules/vitest/vitest.mjs run`.
+
+Why: `lts/*` moved to Node 26.13.0 and 43 tests across 7 files failed on all
+three OSes with no code change. The cause took a reproduction under the exact
+Node version to find, because the local Node 24 run passed.

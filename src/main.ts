@@ -1261,4 +1261,11 @@ class App {
   }
 }
 
-new App();
+if (import.meta.env.MODE === "smoke") {
+  void import("./lib/smoke-mutation")
+    .then((m) => m.applySmokeMutation())
+    .catch(() => {})
+    .finally(() => new App());
+} else {
+  new App();
+}

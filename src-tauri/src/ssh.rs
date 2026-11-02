@@ -1061,6 +1061,9 @@ pub struct SshManager {
     test_server_received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     #[cfg(debug_assertions)]
     test_server_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Every PTY size the mock host has been asked for, in arrival order.
+    #[cfg(debug_assertions)]
+    test_server_pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
 }
 
 impl SshManager {
@@ -1073,6 +1076,8 @@ impl SshManager {
             test_server_received: None,
             #[cfg(debug_assertions)]
             test_server_closed: None,
+            #[cfg(debug_assertions)]
+            test_server_pty_sizes: None,
         }
     }
 
@@ -1108,6 +1113,17 @@ impl SshManager {
     pub fn clear_test_server_received(&mut self) {
         self.test_server_received = None;
         self.test_server_closed = None;
+        self.test_server_pty_sizes = None;
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn set_test_server_pty_sizes(&mut self, sizes: Arc<std::sync::Mutex<Vec<(u32, u32)>>>) {
+        self.test_server_pty_sizes = Some(sizes);
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn test_server_pty_sizes(&self) -> Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>> {
+        self.test_server_pty_sizes.clone()
     }
 
     #[cfg(debug_assertions)]
@@ -1783,10 +1799,15 @@ pub async fn ssh_connect(
 /// the SSH input boundary drops every byte, so the smoke suite proves it
 /// catches a broken app rather than a silent mock. Compiled out of release.
 #[cfg(debug_assertions)]
-fn smoke_mutation_active(name: &str) -> bool {
+pub fn smoke_mutation_name() -> Option<String> {
     std::env::var("COMND_SMOKE_MUTATION")
-        .map(|value| value == name)
-        .unwrap_or(false)
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(debug_assertions)]
+fn smoke_mutation_active(name: &str) -> bool {
+    smoke_mutation_name().as_deref() == Some(name)
 }
 
 /// Bytes the smoke mutation has dropped in this app process. The runner reads

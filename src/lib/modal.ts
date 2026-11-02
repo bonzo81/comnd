@@ -98,17 +98,46 @@ export function openModal(opts: ModalOptions): ModalHandle {
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
     const active = document.activeElement as HTMLElement | null;
-    const inside = active !== null && panel.contains(active);
+    // An index lookup covers the panel itself and anything outside it, both of
+    // which must wrap, without trusting the event's modifier state.
+    const index = active ? focusables.indexOf(active) : -1;
     if (e.shiftKey) {
-      if (!inside || active === first) {
+      if (index <= 0) {
         e.preventDefault();
         e.stopPropagation();
         last.focus();
       }
-    } else if (!inside || active === last) {
+    } else if (index === -1 || index === focusables.length - 1) {
       e.preventDefault();
       e.stopPropagation();
       first.focus();
+    }
+  };
+
+  // Focus can also leave the panel without a Tab keydown this handler can
+  // read: a webdriver can perform a backwards move while reporting
+  // shiftKey: false, and assistive tooling can focus an element directly.
+  // Watch where focus lands instead of trusting the key event.
+  let restoringFocus = false;
+  const onFocusIn = (e: FocusEvent) => {
+    if (closed || restoringFocus || !isTopmost()) return;
+    const target = e.target as Node | null;
+    if (target && panel.contains(target)) return;
+    const focusables = focusableIn(panel);
+    if (focusables.length === 0) {
+      panel.focus();
+      return;
+    }
+    // Re-enter from the side the focus left: a target that precedes the panel
+    // in document order means focus was moving backwards.
+    const backwards =
+      target instanceof Node &&
+      (target.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    restoringFocus = true;
+    try {
+      (backwards ? focusables[focusables.length - 1] : focusables[0]).focus();
+    } finally {
+      restoringFocus = false;
     }
   };
   const close = () => {
@@ -116,6 +145,7 @@ export function openModal(opts: ModalOptions): ModalHandle {
     closed = true;
     backdrop.remove();
     window.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("focusin", onFocusIn, true);
     const stackIndex = openModals.indexOf(token);
     if (stackIndex >= 0) openModals.splice(stackIndex, 1);
     if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus();
@@ -126,6 +156,7 @@ export function openModal(opts: ModalOptions): ModalHandle {
   };
 
   window.addEventListener("keydown", onKey, true);
+  document.addEventListener("focusin", onFocusIn, true);
 
   if (dismissOnBackdrop) {
     backdrop.addEventListener("click", (e) => {
