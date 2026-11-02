@@ -71,6 +71,10 @@ const MUTATION_CASES = {
 const sshSuite = {
   env: {
     COMND_TEST_MOCK_NETBOX_TOKEN: "nbt_smoke.token",
+    // The app must never launch a browser on its own, and a deliberate launch
+    // (the seam proof below) must not open one on the runner either. The app
+    // still counts the launch before suppressing it.
+    COMND_SMOKE_NO_BROWSER: "1",
     ...(mutationCategory ? { COMND_SMOKE_MUTATION: mutationCategory } : {}),
   },
   // The accessibility scenarios may start the NetBox mock as well, so stop
@@ -1359,6 +1363,40 @@ async function main() {
         await (await browser.$(".tv-overlay-back")).click();
         await waitForSessionCleanup(browser, "Rejected auth");
         assert.equal(await (await browser.$(".tv-sb-dot")).isExisting(), false);
+      },
+    },
+    {
+      // The default mock persona is a Tailscale-style check-mode gateway: it
+      // prints a login URL during authentication. A server-supplied URL is a
+      // phishing surface, so the app must surface it and wait for a click.
+      name: "browser-auth-url",
+      async run(browser, dataDir) {
+        await createAndConnect(browser, dataDir);
+        await waitForConnection(browser);
+
+        // Prove the browser-auth path actually ran, so the zero below is not
+        // a vacuous pass on a host that never emitted a URL.
+        const urls = await invoke(browser, "test_smoke_auth_urls");
+        assert(
+          urls.includes("https://login.tailscale.com/a/test123"),
+          `Auth URL: the mock's login URL never reached the frontend (surfaced ${JSON.stringify(urls)})`,
+        );
+
+        const opened = await invoke(browser, "test_smoke_open_url_calls");
+        assert.equal(
+          opened,
+          0,
+          `Auth URL: the app opened the login URL without a user click (${opened} launch(es))`,
+        );
+
+        // Prove the counter tracks the real launch path, so the zero above
+        // cannot be a dead seam. The overlay button invokes this same command.
+        await invoke(browser, "open_url_cmd", { url: "https://example.test/login" });
+        assert.equal(
+          await invoke(browser, "test_smoke_open_url_calls"),
+          1,
+          "Auth URL: open_url_cmd did not register a launch",
+        );
       },
     },
     {
