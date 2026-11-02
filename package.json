@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:rust": "node scripts/check-rust-coverage.mjs src-tauri/target/coverage.json",
     "test:watch": "vitest",
     "tauri": "tauri",
     "build:smoke": "tsc && vite build --mode smoke",

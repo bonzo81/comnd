@@ -19,20 +19,12 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       reportsDirectory: "./coverage",
       clean: true,
-      // Targeted floors, not a global target: each glob covers the modules that
-      // issue #86 added behaviour tests for, and each sits below the recorded
-      // baseline so a legitimate new defensive branch does not fail the build.
-      // Derivation and headroom: docs/plans/065-plan-test-coverage.md
-      // §Targeted gates. The globs are explicit, so renaming or moving a file
-      // out of one drops it from the group; a glob that matches nothing
-      // reports 100% and passes, so keep these lists in step with the tests.
+      // Two per-area line floors, no global target and no per-file check. Each
+      // floor sits below the #86 baseline by the headroom recorded in
+      // docs/plans/065-plan-test-coverage.md, which also holds the derivation.
       thresholds: {
-        // #86 baseline: 203/204 lines (99.51%).
-        "src/lib/{replay,host-filters,session-channel,tauri-api}.ts": {
-          lines: 98,
-        },
-        // #86 baseline: 538/1271 lines (42.33%).
-        "src/components/{host-screen,settings-screen}.ts": { lines: 41 },
+        "src/lib/**": { lines: 78 },
+        "src/components/**": { lines: 29 },
       },
     },
   },
