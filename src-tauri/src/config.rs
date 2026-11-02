@@ -263,14 +263,27 @@ impl ConfigStore {
         api_key: Option<String>,
         context_length: u32,
     ) -> Result<(), String> {
+        // The keychain is outside `apply_and_persist`'s rollback, so the current
+        // key is captured first and restored if the config write fails.
+        let previous_key = get_llm_api_key()?;
         save_llm_api_key(api_key.clone())?;
-        self.apply_and_persist(|config| {
+        let result = self.apply_and_persist(|config| {
             config.llm_api_format = api_format;
             config.llm_base_url = base_url;
             config.llm_model = model;
             config.llm_api_key = api_key;
             config.llm_context_length = context_length;
-        })
+        });
+        if let Err(persist_error) = result {
+            if let Err(restore_error) = save_llm_api_key(previous_key) {
+                return Err(format!(
+                    "{}; failed to restore the previous API key: {}",
+                    persist_error, restore_error
+                ));
+            }
+            return Err(persist_error);
+        }
+        Ok(())
     }
 
     /// Update the log level and persist.
