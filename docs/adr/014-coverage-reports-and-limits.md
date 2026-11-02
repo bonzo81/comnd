@@ -1,7 +1,9 @@
 # 014. Coverage comes from v8 and cargo-llvm-cov, ships as Actions artifacts, and is not a gate
 
 Date: 2026-10-31
-Status: Accepted
+Status: Accepted, then amended 2026-11-02 — see
+[Amendment: targeted floors](#amendment-2026-11-02--targeted-floors-issue-88) at the end. The
+sections above are the original record and are left as written.
 
 ## Context
 Issue #56 asked for reproducible frontend and Rust coverage reports and for the confirmed
@@ -47,7 +49,8 @@ choices and their limits, not the measurements.
   meaningless or freeze the current shape.
 
 ## Decision
-Coverage is a report, never a gate, and it never leaves GitHub.
+Coverage is a report, never a gate, and it never leaves GitHub. *(The gate half was reversed on
+2026-11-02 - see [the amendment](#amendment-2026-11-02--targeted-floors-issue-88).)*
 
 Frontend: `@vitest/coverage-v8` as a devDependency, configured in `vitest.config.ts` with
 `include: ["src/**/*.ts"]` - required by Vitest 4 or untested files vanish - excluding
@@ -102,3 +105,65 @@ over a few pull requests; a gate spanning the whole tree is not the shape under 
   wanted - the natural shape being a floor on files a pull request touches, not the tree;
   or when the smoke suite gains coverage instrumentation, which would be the first number that
   describes the shipping app.
+
+## Amendment: 2026-11-02 — targeted floors (issue #88)
+
+Status: Accepted. This amends the Decision above. "Coverage is a report, never a gate" no longer
+holds; the rest of the record - the tooling, the Linux-only measurement, the artifact upload and
+every "not measured" limit - stands unchanged.
+
+**Context.** The revisit condition above was "once the baseline has settled over a few pull
+requests". It has: #56 recorded the post-test baseline on the `ubuntu-22.04` leg (frontend 48.59%
+lines; Rust 71.05% lines / 72.82% regions), and the suites have moved only with deliberate test
+changes since. Issue #88 therefore asked for the narrow, targeted shape this ADR anticipated,
+explicitly not a whole-tree percentage.
+
+**Decision.** Four floors, lines-based, each ~1-1.5 pp under the recorded baseline. No global
+percentage target, no per-file enforcement, no third-party service, no `continue-on-error`.
+
+| Area | Enforced by | Floor | Baseline | Headroom |
+|---|---|---|---|---|
+| `src/lib/{replay,host-filters,session-channel,tauri-api}.ts` | `coverage.thresholds` in `vitest.config.ts` | 98% lines | 99.51% (203/204) | 1.51 pp ≈ 4 lines |
+| `src/components/{host-screen,settings-screen}.ts` | same | 41% lines | 42.33% (538/1271) | 1.33 pp ≈ 17 lines |
+| Rust total lines | `cargo llvm-cov report --fail-under-lines 70`, new step in the existing `coverage-rust` job | 70% | 71.05% (8293/11672) | 1.05 pp ≈ 123 lines |
+| Rust total regions | `cargo llvm-cov report --fail-under-regions 72`, same step | 72% | 72.82% (14543/19971) | 0.82 pp ≈ 164 regions |
+
+Why this shape:
+
+- **Per-glob, not per-file and not global.** The two frontend globs are exactly the modules #86
+  added behaviour tests for, so each floor protects a known set of tests. A whole-tree percentage
+  would sit low enough to be meaningless or fail on unrelated churn; a per-file floor would encode
+  the current shape of every file, including the ones a `State`/`AppHandle` signature keeps out of
+  reach of `#[test]`.
+- **Lines only.** v8 attributes branches through source maps, so branch floors fail refactors that
+  keep behaviour tested; Vitest counts each arrow as a function, so function floors fall on a
+  hoisted callback. Rust branch coverage is still unmeasurable on stable (see above) and no floor
+  claims it - the report continues to print `0 0 -`.
+- **Headroom under, not at, the baseline.** A new defensive branch or two must not fail a pull
+  request; a deleted test file must. Both were checked: deleting `host-screen.test.ts` takes that
+  glob to 32.12% and deleting `replay.test.ts` takes the other to 95.10%, and each fails.
+- **The gate rides on existing commands.** `npm run test:coverage` gained the thresholds, and one
+  `cargo llvm-cov report --fail-under-lines --fail-under-regions` step was inserted into the
+  existing `coverage-rust` job on the ubuntu leg. No new workflow, no new npm script.
+
+**Consequences.**
+
+- Easier: a pull request that deletes or weakens the tests behind these modules now goes red
+  instead of quietly lowering a number in an artifact nobody opens; the floors are plain config
+  and plain CLI flags, so a developer can reproduce a failure locally with the same two commands
+  CI runs.
+- Harder: the frontend floors only cover the listed files, so an untested module added elsewhere
+  still lowers the total without tripping anything; a glob that matches no file reports 100% and
+  passes, so a rename can retire a floor silently - the globs are explicit (no `**`) to keep that
+  visible in review.
+- Local runs: the floors come from the Linux leg, and Windows measures slightly lower on the Rust
+  side (70.87% lines / 72.71% regions on the machine the gate was written on) because
+  `#[cfg(windows)]` lines replace `#[cfg(unix)]` ones. Both clear the floors, so an honest Windows
+  `cargo llvm-cov report --fail-under-lines 70 --fail-under-regions 72` passes. The frontend suite
+  has no OS-conditional test, so its floors are OS-independent in practice.
+- Known tool quirk: `cargo-llvm-cov` 0.9.1 exits 1 on a `--fail-under-*` miss without printing a
+  reason, so the `TOTAL` row from the preceding `report` step is the explanation, and the enforce
+  step echoes its own floors first.
+- If a floor later proves noisy, loosen or remove it and record the reason in
+  `docs/plans/065-plan-test-coverage.md` §Targeted gates. `continue-on-error` is not an option.
+

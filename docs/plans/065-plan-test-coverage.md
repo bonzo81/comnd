@@ -1,8 +1,9 @@
 # Plan: test coverage reports and confirmed high-risk gaps (issue #56)
 
 Status: Implemented; verification recorded below.
-Spec: bonzo81/comnd#56. Builds on the Vitest harness from
-`docs/plans/054-plan-test-harness.md` and the CI jobs in `.github/workflows/ci.yml`.
+Spec: bonzo81/comnd#56, with the targeted coverage gate from bonzo81/comnd#88. Builds on the
+Vitest harness from `docs/plans/054-plan-test-harness.md` and the CI jobs in
+`.github/workflows/ci.yml`.
 
 ## Background
 
@@ -33,8 +34,8 @@ Excluded, and why:
   the WebDriver smoke suite (`docs/plans/062-plan-full-app-ssh-smoke-tests.md`), not by unit
   tests. It is **not** covered by anything in this report.
 
-No thresholds are configured. A gate needs a measured, stable baseline first; see
-[Targeted gates](#targeted-gates).
+Two per-glob line floors are configured in `coverage.thresholds` — narrow, not a global
+target, and derived from the baseline below. See [Targeted gates](#targeted-gates).
 
 ### Rust — `cargo-llvm-cov` 0.9.1
 
@@ -79,22 +80,41 @@ cargo llvm-cov report --json --summary-only --output-path target/coverage.json
 `--cobertura`. `report --text` dumps annotated source (~18k lines here); plain `report` prints
 the table CI needs.
 
+Gate commands (what CI runs; both exit non-zero on a floor miss):
+
+```bash
+npm run test:coverage        # enforces coverage.thresholds in vitest.config.ts
+
+cd src-tauri
+cargo llvm-cov --no-report   # runs the tests, writes profdata only
+cargo llvm-cov report        # the table, and the explanation for a miss below
+cargo llvm-cov report --fail-under-lines 70 --fail-under-regions 72
+```
+
+`cargo llvm-cov` 0.9.1 exits 1 on a `--fail-under-*` miss **without printing why**
+(`report.rs` calls `term::error::set(true)` and nothing else), so in CI the `TOTAL` row from the
+plain `report` step above is the only explanation a reader gets. The enforce step echoes its own
+floors first for the same reason. `report` re-reads the saved profdata, so the two commands cost
+one instrumented run, not two.
+
 ## CI
 
-Both coverage steps run on the `ubuntu-22.04` leg only, so the reports are a **Linux baseline**,
-not a cross-platform one. The numbers can differ by OS: `#[cfg(unix)]` / `#[cfg(windows)]` change
-which lines exist and which run, and there are 16 such sites in `src-tauri/src`, so a macOS or
-Windows run would measure a different set of lines. The report is an artifact, not a gate, so
-running it three times would only triple the runtime; macOS and Windows coverage stays unmeasured
-and no claim is made about it.
+Both coverage steps run on the `ubuntu-22.04` leg only, so the reports — and every floor derived
+from them — are a **Linux baseline**, not a cross-platform one. The numbers can differ by OS:
+`#[cfg(unix)]` / `#[cfg(windows)]` change which lines exist and which run, and there are 16 such
+sites in `src-tauri/src`, so a macOS or Windows run measures a different set of lines. Running the
+gate three times would triple the runtime for three non-comparable numbers, so the gate is the
+Linux leg and macOS and Windows coverage stays unmeasured. See
+[Targeted gates](#targeted-gates) for what that means for a local run.
 
 - `coverage-frontend` — `actions/upload-artifact@v7`, path `coverage/`, 7-day retention.
 - `coverage-rust` — `actions/upload-artifact@v7`, paths `src-tauri/target/coverage-html/` and
   `src-tauri/target/coverage.lcov`, 7-day retention.
 
-Both uploads are gated on `github.event_name == 'pull_request'`. Nothing leaves GitHub: there
-is no Codecov/Coveralls/third-party upload, and the workflow's `permissions` stay at
-`contents: read`.
+Both uploads are gated on `github.event_name == 'pull_request'` and on `always()`, so a pull
+request that fails a floor still publishes the report that explains the miss. Nothing leaves
+GitHub: there is no Codecov/Coveralls/third-party upload, and the workflow's `permissions` stay at
+`contents: read`. No step uses `continue-on-error` — a floor miss is a red build, not a warning.
 
 `cargo-llvm-cov` is installed the same way the workflow already installs `tauri-driver` — an
 `actions/cache@v4` entry keyed on the pinned version, then `cargo install --version 0.9.1
@@ -290,12 +310,118 @@ freezes it — the escaping tests assert that markup is inert, not the exact ent
 
 ## Targeted gates
 
-None, deliberately. Issue #56 asks for a baseline first, and a global percentage gate on these
-numbers would either be set low enough to be meaningless or fail on unrelated churn. The
-targeted gates worth considering once a second measurement exists are narrow and behavioural,
-for example "`src/lib/tauri-api.ts` stays at 100% lines and every wrapper has a contract row"
-(the tripwire in `ipc-contract.test.ts` already enforces the second half). Those are follow-up
-work, not part of this change.
+Issue #88 turned these reports into a regression gate: four floors, all lines-based, all below the
+recorded Linux baseline.
+
+| Area | Where it is enforced | Floor | Baseline (post-#86, ubuntu leg) | Headroom |
+|---|---|---|---|---|
+| `src/lib/{replay,host-filters,session-channel,tauri-api}.ts` | `coverage.thresholds` in `vitest.config.ts` | 98% lines | 99.51% (203/204) | 1.51 pp ≈ 4 lines |
+| `src/components/{host-screen,settings-screen}.ts` | same | 41% lines | 42.33% (538/1271) | 1.33 pp ≈ 17 lines |
+| Rust total | `cargo llvm-cov report --fail-under-lines 70` | 70% lines | 71.05% (8293/11672) | 1.05 pp ≈ 123 lines |
+| Rust total | `cargo llvm-cov report --fail-under-regions 72` | 72% regions | 72.82% (14543/19971) | 0.82 pp ≈ 164 regions |
+
+### Why these four, and why lines
+
+The frontend globs cover exactly the modules #86 added behaviour tests for, so each floor protects
+a specific set of tests rather than a percentage of the tree: `tauri-api.ts` (75/75),
+`replay.ts` (9/9), `host-filters.ts` (29/29) and `session-channel.ts` (90/91) are the IPC and
+state-helper contracts; `settings-screen.ts` (374/837) and `host-screen.ts` (164/434) are the two
+screens whose save and CRUD paths the same change covered. The Rust floors are totals because the
+per-file spread there is genuine (`replay.rs` 88.89% down to `lib.rs` 41.91%, the latter partly a
+`State`/`AppHandle` measurement limit), so a per-file Rust floor would encode the shape of the code
+rather than the health of the suite.
+
+Lines is the only metric gated, on both sides:
+
+- **Branches (frontend)** — v8 attributes branches through source maps, which makes it the
+  noisiest column; a floor on it fails on refactors that keep every behaviour tested.
+- **Functions** — Vitest counts each arrow separately, so hoisting a callback lowers the number
+  with no test lost.
+- **Rust branches** — not measurable on stable at all (see
+  [Tooling](#rust--cargo-llvm-cov-091)); no floor claims it, and the report still prints `0 0 -`.
+- **Lines** — the one metric both toolchains report directly and the one issue #56 quotes.
+
+Not gated, deliberately: a global percentage target, per-file enforcement
+(`--fail-under-file-lines`, `coverage.thresholds.perFile`), any third-party coverage service, and
+anything that needs `continue-on-error` to stay green. If a floor later proves noisy the fix is to
+loosen or delete it and record why here — not to mute the step.
+
+### Headroom
+
+Each floor sits a little under its baseline so ordinary churn does not fail the build, while a
+deleted test file or a large new untested module still does:
+
+- **Frontend glob 1 (1.51 pp, ~4 lines).** These four files are almost fully covered, so the
+  absolute line count is small and headroom is best read in lines: 4 lines allows a couple of new
+  defensive branches. Removing the smallest test file in the group (`replay.test.ts`, 9 lines of
+  source) takes the glob to 194/204 = 95.10% and fails.
+- **Frontend glob 2 (1.33 pp, ~17 lines).** Same reasoning at screen scale: 17 lines absorbs a new
+  error path. Deleting `host-screen.test.ts` takes the glob to 32.12% and fails;
+  deleting `settings-screen.test.ts` is worse. The tree already measures higher than the baseline
+  (45.02%, 597/1326) because #87 added settings-save tests, so this floor is the most conservative
+  of the four.
+- **Rust lines (1.05 pp, ~123 lines) and regions (0.82 pp, ~164 regions).** A new module of a
+  couple of hundred uncovered lines, or a deleted integration test, crosses these; a defensive
+  branch or two does not. Regions move less than lines per refactor, hence the smaller gap.
+
+### A local run is not the CI measurement
+
+Both floors were derived from the `ubuntu-22.04` leg. An honest local run on Windows is expected
+to measure slightly lower on the Rust side — 70.87% lines and 72.71% regions on the machine this
+gate was written on, against 71.05% / 72.82% on Linux — because `#[cfg(windows)]` lines replace
+`#[cfg(unix)]` ones. Both Windows numbers still clear 70 and 72, so `cargo llvm-cov report
+--fail-under-lines 70 --fail-under-regions 72` passes locally; if a future Windows measurement
+drops below a floor while CI is green, that is the OS difference and the answer is to record the
+local number here, not to lower the floor on CI's behalf. The frontend has no OS-conditional test
+in the suite (no `skipIf`, no `process.platform` branch), so its floors are expected to hold
+identically on every OS; they did on Windows (48.96% lines total, glob 1 99.5%, glob 2 45.02%).
+
+### Failing path, proved
+
+Raising a floor above the measured value, and deleting a test file, both fail the build:
+
+```text
+$ # coverage.thresholds glob 1 raised to lines: 100
+$ npm run test:coverage
+ERROR: Coverage for lines (99.5%) does not meet "src/lib/{replay,host-filters,session-channel,tauri-api}.ts" threshold
+(100%)
+exit 1
+
+$ # src/components/host-screen.test.ts moved aside, floors at their real values
+$ npm run test:coverage
+Lines        : 46.33% ( 3011/6498 )
+ERROR: Coverage for lines (32.12%) does not meet "src/components/{host-screen,settings-screen}.ts" threshold (41%)
+exit 1
+
+$ cd src-tauri && cargo llvm-cov report --fail-under-lines 99 --fail-under-regions 99
+TOTAL  20128  5492  72.71%  1685  722  57.15%  11774  3430  70.87%  0  0  -
+exit 1        # silent by design in cargo-llvm-cov 0.9.1; the TOTAL row is the explanation
+```
+
+Reverted, the same commands pass — the no-op check:
+
+```text
+$ npm run test:coverage
+Lines        : 48.96% ( 3182/6498 )
+exit 0
+
+$ cd src-tauri && cargo llvm-cov --no-report && cargo llvm-cov report
+TOTAL  20128  5492  72.71%  1685  722  57.15%  11774  3430  70.87%  0  0  -
+exit 0
+
+$ cargo llvm-cov report --fail-under-lines 70 --fail-under-regions 72
+exit 0
+```
+
+### Known limitations
+
+- **A glob that matches nothing passes.** picomatch reports a group with no files as 100%, so
+  renaming a file out of a glob silently retires that floor. The globs are listed explicitly
+  (no `**`) to keep a move visible in review; check the `text` reporter's per-file rows when
+  changing these file names.
+- **Only the listed files are gated.** A new untested module elsewhere lowers the total but trips
+  no frontend floor. The Rust floors are the only whole-tree check, and they are totals, so a large
+  addition can be offset by unrelated coverage elsewhere.
 
 ## Decisions
 
@@ -309,23 +435,43 @@ work, not part of this change.
 4. **`include: ["src/**/*.ts"]` in the Vitest config.** Otherwise a module with no importing
    test vanishes from the report and looks like it does not exist.
 5. **Coverage on the ubuntu leg only.** A Linux baseline, not a cross-platform one — `#[cfg]`-gated
-   lines differ per OS, so the macOS and Windows paths are unmeasured. The artifact is what matters.
+   lines differ per OS, so the macOS and Windows paths are unmeasured. The artifact and the gate
+   both live there.
 6. **Artifacts, not a service.** No third-party upload, no token, no `permissions` change.
+7. **Targeted per-glob floors, not a global target (#88).** A whole-tree percentage on these
+   numbers would be set low enough to be meaningless or would fail on unrelated churn. A glob per
+   module group fails only when the tests protecting that group lose coverage, which is the
+   behaviour worth blocking a pull request for.
+8. **Lines only, on both sides.** Branches are noisy through source maps on the frontend and
+   unavailable on stable for Rust; functions count each arrow. Lines is the one metric both
+   toolchains report directly, and no floor claims Rust branch coverage.
+9. **Headroom under the recorded baseline, not at it.** Each floor sits ~1–1.5 pp under the
+   post-#86 measurement so a new defensive branch or two passes and a deleted test file does not.
+   The numbers and the arithmetic are in [Targeted gates](#targeted-gates).
+10. **The gate rides on existing commands.** `npm run test:coverage` enforces the frontend floors
+    and a `cargo llvm-cov report --fail-under-lines --fail-under-regions` step was added inside the
+    existing `coverage-rust` job. No new workflow, no new npm script, no `continue-on-error`.
 
 ## Verification
 
 Commands and final output lines are recorded in the pull request for this change. All of them
-exit 0:
+exit 0. The table in [Measurements](#measurements) is the recorded Linux baseline; these are the
+same commands re-run on the Windows development machine that added the gate, so the Rust totals
+sit ~0.2 pp below the Linux figures (see [Targeted gates](#targeted-gates)):
 
 ```text
-npm run build            -> ✓ built in 1.45s
-npm run test             -> Test Files  36 passed (36) / Tests  539 passed (539)
-cargo check --all-targets-> Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.08s
-cargo test               -> test result: ok. 255 passed; 0 failed  (lib)
-                            test result: ok. 3 passed; 0 failed    (integration)
-npm run test:coverage    -> Lines 48.59% (3102/6383)
-cargo llvm-cov report    -> TOTAL 19971 5428 72.82% | 1659 711 57.14% | 11672 3379 71.05% | 0 0 -
+npm run build             -> ✓ built in 1.47s
+npm run test              -> Tests  554 passed (554)
+cargo check --all-targets -> Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 08s
+cargo test                -> test result: ok. 256 passed; 0 failed  (lib)
+                             test result: ok. 3 passed; 0 failed    (integration)
+npm run test:coverage     -> Test Files  36 passed (36) / Lines 48.96% (3182/6498)
+cargo llvm-cov --no-report-> exit 0
+cargo llvm-cov report     -> TOTAL 20128 5492 72.71% | 1685 722 57.15% | 11774 3430 70.87% | 0 0 -
+cargo llvm-cov report --fail-under-lines 70 --fail-under-regions 72 -> exit 0
 ```
+
+The failing path and the no-op check are recorded in [Targeted gates](#targeted-gates).
 
 Not run, and why:
 
