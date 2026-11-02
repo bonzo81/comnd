@@ -19,8 +19,13 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       reportsDirectory: "./coverage",
       clean: true,
-      // No thresholds: a gate needs a measured, stable baseline first
-      // (docs/plans/065-plan-test-coverage.md).
+      // Two per-area line floors, no global target and no per-file check. Each
+      // floor sits below the #86 baseline by the headroom recorded in
+      // docs/plans/065-plan-test-coverage.md, which also holds the derivation.
+      thresholds: {
+        "src/lib/**": { lines: 78 },
+        "src/components/**": { lines: 29 },
+      },
     },
   },
 });
