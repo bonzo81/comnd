@@ -544,6 +544,7 @@ function compare(committedDir, freshDir) {
   }
   const rows = [];
   let differences = 0;
+  let modifiedBaselines = 0;
   for (const shot of committed.shots) {
     const committedFile = path.join(committedDir, shot.file);
     const freshFile = path.join(freshDir, shot.file);
@@ -557,14 +558,30 @@ function compare(committedDir, freshDir) {
       differences += 1;
       continue;
     }
+    // Read the committed image, not just the manifest: an image edited or
+    // corrupted without a manifest update would otherwise still "match" the
+    // hash the manifest claims for it.
+    const committedBytes = readFileSync(committedFile);
+    const committedHash = sha256(committedBytes);
+    const committedSize = pngSize(committedBytes);
+    if (committedHash !== shot.sha256
+      || committedSize.width !== shot.width
+      || committedSize.height !== shot.height) {
+      rows.push(`BASELINE MODIFIED ${shot.file}  manifest ${shot.sha256.slice(0, 12)} `
+        + `(${shot.width}x${shot.height})  on disk ${committedHash.slice(0, 12)} `
+        + `(${committedSize.width}x${committedSize.height})`);
+      differences += 1;
+      modifiedBaselines += 1;
+      continue;
+    }
     const fresh = readFileSync(freshFile);
     const freshHash = sha256(fresh);
     const freshSize = pngSize(fresh);
-    if (freshHash === shot.sha256) {
+    if (freshHash === committedHash) {
       rows.push(`MATCH   ${shot.file}  ${freshSize.width}x${freshSize.height}`);
     } else {
-      rows.push(`DIFFERS ${shot.file}  committed ${shot.sha256.slice(0, 12)} `
-        + `(${shot.width}x${shot.height})  fresh ${freshHash.slice(0, 12)} (${freshSize.width}x${freshSize.height})`);
+      rows.push(`DIFFERS ${shot.file}  committed ${committedHash.slice(0, 12)} `
+        + `(${committedSize.width}x${committedSize.height})  fresh ${freshHash.slice(0, 12)} (${freshSize.width}x${freshSize.height})`);
       differences += 1;
     }
   }
@@ -572,6 +589,11 @@ function compare(committedDir, freshDir) {
   console.log(differences === 0
     ? `\nAll ${committed.shots.length} committed screenshots reproduced byte for byte.`
     : `\n${differences} of ${committed.shots.length} screenshots differ. Inspect them by eye before replacing the baseline.`);
+  if (modifiedBaselines > 0) {
+    console.log(`\n${modifiedBaselines} committed image(s) do not match manifest.json. The baseline was `
+      + "edited or corrupted outside the capture: restore it from git, or re-capture and commit "
+      + "the images and the manifest together.");
+  }
   return differences;
 }
 
@@ -579,9 +601,14 @@ async function main() {
   if (runUnderXvfb(import.meta.url)) return;
   const opts = parseArgs(process.argv.slice(2));
   const committedDir = path.join(root, "test", "smoke", "visual-baseline", opts.platform);
+  // Only ever delete a directory this run allocated. `--out` belongs to the
+  // user: `--check --out=tmp/review` must leave whatever was already there.
+  const tempDir = !opts.out && opts.check
+    ? mkdtempSync(path.join(os.tmpdir(), "comnd-visual-check-"))
+    : null;
   const targetDir = opts.out
     ? path.resolve(root, opts.out)
-    : (opts.check ? mkdtempSync(path.join(os.tmpdir(), "comnd-visual-check-")) : committedDir);
+    : (tempDir ?? committedDir);
 
   mkdirSync(targetDir, { recursive: true });
   console.log(`Capturing the ${opts.platform} visual baseline into ${targetDir}`);
@@ -605,6 +632,7 @@ async function main() {
   } catch (error) {
     console.error(`FAIL ${error.message}`);
     process.exitCode = 1;
+    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     return;
   }
 
@@ -617,7 +645,7 @@ async function main() {
     const differences = compare(committedDir, targetDir);
     process.exitCode = differences === 0 ? 0 : 1;
   } finally {
-    rmSync(targetDir, { recursive: true, force: true });
+    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   }
 }
 

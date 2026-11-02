@@ -82,6 +82,10 @@ npm run smoke:visual -- --out=tmp/review       # capture somewhere you can look 
 npm run smoke:visual -- --platform=linux       # write test/smoke/visual-baseline/linux/
 ```
 
+`--check` deletes only the temporary directory it allocated itself. An explicit
+`--out` directory is yours and is never removed, so `--check --out=tmp/review`
+keeps the fresh images for inspection alongside the comparison result.
+
 `--platform` defaults to `windows` on Windows and `linux` elsewhere. A Linux
 set is not committed yet: run the command on a Linux host and commit the
 result under `test/smoke/visual-baseline/linux/`. Until then there is no Linux
@@ -153,11 +157,14 @@ replaced by eyeballing: run `--check` first to know *which* images to look at.
 
 Proves: on a machine at the recorded display scale, the current build reproduces
 each committed image **byte for byte** — same viewport, same pixels, same
-encoding. It prints the fresh DPR and pixel size, and when the display scale
-differs it stops with `ENVIRONMENT MISMATCH` instead of listing nine misleading
-differences.
+encoding. It reads each committed PNG and verifies it against the hash and pixel
+size recorded in `manifest.json` before comparing, so an image edited or
+corrupted without a manifest update is reported as `BASELINE MODIFIED` rather
+than silently accepted. It prints the fresh DPR and pixel size, and when the
+display scale differs it stops with `ENVIRONMENT MISMATCH` instead of listing
+nine misleading differences.
 
 Does not prove: that the image is correct, accessible or attractive; that
 another platform renders identically (font rasterisation and scale factor
 differ, which is why sets are per platform); or that anything in CI will fail
-if an image changes.
+if an image changes. `--check` is a local command; no workflow runs it.

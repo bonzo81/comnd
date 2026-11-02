@@ -14,8 +14,10 @@ The visual reference screenshots and their review procedure live in
 
 ## Automated vs manual — the split
 
-Nothing in this file is covered by CI. Everything in this table is, and a
-reviewer should not spend manual effort re-establishing it.
+Nothing in this file is covered by CI. The checks in this table are, and a
+reviewer should not spend manual effort re-establishing them — with one
+exception: the visual-reference row is a **local-only** command that no workflow
+runs, so it stays on the reviewer's list.
 
 | Area | Command | What it asserts |
 |---|---|---|
@@ -25,7 +27,7 @@ reviewer should not spend manual effort re-establishing it.
 | Layout | `npm run smoke` | Side panel resizes the terminal and drives the PTY size change instead of overlaying it (ADR-003); no clipped or overlapping controls at small windows, with long host names, an expanded folder tree, or a scrolling dialog |
 | Themes, Reading Comfort, enlarged text | `npm run smoke` | Dark, light and solarized themes, Reading Comfort mode and enlarged text render without clipped or overlapping controls |
 | Assertion strength | `npm run smoke -- --mutation=focus\|name\|layout`, `npm run smoke:mutation` | Each category of assertion still fails when the behaviour it guards is deliberately broken |
-| Visual reference | `npm run smoke:visual -- --check` | The current build reproduces the committed reference screenshots byte for byte (human review aid — see visual-baseline.md) |
+| Visual reference — **local only, not run in CI** | `npm run smoke:visual -- --check` | The current build reproduces the committed reference screenshots byte for byte (human review aid — see visual-baseline.md) |
 
 The automatable half of issue #57 landed as #89 (commit `3f37b71`, PR #92).
 Those assertions read computed styles, the accessibility tree and layout
@@ -60,28 +62,32 @@ VoiceOver row is recorded here.
 ## B. Native dialogs and OS surfaces
 
 WebDriver cannot see or screenshot OS-owned surfaces, and a native modal blocks
-the driver, so these can only be checked by hand.
+the driver, so these can only be checked by hand. M-9 to M-12 are the app's own
+native dialogs; KB import is an in-app wizard (URL or pasted text, no file
+picker), so its accessibility is covered by `npm run smoke`, not here.
 
 | ID | Check | Expected | Platforms |
 |---|---|---|---|
 | M-9 | Command Replay → delete a saved command → native `confirm()` | Native dialog appears with the command in the prompt; Cancel keeps the command; OK deletes it and the list updates | Windows, Linux |
-| M-10 | Settings → export/save session log → native save dialog | Dialog opens, a chosen path is honoured, the file is written, no error toast | Windows, Linux |
-| M-11 | Settings → open data directory → native folder picker | OS file manager opens at the app data directory | Windows, Linux |
-| M-12 | KB export / import → native save/open dialogs | Correct default directory and file filter; cancelling leaves state untouched | Windows, Linux |
+| M-10 | Settings → Logging → "Log file location" → **Browse...** → native save dialog | Dialog opens, a chosen path is honoured, and the app log is written there after a restart; cancelling leaves the current path unchanged | Windows, Linux |
+| M-11 | Settings → Logging → "Session log directory" → **Browse...** → native folder picker | Picker opens at a sensible directory, a chosen directory is honoured for new sessions; cancelling leaves the current directory unchanged | Windows, Linux |
+| M-12 | Settings → General → Data Management → **Export backup...** / **Restore from backup...** → native save/open dialogs | `comnd-backup.zip` as the default name and a `.zip` filter; the chosen path is honoured; cancelling leaves state untouched | Windows, Linux |
 | M-13 | Window chrome: resize, maximise, restore, close; app at 800×600 and maximised | Layout reflows, no clipped controls, terminal refits, close exits cleanly | Windows, Linux |
 | M-14 | OS text scaling (Windows 125%/150%, Linux equivalent) | UI and terminal remain usable; no clipped labels | Windows, Linux |
 
 ## C. Platform keyboard differences
 
 `docs/specs/07-keyboard-shortcuts.md` maps `Ctrl`-prefixed shortcuts to `⌘` on
-macOS, keeps `Ctrl+Space` literal everywhere, and reserves `Ctrl+W`,
-`Ctrl+C` and `Ctrl+V` so they reach the remote. Rebinding is stored
-platform-agnostically as `Mod+…`, so a config file moves between platforms.
+macOS and reserves `Ctrl+W`, `Ctrl+C` and `Ctrl+V` so they reach the remote.
+`Ctrl+Space` is the exception: its modifier is pinned to literal `Ctrl` on every
+platform and it toggles suggestions, so it is deliberately consumed. Rebinding
+is stored platform-agnostically as `Mod+…`, so a config file moves between
+platforms.
 
 | ID | Check | Expected | Platforms |
 |---|---|---|---|
 | M-15 | `Ctrl+W` at a shell prompt on a connected host | Deletes the previous word at the remote; the app does not close, intercept or swallow it | Windows, Linux |
-| M-16 | `Ctrl+Space` on a connected host | Sends the literal control byte; the app never treats it as a shortcut | Windows, Linux |
+| M-16 | `Ctrl+Space` on a connected host | Toggles the suggestion dropdown on and off (default binding, `src/lib/shortcuts.ts`); the control byte is consumed by the app and never reaches the remote — intended, not a failure | Windows, Linux |
 | M-17 | `Ctrl+C` with a remote command running, and with no selection | Interrupt reaches the remote; copy still works when text is selected | Windows, Linux |
 | M-18 | Shortcut help modal and Settings → Shortcuts render the platform's own key names | `Ctrl+…` on Windows and Linux; no macOS symbols leak in | Windows, Linux |
 | M-19 | A rebinding made on one platform, then the same `config.json` used on the other | The rebinding resolves to that platform's modifier | Windows ↔ Linux |
