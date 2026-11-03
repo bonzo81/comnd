@@ -18,7 +18,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildApp, invoke, pause, root, runCase, runUnderXvfb, WAIT_MS } from "./lib/harness.mjs";
@@ -51,8 +51,8 @@ const FORBIDDEN_TEXT = [
   "BEGIN OPENSSH",
   "PRIVATE KEY",
   "Bearer ",
-  process.env.USERNAME ?? "\u0000",
-  process.env.USER ?? "\u0000",
+  process.env.USERNAME || "\u0000",
+  process.env.USER || "\u0000",
   "C:\\Users",
   "/home/",
 ];
@@ -325,6 +325,23 @@ function createCapture(browser, outDir, manifest) {
         `${file}: rendered text contains ${JSON.stringify(needle)}; refusing to commit a screenshot with it`,
       );
     }
+    // The xterm cursor blinks on a timer, so a screenshot catches it lit or
+    // dark depending on when it lands: that one pixel row made re-captures
+    // differ. Pin it lit for every shot instead.
+    await browser.execute(() => {
+      if (window.__comndTerminal) window.__comndTerminal.options.cursorBlink = false;
+    });
+    await pause(120);
+    // Element clicks leave the real pointer wherever it landed, so a row under
+    // it keeps its :hover tint and made a re-capture differ. Park it top-left.
+    await browser.performActions([{
+      type: "pointer",
+      id: "visual-pointer",
+      parameters: { pointerType: "mouse" },
+      actions: [{ type: "pointerMove", duration: 0, origin: "viewport", x: 0, y: 0 }],
+    }]);
+    await browser.releaseActions();
+    await pause(60);
     const buffer = Buffer.from(await browser.takeScreenshot(), "base64");
     const size = pngSize(buffer);
     assert.deepEqual(
@@ -362,6 +379,7 @@ async function captureAll(browser, outDir) {
     terminalTheme: PREFS["comnd-terminal-theme"],
     readingComfort: "off",
     terminalFontSize: Number(PREFS["comnd-terminal-font-size"]),
+    terminalCursorBlink: false,
     suggestions: "enabled via the terminal toolbar toggle",
     shots: [],
   };
@@ -659,23 +677,41 @@ function compare(committedDir, freshDir) {
   return differences;
 }
 
+function isInsideDir(child, parent) {
+  const normalise = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
+  const relative = path.relative(normalise(parent), normalise(child));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 async function main() {
   if (runUnderXvfb(import.meta.url)) return;
   const opts = parseArgs(process.argv.slice(2));
   const committedDir = path.join(root, "test", "smoke", "visual-baseline", opts.platform);
-  // Only ever delete a directory this run allocated. `--out` belongs to the
-  // user: `--check --out=tmp/review` must leave whatever was already there.
-  const tempDir = !opts.out && opts.check
-    ? mkdtempSync(path.join(os.tmpdir(), "comnd-visual-check-"))
-    : null;
-  const targetDir = opts.out
-    ? path.resolve(root, opts.out)
-    : (tempDir ?? committedDir);
+  const outDir = opts.out ? path.resolve(root, opts.out) : null;
+  // Capturing into the committed baseline and then comparing that capture with
+  // itself would always pass, and would silently replace the set it is meant
+  // to check.
+  if (opts.check && outDir && isInsideDir(outDir, committedDir)) {
+    console.error(`FAIL --out=${opts.out} is the committed baseline, so --check would compare the `
+      + "capture with itself. Omit --out to compare against it.");
+    process.exitCode = 1;
+    return;
+  }
+  // A plain capture stages into a temp dir and replaces the baseline only after
+  // every shot and the manifest were written, so a failure halfway through
+  // leaves the committed set whole. `--out` is the user's directory and is
+  // written directly; `--check` needs only a scratch directory.
+  const scratchDir = outDir
+    ? null
+    : mkdtempSync(path.join(os.tmpdir(), opts.check ? "comnd-visual-check-" : "comnd-visual-stage-"));
+  const targetDir = outDir ?? scratchDir;
+  const finalDir = outDir ?? committedDir;
 
   let manifest;
   try {
     mkdirSync(targetDir, { recursive: true });
-    console.log(`Capturing the ${opts.platform} visual baseline into ${targetDir}`);
+    console.log(`Capturing the ${opts.platform} visual baseline into ${finalDir}`
+      + (scratchDir && !opts.check ? " (staged until every shot succeeds)" : ""));
     buildApp();
 
     await runCase({
@@ -694,11 +730,21 @@ async function main() {
   } catch (error) {
     console.error(`FAIL ${error.message}`);
     process.exitCode = 1;
-    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+    if (scratchDir) rmSync(scratchDir, { recursive: true, force: true });
     return;
   }
 
   if (!opts.check) {
+    if (scratchDir) {
+      // Publish only now that every shot and the manifest exist, so an
+      // interrupted capture cannot leave the baseline half old and half new.
+      mkdirSync(committedDir, { recursive: true });
+      for (const shot of manifest.shots) {
+        copyFileSync(path.join(scratchDir, shot.file), path.join(committedDir, shot.file));
+      }
+      copyFileSync(path.join(scratchDir, "manifest.json"), path.join(committedDir, "manifest.json"));
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
     console.log(`\nCaptured ${manifest.shots.length} screenshots plus manifest.json.`);
     return;
   }
@@ -707,7 +753,7 @@ async function main() {
     const differences = compare(committedDir, targetDir);
     process.exitCode = differences === 0 ? 0 : 1;
   } finally {
-    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+    if (scratchDir) rmSync(scratchDir, { recursive: true, force: true });
   }
 }
 

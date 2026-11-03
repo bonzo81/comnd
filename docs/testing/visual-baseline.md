@@ -29,6 +29,11 @@ Committed set: `test/smoke/visual-baseline/windows/`.
 `manifest.json` sits beside them and records the geometry the set was captured
 at, plus each shot's screen, state, SHA-256 and pixel size.
 
+The committed set was last captured on 2026-11-03 on Windows 11 (WebView2
+156.0.4314.58, DPR 2, 1280×800). Re-capture reproducibility was checked by
+capturing five times in a row and comparing every file's SHA-256 against the
+committed set: identical every time.
+
 ### What is deliberately not covered
 
 | Excluded | Why |
@@ -62,6 +67,13 @@ The manifest is the source of truth; this section explains it.
   off.
 - **Animations, transitions and the text caret are disabled** by a stylesheet
   injected before the first shot, so nothing is caught mid-fade.
+- **The pointer is parked at the viewport origin before every shot.** Element
+  clicks leave the real cursor wherever they landed, so the row under it kept a
+  `:hover` tint and re-captures differed by one row of text.
+- **The xterm cursor is pinned lit.** The terminal blinks its cursor on a timer,
+  so a screenshot lands with the cursor lit or dark depending on timing. The
+  capture sets `window.__comndTerminal.options.cursorBlink = false` before every
+  shot and records `terminalCursorBlink: false` in the manifest.
 - **Data is seeded over IPC only**: two folders, three decorative hosts, one
   mock host, three replay commands. No credentials, no personal data, and a
   forbidden-text guard (`smoke-secret`, `BEGIN OPENSSH`, `PRIVATE KEY`,
@@ -85,6 +97,20 @@ npm run smoke:visual -- --platform=linux       # write test/smoke/visual-baselin
 `--check` deletes only the temporary directory it allocated itself. An explicit
 `--out` directory is yours and is never removed, so `--check --out=tmp/review`
 keeps the fresh images for inspection alongside the comparison result.
+
+A plain capture writes into a temporary directory and copies the result into
+`test/smoke/visual-baseline/<platform>/` only after every screenshot and the
+manifest were produced, so an interrupted or failed capture leaves the
+committed set whole. `--out` is written directly, and `--check` refuses an
+`--out` that points at the committed baseline, because comparing a capture with
+itself always passes.
+
+On a machine with `core.autocrlf=true` (the Git for Windows default) the
+regenerated `manifest.json` is written with LF endings, so `git status` lists it
+as modified while `git diff` shows nothing. Confirm with `git diff --
+test/smoke/visual-baseline/<platform>/manifest.json`; if it prints nothing,
+`git checkout --` the file. The screenshots are binary and re-capture
+byte-for-byte, so they do not have this problem.
 
 `--platform` defaults to `windows` on Windows and `linux` elsewhere. A Linux
 set is not committed yet: run the command on a Linux host and commit the

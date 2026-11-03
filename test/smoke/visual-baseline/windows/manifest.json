@@ -8,6 +8,7 @@
   "terminalTheme": "dark",
   "readingComfort": "off",
   "terminalFontSize": 14,
+  "terminalCursorBlink": false,
   "suggestions": "enabled via the terminal toolbar toggle",
   "shots": [
     {
@@ -38,7 +39,7 @@
       "file": "04-knowledge-base.png",
       "screen": "Knowledge Base",
       "state": "default platform, first command selected, detail panel populated",
-      "sha256": "e4244a8760571eb452b8153ebde578d52f0d08adf8fae823b312eb1baf55ef01",
+      "sha256": "ef89da9c2c3a70f5048c7c5c75171ef89c39c7a5b5318bfd38350d72a27380a1",
       "width": 2560,
       "height": 1600
     },
@@ -54,7 +55,7 @@
       "file": "06-replay.png",
       "screen": "Command Replay",
       "state": "three seeded commands across three platforms, one with a {{variable}}",
-      "sha256": "31198443bf6806577b7c986fbcfdaf358c8e791aeb76c9e97c3487327cad84e6",
+      "sha256": "a8d00da676e89808a8060507b17a0629fdc0bf60767e4143dd3b55e6600b20e0",
       "width": 2560,
       "height": 1600
     },
@@ -70,7 +71,7 @@
       "file": "08-terminal-sidebar-closed.png",
       "screen": "Terminal",
       "state": "\"ip \" typed at the mock prompt: 1 command row(s) (ip) with ghost text \"addr\"; side panel closed",
-      "sha256": "1b526ebedb6eaecf61a88fc7d236f1c6da7e2ae629e015682e62a9169275e71a",
+      "sha256": "ef29a3a1391898e79abafa2994a05218e3547f113d1096eb0e32613e4de3dea4",
       "width": 2560,
       "height": 1600
     },
@@ -78,7 +79,7 @@
       "file": "09-terminal-sidebar-open.png",
       "screen": "Terminal",
       "state": "same command line with the side panel open showing the ip command detail",
-      "sha256": "2d8dc23f15f3999b9309b1a96db80f692ca3f9c0b111c50c5d6fe9ea3a9948ec",
+      "sha256": "010a6cefd413913169caa5550acefc962f9e68c763cda20be4a6c191dd4006f7",
       "width": 2560,
       "height": 1600
     }
