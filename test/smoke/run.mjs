@@ -1375,10 +1375,19 @@ async function main() {
         await waitForConnection(browser);
 
         // Prove the browser-auth path actually ran, so the zero below is not
-        // a vacuous pass on a host that never emitted a URL.
+        // a vacuous pass on a host that never emitted a URL. Compare the
+        // parsed URL rather than a substring: an exact match proves the app
+        // received the mock's URL, not a longer URL that embeds it.
+        const LOGIN_URL = "https://login.tailscale.com/a/test123";
         const urls = await invoke(browser, "test_smoke_auth_urls");
         assert(
-          urls.includes("https://login.tailscale.com/a/test123"),
+          urls.some((u) => {
+            try {
+              return new URL(u).href === LOGIN_URL;
+            } catch {
+              return false;
+            }
+          }),
           `Auth URL: the mock's login URL never reached the frontend (surfaced ${JSON.stringify(urls)})`,
         );
 
