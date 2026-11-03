@@ -121,10 +121,21 @@ static OPEN_URL_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 #[cfg(debug_assertions)]
 static AUTH_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+// The list is never cleared and one keyboard-interactive round can carry many
+// prompts, each potentially holding a URL, so bound both its length and each
+// entry — a hostile server must not be able to grow it without limit.
+#[cfg(debug_assertions)]
+const AUTH_URLS_MAX_ENTRIES: usize = 16;
+#[cfg(debug_assertions)]
+const AUTH_URL_MAX_LEN: usize = 2048;
+
 #[cfg(debug_assertions)]
 pub(crate) fn record_auth_url(url: &str) {
     if let Ok(mut urls) = AUTH_URLS.lock() {
-        urls.push(url.to_string());
+        if urls.len() >= AUTH_URLS_MAX_ENTRIES {
+            urls.remove(0);
+        }
+        urls.push(url.chars().take(AUTH_URL_MAX_LEN).collect());
     }
 }
 
@@ -653,6 +664,34 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn test_record_auth_url_is_bounded() {
+        // One test, not two: AUTH_URLS is a process-global that is never
+        // cleared, so parallel tests would interleave and race.
+        for i in 0..(AUTH_URLS_MAX_ENTRIES + 4) {
+            record_auth_url(&format!("https://example.test/{i}"));
+        }
+        {
+            let urls = AUTH_URLS.lock().expect("AUTH_URLS lock");
+            assert_eq!(urls.len(), AUTH_URLS_MAX_ENTRIES);
+            let newest = format!("https://example.test/{}", AUTH_URLS_MAX_ENTRIES + 3);
+            assert_eq!(urls.last().map(String::as_str), Some(newest.as_str()));
+            assert!(
+                !urls.iter().any(|u| u == "https://example.test/0"),
+                "oldest entry should have been evicted"
+            );
+        }
+
+        let long = format!("https://example.test/{}", "a".repeat(AUTH_URL_MAX_LEN * 2));
+        record_auth_url(&long);
+        let urls = AUTH_URLS.lock().expect("AUTH_URLS lock");
+        assert_eq!(
+            urls.last().map(String::len),
+            Some(AUTH_URL_MAX_LEN),
+            "a long entry should be truncated"
+        );
+    }
 
     #[test]
     fn test_resolve_log_path_none_uses_default() {
