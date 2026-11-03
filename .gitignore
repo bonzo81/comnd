@@ -30,3 +30,6 @@ docs/*.pdf
 
 # Headroom
 .headroom/
+
+# Scratch output (e.g. npm run smoke:visual -- --out=tmp/review)
+/tmp/

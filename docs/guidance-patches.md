@@ -95,3 +95,27 @@ Added:
 Why: `lts/*` moved to Node 26.13.0 and 43 tests across 7 files failed on all
 three OSes with no code change. The cause took a reproduction under the exact
 Node version to find, because the local Node 24 run passed.
+
+## 2026-11-03 (PR #96)
+
+Source: PR #96, the visual baseline and manual matrix for issue #57.
+
+### Git Hygiene → When addressing review comments
+
+Added:
+
+> Bot reviewers can put findings in the review body instead of an inline
+> thread. `reviewThreads` then reports every thread resolved while those
+> findings are still open, so read the bodies as well: `gh api
+> repos/bonzo81/comnd/pulls/<n>/reviews`, then each review's `body`.
+
+> A body finding has no thread. Answer it with one top-level PR comment
+> (`gh pr comment <n> --body-file <file>`). Reply inside a thread only for
+> that thread's finding, and resolve the thread only once the fix is pushed.
+
+Why: a CodeRabbit review left three findings in the review body with no inline
+thread. The thread listing reported all nine threads resolved, so a
+thread-based check said the review was fully addressed while three findings
+were still open — they were only caught by reading the review bodies
+separately, and the reply for them had to be a top-level comment because there
+was no thread to answer.

@@ -59,6 +59,6 @@ Releases are automated by [release-please](https://github.com/googleapis/release
 1. When a `feat` or `fix` commit lands on main, release-please opens (or updates) a PR titled `chore(main): release X.Y.Z` that bumps the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, and updates `CHANGELOG.md`.
 2. Merging that PR creates the `vX.Y.Z` git tag and a draft GitHub release.
 3. The tag fires the binary build workflow, which attaches per-platform installers to the draft.
-4. A maintainer smoke-tests the draft, then publishes it.
+4. A maintainer smoke-tests the draft, then publishes it. Before publishing, work through the rows in [`docs/testing/manual-matrix.md`](docs/testing/manual-matrix.md) for your platform and add a row to its pass log; review any changed reference screenshot using [`docs/testing/visual-baseline.md`](docs/testing/visual-baseline.md).
 
 Just write conventional commits and let the release PR do the rest.
