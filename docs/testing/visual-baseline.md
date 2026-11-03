@@ -201,3 +201,8 @@ differ, which is why sets are per platform); or that anything in CI will fail
 if an image changes. `--check` is a local command; no workflow runs it. It also
 does not compare the free-text `state` description — that is prose, and editing
 it is not a rendering change.
+
+If a run reports a difference and the next run does not, treat it as a
+determinism bug in the capture, not as a flaky test. Re-running until the
+result is green records a baseline nobody can reproduce. The pointer-hover tint
+above was found this way, after three clean runs had already hidden it.
