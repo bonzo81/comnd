@@ -508,6 +508,37 @@ async function captureAll(browser, outDir) {
   return manifest;
 }
 
+// Read each committed image and check it against the manifest. An image edited
+// or corrupted without a manifest update would otherwise still "match" the hash
+// the manifest claims for it. Returns file -> problem row.
+function committedIntegrity(committedDir, committed) {
+  const problems = new Map();
+  for (const shot of committed.shots) {
+    const committedFile = path.join(committedDir, shot.file);
+    if (!existsSync(committedFile)) {
+      problems.set(shot.file, `MISSING ${shot.file} (listed in manifest.json, not on disk)`);
+      continue;
+    }
+    const bytes = readFileSync(committedFile);
+    const hash = sha256(bytes);
+    const size = pngSize(bytes);
+    if (hash !== shot.sha256
+      || size.width !== shot.width
+      || size.height !== shot.height) {
+      problems.set(shot.file, `BASELINE MODIFIED ${shot.file}  manifest ${shot.sha256.slice(0, 12)} `
+        + `(${shot.width}x${shot.height})  on disk ${hash.slice(0, 12)} `
+        + `(${size.width}x${size.height})`);
+    }
+  }
+  return problems;
+}
+
+function reportModifiedBaselines(modifiedBaselines) {
+  console.log(`\n${modifiedBaselines} committed image(s) do not match manifest.json. The baseline was `
+    + "edited or corrupted outside the capture: restore it from git, or re-capture and commit "
+    + "the images and the manifest together.");
+}
+
 function compare(committedDir, freshDir) {
   const manifestPath = path.join(committedDir, "manifest.json");
   if (!existsSync(manifestPath)) {
@@ -524,6 +555,10 @@ function compare(committedDir, freshDir) {
     console.log(`Fresh:     viewport ${freshManifest.viewport.width}x${freshManifest.viewport.height} `
       + `at DPR ${freshManifest.devicePixelRatio}\n`);
   }
+  // Hash and measure the committed images first: an edited or corrupted
+  // baseline is worth reporting even when the display scale makes the pixel
+  // comparison meaningless, and reporting both together saves a second run.
+  const integrity = committedIntegrity(committedDir, committed);
   // Byte comparison only means something at the same scale factor: the same
   // layout rasterises to a different pixel count, so every file "differs" for a
   // reason that has nothing to do with the app. Say so instead.
@@ -540,40 +575,37 @@ function compare(committedDir, freshDir) {
       "regression. Either run on a display at the recorded scale, or re-capture",
       "and commit the new set together with the new scale factor.",
     ].join("\n"));
-    return committed.shots.length;
+    if (integrity.size > 0) {
+      console.log("\nIndependently of the scale, the committed baseline is damaged:");
+      console.log([...integrity.values()].join("\n"));
+      reportModifiedBaselines(integrity.size);
+    }
+    return committed.shots.length + integrity.size;
   }
   const rows = [];
   let differences = 0;
+  let imageDifferences = 0;
   let modifiedBaselines = 0;
+  let metadataDifferences = 0;
   for (const shot of committed.shots) {
-    const committedFile = path.join(committedDir, shot.file);
     const freshFile = path.join(freshDir, shot.file);
-    if (!existsSync(freshFile)) {
-      rows.push(`MISSING ${shot.file} (not captured this run)`);
+    if (integrity.has(shot.file)) {
+      rows.push(integrity.get(shot.file));
       differences += 1;
-      continue;
-    }
-    if (!existsSync(committedFile)) {
-      rows.push(`MISSING ${shot.file} (not in the committed baseline)`);
-      differences += 1;
-      continue;
-    }
-    // Read the committed image, not just the manifest: an image edited or
-    // corrupted without a manifest update would otherwise still "match" the
-    // hash the manifest claims for it.
-    const committedBytes = readFileSync(committedFile);
-    const committedHash = sha256(committedBytes);
-    const committedSize = pngSize(committedBytes);
-    if (committedHash !== shot.sha256
-      || committedSize.width !== shot.width
-      || committedSize.height !== shot.height) {
-      rows.push(`BASELINE MODIFIED ${shot.file}  manifest ${shot.sha256.slice(0, 12)} `
-        + `(${shot.width}x${shot.height})  on disk ${committedHash.slice(0, 12)} `
-        + `(${committedSize.width}x${committedSize.height})`);
-      differences += 1;
+      imageDifferences += 1;
       modifiedBaselines += 1;
       continue;
     }
+    if (!existsSync(freshFile)) {
+      rows.push(`MISSING ${shot.file} (not captured this run)`);
+      differences += 1;
+      imageDifferences += 1;
+      continue;
+    }
+    const committedFile = path.join(committedDir, shot.file);
+    const committedBytes = readFileSync(committedFile);
+    const committedHash = sha256(committedBytes);
+    const committedSize = pngSize(committedBytes);
     const fresh = readFileSync(freshFile);
     const freshHash = sha256(fresh);
     const freshSize = pngSize(fresh);
@@ -583,16 +615,46 @@ function compare(committedDir, freshDir) {
       rows.push(`DIFFERS ${shot.file}  committed ${committedHash.slice(0, 12)} `
         + `(${committedSize.width}x${committedSize.height})  fresh ${freshHash.slice(0, 12)} (${freshSize.width}x${freshSize.height})`);
       differences += 1;
+      imageDifferences += 1;
     }
   }
+  const freshShots = new Map((freshManifest?.shots ?? []).map((shot) => [shot.file, shot]));
+  for (const shot of committed.shots) {
+    const fresh = freshShots.get(shot.file);
+    if (!fresh || fresh.screen === shot.screen) continue;
+    // `screen` is a short label, so it is compared. `state` is prose that
+    // changes whenever the description is edited; the images already catch a
+    // real rendering change.
+    rows.push(`METADATA ${shot.file}  screen ${JSON.stringify(shot.screen)} -> ${JSON.stringify(fresh.screen)}`);
+    differences += 1;
+    metadataDifferences += 1;
+  }
+  if (freshManifest && JSON.stringify(freshManifest.terminalSuggestion)
+    !== JSON.stringify(committed.terminalSuggestion)) {
+    rows.push("METADATA manifest.json  terminalSuggestion "
+      + `${JSON.stringify(committed.terminalSuggestion)} -> ${JSON.stringify(freshManifest.terminalSuggestion)}`);
+    differences += 1;
+    metadataDifferences += 1;
+  }
+  for (const shot of freshManifest?.shots ?? []) {
+    if (committed.shots.some((entry) => entry.file === shot.file)) continue;
+    rows.push(`NOT IN BASELINE ${shot.file} (captured this run, no committed manifest entry)`);
+    differences += 1;
+  }
   console.log(rows.join("\n"));
-  console.log(differences === 0
-    ? `\nAll ${committed.shots.length} committed screenshots reproduced byte for byte.`
-    : `\n${differences} of ${committed.shots.length} screenshots differ. Inspect them by eye before replacing the baseline.`);
+  if (differences === 0) {
+    console.log(`\nAll ${committed.shots.length} committed screenshots reproduced byte for byte.`);
+  } else {
+    console.log(`\n${imageDifferences} of ${committed.shots.length} committed screenshots differ`
+      + (metadataDifferences > 0 ? `; ${metadataDifferences} manifest field(s) changed` : "")
+      + ". Inspect them by eye before replacing the baseline.");
+  }
+  if (metadataDifferences > 0) {
+    console.log(`\n${metadataDifferences} committed manifest field(s) describe the capture differently. `
+      + "The images are unaffected; re-capture and commit manifest.json so the description matches.");
+  }
   if (modifiedBaselines > 0) {
-    console.log(`\n${modifiedBaselines} committed image(s) do not match manifest.json. The baseline was `
-      + "edited or corrupted outside the capture: restore it from git, or re-capture and commit "
-      + "the images and the manifest together.");
+    reportModifiedBaselines(modifiedBaselines);
   }
   return differences;
 }

@@ -160,11 +160,18 @@ each committed image **byte for byte** — same viewport, same pixels, same
 encoding. It reads each committed PNG and verifies it against the hash and pixel
 size recorded in `manifest.json` before comparing, so an image edited or
 corrupted without a manifest update is reported as `BASELINE MODIFIED` rather
-than silently accepted. It prints the fresh DPR and pixel size, and when the
-display scale differs it stops with `ENVIRONMENT MISMATCH` instead of listing
-nine misleading differences.
+than silently accepted. It compares the two inventories, so a screenshot
+captured but never committed is reported as `NOT IN BASELINE` instead of being
+ignored, and it compares each shot's `screen` label and the manifest's
+`terminalSuggestion` field, reporting a stale description as `METADATA`. It
+prints the fresh DPR and pixel size, and when the display scale differs it stops
+with `ENVIRONMENT MISMATCH` instead of listing nine misleading differences; the
+committed-image integrity check still runs in that case, so a damaged baseline
+is reported alongside the mismatch.
 
 Does not prove: that the image is correct, accessible or attractive; that
 another platform renders identically (font rasterisation and scale factor
 differ, which is why sets are per platform); or that anything in CI will fail
-if an image changes. `--check` is a local command; no workflow runs it.
+if an image changes. `--check` is a local command; no workflow runs it. It also
+does not compare the free-text `state` description — that is prose, and editing
+it is not a rendering change.
