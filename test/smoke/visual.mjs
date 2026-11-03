@@ -672,12 +672,12 @@ async function main() {
     ? path.resolve(root, opts.out)
     : (tempDir ?? committedDir);
 
-  mkdirSync(targetDir, { recursive: true });
-  console.log(`Capturing the ${opts.platform} visual baseline into ${targetDir}`);
-  buildApp();
-
   let manifest;
   try {
+    mkdirSync(targetDir, { recursive: true });
+    console.log(`Capturing the ${opts.platform} visual baseline into ${targetDir}`);
+    buildApp();
+
     await runCase({
       name: "visual-baseline",
       run: async (browser) => {
