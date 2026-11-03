@@ -183,6 +183,10 @@ Before marking a task complete:
   - `npx commitlint --from origin/<target-branch>` (e.g. `origin/main`), or a specific range with `--from <base> --to <head>`.
   - It checks the Conventional Commit rules in the Commit Messages section using `commitlint.config.cjs`.
 
+### When addressing review comments
+- Bot reviewers can put findings in the review body instead of an inline thread. `reviewThreads` then reports every thread resolved while those findings are still open, so read the bodies as well: `gh api repos/bonzo81/comnd/pulls/<n>/reviews`, then each review's `body`.
+- A body finding has no thread. Answer it with one top-level PR comment (`gh pr comment <n> --body-file <file>`). Reply inside a thread only for that thread's finding, and resolve the thread only once the fix is pushed.
+
 ## Commit Messages
 
 Conventional Commits are enforced in CI on pull requests (the `commitlint` job in `ci.yml`). Format: `type(scope)!: subject`, then body, then footer.
