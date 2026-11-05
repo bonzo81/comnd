@@ -120,6 +120,29 @@ were still open — they were only caught by reading the review bodies
 separately, and the reply for them had to be a top-level comment because there
 was no thread to answer.
 
+## 2026-11-05 (PR #97)
+
+Source: PR #97, smoke coverage for the auth URL CTA.
+
+### Verification Requirements
+
+Added:
+
+> `cfg(test)` and `cfg(debug_assertions)` are independent: `cargo test --release`
+> compiles tests with `debug_assertions` off, so a test that touches a
+> debug-only helper fails to compile with `E0425 cannot find ...` even though
+> `cargo test` passes. Gate the helper and its test
+> `#[cfg(any(debug_assertions, test))]`, as `pub mod test_server` does at
+> `src-tauri/src/lib.rs:10`, and run `cargo test --release --lib --no-run` when
+> you add a test around debug-only code — CI runs only the debug profile, so
+> nothing else catches it.
+
+Why: a test was written against a `#[cfg(debug_assertions)]` counter and
+compiled only under `#[cfg(test)]`, so `cargo test --release` failed with nine
+`E0425` errors while `cargo test` stayed green. The same mismatch was found a
+second time in `src/secrets/mod.rs` (issue #103). The `test_server` module
+already used the correct gate, but the file never said so.
+
 ## 2026-11-05 (issue #101)
 
 Source: issue #101, making release PRs run CI.

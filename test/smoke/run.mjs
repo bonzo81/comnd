@@ -71,6 +71,10 @@ const MUTATION_CASES = {
 const sshSuite = {
   env: {
     COMND_TEST_MOCK_NETBOX_TOKEN: "nbt_smoke.token",
+    // The app must never launch a browser on its own, and a deliberate launch
+    // (the seam proof below) must not open one on the runner either. The app
+    // still counts the launch before suppressing it.
+    COMND_SMOKE_NO_BROWSER: "1",
     ...(mutationCategory ? { COMND_SMOKE_MUTATION: mutationCategory } : {}),
   },
   // The accessibility scenarios may start the NetBox mock as well, so stop
@@ -1359,6 +1363,73 @@ async function main() {
         await (await browser.$(".tv-overlay-back")).click();
         await waitForSessionCleanup(browser, "Rejected auth");
         assert.equal(await (await browser.$(".tv-sb-dot")).isExisting(), false);
+      },
+    },
+    {
+      // The default mock persona is a Tailscale-style check-mode gateway: it
+      // prints a login URL during authentication. A server-supplied URL is a
+      // phishing surface, so the app must surface it and wait for a click.
+      name: "browser-auth-url",
+      async run(browser, dataDir) {
+        await createAndConnect(browser, dataDir);
+        await waitForConnection(browser);
+
+        // Prove the browser-auth path actually ran, so the zero below is not
+        // a vacuous pass on a host that never emitted a URL. Compare the
+        // parsed URL rather than a substring: an exact match proves the app
+        // received the mock's URL, not a longer URL that embeds it.
+        const LOGIN_URL = "https://login.tailscale.com/a/test123";
+        const urls = await invoke(browser, "test_smoke_auth_urls");
+        assert(
+          urls.some((u) => {
+            try {
+              return new URL(u).href === LOGIN_URL;
+            } catch {
+              return false;
+            }
+          }),
+          `Auth URL: the mock's login URL never reached the backend event sink (surfaced ${JSON.stringify(urls)})`,
+        );
+
+        // The recording above happens before the IPC emit, so on its own it
+        // cannot prove the frontend rendered anything. Check the overlay the
+        // URL is meant to drive: the stage text names the login step, and the
+        // button exists for the user to click.
+        const surface = await browser.execute(() => ({
+          stage: document.querySelector(".tv-overlay-stage")?.textContent?.trim() ?? "",
+          button: document.querySelector(".tv-overlay-actions .tv-open-auth")?.textContent?.trim() ?? "",
+        }));
+        assert.match(
+          surface.stage,
+          /Authentication required/i,
+          `Auth URL: the auth overlay never showed the login prompt (stage: ${JSON.stringify(surface.stage)})`,
+        );
+        assert.equal(
+          surface.button,
+          "Open login page",
+          "Auth URL: the auth overlay never rendered the login button",
+        );
+
+        const opened = await invoke(browser, "test_smoke_open_url_calls");
+        assert.equal(
+          opened,
+          0,
+          `Auth URL: the app opened the login URL without a user click (${opened} launch(es))`,
+        );
+
+        // Prove the counter tracks the real launch path, so the zero above
+        // cannot be a dead seam: click the button the user would click and
+        // expect exactly one launch. A DOM click rather than a WebDriver one —
+        // the overlay is hidden once the session connects.
+        await browser.execute(() => document.querySelector(".tv-open-auth")?.click());
+        await browser.waitUntil(
+          async () => (await invoke(browser, "test_smoke_open_url_calls")) === 1,
+          {
+            timeout: 5_000,
+            interval: 100,
+            timeoutMsg: "Auth URL: clicking the login button did not register a launch",
+          },
+        );
       },
     },
     {
