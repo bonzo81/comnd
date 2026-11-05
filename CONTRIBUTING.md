@@ -62,3 +62,32 @@ Releases are automated by [release-please](https://github.com/googleapis/release
 4. A maintainer smoke-tests the draft, then publishes it. Before publishing, work through the rows in [`docs/testing/manual-matrix.md`](docs/testing/manual-matrix.md) for your platform and add a row to its pass log; review any changed reference screenshot using [`docs/testing/visual-baseline.md`](docs/testing/visual-baseline.md).
 
 Just write conventional commits and let the release PR do the rest.
+
+### Release PR checks
+
+The release PR runs the same `ci.yml` jobs as any other PR — `frontend`, `rust`, `smoke`, `smoke-netbox` and `commitlint`. That only happens because the PR is opened with a GitHub App token. A PR created with `secrets.GITHUB_TOKEN` starts no workflows, which is why release PRs before the App existed showed every check as `action_required`.
+
+**One-time setup (repository admin).** These steps need admin rights on `bonzo81/comnd` and are not automated:
+
+1. Create a GitHub App named `comnd-release-please` (Settings → Developer settings → GitHub Apps → New GitHub App). Turn the webhook off — nothing receives events.
+2. Under **Repository permissions** grant exactly two: **Contents: Read and write** and **Pull requests: Read and write**. Leave everything else at **No access**; the workflow narrows the installation token to these two with `permission-contents` and `permission-pull-requests`.
+3. Install the App on `bonzo81/comnd` only.
+4. Note the App's **Client ID** from its About page, then generate a private key and download the `.pem`.
+5. Store both as repository Actions secrets: `RELEASE_PLEASE_APP_CLIENT_ID` (the Client ID) and `RELEASE_PLEASE_APP_PRIVATE_KEY` (the whole `.pem`, `BEGIN`/`END` lines included). Delete the downloaded file afterwards.
+
+**Rotation.** Owner: `@bonzo81`. The key has no expiry, so rotate it on maintainer change, on suspected exposure, or yearly:
+
+1. Generate a new private key on the App, leaving the old one active.
+2. Replace `RELEASE_PLEASE_APP_PRIVATE_KEY` with the new `.pem`.
+3. Run `gh workflow run release-please.yml` and confirm the token-minting step succeeds.
+4. Delete the old key from the App.
+
+Never print a secret: no `echo`, no `--debug`, no `run:` that dumps the token. The installation token is short-lived and revoked when the job ends.
+
+**If the release PR's checks do not start.** Confirm the App is installed on this repo and both secrets exist, then read the `release-please` run log — a bad key or revoked installation fails at the token step. Tagging runs before that step, so the release itself is still tagged and built even when the App is broken. Otherwise close the release PR without merging and re-run `gh workflow run release-please.yml`; release-please reopens it as the App and the PR events fire again. Approving checks manually in the Checks tab is a stopgap, not a fix.
+
+**Proving it on an existing release PR.** PRs opened before the App existed (for example #64) will not pick up CI until they are recreated:
+
+1. Merge the workflow change, then run `gh workflow run release-please.yml`.
+2. Run `gh pr checks 64`. Working means `frontend`, `rust`, `smoke`, `smoke-netbox` and `commitlint` are listed and queued or running — not `action_required`.
+3. If #64 gains no new commit, its PR events never re-fire: close it without merging and re-run the workflow so release-please recreates it as the App.

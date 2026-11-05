@@ -14,17 +14,51 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # Step 1: once the release PR is merged, tag and draft the release with
+      # GITHUB_TOKEN. skip-github-pull-request keeps this step to tagging only.
+      # This runs first because release-please refuses to open a new release PR
+      # while a merged one is still untagged, so tagging has to clear that state
+      # before the PR step below looks at it. It also keeps tagging working when
+      # the App token is broken.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
+
+      # A pull request opened with GITHUB_TOKEN gets no workflow runs, so the
+      # release PR sat with every CI job stuck in action_required. Mint an
+      # installation token from a GitHub App instead: the PR is then authored
+      # by the App and its events do start CI.
+      - name: mint release-please app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Step 2: open or update the release PR as the App. skip-github-release
+      # keeps tagging out of this step, because a tag created by the App fires
+      # release.yml's `on: create` trigger and would double-build alongside the
+      # explicit dispatch below.
+      - uses: googleapis/release-please-action@v4
+        id: release-pr
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true
 
       # Tags created with GITHUB_TOKEN do not trigger other workflows, so
       # dispatch the Release workflow explicitly to build the new draft.
+      # !cancelled() rather than the implicit success(): a failed App-token or
+      # release-PR step must not leave a tagged draft with no installers built.
       - name: build binaries for the new release
-        if: ${{ steps.release.outputs.release_created == 'true' }}
+        if: ${{ !cancelled() && steps.release.outputs.release_created == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
