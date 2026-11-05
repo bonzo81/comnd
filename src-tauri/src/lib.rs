@@ -118,18 +118,21 @@ impl std::io::Write for MultiWriter {
 #[cfg(debug_assertions)]
 static OPEN_URL_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-#[cfg(debug_assertions)]
+// These three are `any(debug_assertions, test)` rather than `debug_assertions`
+// because the unit test that covers the caps is compiled into test builds of
+// either profile, and `cargo test --release` turns `debug_assertions` off.
+#[cfg(any(debug_assertions, test))]
 static AUTH_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 // The list is never cleared and one keyboard-interactive round can carry many
 // prompts, each potentially holding a URL, so bound both its length and each
 // entry — a hostile server must not be able to grow it without limit.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 const AUTH_URLS_MAX_ENTRIES: usize = 16;
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 const AUTH_URL_MAX_LEN: usize = 2048;
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 pub(crate) fn record_auth_url(url: &str) {
     if let Ok(mut urls) = AUTH_URLS.lock() {
         if urls.len() >= AUTH_URLS_MAX_ENTRIES {
