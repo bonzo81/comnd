@@ -213,6 +213,8 @@ Never bump versions or edit `CHANGELOG.md` by hand — write conventional commit
 
 The release PR runs the full `ci.yml` gate — `frontend`, `rust`, `smoke`, `smoke-netbox`, `commitlint` — like any other PR. What makes that happen is the token. A PR opened with `secrets.GITHUB_TOKEN` starts no workflow runs at all, so every check sat in `action_required`. `release-please.yml` therefore mints an installation token from the `comnd-release-please` GitHub App (`actions/create-github-app-token@v3`, narrowed to `contents: write` and `pull-requests: write`) and opens the PR with it. Tagging still runs under `GITHUB_TOKEN`, so the explicit `gh workflow run release.yml` dispatch stays the only build trigger.
 
+`actions/create-github-app-token@v3` takes `client-id`; `app-id` still exists but is deprecated. actionlint 1.7.12 ships a stale bundled manifest and reports `client-id` as undefined and `app-id` as required — a false positive, disproved by run 42109716249. No workflow linter runs in this repo, so do not switch to the deprecated input to silence one.
+
 Tagging runs before the PR step, for two reasons. release-please returns an empty list instead of opening a PR while a merged release PR is still untagged (`buildPullRequests` in `manifest.ts`), so the tag has to exist first or a fix landing in that window gets no release PR. Ordering it first also means a broken App secret cannot stop a merged release from being tagged.
 
 If the checks do not start:
@@ -234,4 +236,4 @@ Issues are tracked in GitHub Issues (`bonzo81/comnd`) via the `gh` CLI. See `doc
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
-Reviewed: 2026-11-02
+Reviewed: 2026-11-05

@@ -119,3 +119,25 @@ thread-based check said the review was fully addressed while three findings
 were still open — they were only caught by reading the review bodies
 separately, and the reply for them had to be a top-level comment because there
 was no thread to answer.
+
+## 2026-11-05 (issue #101)
+
+Source: issue #101, making release PRs run CI.
+
+### Release Flow → Release PR checks
+
+Added:
+
+> `actions/create-github-app-token@v3` takes `client-id`; `app-id` still exists
+> but is deprecated. actionlint 1.7.12 ships a stale bundled manifest and
+> reports `client-id` as undefined and `app-id` as required — a false positive,
+> disproved by run 42109716249. No workflow linter runs in this repo, so do not
+> switch to the deprecated input to silence one.
+
+Why: a bot review ran actionlint against the new token step and reported both
+"missing input app-id" and "input client-id is not defined". Both are wrong —
+the pinned v3 action marks `app-id` deprecated in favour of `client-id`, and the
+step had already run green. The only way to satisfy the linter was to adopt the
+deprecated input, so following the finding would have made the workflow worse
+while looking like a fix. Nothing in AGENTS.md said a reviewer's linter could be
+wrong about a pinned action, or that this repo has no workflow linter of its own.
