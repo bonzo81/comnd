@@ -69,9 +69,11 @@ The release PR runs the same `ci.yml` jobs as any other PR — `frontend`, `rust
 
 **One-time setup (repository admin).** These steps need admin rights on `bonzo81/comnd` and are not automated:
 
-1. Create a GitHub App named `comnd-release-please` (Settings → Developer settings → GitHub Apps → New GitHub App). Turn the webhook off — nothing receives events.
+1. Create a GitHub App named `comnd-release-please` (Settings → Developer settings → GitHub Apps → New GitHub App). The form has two traps:
+   - **Homepage URL** is required. Use `https://github.com/bonzo81/comnd`; it is documentation only.
+   - **Webhook URL** is only required while **Active** is ticked. Untick **Active** under the Webhook heading — nothing receives events — and the URL field stops being required.
 2. Under **Repository permissions** grant exactly two: **Contents: Read and write** and **Pull requests: Read and write**. Leave everything else at **No access**; the workflow narrows the installation token to these two with `permission-contents` and `permission-pull-requests`.
-3. Install the App on `bonzo81/comnd` only.
+3. Under **Where can this GitHub App be installed?** choose **Only on this account**, then install the App on `bonzo81/comnd`.
 4. Note the App's **Client ID** from its About page, then generate a private key and download the `.pem`.
 5. Store both as repository Actions secrets: `RELEASE_PLEASE_APP_CLIENT_ID` (the Client ID) and `RELEASE_PLEASE_APP_PRIVATE_KEY` (the whole `.pem`, `BEGIN`/`END` lines included). Delete the downloaded file afterwards.
 
