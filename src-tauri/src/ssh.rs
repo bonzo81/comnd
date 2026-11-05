@@ -311,7 +311,11 @@ impl ConnectionEvents for TauriConnectionEvents {
             ConnectionEvent::Disconnected(p) => self.app_handle.emit("ssh-disconnected", p),
             ConnectionEvent::TofuPending(p) => self.app_handle.emit("ssh-tofu-pending", p),
             ConnectionEvent::Tofu(p) => self.app_handle.emit("ssh-tofu", p),
-            ConnectionEvent::AuthUrl(p) => self.app_handle.emit("ssh-auth-url", p),
+            ConnectionEvent::AuthUrl(p) => {
+                #[cfg(debug_assertions)]
+                crate::record_auth_url(&p.url);
+                self.app_handle.emit("ssh-auth-url", p)
+            }
             ConnectionEvent::AuthRound(p) => self.app_handle.emit("ssh-auth-round", p),
             ConnectionEvent::Connected(p) => self.app_handle.emit("ssh-connected", p),
         };

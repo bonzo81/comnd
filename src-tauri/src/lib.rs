@@ -111,7 +111,48 @@ impl std::io::Write for MultiWriter {
 
 // â”€â”€â”€ Browser URL Opener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// Smoke instrumentation (debug only). A server-supplied login URL must never
+// launch a browser without a user click, so the runner counts both the URLs
+// that surfaced and the launches that actually happened. Neither exists in a
+// release build.
+#[cfg(debug_assertions)]
+static OPEN_URL_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// These three are `any(debug_assertions, test)` rather than `debug_assertions`
+// because the unit test that covers the caps is compiled into test builds of
+// either profile, and `cargo test --release` turns `debug_assertions` off.
+#[cfg(any(debug_assertions, test))]
+static AUTH_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+// The list is never cleared and one keyboard-interactive round can carry many
+// prompts, each potentially holding a URL, so bound both its length and each
+// entry — a hostile server must not be able to grow it without limit.
+#[cfg(any(debug_assertions, test))]
+const AUTH_URLS_MAX_ENTRIES: usize = 16;
+#[cfg(any(debug_assertions, test))]
+const AUTH_URL_MAX_LEN: usize = 2048;
+
+#[cfg(any(debug_assertions, test))]
+pub(crate) fn record_auth_url(url: &str) {
+    if let Ok(mut urls) = AUTH_URLS.lock() {
+        if urls.len() >= AUTH_URLS_MAX_ENTRIES {
+            urls.remove(0);
+        }
+        urls.push(url.chars().take(AUTH_URL_MAX_LEN).collect());
+    }
+}
+
 fn open_url(url: &str) {
+    #[cfg(debug_assertions)]
+    {
+        OPEN_URL_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Smoke runs must not launch a real browser. The count is taken before
+        // this early return, so suppression cannot mask a regression.
+        if std::env::var_os("COMND_SMOKE_NO_BROWSER").is_some() {
+            log::info!("Smoke: browser launch suppressed for {}", url);
+            return;
+        }
+    }
     log::info!("Opening URL in browser: {}", url);
     let _ = if cfg!(target_os = "windows") {
         // Avoid `cmd /C start` â€” cmd.exe re-parses the URL and shell
@@ -177,6 +218,25 @@ async fn test_smoke_server(
 #[tauri::command]
 async fn test_smoke_mutation() -> Result<Option<String>, String> {
     Ok(ssh::smoke_mutation_name())
+}
+
+/// Launches performed through `open_url` in this app process (debug only).
+/// The smoke runner asserts this stays at zero while a browser-auth host
+/// connects, so an auto-opened login page fails the suite.
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_open_url_calls() -> Result<u64, String> {
+    Ok(OPEN_URL_CALLS.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+/// Every auth URL surfaced to the frontend, oldest first (debug only).
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_auth_urls() -> Result<Vec<String>, String> {
+    AUTH_URLS
+        .lock()
+        .map(|urls| urls.clone())
+        .map_err(|e| e.to_string())
 }
 
 /// Every PTY size the mock host has been asked for, oldest first.
@@ -584,6 +644,10 @@ pub fn run() {
                 #[cfg(debug_assertions)]
                 test_smoke_pty_sizes,
                 #[cfg(debug_assertions)]
+                test_smoke_open_url_calls,
+                #[cfg(debug_assertions)]
+                test_smoke_auth_urls,
+                #[cfg(debug_assertions)]
                 test_stop_mock_server,
                 #[cfg(debug_assertions)]
                 test_netbox_server,
@@ -603,6 +667,34 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn test_record_auth_url_is_bounded() {
+        // One test, not two: AUTH_URLS is a process-global that is never
+        // cleared, so parallel tests would interleave and race.
+        for i in 0..(AUTH_URLS_MAX_ENTRIES + 4) {
+            record_auth_url(&format!("https://example.test/{i}"));
+        }
+        {
+            let urls = AUTH_URLS.lock().expect("AUTH_URLS lock");
+            assert_eq!(urls.len(), AUTH_URLS_MAX_ENTRIES);
+            let newest = format!("https://example.test/{}", AUTH_URLS_MAX_ENTRIES + 3);
+            assert_eq!(urls.last().map(String::as_str), Some(newest.as_str()));
+            assert!(
+                !urls.iter().any(|u| u == "https://example.test/0"),
+                "oldest entry should have been evicted"
+            );
+        }
+
+        let long = format!("https://example.test/{}", "a".repeat(AUTH_URL_MAX_LEN * 2));
+        record_auth_url(&long);
+        let urls = AUTH_URLS.lock().expect("AUTH_URLS lock");
+        assert_eq!(
+            urls.last().map(String::len),
+            Some(AUTH_URL_MAX_LEN),
+            "a long entry should be truncated"
+        );
+    }
 
     #[test]
     fn test_resolve_log_path_none_uses_default() {
