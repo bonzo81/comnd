@@ -204,10 +204,23 @@ Version bump rules (release-please): `feat` → minor, `fix` → patch, breaking
 
 1. A conventional commit lands on main → release-please opens or updates a `chore(main): release X.Y.Z` PR that bumps `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, and updates `CHANGELOG.md`.
 2. Merging the release PR creates the `vX.Y.Z` git tag and a draft GitHub release.
-3. The tag fires `release.yml`, which attaches per-platform installers to the draft.
+3. `release-please.yml` dispatches `release.yml` explicitly, which attaches per-platform installers to the draft. The tag does not trigger it by itself: a tag created with `GITHUB_TOKEN` fires no workflows.
 4. A human smoke-tests the draft, then publishes it. Work through `docs/testing/manual-matrix.md` for the platform you are on and add a row to its pass log; the visual reference screenshots and their review steps are in `docs/testing/visual-baseline.md`.
 
 Never bump versions or edit `CHANGELOG.md` by hand — write conventional commits and let the release PR do the rest.
+
+### Release PR checks
+
+The release PR runs the full `ci.yml` gate — `frontend`, `rust`, `smoke`, `smoke-netbox`, `commitlint` — like any other PR. What makes that happen is the token. A PR opened with `secrets.GITHUB_TOKEN` starts no workflow runs at all, so every check sat in `action_required`. `release-please.yml` therefore mints an installation token from the `comnd-release-please` GitHub App (`actions/create-github-app-token@v3`, narrowed to `contents: write` and `pull-requests: write`) and opens the PR with it. Tagging still runs under `GITHUB_TOKEN`, so the explicit `gh workflow run release.yml` dispatch stays the only build trigger.
+
+If the checks do not start:
+
+- Confirm the App is installed on `bonzo81/comnd` and that the `RELEASE_PLEASE_APP_CLIENT_ID` and `RELEASE_PLEASE_APP_PRIVATE_KEY` repository Actions secrets exist.
+- Read the `release-please` run log. A bad private key or a revoked installation fails at the token-minting step, before any PR work.
+- Close the release PR without merging, then re-run `gh workflow run release-please.yml`. release-please reopens it as the App and the PR events fire again.
+- Approving the checks by hand in the PR's Checks tab is a stopgap, not a fix — repair the App token before the next release.
+
+App creation, secret storage and rotation are in `CONTRIBUTING.md` § Releases.
 
 ## Agent skills
 
