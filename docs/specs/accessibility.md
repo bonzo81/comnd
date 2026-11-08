@@ -148,8 +148,10 @@ inventory:
   as the target, not an audited claim.
 - **Color contrast** — theme tokens in `src/styles/tokens.css` are guarded by a
   token-pair test (`src/lib/theme-contrast.test.ts`) that composites translucent
-  surfaces over their opaque base and asserts 4.5:1 for the known text pairs and
-  3:1 for the accent/border non-text pairs in the Light and Solarized Light
-  themes, plus a Dark regression floor. The table only covers the pairs it
-  names, so it is not a full-page scan and does not prove WCAG conformance — run
-  an automated pass (axe or Lighthouse in the dev build) when the theme changes.
+  surfaces over their opaque base and asserts 4.5:1 for the known text pairs
+  (including muted `--color-text-tertiary` labels over the primary, secondary
+  and elevated surfaces) and 3:1 for the accent/border non-text pairs in the
+  Light and Solarized Light themes, plus a Dark regression floor. The table only
+  covers the pairs it names, so it is not a full-page scan and does not prove
+  WCAG conformance — run an automated pass (axe or Lighthouse in the dev build)
+  when the theme changes.

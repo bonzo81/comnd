@@ -122,7 +122,7 @@
 
   --color-text-primary: #0F172A;
   --color-text-secondary: #475569;
-  --color-text-tertiary: #64748B;
+  --color-text-tertiary: #556579;     /* 4.83:1 on surface-secondary — WCAG AA text */
 
   --color-accent: #166534;            /* 5.99:1 on surface-selected — WCAG AA text */
   --color-accent-hover: #14532D;
@@ -209,7 +209,7 @@
 
   --color-text-primary: #40565c;       /* 5.48:1 on surface-selected — WCAG AA text */
   --color-text-secondary: #4b6067;     /* 4.68:1 on surface-selected — WCAG AA text */
-  --color-text-tertiary: #93a1a1;
+  --color-text-tertiary: #54696f;      /* 4.73:1 on surface-secondary — WCAG AA text */
 
   --color-accent: #20628f;             /* 5.20:1 on surface-selected — WCAG AA text */
   --color-accent-hover: #1a5f91;

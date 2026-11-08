@@ -169,6 +169,21 @@ interface Pair {
   layers: string[];
 }
 
+const TERTIARY_THEMES: ThemeId[] = ["light", "solarized-light"];
+
+/**
+ * Muted text in the light themes. The token has to clear every surface it is
+ * painted on, and surface-secondary is the worst case: it is the darkest of
+ * the three, so a value that passes there passes everywhere.
+ */
+const TERTIARY_PAIRS: Pair[] = TERTIARY_THEMES.flatMap((theme) =>
+  [
+    { element: "settings group label", layers: PRIMARY },
+    { element: "title bar title", layers: SECONDARY },
+    { element: "search result secondary text", layers: ELEVATED },
+  ].map(({ element, layers }) => ({ theme, element, token: "--color-text-tertiary", layers })),
+);
+
 /**
  * The four F-2 pairs, repeated per theme, plus the pairs on the same surfaces
  * that the token fix also had to clear: the Solarized Light host name on
@@ -176,6 +191,7 @@ interface Pair {
  * its hover fill, which the border token used to supply.
  */
 const TEXT_PAIRS: Pair[] = [
+  ...TERTIARY_PAIRS,
   {
     theme: "light",
     element: "settings nav active label",
