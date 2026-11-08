@@ -24,9 +24,9 @@ type ThemeId = "dark" | "light" | "solarized-light";
 const TEXT_MIN = 4.5;
 const NON_TEXT_MIN = 3;
 /**
- * F-2 recorded Dark's minimum as 6.28:1 (rounded). The unrounded value is
- * 6.276:1, so the floor is set just under it — any drop below the measured
- * baseline fails, while rounding cannot produce a false failure.
+ * F-2 recorded Dark's minimum as 6.28:1, rounded. The unrounded value is
+ * 6.276:1, so the floor sits 0.006 below it: a regression below the measured
+ * baseline fails, while the record's own rounding cannot cause a false failure.
  */
 const DARK_FLOOR = 6.27;
 
@@ -154,10 +154,6 @@ function contrast(a: Rgba, b: Rgba): number {
   return (light + 0.05) / (dark + 0.05);
 }
 
-function round(ratio: number): number {
-  return Math.round(ratio * 100) / 100;
-}
-
 const PRIMARY = ["--color-surface-primary"];
 const SECONDARY = ["--color-surface-secondary"];
 const ELEVATED = ["--color-surface-elevated"];
@@ -241,7 +237,8 @@ function textRatio(pair: Pair): number {
 
 describe("theme text contrast (WCAG 2.1 AA)", () => {
   it.each(TEXT_PAIRS)("$theme · $element reaches 4.5:1", (pair) => {
-    expect(round(textRatio(pair))).toBeGreaterThanOrEqual(TEXT_MIN);
+    // Unrounded: 4.499 must fail, not round up to a pass.
+    expect(textRatio(pair)).toBeGreaterThanOrEqual(TEXT_MIN);
   });
 
   it("Dark theme keeps its F-2 baseline of 6.28:1 over the same elements", () => {
@@ -249,7 +246,7 @@ describe("theme text contrast (WCAG 2.1 AA)", () => {
     const worst = Math.min(...ratios);
     // Not a threshold on each pair: F-2 recorded a single minimum for Dark, and
     // that is the number the issue says must not regress.
-    expect(round(worst)).toBeGreaterThanOrEqual(DARK_FLOOR);
+    expect(worst).toBeGreaterThanOrEqual(DARK_FLOOR);
   });
 });
 
@@ -272,7 +269,7 @@ describe("theme non-text contrast (focus rings, borders)", () => {
           // A border or focus ring is painted over the surface, then measured
           // against that same surface.
           const painted = composite(tokenColor(theme, token), base);
-          expect(round(contrast(painted, base))).toBeGreaterThanOrEqual(NON_TEXT_MIN);
+          expect(contrast(painted, base)).toBeGreaterThanOrEqual(NON_TEXT_MIN);
         });
       }
     }
