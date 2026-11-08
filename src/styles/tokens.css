@@ -122,13 +122,13 @@
 
   --color-text-primary: #0F172A;
   --color-text-secondary: #475569;
-  --color-text-tertiary: #64748B;
+  --color-text-tertiary: #556579;     /* 4.83:1 on surface-secondary — WCAG AA text */
 
-  --color-accent: #15803D;
-  --color-accent-hover: #166534;
+  --color-accent: #166534;            /* 5.99:1 on surface-selected — WCAG AA text */
+  --color-accent-hover: #14532D;
   --color-success: #15803D;
 
-  --color-border: rgba(0, 0, 0, 0.18);
+  --color-border: rgba(0, 0, 0, 0.45); /* 3.33:1 on surface-primary — non-text */
   --color-border-hover: rgba(0, 0, 0, 0.14);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -207,17 +207,17 @@
   --color-surface-hover: rgba(88,110,117,0.08);
   --color-surface-selected: rgba(38,139,210,0.14);
 
-  --color-text-primary: #586e75;
-  --color-text-secondary: #657b83;
-  --color-text-tertiary: #93a1a1;
+  --color-text-primary: #40565c;       /* 5.48:1 on surface-selected — WCAG AA text */
+  --color-text-secondary: #4b6067;     /* 4.68:1 on surface-selected — WCAG AA text */
+  --color-text-tertiary: #54696f;      /* 4.73:1 on surface-secondary — WCAG AA text */
 
-  --color-accent: #268bd2;
-  --color-accent-hover: #1f6ea8;
+  --color-accent: #20628f;             /* 5.20:1 on surface-selected — WCAG AA text */
+  --color-accent-hover: #1a5f91;
   --color-success: #859900;
   --color-warning: #b58900;
   --color-error: #dc322f;
 
-  --color-border: rgba(88,110,117,0.24);
+  --color-border: rgba(7, 54, 66, 0.6); /* 3.77:1 on surface-primary — non-text */
   --color-border-hover: rgba(88,110,117,0.34);
 
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
