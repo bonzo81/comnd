@@ -135,6 +135,10 @@ at 13px instead of 14.95px. Toggling off and on applies them
 spec 12's manual step 2 ("Restart app → mode + all values persist"): the state
 persists, the visual effect on UI text does not. Found while running M-25.
 
+Resolved by issue #99: startup now calls the existing `applyReadingComfort()`
+path through the `startApp()` launch seam, and `src/lib/app-startup.test.ts`
+guards the launch path. Re-run M-25 to confirm on a real build.
+
 **F-2 — Contrast below AA in the Light and Solarized Light themes.**
 Measured from computed styles (foreground composited over the nearest opaque
 ancestor background), 2026-11-02:
