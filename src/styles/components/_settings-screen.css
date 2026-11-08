@@ -16,6 +16,12 @@
   gap: var(--space-1);
   padding: var(--space-8) var(--space-3);
   flex-shrink: 0;
+  /* Width must not follow the text scale. A rail sized by max-content grows
+     with --text-scale, which shifts this pane's content — including the UI
+     text scale slider — sideways under a stationary pointer mid-drag, so the
+     slider re-reads a new value, the scale changes again and the whole screen
+     flickers (issue #116). 196px is the rail's unscaled max-content width. */
+  width: 196px;
 }
 
 .settings-nav-item {
@@ -52,9 +58,9 @@
 }
 
 .settings-nav-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wrap rather than widen the rail when the text scale grows — see .settings-nav */
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 /* ─── Content pane ──────────────────────────────────────────────── */
