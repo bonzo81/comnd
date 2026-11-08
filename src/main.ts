@@ -31,6 +31,7 @@ import {
   isReadingComfortEnabled, enable as rcEnable, disable as rcDisable,
   update as rcUpdate, resetToPreset as rcReset, getReadingComfortState, RC_PRESET,
 } from "./lib/reading-comfort";
+import { startApp } from "./lib/app-startup";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
   formatCombo, initShortcuts, matches, resolvedCombo,
@@ -1265,7 +1266,7 @@ if (import.meta.env.MODE === "smoke") {
   void import("./lib/smoke-mutation")
     .then((m) => m.applySmokeMutation())
     .catch(() => {})
-    .finally(() => new App());
+    .finally(() => startApp(() => new App()));
 } else {
-  new App();
+  startApp(() => new App());
 }
