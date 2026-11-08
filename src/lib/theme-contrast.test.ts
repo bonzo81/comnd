@@ -159,6 +159,7 @@ const SECONDARY = ["--color-surface-secondary"];
 const ELEVATED = ["--color-surface-elevated"];
 const SELECTED_ON_PRIMARY = ["--color-surface-primary", "--color-surface-selected"];
 const SELECTED_ON_SECONDARY = ["--color-surface-secondary", "--color-surface-selected"];
+const HOVER_ON_PRIMARY = ["--color-surface-primary", "--color-surface-hover"];
 
 interface Pair {
   theme: ThemeId;
@@ -169,9 +170,10 @@ interface Pair {
 }
 
 /**
- * The four F-2 pairs, repeated per theme, plus the two Solarized Light pairs
- * on the same surfaces that the token fix also had to clear (the host name on
- * surface-secondary and on a selected card).
+ * The four F-2 pairs, repeated per theme, plus the pairs on the same surfaces
+ * that the token fix also had to clear: the Solarized Light host name on
+ * surface-secondary and on a selected card, and the secondary-button label on
+ * its hover fill, which the border token used to supply.
  */
 const TEXT_PAIRS: Pair[] = [
   {
@@ -216,6 +218,18 @@ const TEXT_PAIRS: Pair[] = [
     element: "host name on selected card",
     token: "--color-text-primary",
     layers: SELECTED_ON_SECONDARY,
+  },
+  {
+    theme: "light",
+    element: "secondary button label on hover",
+    token: "--color-text-primary",
+    layers: HOVER_ON_PRIMARY,
+  },
+  {
+    theme: "solarized-light",
+    element: "secondary button label on hover",
+    token: "--color-text-primary",
+    layers: HOVER_ON_PRIMARY,
   },
 ];
 
