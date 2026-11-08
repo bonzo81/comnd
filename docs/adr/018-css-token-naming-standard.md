@@ -19,10 +19,17 @@ The problems are at the edges, and nothing guards them:
   `_dialogs.css:754` and `_terminal-view.css:422` get an invalid `font-family` and inherit.
   `--color-border-strong` is used at `_suggestion.css:26` and is never defined, so it always
   falls back to `--color-border`.
-- **A colour token that is not themed.** `--accent-custom` (`tokens.css:101`, `#38BDF8`) is
-  defined only in `:root` and never overridden, yet it is used as text in `.badge-custom`
-  (`main.css:383`). On the light and solarized backgrounds that is roughly 2:1 contrast, below
-  the WCAG 2.1 AA target in `docs/specs/accessibility.md`.
+- **A colour token that is not themed, and a badge that fails AA in every theme.**
+  `--accent-custom` (`tokens.css:101`, `#38BDF8`) is defined only in `:root` and never
+  overridden. It is used as the custom-KB badge's 18% background tint (`main.css:382`) and as a
+  border (`_terminal-view.css:248`). The declaration that would have used it as text
+  (`main.css:383`) is dead, because `_terminal-view.css:462` overrides it with
+  `color: var(--color-text-tertiary) !important`. The surviving colour fails the 4.5:1
+  threshold that applies to the badge's `--font-size-2xs` text on its own tint in all six
+  themes: 2.18:1 on `--color-surface-secondary` in `solarized-light` and still 2.66:1 in
+  `:root`. The target is WCAG 2.1 AA, per `docs/specs/accessibility.md`. The platform badges
+  have the same shape — `.badge-nxos` (`_terminal-view.css:459`) is `#0284C7` in `light`, 3.32:1
+  on the secondary surface.
 - **Dead and inverted tokens.** `--color-border-hover` is used nowhere, and in `:root` and
   `light` it is *less* opaque than `--color-border` (0.20→0.14 and 0.18→0.14), so its name
   describes the opposite of its value; the other four themes are correct (0.14→0.22).
@@ -69,9 +76,10 @@ Adopt the normalised scheme. It is permanent: a future `--color-bg-*` / `--color
 requires a new ADR that supersedes this one.
 
 1. **Every colour token starts with `--color-`**, in the shape
-   `--color-{category}-{variant}`. Categories in use: `surface`, `text`, `border`, `accent`,
-   `success`, `warning`, `error`, `overlay`, `badge`, `platform-tint`, `scrollbar`, `focus-ring`
-   and `fg`. The rename map:
+   `--color-{category}[-{variant}]`. The variant is optional: the core primitives are
+   unqualified (`--color-accent`, `--color-border`, `--color-success`). Categories in use:
+   `surface`, `text`, `border`, `accent`, `success`, `warning`, `error`, `overlay`, `badge`,
+   `platform-tint`, `scrollbar`, `focus-ring`, `fg`, `suggestion` and `chrome`. The rename map:
 
    | Current | Standard |
    |---|---|
@@ -90,9 +98,11 @@ requires a new ADR that supersedes this one.
 
 3. **Add role tokens so components stop reaching for primitives:** `--color-border-strong`
    (replaces the undefined reference), `--color-focus-ring` together with `--focus-ring-width`
-   and `--focus-ring-offset`, `--color-fg-on-danger`, and `--color-scrollbar-thumb` with
-   `--color-scrollbar-thumb-hover`. Each is defined in `:root` and overridden in every theme that
-   changes the underlying colour.
+   and `--focus-ring-offset`, `--color-fg-on-danger`, `--color-scrollbar-thumb` with
+   `--color-scrollbar-thumb-hover`, and `--color-badge-custom` so the custom-KB badge has a
+   themeable text colour that meets 4.5:1 on its own tint. Each is defined in `:root` and
+   overridden in every theme that changes the underlying colour. The badge tokens replace the
+   `!important` overrides that currently win at `_terminal-view.css:459-462`.
 
 4. **No `var()` fallbacks.** Tokens are always defined; a fallback hides a typo, which is how
    `--font-sans` survived. Delete all eight.
@@ -109,10 +119,13 @@ requires a new ADR that supersedes this one.
    extended where a real step is missing; the mechanical mapping lives in the tracking issue.
 
 8. **Enforcement is part of the standard, not a follow-up.** Add stylelint with `color-no-hex`,
-   `custom-property-pattern` and `declaration-property-value-allowed-list` for colour-bearing
-   properties, plus `scripts/check-css-tokens.mjs` for the two things stylelint cannot see:
-   `var(--undefined)` and tokens that are defined but never used. The standard is met only when
-   `npm run lint:css` passes in CI.
+   `custom-property-pattern`, and `declaration-property-value-allowed-list` covering
+   colour-bearing properties, `font-size`, `border-radius` and the `font` shorthand — the
+   shorthand matters because `font: 600 27px Inter` hides a raw size that a `font-size` rule
+   never sees. Add `scripts/check-css-tokens.mjs` for what stylelint cannot see:
+   `var(--undefined)`, tokens that are defined but never used, and a colour literal assigned to
+   a `--local-*` property, which `color-no-hex` misses when it is written as `rgb()`. The
+   standard is met only when `npm run lint:css` passes in CI.
 
 9. **`tokens.css` is the single source of truth.** Reconcile the values in
    `docs/specs/03-ui-visual-design.md` and the spacing line in `AGENTS.md` to it.
@@ -120,15 +133,18 @@ requires a new ADR that supersedes this one.
 ## Consequences
 
 - Easier: a new screen starts from a vocabulary that is complete (role tokens exist), enforced
-  (CI fails on an undefined token or a raw colour) and documented in one place. The two broken
-  `font-family` declarations and the sub-AA badge are fixed by the rename rather than by a
-  separate cleanup.
+  (CI fails on an undefined token, a raw colour, a raw `font-size` or a raw radius) and
+  documented in one place. The rename itself fixes the two broken `font-family` declarations and
+  the undefined `--color-border-strong`. It fixes no colour value, so the badge contrast
+  correction is a deliberate value edit in the same change, verified against measured ratios
+  rather than assumed from the rename.
 - Harder: every colour token must now fit `--color-*`, so a genuinely new category needs this
   ADR amended. The rename touches about 40 files in one change and must land atomically, or the
   theme blocks and the call sites drift apart mid-merge.
 - Rules out: a new colour token outside `--color-*`; `var()` fallbacks; the `--spacing` alias;
-  raw hex, raw `rgba()` or raw `font-size` in component CSS; and landing a token change without
-  the stylelint config in the same pull request.
+  raw hex, raw `rgba()`, raw `font-size` or raw radius in component CSS; an `!important`
+  component override of a global token; and landing a token change without the stylelint config
+  in the same pull request.
 - Not covered: the visual design of the new role tokens — which exact opacity
   `--color-border-strong` uses, for example — is a design decision recorded in `tokens.css`. This
   ADR fixes the names and the enforcement, not the values.
