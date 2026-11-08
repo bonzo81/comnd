@@ -1,7 +1,7 @@
 # 018. One `--color-*` naming standard for design tokens, enforced by stylelint
 
 Date: 2026-11-08
-Status: Proposed
+Status: Accepted
 
 ## Context
 
