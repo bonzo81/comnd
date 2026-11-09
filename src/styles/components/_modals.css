@@ -246,6 +246,10 @@ select.form-input {
   align-items: baseline;
 }
 
+.shortcuts-modal .form-actions {
+  margin-top: var(--space-5);
+}
+
 .shortcuts-section {
   grid-column: 1 / -1;
   font-size: var(--font-size-xs);
