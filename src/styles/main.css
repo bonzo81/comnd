@@ -378,7 +378,7 @@
   margin-left: var(--space-1-5);
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
-  background: rgba(56, 189, 248, 0.18);
+  background: var(--color-badge-custom-tint);
   background: color-mix(in srgb, var(--accent-custom) 18%, transparent);
   color: var(--color-badge-custom);
   font-family: var(--font-ui);
