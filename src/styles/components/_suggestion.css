@@ -23,7 +23,7 @@
 .ghost-text.ghost-text--variable {
   font-style: italic;
   opacity: var(--ghost-variable-opacity);
-  border-bottom: 1px dashed var(--color-border-strong, var(--color-border));
+  border-bottom: 1px dashed var(--color-border-strong);
 }
 
 [data-reading-comfort="on"] .ghost-text--variable {

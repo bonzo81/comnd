@@ -10,6 +10,10 @@
  * Surfaces are composited the way the browser paints them: a translucent layer
  * (--color-surface-selected) over the opaque base beneath it. Comparing raw
  * hex values would report a ratio the user never sees.
+ *
+ * Issue #114 added the badge and note guards: the custom-KB badge text on its
+ * 18% accent tint, the NX-OS badge, the .kb-override-note border, and the
+ * border-strong ordering, in all six themes.
  */
 
 import { readFileSync } from "node:fs";
@@ -19,7 +23,7 @@ import { describe, expect, it } from "vitest";
 const CSS_PATH = resolve(process.cwd(), "src/styles/tokens.css");
 
 /** Themes whose text pairs are guarded. Dark is included as a regression floor. */
-type ThemeId = "dark" | "light" | "solarized-light";
+type ThemeId = "dark" | "light" | "dracula" | "monokai" | "solarized-light" | "nord";
 
 const TEXT_MIN = 4.5;
 const NON_TEXT_MIN = 3;
@@ -79,7 +83,10 @@ function resolveTheme(theme: ThemeId): Record<string, string> {
 const THEMES: Record<ThemeId, Record<string, string>> = {
   dark: resolveTheme("dark"),
   light: resolveTheme("light"),
+  dracula: resolveTheme("dracula"),
+  monokai: resolveTheme("monokai"),
   "solarized-light": resolveTheme("solarized-light"),
+  nord: resolveTheme("nord"),
 };
 
 function parseColor(value: string): Rgba {
@@ -159,6 +166,7 @@ const SECONDARY = ["--color-surface-secondary"];
 const ELEVATED = ["--color-surface-elevated"];
 const SELECTED_ON_PRIMARY = ["--color-surface-primary", "--color-surface-selected"];
 const SELECTED_ON_SECONDARY = ["--color-surface-secondary", "--color-surface-selected"];
+const SELECTED_ON_ELEVATED = ["--color-surface-elevated", "--color-surface-selected"];
 const HOVER_ON_PRIMARY = ["--color-surface-primary", "--color-surface-hover"];
 
 interface Pair {
@@ -304,4 +312,71 @@ describe("theme non-text contrast (focus rings, borders)", () => {
       }
     }
   }
+});
+
+/**
+ * Issue #114 guards. Every theme, because the defects it fixed were theme-wide:
+ * the custom badge tint, the NX-OS badge, and the KB override note border.
+ */
+const ALL_THEMES: ThemeId[] = ["dark", "light", "dracula", "monokai", "solarized-light", "nord"];
+
+/**
+ * Rows a badge is painted on. `.badge-custom` appears in the host list, the
+ * suggestion dropdown and the KB viewer; `.hs-host-badge` carries no tint of
+ * its own, so platform badge text sits straight on the row.
+ */
+const BADGE_SURFACES: { name: string; layers: string[] }[] = [
+  { name: "surface-primary", layers: PRIMARY },
+  { name: "surface-secondary", layers: SECONDARY },
+  { name: "surface-elevated", layers: ELEVATED },
+  { name: "surface-hover", layers: HOVER_ON_PRIMARY },
+  { name: "surface-selected on primary", layers: SELECTED_ON_PRIMARY },
+  { name: "surface-selected on secondary", layers: SELECTED_ON_SECONDARY },
+  { name: "surface-selected on elevated", layers: SELECTED_ON_ELEVATED },
+];
+
+describe("badge and note contrast (issue #114)", () => {
+  for (const theme of ALL_THEMES) {
+    for (const surface of BADGE_SURFACES) {
+      const base = () => paint(surface.layers.map((t) => tokenColor(theme, t)));
+
+      it(`${theme} · custom badge on ${surface.name} reaches 4.5:1`, () => {
+        // The badge paints its text on the 18% accent tint over the row.
+        const tinted = composite(tokenColor(theme, "--color-badge-custom-tint"), base());
+        expect(contrast(tokenColor(theme, "--color-badge-custom"), tinted)).toBeGreaterThanOrEqual(
+          TEXT_MIN,
+        );
+      });
+
+      it(`${theme} · NX-OS badge on ${surface.name} reaches 4.5:1`, () => {
+        expect(contrast(tokenColor(theme, "--badge-nxos"), base())).toBeGreaterThanOrEqual(TEXT_MIN);
+      });
+
+      it(`${theme} · KB override note border on ${surface.name} reaches 3:1`, () => {
+        const painted = composite(tokenColor(theme, "--accent-custom"), base());
+        expect(contrast(painted, base())).toBeGreaterThanOrEqual(NON_TEXT_MIN);
+      });
+    }
+  }
+
+  it.each(ALL_THEMES)("%s defines a border-strong stronger than its border", (theme) => {
+    // Both tokens are translucent over the surface beneath them, so the more
+    // opaque one is the stronger border.
+    expect(tokenColor(theme, "--color-border-strong").a).toBeGreaterThan(
+      tokenColor(theme, "--color-border").a,
+    );
+  });
+
+  it.each(ALL_THEMES)("%s badge tint matches its accent at 18%", (theme) => {
+    // WebKit before Safari 16.2 has no color-mix(), so macOS 13 paints the
+    // static tint while newer engines paint the color-mix() expression. The
+    // two must stay the same colour.
+    const accent = tokenColor(theme, "--accent-custom");
+    expect(tokenColor(theme, "--color-badge-custom-tint")).toEqual({
+      r: accent.r,
+      g: accent.g,
+      b: accent.b,
+      a: 0.18,
+    });
+  });
 });

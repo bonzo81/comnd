@@ -419,7 +419,7 @@ body.tv-resizing * {
 .token-issue {
   color: var(--color-error);
   font-size: var(--font-size-xs);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   padding: var(--space-1) 0;
 }
 
@@ -459,7 +459,6 @@ body.tv-resizing * {
 .badge-nxos { color: var(--badge-nxos) !important; }
 .badge-tmos { color: var(--color-warning) !important; }
 .badge-bash { color: var(--color-success) !important; }
-.badge-custom { color: var(--color-text-tertiary) !important; }
 
 /* â”€â”€â”€ Line Timestamps (iTerm-style gutter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* All topbar buttons share the pill shape; tint only appears on hover */
