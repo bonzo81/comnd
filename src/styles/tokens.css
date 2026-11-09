@@ -34,7 +34,6 @@
 
   /* Borders — Linear-style subtle */
   --color-border: rgba(255,255,255,0.20);
-  --color-border-hover: rgba(255,255,255,0.14);
   --color-border-strong: rgba(255,255,255,0.32);
 
   /* Focus ring — every focus indicator draws from these (ADR 018 rule 4) */
@@ -58,8 +57,6 @@
   --space-8: 32px;
   --space-16: 64px;
 
-  /* Backward compat alias */
-  --spacing: 4px;
 
   /* Radius */
   --radius-sm: 4px;
@@ -68,7 +65,6 @@
   --radius-pill: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
 
@@ -144,14 +140,12 @@
   --color-success: #15803D;
 
   --color-border: rgba(0, 0, 0, 0.45); /* 3.33:1 on surface-primary — non-text */
-  --color-border-hover: rgba(0, 0, 0, 0.14);
   --color-border-strong: rgba(0, 0, 0, 0.62);
 
   --color-focus-ring: #166534;
   --color-scrollbar-thumb: #556579;
   --color-scrollbar-thumb-hover: #475569;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
 
@@ -187,7 +181,6 @@
   --color-error: #ff5555;
 
   --color-border: rgba(255,255,255,0.14);
-  --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
   --color-focus-ring: #bd93f9;
@@ -225,7 +218,6 @@
   --color-error: #ff6c63;
 
   --color-border: rgba(255,255,255,0.14);
-  --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
   --color-focus-ring: #fd971f;
@@ -265,14 +257,12 @@
   --color-fg-on-danger: #FFFFFF;
 
   --color-border: rgba(7, 54, 66, 0.6); /* 3.77:1 on surface-primary — non-text */
-  --color-border-hover: rgba(88,110,117,0.34);
   --color-border-strong: rgba(7, 54, 66, 0.82);
 
   --color-focus-ring: #20628f;
   --color-scrollbar-thumb: #54696f;
   --color-scrollbar-thumb-hover: #4b6067;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.14);
 
@@ -308,7 +298,6 @@
   --color-error: #bf616a;              /* nord10 red */
 
   --color-border: rgba(216,222,233,0.14);
-  --color-border-hover: rgba(216,222,233,0.22);
   --color-border-strong: rgba(216,222,233,0.32);
 
   --color-focus-ring: #88c0d0;
