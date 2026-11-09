@@ -308,7 +308,7 @@
 }
 
 .provider-status-ok { color: var(--color-success); }
-.provider-status-warn { color: var(--color-warning, var(--color-text-secondary)); }
+.provider-status-warn { color: var(--color-warning); }
 .provider-status-err { color: var(--color-error); }
 .provider-status-soon { font-style: italic; }
 

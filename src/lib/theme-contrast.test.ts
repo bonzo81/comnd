@@ -379,4 +379,12 @@ describe("badge and note contrast (issue #114)", () => {
       a: 0.18,
     });
   });
+
+  it.each(ALL_THEMES)("%s danger text clears AA on its error fill", (theme) => {
+    // --color-fg-on-danger is the only text colour paired with --color-error.
+    // Solarized's red is light enough that ink drops to 4.14:1, so that theme
+    // overrides the token to white; every other theme inherits ink.
+    expect(contrast(tokenColor(theme, "--color-fg-on-danger"), tokenColor(theme, "--color-error")))
+      .toBeGreaterThanOrEqual(TEXT_MIN);
+  });
 });

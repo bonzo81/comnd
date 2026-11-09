@@ -28,11 +28,23 @@
   --color-success: #22C55E;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
+  /* Text on a --color-error fill. Ink clears 4.5:1 on #EF4444 (5.08), dracula
+     (6.09), monokai (6.90) and nord (4.68); solarized-light overrides it. */
+  --color-fg-on-danger: #0A0F1C;
 
   /* Borders — Linear-style subtle */
   --color-border: rgba(255,255,255,0.20);
   --color-border-hover: rgba(255,255,255,0.14);
   --color-border-strong: rgba(255,255,255,0.32);
+
+  /* Focus ring — every focus indicator draws from these (ADR 018 rule 4) */
+  --color-focus-ring: #22C55E;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Scrollbars */
+  --color-scrollbar-thumb: #64748B;
+  --color-scrollbar-thumb-hover: #94A3B8;
 
   /* Spacing (4px grid) */
   --space-0-5: 2px;
@@ -135,6 +147,10 @@
   --color-border-hover: rgba(0, 0, 0, 0.14);
   --color-border-strong: rgba(0, 0, 0, 0.62);
 
+  --color-focus-ring: #166534;
+  --color-scrollbar-thumb: #556579;
+  --color-scrollbar-thumb-hover: #475569;
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
@@ -174,6 +190,10 @@
   --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
+  --color-focus-ring: #bd93f9;
+  --color-scrollbar-thumb: #6272a4;
+  --color-scrollbar-thumb-hover: #a6accd;
+
   --color-overlay-solid: rgba(33,34,44,0.92);
   --color-suggestion-fade: rgba(40,42,54,0.85);
   --color-badge-nxos: #8be9fd;
@@ -208,6 +228,10 @@
   --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
+  --color-focus-ring: #fd971f;
+  --color-scrollbar-thumb: #75715e;
+  --color-scrollbar-thumb-hover: #9d9d93;
+
   --color-overlay-solid: rgba(31,31,25,0.92);
   --color-suggestion-fade: rgba(39,40,34,0.85);
   --color-badge-nxos: #66d9ef;
@@ -237,10 +261,16 @@
   --color-success: #859900;
   --color-warning: #b58900;
   --color-error: #dc322f;
+  /* Ink is only 4.14:1 on solarized-light's red; white clears AA at 4.63:1. */
+  --color-fg-on-danger: #FFFFFF;
 
   --color-border: rgba(7, 54, 66, 0.6); /* 3.77:1 on surface-primary — non-text */
   --color-border-hover: rgba(88,110,117,0.34);
   --color-border-strong: rgba(7, 54, 66, 0.82);
+
+  --color-focus-ring: #20628f;
+  --color-scrollbar-thumb: #54696f;
+  --color-scrollbar-thumb-hover: #4b6067;
 
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
@@ -280,6 +310,10 @@
   --color-border: rgba(216,222,233,0.14);
   --color-border-hover: rgba(216,222,233,0.22);
   --color-border-strong: rgba(216,222,233,0.32);
+
+  --color-focus-ring: #88c0d0;
+  --color-scrollbar-thumb: #7e8a9c;
+  --color-scrollbar-thumb-hover: #d8dee9;
 
   --color-overlay-solid: rgba(42,47,56,0.92);
   --color-suggestion-fade: rgba(46,52,64,0.85);
