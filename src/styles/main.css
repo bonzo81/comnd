@@ -388,7 +388,9 @@
   cursor: help;
 }
 
-/* ─── Global focus indicators ─── */.cm-host-item:focus-visible {
+/* ─── Global focus indicators ─── */
+
+.cm-host-item:focus-visible {
   outline: var(--focus-ring-width) solid var(--color-focus-ring);
   outline-offset: calc(-1 * var(--focus-ring-offset));
 }
