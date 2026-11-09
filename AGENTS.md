@@ -73,9 +73,11 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 - One input class: `.form-input` (+ `.form-input-sm` size modifier). Do not hand-roll new input/select styles; compose with layout-only classes
 - No `var()` fallbacks for tokens — tokens are always defined
 - No inline `style="..."` in TS markup except dynamic values (positions, indents); everything else gets a class
-- 4px spacing grid (`var(--spacing)`)
+- 4px spacing grid (`--space-*`)
 - Multiple app themes (dark, light, solarized) — tokens in `tokens.css`, component styles in `src/styles/components/`
 - JetBrains Mono for terminal and code; Inter for UI text (via `@fontsource`)
+
+The token standard is `docs/adr/018-css-token-naming-standard.md`; `npm run lint:css` enforces it in the `frontend` job. Namespaces are `--color-*`, `--space-*`, `--font-size-*`, `--radius-*`, `--shadow-*`, `--focus-ring-*`, `--ghost-*`, `--prose-*`, plus `--local-*` for a value scoped to one component. Colour roles include `--color-fg-on-danger` (text on a danger fill), `--color-scrollbar-thumb(-hover)` and `--color-focus-ring`. A component must not reach for a primitive as a role, and `--local-*` must never hold a colour.
 
 ## Knowledge Base
 

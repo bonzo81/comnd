@@ -45,7 +45,6 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "@fontsource/jetbrains-mono/700.css";
-import "./styles/tokens.css";
 import "./styles/main.css";
 
 // Kick off the JetBrains Mono download at startup. xterm measures char size
