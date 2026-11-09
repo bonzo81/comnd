@@ -511,24 +511,24 @@ body.tv-resizing * {
    Gutter width tracks the configured format's max stamp width. */
 .tv-terminal.timestamps-on {
   font-family: var(--font-mono);
-  --ts-gutter: calc(8ch + 12px);
-  padding-left: var(--ts-gutter);
+  --local-ts-gutter: calc(8ch + 12px);
+  padding-left: var(--local-ts-gutter);
 }
 
 .tv-terminal.timestamps-on[data-ts-format="12h"] {
-  --ts-gutter: calc(11ch + 12px);
+  --local-ts-gutter: calc(11ch + 12px);
 }
 
 .tv-terminal.timestamps-on[data-ts-format="24h-ms"] {
-  --ts-gutter: calc(12ch + 12px);
+  --local-ts-gutter: calc(12ch + 12px);
 }
 
 /* Decorations anchor at col 0 and shift left into the gutter.
    xterm sets inline display/height/line-height per cell, so align via
    text-align rather than overriding display. */
 .tv-terminal.timestamps-on .xterm-decoration.ts-stamp {
-  width: var(--ts-gutter) !important;
-  transform: translateX(calc(-1 * var(--ts-gutter)));
+  width: var(--local-ts-gutter) !important;
+  transform: translateX(calc(-1 * var(--local-ts-gutter)));
   text-align: right;
   padding-right: var(--space-2);
   box-sizing: border-box;

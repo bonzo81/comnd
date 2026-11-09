@@ -596,13 +596,13 @@
    gaps (2 × 8px). One custom property so the column width stays single-
    sourced — keep in sync with .preview-row-head children if they change. */
 .preview-row {
-  --preview-gutter: calc(var(--space-4) + 14px + 2 * var(--space-2));
+  --local-preview-gutter: calc(var(--space-4) + 14px + 2 * var(--space-2));
 }
 .preview-why,
 .preview-syntax,
 .preview-issues,
 .preview-compare {
-  margin-left: var(--preview-gutter);
+  margin-left: var(--local-preview-gutter);
 }
 .preview-why {
   margin-top: var(--space-0-5);
