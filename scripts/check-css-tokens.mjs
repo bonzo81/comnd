@@ -96,6 +96,7 @@ export function parseReads(text, file) {
   return found;
 }
 
+/** Every `var(--name, ...)` fallback, which ADR 018 rule 4 forbids. */
 export function parseFallbacks(text, file) {
   const found = [];
   for (const match of stripComments(text, file).matchAll(VAR_WITH_FALLBACK)) {
@@ -174,6 +175,7 @@ export function checkTokens(files) {
   return { problems, tokens };
 }
 
+/** Every CSS and TypeScript file under `dir`, with forward-slash paths. */
 function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -187,6 +189,7 @@ function walk(dir) {
   return out;
 }
 
+/** Scans every stylesheet and TypeScript file and exits non-zero on a problem. */
 function main() {
   const paths = [...new Set([...walk(STYLES_DIR), ...walk(SOURCE_DIR)])].sort();
   const files = paths.map((path) => ({ path, text: readFileSync(path, "utf8") }));
