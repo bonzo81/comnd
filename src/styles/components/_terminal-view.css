@@ -95,7 +95,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 0 var(--space-4);
-  background: linear-gradient(180deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background: linear-gradient(180deg, var(--color-surface-secondary) 0%, var(--color-chrome-tint) 100%);
   background-color: var(--color-surface-secondary);
   border-bottom: 1px solid var(--color-border);
   min-height: 44px;
@@ -210,7 +210,7 @@ body.tv-resizing * {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
-  background: linear-gradient(0deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background: linear-gradient(0deg, var(--color-surface-secondary) 0%, var(--color-chrome-tint) 100%);
   background-color: var(--color-surface-secondary);
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
@@ -245,7 +245,7 @@ body.tv-resizing * {
 .kb-override-note {
   margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--accent-custom);
+  border: 1px solid var(--color-accent-custom);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
@@ -455,10 +455,12 @@ body.tv-resizing * {
 }
 
 /* â”€â”€â”€ Platform Badge Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.badge-iosxe { color: var(--color-accent) !important; }
-.badge-nxos { color: var(--badge-nxos) !important; }
-.badge-tmos { color: var(--color-warning) !important; }
-.badge-bash { color: var(--color-success) !important; }
+/* Qualified with .hs-host-badge so the badge colour wins over that base rule
+   without !important — this file is imported before _host-screen.css. */
+.hs-host-badge.badge-iosxe { color: var(--color-accent); }
+.hs-host-badge.badge-nxos { color: var(--color-badge-nxos); }
+.hs-host-badge.badge-tmos { color: var(--color-warning); }
+.hs-host-badge.badge-bash { color: var(--color-success); }
 
 /* â”€â”€â”€ Line Timestamps (iTerm-style gutter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* All topbar buttons share the pill shape; tint only appears on hover */
@@ -483,7 +485,7 @@ body.tv-resizing * {
 .tv-highlight-btn.active:hover,
 .tv-search-btn.active:hover {
   color: var(--color-accent-hover);
-  background: var(--accent-tint-soft);
+  background: var(--color-accent-soft);
 }
 
 /* Non-active topbar buttons get the same pill with a neutral tint */
@@ -543,7 +545,7 @@ body.tv-resizing * {
   gap: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-success);
-  background: var(--accent-tint-soft);
+  background: var(--color-accent-soft);
   padding: 1px var(--space-2);
   border-radius: var(--radius-lg);
   margin-left: var(--space-2);

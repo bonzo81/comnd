@@ -108,16 +108,16 @@ function getSearchDecorations(): ISearchDecorationOptions {
 
 // Ambient chrome tint per platform mode
 const MODE_TINTS: Record<string, string> = {
-  "cisco-iosxe": "var(--tint-iosxe)",
-  "cisco-nxos": "var(--tint-nxos)",
-  "f5-tmos": "var(--tint-tmos)",
-  "linux-bash": "var(--tint-bash)",
-  "config": "var(--tint-iosxe)",
-  "exec": "var(--tint-iosxe)",
-  "enable": "var(--tint-iosxe)",
-  "configure": "var(--tint-nxos)",
-  "bash": "var(--tint-bash)",
-  "tmsh": "var(--tint-tmos)",
+  "cisco-iosxe": "var(--color-platform-tint-iosxe)",
+  "cisco-nxos": "var(--color-platform-tint-nxos)",
+  "f5-tmos": "var(--color-platform-tint-tmos)",
+  "linux-bash": "var(--color-platform-tint-bash)",
+  "config": "var(--color-platform-tint-iosxe)",
+  "exec": "var(--color-platform-tint-iosxe)",
+  "enable": "var(--color-platform-tint-iosxe)",
+  "configure": "var(--color-platform-tint-nxos)",
+  "bash": "var(--color-platform-tint-bash)",
+  "tmsh": "var(--color-platform-tint-tmos)",
 };
 
 // Auto-suggestion toggle — persisted, synced across tabs via window event
@@ -1383,7 +1383,7 @@ export class TerminalView {
   /** Re-assert this view's chrome tint (called by App on tab activation). */
   applyChromeTint() {
     const tint = MODE_TINTS[this.currentMode] ?? MODE_TINTS[this.host?.platform ?? ""] ?? "transparent";
-    document.documentElement.style.setProperty("--chrome-tint", tint);
+    document.documentElement.style.setProperty("--color-chrome-tint", tint);
   }
 
   // ─── KB loading ──────────────────────────────────────────────────

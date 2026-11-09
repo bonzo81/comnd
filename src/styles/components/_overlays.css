@@ -1,8 +1,8 @@
-﻿/* â”€â”€â”€ Connecting Overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€â”€ Connecting Overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tv-overlay {
   position: absolute;
   inset: 0;
-  background: var(--overlay-solid);
+  background: var(--color-overlay-solid);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
@@ -73,7 +73,7 @@
   overflow-y: auto;
   margin: var(--space-3) 0;
   padding: var(--space-2);
-  background: var(--overlay-solid);
+  background: var(--color-overlay-solid);
   border-radius: var(--radius-sm);
   text-align: left;
 }

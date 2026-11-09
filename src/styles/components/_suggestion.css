@@ -155,5 +155,5 @@
   padding: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  background: linear-gradient(transparent, var(--suggestion-fade));
+  background: linear-gradient(transparent, var(--color-suggestion-fade));
 }

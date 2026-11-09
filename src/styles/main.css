@@ -379,7 +379,7 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--color-badge-custom-tint);
-  background: color-mix(in srgb, var(--accent-custom) 18%, transparent);
+  background: color-mix(in srgb, var(--color-accent-custom) 18%, transparent);
   color: var(--color-badge-custom);
   font-family: var(--font-ui);
   font-size: var(--font-size-2xs);
