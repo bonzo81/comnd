@@ -570,7 +570,7 @@
 .preview-counts {
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
 }
 
 .preview-check {
@@ -581,7 +581,7 @@
 .preview-provenance {
   color: var(--color-text-secondary);
   font-size: var(--font-size-2xs);
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
   background: var(--color-surface-secondary);
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
@@ -608,7 +608,7 @@
   margin-top: var(--space-0-5);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -637,7 +637,7 @@
   background: var(--color-surface-secondary);
 }
 .preview-compare-label {
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
   font-size: var(--font-size-2xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -654,13 +654,13 @@
   margin-bottom: var(--space-1);
 }
 .preview-compare-desc {
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   margin-bottom: var(--space-1);
 }
 .preview-compare-mode {
-  font-family: var(--font-sans, var(--font-ui));
+  font-family: var(--font-ui);
   font-size: var(--font-size-2xs);
   color: var(--color-text-tertiary);
 }
@@ -751,7 +751,7 @@
   margin-top: var(--space-1);
   color: var(--color-warning);
   font-size: var(--font-size-xs);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
 }
 
 .preview-errors {

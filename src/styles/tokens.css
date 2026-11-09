@@ -32,6 +32,7 @@
   /* Borders — Linear-style subtle */
   --color-border: rgba(255,255,255,0.20);
   --color-border-hover: rgba(255,255,255,0.14);
+  --color-border-strong: rgba(255,255,255,0.32);
 
   /* Spacing (4px grid) */
   --space-0-5: 2px;
@@ -99,6 +100,7 @@
   --color-on-accent: #FFFFFF;
   /* Custom-KB provenance badge (docs/10) */
   --accent-custom: #38BDF8;
+  --color-badge-custom: #7DD3FC;
 }
 
 /* ─── Reading Comfort fixed bumps (non-slider; spec 12 §Preset values) ───
@@ -130,6 +132,7 @@
 
   --color-border: rgba(0, 0, 0, 0.45); /* 3.33:1 on surface-primary — non-text */
   --color-border-hover: rgba(0, 0, 0, 0.14);
+  --color-border-strong: rgba(0, 0, 0, 0.62);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -138,9 +141,13 @@
   --overlay-backdrop: rgba(15, 23, 42, 0.4);
   --overlay-solid: rgba(248, 250, 252, 0.92);
   --suggestion-fade: rgba(248, 250, 252, 0.8);
-  --badge-nxos: #0284C7;
+  --badge-nxos: #075985;
   --accent-tint-soft: rgba(22, 163, 74, 0.12);
   --color-on-accent: #FFFFFF;
+
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #075985;
+  --color-badge-custom: #064663;
 }
 
 /* ─── Dracula theme (dark) ─── */
@@ -163,12 +170,17 @@
 
   --color-border: rgba(255,255,255,0.14);
   --color-border-hover: rgba(255,255,255,0.22);
+  --color-border-strong: rgba(255,255,255,0.32);
 
   --overlay-solid: rgba(33,34,44,0.92);
   --suggestion-fade: rgba(40,42,54,0.85);
   --badge-nxos: #8be9fd;
   --accent-tint-soft: rgba(189,147,249,0.14);
   --color-on-accent: #FFFFFF;
+
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #BD93F9;
+  --color-badge-custom: #E4D4FF;
 }
 
 /* ─── Monokai theme (dark) ─── */
@@ -191,12 +203,17 @@
 
   --color-border: rgba(255,255,255,0.14);
   --color-border-hover: rgba(255,255,255,0.22);
+  --color-border-strong: rgba(255,255,255,0.32);
 
   --overlay-solid: rgba(31,31,25,0.92);
   --suggestion-fade: rgba(39,40,34,0.85);
   --badge-nxos: #66d9ef;
   --accent-tint-soft: rgba(253,151,31,0.14);
   --color-on-accent: #FFFFFF;
+
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #FD971F;
+  --color-badge-custom: #FFD08A;
 }
 
 /* ─── Solarized Light theme (light) ─── */
@@ -219,6 +236,7 @@
 
   --color-border: rgba(7, 54, 66, 0.6); /* 3.77:1 on surface-primary — non-text */
   --color-border-hover: rgba(88,110,117,0.34);
+  --color-border-strong: rgba(7, 54, 66, 0.82);
 
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
@@ -227,9 +245,13 @@
   --overlay-backdrop: rgba(60,75,85,0.4);
   --overlay-solid: rgba(253,246,227,0.92);
   --suggestion-fade: rgba(253,246,227,0.85);
-  --badge-nxos: #268bd2;
+  --badge-nxos: #075985;
   --accent-tint-soft: rgba(38,139,210,0.14);
   --color-on-accent: #FFFFFF;
+
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #075985;
+  --color-badge-custom: #064663;
 }
 
 /* ─── Nord theme (dark) ─── */
@@ -252,10 +274,15 @@
 
   --color-border: rgba(216,222,233,0.14);
   --color-border-hover: rgba(216,222,233,0.22);
+  --color-border-strong: rgba(216,222,233,0.32);
 
   --overlay-solid: rgba(42,47,56,0.92);
   --suggestion-fade: rgba(46,52,64,0.85);
-  --badge-nxos: #81a1c1;               /* nord9 */
+  --badge-nxos: #B8DCE8;               /* nord9, raised for AA on elevated */
   --accent-tint-soft: rgba(136,192,208,0.14);
   --color-on-accent: #2e3440;
+
+  /* Custom-KB provenance badge (docs/10) */
+  --accent-custom: #88C0D0;
+  --color-badge-custom: #DCF0F5;
 }

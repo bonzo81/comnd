@@ -380,7 +380,7 @@
   border-radius: var(--radius-sm);
   background: rgba(56, 189, 248, 0.18);
   background: color-mix(in srgb, var(--accent-custom) 18%, transparent);
-  color: var(--accent-custom);
+  color: var(--color-badge-custom);
   font-family: var(--font-ui);
   font-size: var(--font-size-2xs);
   font-weight: 600;
