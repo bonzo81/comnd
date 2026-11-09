@@ -28,8 +28,19 @@ const COLOUR_LITERAL =
 const VAR_WITH_FALLBACK = /\bvar\(\s*(--[a-z0-9-]+)\s*,/g;
 const DECLARATION = /^(--[a-z0-9-]+)\s*:\s*([\s\S]+)$/;
 
-export function stripComments(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//g, "");
+const SCRIPT_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const LINE_COMMENT = /(^|[\s;{}()])\/\/.*$/gm;
+
+/**
+ * Block comments go from every file. Line comments only go from scripts: CSS
+ * has none, and the prefix guard keeps `https://` in a URL intact. Token names
+ * are still read from quoted strings, because that is how `terminal-view.ts`
+ * references the platform tints.
+ */
+export function stripComments(text, file = "") {
+  const withoutBlocks = text.replace(/\/\*[\s\S]*?\*\//g, "");
+  if (!SCRIPT_FILE.test(file)) return withoutBlocks;
+  return withoutBlocks.replace(LINE_COMMENT, "$1");
 }
 
 /**
@@ -57,7 +68,7 @@ export function parseDeclarations(text, file) {
     }
   };
 
-  for (const character of stripComments(text)) {
+  for (const character of stripComments(text, file)) {
     if (character === "{") {
       selectors.push(buffer.trim());
       buffer = "";
@@ -79,7 +90,7 @@ export function parseDeclarations(text, file) {
 export function parseReads(text, file) {
   const found = [];
   const pattern = /\bvar\(\s*(--[a-z0-9-]+)/g;
-  for (const match of stripComments(text).matchAll(pattern)) {
+  for (const match of stripComments(text, file).matchAll(pattern)) {
     found.push({ name: match[1], file });
   }
   return found;
@@ -87,7 +98,7 @@ export function parseReads(text, file) {
 
 export function parseFallbacks(text, file) {
   const found = [];
-  for (const match of stripComments(text).matchAll(VAR_WITH_FALLBACK)) {
+  for (const match of stripComments(text, file).matchAll(VAR_WITH_FALLBACK)) {
     found.push({ name: match[1], file });
   }
   return found;
@@ -117,7 +128,7 @@ export function checkTokens(files) {
 
   for (const name of [...read].sort()) {
     if (declared.has(name)) continue;
-    const where = reads.filter((entry) => entry.name === name).map((entry) => entry.file);
+    const where = [...new Set(reads.filter((entry) => entry.name === name).map((entry) => entry.file))];
     problems.push(
       `undefined token ${name}: read in ${where.join(", ")} but never declared`,
     );

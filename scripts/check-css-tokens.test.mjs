@@ -33,6 +33,23 @@ describe("parseReads", () => {
       { name: "--color-accent", file: "a.ts" },
     ]);
   });
+
+  it("ignores a token named in a line comment", () => {
+    expect(parseReads("// var(--color-accent)\nconst a = 1;", "a.ts")).toEqual([]);
+    expect(parseReads("const a = 1; // var(--color-accent)", "a.ts")).toEqual([]);
+  });
+
+  it("does not mistake a URL for a comment", () => {
+    expect(parseReads('const u = "https://x"; const t = "var(--color-accent)";', "a.ts")).toEqual([
+      { name: "--color-accent", file: "a.ts" },
+    ]);
+  });
+
+  it("keeps a line comment in a stylesheet", () => {
+    expect(parseReads(".a { content: '// var(--color-accent)'; }", "a.css")).toEqual([
+      { name: "--color-accent", file: "a.css" },
+    ]);
+  });
 });
 
 describe("checkTokens", () => {
@@ -53,6 +70,29 @@ describe("checkTokens", () => {
     expect(found).toHaveLength(2);
     expect(found[0]).toContain("undefined token --color-missing");
     expect(found[1]).toContain("unused token --color-accent");
+  });
+
+  it("names a file once when a missing token is read twice in it", () => {
+    const found = problems([
+      tokensFile("  --color-accent: #fff;"),
+      {
+        path: "src/styles/a.css",
+        text: ".a { color: var(--color-missing); }\n.b { color: var(--color-missing); }",
+      },
+    ]);
+    expect(found[0]).toBe("undefined token --color-missing: read in src/styles/a.css but never declared");
+  });
+
+  it("ignores a token named in a TypeScript comment", () => {
+    expect(
+      problems([
+        tokensFile("  --color-accent: #fff;"),
+        {
+          path: "src/components/a.ts",
+          text: 'const a = "var(--color-accent)"; // was var(--color-missing)',
+        },
+      ]),
+    ).toEqual([]);
   });
 
   it("counts a TypeScript read as a use", () => {
