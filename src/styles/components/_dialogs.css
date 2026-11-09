@@ -75,7 +75,7 @@
   border: none;
   color: var(--color-text-secondary);
   font-family: inherit;
-  font-size: 22px;
+  font-size: var(--font-size-3xl);
   cursor: pointer;
   width: var(--space-8);
   height: var(--space-8);
@@ -192,7 +192,7 @@
 
 .import-success-icon,
 .import-error-icon {
-  font-size: 36px;
+  font-size: var(--font-size-4xl);
   margin-bottom: var(--space-2);
 }
 

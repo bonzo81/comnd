@@ -57,8 +57,8 @@
   --space-8: 32px;
   --space-16: 64px;
 
-
   /* Radius */
+  --radius-2xs: 2px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -89,6 +89,8 @@
   --font-size-lg:  calc(14px * var(--text-scale));
   --font-size-xl:  calc(16px * var(--text-scale));
   --font-size-2xl: calc(20px * var(--text-scale));
+  --font-size-3xl: calc(22px * var(--text-scale));
+  --font-size-4xl: calc(36px * var(--text-scale));
 
   /* Reading Comfort derived tokens — defaults are the mode-off values; the
      [data-reading-comfort="on"] block below bumps them. Terminal output is
