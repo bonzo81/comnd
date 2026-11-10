@@ -3,7 +3,7 @@ import { startApp } from "./app-startup";
 import { TerminalView } from "../components/terminal-view";
 import { clearStorage, writeStorage } from "./storage";
 import { getAppTheme, getTerminalTheme, setAppTheme } from "./theme";
-import { getTerminalFontSize } from "./terminal-prefs";
+import { getTerminalFontSize, setTerminalFontSize } from "./terminal-prefs";
 import { getSearchIncludeTags } from "./search-prefs";
 import { getTimestampsEnabled, getTimestampFormat } from "./timestamps";
 import { getAutoCopyEnabled } from "./auto-copy";
@@ -185,8 +185,43 @@ describe("app startup with blocked storage", () => {
     });
 
     expect(created).toBe(true);
+    expect(getAppTheme()).toBe("dark"); // unreadable at launch → documented default
     expect(() => setAppTheme("light")).not.toThrow();
-    expect(document.documentElement.dataset.theme).toBe("light"); // in-memory value survives
-    expect(getAppTheme()).toBe("dark"); // unreadable storage → documented default
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(getAppTheme()).toBe("light"); // failed write stays readable for the session
+  });
+
+  it("applies preference events to an open terminal when writes fail", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    });
+    startApp(() => {});
+
+    const view = new TerminalView(
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+    );
+    const container = document.createElement("div");
+    view.mount(container);
+    const terminal = (
+      view as unknown as { terminal: { options: { fontSize: number } } | null }
+    ).terminal;
+    const suggestionsBtn = container.querySelector<HTMLButtonElement>(".tv-suggestions-btn")!;
+
+    // Each listener re-reads the key, so a discarded write would revert the change.
+    setTerminalFontSize(18);
+    suggestionsBtn.click();
+
+    expect(terminal?.options.fontSize).toBe(18);
+    expect(suggestionsBtn.classList.contains("active")).toBe(true);
+
+    (view as unknown as { cleanup(): void }).cleanup();
   });
 });
