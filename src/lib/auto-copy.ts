@@ -5,13 +5,15 @@
  * triggers it.
  */
 
+import { readStorage, writeStorage } from "./storage";
+
 const STORAGE_KEY = "comnd-auto-copy";
 
 export function getAutoCopyEnabled(): boolean {
-  return localStorage.getItem(STORAGE_KEY) === "1";
+  return readStorage(STORAGE_KEY) === "1";
 }
 
 export function setAutoCopyEnabled(enabled: boolean): void {
-  localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
+  writeStorage(STORAGE_KEY, enabled ? "1" : "0");
   window.dispatchEvent(new CustomEvent("comnd:auto-copy", { detail: enabled }));
 }

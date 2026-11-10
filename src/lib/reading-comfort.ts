@@ -10,9 +10,9 @@
  * while ON. Re-enabling restores those values instead of re-stamping the
  * preset. First-ever ON still stamps defaults.
  *
- * Persistence: localStorage `comnd-reading-comfort` (flat object, created on
+ * Persistence: Web Storage `comnd-reading-comfort` (flat object, created on
  * first ON, kept across OFF) + `comnd-terminal-font-size` (via
- * terminal-prefs). Presentational → localStorage, never config.json.
+ * terminal-prefs). Presentational → Web Storage, never config.json.
  * Zero Rust changes.
  *
  * Derived tokens (--ghost-opacity, --prose-*) and the fixed non-slider bumps
@@ -25,6 +25,7 @@
 
 import { getTerminalFontSize, setTerminalFontSize } from "./terminal-prefs";
 import { getTerminalTheme, setTerminalTheme, getAppTheme, setAppTheme } from "./theme";
+import { readStorage, writeStorage } from "./storage";
 
 export interface ReadingComfortState {
   prevFontSize: number; // font size before the mode was enabled — OFF restore target
@@ -57,7 +58,7 @@ function clamp(v: number, min: number, max: number): number {
 
 /** Parse the stored key regardless of enabled state. Corrupt JSON → null. */
 function readStored(): StoredRC | null {
-  const raw = localStorage.getItem(KEY);
+  const raw = readStorage(KEY);
   if (!raw) return null;
   try {
     const p = JSON.parse(raw);
@@ -87,7 +88,7 @@ export function isReadingComfortEnabled(): boolean {
 }
 
 function write(state: StoredRC): void {
-  localStorage.setItem(KEY, JSON.stringify(state));
+  writeStorage(KEY, JSON.stringify(state));
 }
 
 /** Enable. First-ever ON stamps the preset; re-ON restores remembered values

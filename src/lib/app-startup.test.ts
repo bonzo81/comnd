@@ -1,12 +1,20 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startApp } from "./app-startup";
 import { TerminalView } from "../components/terminal-view";
+import { clearStorage, writeStorage } from "./storage";
+import { getAppTheme, getTerminalTheme, setAppTheme } from "./theme";
+import { getTerminalFontSize } from "./terminal-prefs";
+import { getSearchIncludeTags } from "./search-prefs";
+import { getTimestampsEnabled, getTimestampFormat } from "./timestamps";
+import { getAutoCopyEnabled } from "./auto-copy";
+import { getOutputHighlightEnabled } from "./output-highlight";
+import { isReadingComfortEnabled } from "./reading-comfort";
 
 const RC_KEY = "comnd-reading-comfort";
 const SIZE_KEY = "comnd-terminal-font-size";
 
 function seedReadingComfort(overrides: Record<string, unknown> = {}): void {
-  localStorage.setItem(
+  writeStorage(
     RC_KEY,
     JSON.stringify({
       enabled: true,
@@ -25,15 +33,16 @@ function rootScale(): string {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  clearStorage();
   document.documentElement.style.removeProperty("--text-scale");
   delete document.documentElement.dataset.readingComfort;
+  delete document.documentElement.dataset.theme;
 });
 
 describe("app startup", () => {
   it("applies stored Reading Comfort before the app is constructed", () => {
     seedReadingComfort();
-    localStorage.setItem(SIZE_KEY, "16");
+    writeStorage(SIZE_KEY, "16");
 
     let observed: { attribute: string | undefined; scale: string } | null = null;
     let created = false;
@@ -72,7 +81,7 @@ describe("app startup", () => {
 
   it("opens terminals with the stored Reading Comfort typography", () => {
     seedReadingComfort();
-    localStorage.setItem(SIZE_KEY, "16");
+    writeStorage(SIZE_KEY, "16");
     startApp(() => {});
 
     const view = new TerminalView(
@@ -94,5 +103,90 @@ describe("app startup", () => {
     expect(terminal?.options.letterSpacing).toBe(2);
 
     (view as unknown as { cleanup(): void }).cleanup();
+  });
+});
+
+describe("app startup with blocked storage", () => {
+  let original: PropertyDescriptor | undefined;
+
+  /** Reproduce the issue's repro: reading the property itself throws. */
+  beforeEach(() => {
+    original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("storage blocked", "SecurityError");
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it("constructs the app and falls back to every documented default", () => {
+    let created = false;
+    startApp(() => {
+      created = true;
+    });
+
+    expect(created).toBe(true);
+    expect(getAppTheme()).toBe("dark");
+    expect(getTerminalTheme()).toBe("dark");
+    expect(isReadingComfortEnabled()).toBe(false);
+    expect(getTerminalFontSize()).toBe(14);
+    expect(getSearchIncludeTags()).toBe(false);
+    expect(getTimestampsEnabled()).toBe(false);
+    expect(getTimestampFormat()).toBe("24h");
+    expect(getAutoCopyEnabled()).toBe(false);
+    expect(getOutputHighlightEnabled()).toBe(false);
+    expect(document.documentElement.dataset.readingComfort).toBeUndefined();
+    expect(rootScale()).toBe("");
+  });
+
+  it("opens a terminal with default typography and suggestions off", () => {
+    startApp(() => {});
+
+    const view = new TerminalView(
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+    );
+    const container = document.createElement("div");
+    view.mount(container);
+    const terminal = (
+      view as unknown as { terminal: { options: { fontSize: number } } | null }
+    ).terminal;
+    const suggestionsBtn = container.querySelector(".tv-suggestions-btn");
+
+    expect(terminal?.options.fontSize).toBe(14);
+    expect(suggestionsBtn).not.toBeNull();
+    expect(suggestionsBtn?.classList.contains("active")).toBe(false);
+
+    (view as unknown as { cleanup(): void }).cleanup();
+  });
+
+  it("starts when getItem and setItem throw, keeping a failed write in effect", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    });
+
+    let created = false;
+    startApp(() => {
+      created = true;
+    });
+
+    expect(created).toBe(true);
+    expect(() => setAppTheme("light")).not.toThrow();
+    expect(document.documentElement.dataset.theme).toBe("light"); // in-memory value survives
+    expect(getAppTheme()).toBe("dark"); // unreadable storage → documented default
   });
 });

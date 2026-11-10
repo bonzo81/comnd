@@ -11,11 +11,12 @@ import {
 } from "./reading-comfort";
 import { getTerminalFontSize, setTerminalFontSize } from "./terminal-prefs";
 import { getAppTheme, setAppTheme, getTerminalTheme, setTerminalTheme } from "./theme";
+import { clearStorage, readStorage, writeStorage } from "./storage";
 
 const KEY = "comnd-reading-comfort";
 
 beforeEach(() => {
-  localStorage.clear();
+  clearStorage();
   document.documentElement.style.removeProperty("--text-scale");
   delete document.documentElement.dataset.readingComfort;
   setTerminalTheme("dark");
@@ -48,7 +49,7 @@ describe("Reading Comfort mode", () => {
     disable();
 
     expect(getReadingComfortState()).toBeNull();
-    expect(localStorage.getItem(KEY)).not.toBeNull(); // key kept: values survive the cycle
+    expect(readStorage(KEY)).not.toBeNull(); // key kept: values survive the cycle
     expect(getTerminalFontSize()).toBe(14); // restored from prev, not preset
     expect(document.documentElement.style.getPropertyValue("--text-scale")).toBe("");
     expect(document.documentElement.dataset.readingComfort).toBeUndefined();
@@ -116,7 +117,7 @@ describe("Reading Comfort mode", () => {
   });
 
   it("corrupt JSON in the key is treated as off", () => {
-    localStorage.setItem(KEY, "{not json");
+    writeStorage(KEY, "{not json");
     expect(getReadingComfortState()).toBeNull();
     expect(isReadingComfortEnabled()).toBe(false);
     applyReadingComfort(); // must not throw; clears DOM instead of stamping

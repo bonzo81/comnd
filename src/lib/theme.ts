@@ -1,4 +1,5 @@
 import type { ITheme } from "@xterm/xterm";
+import { readStorage, writeStorage } from "./storage";
 
 export const APP_THEMES = [
   { id: 'dark', label: 'Dark' },
@@ -15,12 +16,12 @@ const APP_KEY = "comnd-theme";
 const TERMINAL_KEY = "comnd-terminal-theme";
 
 export function getAppTheme(): Theme {
-  const stored = localStorage.getItem(APP_KEY);
+  const stored = readStorage(APP_KEY);
   return APP_THEMES.some((t) => t.id === stored) ? (stored as Theme) : "dark";
 }
 
 export function setAppTheme(t: Theme): void {
-  localStorage.setItem(APP_KEY, t);
+  writeStorage(APP_KEY, t);
   document.documentElement.dataset.theme = t;
   window.dispatchEvent(new CustomEvent("comnd:theme", { detail: t }));
 }
@@ -31,12 +32,12 @@ export type TerminalTheme = 'dark' | 'warm-charcoal' | 'cream' | 'light';
 export const TERMINAL_THEME_ORDER: TerminalTheme[] = ["dark", "warm-charcoal", "cream", "light"];
 
 export function getTerminalTheme(): TerminalTheme {
-  const stored = localStorage.getItem(TERMINAL_KEY);
+  const stored = readStorage(TERMINAL_KEY);
   return TERMINAL_THEME_ORDER.includes(stored as TerminalTheme) ? (stored as TerminalTheme) : "dark";
 }
 
 export function setTerminalTheme(t: TerminalTheme): void {
-  localStorage.setItem(TERMINAL_KEY, t);
+  writeStorage(TERMINAL_KEY, t);
   window.dispatchEvent(new CustomEvent("comnd:terminal-theme", { detail: t }));
 }
 

@@ -57,6 +57,7 @@ import { OutputHighlighter } from "../lib/output-highlighter";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
 import { initContextMenu, setToggleState } from "../lib/a11y";
 import { getPlatformMeta } from "../lib/platforms";
+import { readStorage, writeStorage } from "../lib/storage";
 
 declare global {
   interface Window {
@@ -124,11 +125,11 @@ const MODE_TINTS: Record<string, string> = {
 const SUGGESTIONS_KEY = "comnd-suggestions";
 
 function getSuggestionsEnabled(): boolean {
-  return localStorage.getItem(SUGGESTIONS_KEY) === "1";
+  return readStorage(SUGGESTIONS_KEY) === "1";
 }
 
 function setSuggestionsEnabled(enabled: boolean): void {
-  localStorage.setItem(SUGGESTIONS_KEY, enabled ? "1" : "0");
+  writeStorage(SUGGESTIONS_KEY, enabled ? "1" : "0");
   window.dispatchEvent(new CustomEvent("comnd:suggestions", { detail: enabled }));
 }
 

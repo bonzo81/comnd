@@ -9,6 +9,7 @@
  */
 
 import type { IDecoration, Terminal } from "@xterm/xterm";
+import { readStorage, writeStorage } from "./storage";
 
 const STORAGE_KEY = "comnd-timestamps";
 const FORMAT_KEY = "comnd-timestamps-format";
@@ -16,21 +17,21 @@ const FORMAT_KEY = "comnd-timestamps-format";
 export type TimestampFormat = "24h" | "12h" | "24h-ms";
 
 export function getTimestampsEnabled(): boolean {
-  return localStorage.getItem(STORAGE_KEY) === "1";
+  return readStorage(STORAGE_KEY) === "1";
 }
 
 export function setTimestampsEnabled(enabled: boolean): void {
-  localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
+  writeStorage(STORAGE_KEY, enabled ? "1" : "0");
   window.dispatchEvent(new CustomEvent("comnd:timestamps", { detail: enabled }));
 }
 
 export function getTimestampFormat(): TimestampFormat {
-  const v = localStorage.getItem(FORMAT_KEY);
+  const v = readStorage(FORMAT_KEY);
   return v === "12h" || v === "24h-ms" ? v : "24h";
 }
 
 export function setTimestampFormat(format: TimestampFormat): void {
-  localStorage.setItem(FORMAT_KEY, format);
+  writeStorage(FORMAT_KEY, format);
   window.dispatchEvent(new CustomEvent("comnd:timestamps-format", { detail: format }));
 }
 
