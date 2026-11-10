@@ -33,6 +33,12 @@ jobs:
       - name: install dependencies
         run: npm ci
 
+      # stylelint covers declarations; scripts/check-css-tokens.mjs covers the
+      # cross-file rules stylelint cannot see (TypeScript reads, unused tokens,
+      # theme coverage, var() fallbacks). Standard: docs/adr/018-css-token-naming-standard.md
+      - name: css token gate (stylelint + token checker)
+        run: npm run lint:css
+
       - name: typecheck + build (tsc, vite)
         run: npm run build
 

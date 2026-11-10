@@ -45,7 +45,6 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "@fontsource/jetbrains-mono/700.css";
-import "./styles/tokens.css";
 import "./styles/main.css";
 
 // Kick off the JetBrains Mono download at startup. xterm measures char size
@@ -1129,7 +1128,7 @@ class App {
       content: `
         <h2 id="app-shortcuts-title">Keyboard Shortcuts</h2>
         <div class="shortcuts-grid">${items}</div>
-        <div class="form-actions" style="margin-top:calc(var(--spacing) * 5)">
+        <div class="form-actions">
           <button class="btn-text" id="app-shortcuts-customize-btn">Customize…</button>
           <button class="btn-primary" id="app-shortcuts-close-btn">Got it</button>
         </div>`,

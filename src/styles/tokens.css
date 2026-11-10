@@ -28,11 +28,22 @@
   --color-success: #22C55E;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
+  /* Text on a --color-error fill. Ink clears 4.5:1 on #EF4444 (5.08), dracula
+     (6.09), monokai (6.90) and nord (4.68); solarized-light overrides it. */
+  --color-fg-on-danger: #0A0F1C;
 
   /* Borders — Linear-style subtle */
   --color-border: rgba(255,255,255,0.20);
-  --color-border-hover: rgba(255,255,255,0.14);
   --color-border-strong: rgba(255,255,255,0.32);
+
+  /* Focus ring — every focus indicator draws from these (ADR 018 rule 4) */
+  --color-focus-ring: #22C55E;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Scrollbars */
+  --color-scrollbar-thumb: #64748B;
+  --color-scrollbar-thumb-hover: #94A3B8;
 
   /* Spacing (4px grid) */
   --space-0-5: 2px;
@@ -46,28 +57,25 @@
   --space-8: 32px;
   --space-16: 64px;
 
-  /* Backward compat alias */
-  --spacing: 4px;
-
   /* Radius */
+  --radius-2xs: 2px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-pill: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
 
   /* Ambient chrome tint (platform-specific, set via JS) */
-  --chrome-tint: transparent;
+  --color-chrome-tint: transparent;
 
   /* Platform tint presets */
-  --tint-iosxe: rgba(34, 197, 94, 0.06);
-  --tint-nxos: rgba(56, 189, 248, 0.06);
-  --tint-tmos: rgba(245, 158, 11, 0.06);
-  --tint-bash: rgba(34, 197, 94, 0.04);
+  --color-platform-tint-iosxe: rgba(34, 197, 94, 0.06);
+  --color-platform-tint-nxos: rgba(56, 189, 248, 0.06);
+  --color-platform-tint-tmos: rgba(245, 158, 11, 0.06);
+  --color-platform-tint-bash: rgba(34, 197, 94, 0.04);
 
   /* Typography */
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -81,6 +89,8 @@
   --font-size-lg:  calc(14px * var(--text-scale));
   --font-size-xl:  calc(16px * var(--text-scale));
   --font-size-2xl: calc(20px * var(--text-scale));
+  --font-size-3xl: calc(22px * var(--text-scale));
+  --font-size-4xl: calc(36px * var(--text-scale));
 
   /* Reading Comfort derived tokens — defaults are the mode-off values; the
      [data-reading-comfort="on"] block below bumps them. Terminal output is
@@ -92,14 +102,14 @@
   --prose-max-width: none;
 
   /* Overlays & tints (theme-aware) */
-  --overlay-backdrop: rgba(0, 0, 0, 0.6);
-  --overlay-solid: rgba(15, 23, 42, 0.92);
-  --suggestion-fade: rgba(15, 23, 42, 0.8);
-  --badge-nxos: #38BDF8;
-  --accent-tint-soft: rgba(34, 197, 94, 0.12);
+  --color-overlay-backdrop: rgba(0, 0, 0, 0.6);
+  --color-overlay-solid: rgba(15, 23, 42, 0.92);
+  --color-suggestion-fade: rgba(15, 23, 42, 0.8);
+  --color-badge-nxos: #38BDF8;
+  --color-accent-soft: rgba(34, 197, 94, 0.12);
   --color-on-accent: #FFFFFF;
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #38BDF8;
+  --color-accent-custom: #38BDF8;
   --color-badge-custom: #7DD3FC;
   --color-badge-custom-tint: rgba(56, 189, 248, 0.18);
 }
@@ -132,22 +142,24 @@
   --color-success: #15803D;
 
   --color-border: rgba(0, 0, 0, 0.45); /* 3.33:1 on surface-primary — non-text */
-  --color-border-hover: rgba(0, 0, 0, 0.14);
   --color-border-strong: rgba(0, 0, 0, 0.62);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --color-focus-ring: #166534;
+  --color-scrollbar-thumb: #556579;
+  --color-scrollbar-thumb-hover: #475569;
+
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
 
-  --overlay-backdrop: rgba(15, 23, 42, 0.4);
-  --overlay-solid: rgba(248, 250, 252, 0.92);
-  --suggestion-fade: rgba(248, 250, 252, 0.8);
-  --badge-nxos: #075985;
-  --accent-tint-soft: rgba(22, 163, 74, 0.12);
+  --color-overlay-backdrop: rgba(15, 23, 42, 0.4);
+  --color-overlay-solid: rgba(248, 250, 252, 0.92);
+  --color-suggestion-fade: rgba(248, 250, 252, 0.8);
+  --color-badge-nxos: #075985;
+  --color-accent-soft: rgba(22, 163, 74, 0.12);
   --color-on-accent: #FFFFFF;
 
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #075985;
+  --color-accent-custom: #075985;
   --color-badge-custom: #064663;
   --color-badge-custom-tint: rgba(7, 89, 133, 0.18);
 }
@@ -171,17 +183,20 @@
   --color-error: #ff5555;
 
   --color-border: rgba(255,255,255,0.14);
-  --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
-  --overlay-solid: rgba(33,34,44,0.92);
-  --suggestion-fade: rgba(40,42,54,0.85);
-  --badge-nxos: #8be9fd;
-  --accent-tint-soft: rgba(189,147,249,0.14);
+  --color-focus-ring: #bd93f9;
+  --color-scrollbar-thumb: #6272a4;
+  --color-scrollbar-thumb-hover: #a6accd;
+
+  --color-overlay-solid: rgba(33,34,44,0.92);
+  --color-suggestion-fade: rgba(40,42,54,0.85);
+  --color-badge-nxos: #8be9fd;
+  --color-accent-soft: rgba(189,147,249,0.14);
   --color-on-accent: #FFFFFF;
 
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #BD93F9;
+  --color-accent-custom: #BD93F9;
   --color-badge-custom: #E4D4FF;
   --color-badge-custom-tint: rgba(189, 147, 249, 0.18);
 }
@@ -205,17 +220,20 @@
   --color-error: #ff6c63;
 
   --color-border: rgba(255,255,255,0.14);
-  --color-border-hover: rgba(255,255,255,0.22);
   --color-border-strong: rgba(255,255,255,0.32);
 
-  --overlay-solid: rgba(31,31,25,0.92);
-  --suggestion-fade: rgba(39,40,34,0.85);
-  --badge-nxos: #66d9ef;
-  --accent-tint-soft: rgba(253,151,31,0.14);
+  --color-focus-ring: #fd971f;
+  --color-scrollbar-thumb: #75715e;
+  --color-scrollbar-thumb-hover: #9d9d93;
+
+  --color-overlay-solid: rgba(31,31,25,0.92);
+  --color-suggestion-fade: rgba(39,40,34,0.85);
+  --color-badge-nxos: #66d9ef;
+  --color-accent-soft: rgba(253,151,31,0.14);
   --color-on-accent: #FFFFFF;
 
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #FD971F;
+  --color-accent-custom: #FD971F;
   --color-badge-custom: #FFD08A;
   --color-badge-custom-tint: rgba(253, 151, 31, 0.18);
 }
@@ -237,24 +255,28 @@
   --color-success: #859900;
   --color-warning: #b58900;
   --color-error: #dc322f;
+  /* Ink is only 4.14:1 on solarized-light's red; white clears AA at 4.63:1. */
+  --color-fg-on-danger: #FFFFFF;
 
   --color-border: rgba(7, 54, 66, 0.6); /* 3.77:1 on surface-primary — non-text */
-  --color-border-hover: rgba(88,110,117,0.34);
   --color-border-strong: rgba(7, 54, 66, 0.82);
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
+  --color-focus-ring: #20628f;
+  --color-scrollbar-thumb: #54696f;
+  --color-scrollbar-thumb-hover: #4b6067;
+
   --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.14);
 
-  --overlay-backdrop: rgba(60,75,85,0.4);
-  --overlay-solid: rgba(253,246,227,0.92);
-  --suggestion-fade: rgba(253,246,227,0.85);
-  --badge-nxos: #075985;
-  --accent-tint-soft: rgba(38,139,210,0.14);
+  --color-overlay-backdrop: rgba(60,75,85,0.4);
+  --color-overlay-solid: rgba(253,246,227,0.92);
+  --color-suggestion-fade: rgba(253,246,227,0.85);
+  --color-badge-nxos: #075985;
+  --color-accent-soft: rgba(38,139,210,0.14);
   --color-on-accent: #FFFFFF;
 
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #075985;
+  --color-accent-custom: #075985;
   --color-badge-custom: #064663;
   --color-badge-custom-tint: rgba(7, 89, 133, 0.18);
 }
@@ -278,17 +300,20 @@
   --color-error: #bf616a;              /* nord10 red */
 
   --color-border: rgba(216,222,233,0.14);
-  --color-border-hover: rgba(216,222,233,0.22);
   --color-border-strong: rgba(216,222,233,0.32);
 
-  --overlay-solid: rgba(42,47,56,0.92);
-  --suggestion-fade: rgba(46,52,64,0.85);
-  --badge-nxos: #B8DCE8;               /* nord9, raised for AA on elevated */
-  --accent-tint-soft: rgba(136,192,208,0.14);
+  --color-focus-ring: #88c0d0;
+  --color-scrollbar-thumb: #7e8a9c;
+  --color-scrollbar-thumb-hover: #d8dee9;
+
+  --color-overlay-solid: rgba(42,47,56,0.92);
+  --color-suggestion-fade: rgba(46,52,64,0.85);
+  --color-badge-nxos: #B8DCE8;               /* nord9, raised for AA on elevated */
+  --color-accent-soft: rgba(136,192,208,0.14);
   --color-on-accent: #2e3440;
 
   /* Custom-KB provenance badge (docs/10) */
-  --accent-custom: #88C0D0;
+  --color-accent-custom: #88C0D0;
   --color-badge-custom: #DCF0F5;
   --color-badge-custom-tint: rgba(136, 192, 208, 0.18);
 }

@@ -8,17 +8,17 @@
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--color-text-tertiary);
-  border-radius: 4px;
+  background: var(--color-scrollbar-thumb);
+  border-radius: var(--radius-sm);
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
+  background: var(--color-scrollbar-thumb-hover);
 }
 
 .xterm-viewport {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-text-tertiary) transparent;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
 
 /* â”€â”€â”€ Session Tab Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -57,8 +57,8 @@
 }
 
 .session-tab:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-offset));
 }
 
 .session-tab-close {
@@ -95,7 +95,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 0 var(--space-4);
-  background: linear-gradient(180deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background: linear-gradient(180deg, var(--color-surface-secondary) 0%, var(--color-chrome-tint) 100%);
   background-color: var(--color-surface-secondary);
   border-bottom: 1px solid var(--color-border);
   min-height: 44px;
@@ -184,7 +184,7 @@
 }
 
 .tv-resizer:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
   outline-offset: -1px;
 }
 
@@ -210,7 +210,7 @@ body.tv-resizing * {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
-  background: linear-gradient(0deg, var(--color-surface-secondary) 0%, var(--chrome-tint) 100%);
+  background: linear-gradient(0deg, var(--color-surface-secondary) 0%, var(--color-chrome-tint) 100%);
   background-color: var(--color-surface-secondary);
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
@@ -245,7 +245,7 @@ body.tv-resizing * {
 .kb-override-note {
   margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--accent-custom);
+  border: 1px solid var(--color-accent-custom);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
@@ -455,10 +455,12 @@ body.tv-resizing * {
 }
 
 /* â”€â”€â”€ Platform Badge Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.badge-iosxe { color: var(--color-accent) !important; }
-.badge-nxos { color: var(--badge-nxos) !important; }
-.badge-tmos { color: var(--color-warning) !important; }
-.badge-bash { color: var(--color-success) !important; }
+/* Qualified with .hs-host-badge so the badge colour wins over that base rule
+   without !important — this file is imported before _host-screen.css. */
+.hs-host-badge.badge-iosxe { color: var(--color-accent); }
+.hs-host-badge.badge-nxos { color: var(--color-badge-nxos); }
+.hs-host-badge.badge-tmos { color: var(--color-warning); }
+.hs-host-badge.badge-bash { color: var(--color-success); }
 
 /* â”€â”€â”€ Line Timestamps (iTerm-style gutter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* All topbar buttons share the pill shape; tint only appears on hover */
@@ -483,7 +485,7 @@ body.tv-resizing * {
 .tv-highlight-btn.active:hover,
 .tv-search-btn.active:hover {
   color: var(--color-accent-hover);
-  background: var(--accent-tint-soft);
+  background: var(--color-accent-soft);
 }
 
 /* Non-active topbar buttons get the same pill with a neutral tint */
@@ -509,24 +511,24 @@ body.tv-resizing * {
    Gutter width tracks the configured format's max stamp width. */
 .tv-terminal.timestamps-on {
   font-family: var(--font-mono);
-  --ts-gutter: calc(8ch + 12px);
-  padding-left: var(--ts-gutter);
+  --local-ts-gutter: calc(8ch + 12px);
+  padding-left: var(--local-ts-gutter);
 }
 
 .tv-terminal.timestamps-on[data-ts-format="12h"] {
-  --ts-gutter: calc(11ch + 12px);
+  --local-ts-gutter: calc(11ch + 12px);
 }
 
 .tv-terminal.timestamps-on[data-ts-format="24h-ms"] {
-  --ts-gutter: calc(12ch + 12px);
+  --local-ts-gutter: calc(12ch + 12px);
 }
 
 /* Decorations anchor at col 0 and shift left into the gutter.
    xterm sets inline display/height/line-height per cell, so align via
    text-align rather than overriding display. */
 .tv-terminal.timestamps-on .xterm-decoration.ts-stamp {
-  width: var(--ts-gutter) !important;
-  transform: translateX(calc(-1 * var(--ts-gutter)));
+  width: var(--local-ts-gutter) !important;
+  transform: translateX(calc(-1 * var(--local-ts-gutter)));
   text-align: right;
   padding-right: var(--space-2);
   box-sizing: border-box;
@@ -543,7 +545,7 @@ body.tv-resizing * {
   gap: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-success);
-  background: var(--accent-tint-soft);
+  background: var(--color-accent-soft);
   padding: 1px var(--space-2);
   border-radius: var(--radius-lg);
   margin-left: var(--space-2);

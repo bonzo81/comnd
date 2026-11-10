@@ -1,4 +1,4 @@
-﻿/* â”€â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .btn-primary {
   background: var(--color-accent);
   color: var(--color-on-accent);
@@ -50,7 +50,7 @@
 
 .btn-danger {
   background: var(--color-error);
-  color: var(--color-surface-secondary);
+  color: var(--color-fg-on-danger);
   border: none;
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-pill);
@@ -108,7 +108,7 @@
   height: var(--space-8);
   border-radius: 50%;
   cursor: pointer;
-  font-size: 15px;
+  font-size: var(--font-size-lg);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -117,6 +117,6 @@
 }
 
 .btn-shortcuts:hover {
-  border-color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
   color: var(--color-text-primary);
 }

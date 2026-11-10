@@ -1,8 +1,8 @@
-﻿/* â”€â”€â”€ Modal / Form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€â”€ Modal / Form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: var(--overlay-backdrop);
+  background: var(--color-overlay-backdrop);
   backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
@@ -244,6 +244,10 @@ select.form-input {
   grid-template-columns: auto 1fr;
   gap: var(--space-1) var(--space-3);
   align-items: baseline;
+}
+
+.shortcuts-modal .form-actions {
+  margin-top: var(--space-5);
 }
 
 .shortcuts-section {

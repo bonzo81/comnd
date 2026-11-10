@@ -16,18 +16,18 @@ Style reference: Linear-inspired neutral slate surfaces, single green accent, su
 | App background / terminal background | `--color-surface-primary` | `#0F172A` (slate-900) | Deep blue-grey, easy on the eyes for long sessions |
 | Terminal foreground | — | `#F8FAFC` | Set via xterm theme (`src/lib/theme.ts`) |
 | Terminal cursor | — | `#22C55E` | Green, matches accent |
-| UI chrome (title bar, top bar, sidebar, status bar) | `--color-surface-secondary` | `#111827` | Differentiates chrome from terminal |
+| UI chrome (title bar, top bar, sidebar, status bar) | `--color-surface-secondary` | `#0A0F1C` | Differentiates chrome from terminal |
 | Elevated surfaces (cards, modals, dropdowns, inputs) | `--color-surface-elevated` | `#1E293B` (slate-800) | |
-| Borders / dividers | `--color-border` | `rgba(255,255,255,0.08)` | Subtle, not prominent |
+| Borders / dividers | `--color-border` | `rgba(255,255,255,0.20)` | Subtle, not prominent |
 | Accent / interactive | `--color-accent` | `#22C55E` | Green — links, selected items, focus indicators, badges |
 | Ghost text (suggestions) | `--color-text-secondary` at 60% opacity | `#94A3B8` @ 0.6 | Must be clearly distinguishable from real text and cursor. No ambiguity. |
 | Selected item background | `--color-surface-selected` | `rgba(34, 197, 94, 0.12)` | Accent tint — highlighted row |
 | Error / warning | `--color-error` / `--color-warning` | `#EF4444` / `#F59E0B` | Red / orange |
 | Success / connected | `--color-success` | `#22C55E` | Same as accent |
 | Muted metadata | `--color-text-secondary` | `#94A3B8` | Version, mode, tags in sidebar |
-| NX-OS badge | `--badge-nxos` | `#38BDF8` | Platform badge differentiation |
+| NX-OS badge | `--color-badge-nxos` | `#38BDF8` | Platform badge differentiation |
 
-Platform tints: each platform subtly tints the top/status bar chrome via `--chrome-tint` (IOS-XE green, NX-OS sky, TMOS amber, Bash green-dim). Purely ambient — never competes with content.
+Platform tints: each platform subtly tints the top/status bar chrome via `--color-chrome-tint` (IOS-XE green, NX-OS sky, TMOS amber, Bash green-dim). Purely ambient — never competes with content.
 
 * **Light palette (shipped, theme-aware via `[data-theme="light"]`):**
 
@@ -40,6 +40,28 @@ Platform tints: each platform subtly tints the top/status bar chrome via `--chro
 | Terminal | bg `#F8FAFC`, fg `#0F172A`, cursor `#16A34A` | Via xterm theme |
 
 Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate exception is ghost text — it must be *less* prominent than real input.
+
+## Token Layer
+
+Every colour, size, radius and shadow in the UI resolves to a token in `src/styles/tokens.css`. The naming standard is `docs/adr/018-css-token-naming-standard.md`; `npm run lint:css` enforces it in the `frontend` job, and `scripts/check-css-tokens.mjs` additionally proves that no token is defined without a reader and none is read without a definition (CSS and TypeScript both count as readers).
+
+| Namespace | Holds | Example |
+|---|---|---|
+| `--color-*` | Every colour, surface, border, role and platform tint | `--color-surface-elevated`, `--color-focus-ring` |
+| `--space-*` | 4px-grid spacing steps | `--space-4` |
+| `--font-size-*` | Type scale, multiplied by `--text-scale` | `--font-size-base` |
+| `--radius-*` | Corner radii | `--radius-md` |
+| `--shadow-*` | Elevation shadows | `--shadow-lg` |
+| `--focus-ring-*` | Focus ring width and offset | `--focus-ring-width` |
+| `--ghost-*` | Ghost-suggestion opacity | `--ghost-opacity` |
+| `--prose-*` | Reading Comfort prose measure | `--prose-max-width` |
+| `--local-*` | A value scoped to one component | `--local-ts-gutter` |
+
+Colour roles sit above the raw palette: a component reads `--color-fg-on-danger` (text on a danger fill), `--color-scrollbar-thumb` / `--color-scrollbar-thumb-hover`, or `--color-focus-ring` rather than reaching for the primitive behind them. No `var()` fallbacks — a fallback hides a typo.
+
+**Type scale:** `2xs` 10, `xs` 11, `sm` 12, `base` 13, `lg` 14, `xl` 16, `2xl` 20, `3xl` 22, `4xl` 36 (px, before `--text-scale`).
+
+**Radius scale:** `2xs` 2, `sm` 4, `md` 6, `lg` 8, `pill` 9999 (px).
 
 ## Typography
 
@@ -71,7 +93,7 @@ Contrast rule: every text/background pair ≥ 4.5:1 WCAG AA. The one deliberate 
 * **Sidebar mode:** push (resizes the terminal, does NOT overlay it)
 * **Dropdown max height:** 8 visible items, scroll indicator if more
 * **Dropdown item height:** 32px
-* **Radii:** 4px / 6px / 8px (`--radius-sm/md/lg`)
+* **Radii:** 2px / 4px / 6px / 8px (`--radius-2xs/sm/md/lg`), `--radius-pill` for fully rounded
 * **Content column** (centered, `margin: 0 auto`): Replay 900px. Full-bleed screens (terminal, connection manager, KB, settings) have no max-width — Settings uses an icon rail + capped pane instead (see Settings Screen Layout).
 
 ## Screens / Views

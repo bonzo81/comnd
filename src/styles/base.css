@@ -52,7 +52,7 @@
   /* ─── Scrollbars (all platforms, Linear-style subtle) ─── */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-text-tertiary) transparent;
+    scrollbar-color: var(--color-scrollbar-thumb) transparent;
   }
 
   ::-webkit-scrollbar {
@@ -65,12 +65,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--color-text-tertiary);
-    border-radius: 4px;
+    background: var(--color-scrollbar-thumb);
+    border-radius: var(--radius-sm);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-secondary);
+    background: var(--color-scrollbar-thumb-hover);
   }
 
   ::-webkit-scrollbar-thumb:active {

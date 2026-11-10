@@ -349,11 +349,11 @@ describe("badge and note contrast (issue #114)", () => {
       });
 
       it(`${theme} · NX-OS badge on ${surface.name} reaches 4.5:1`, () => {
-        expect(contrast(tokenColor(theme, "--badge-nxos"), base())).toBeGreaterThanOrEqual(TEXT_MIN);
+        expect(contrast(tokenColor(theme, "--color-badge-nxos"), base())).toBeGreaterThanOrEqual(TEXT_MIN);
       });
 
       it(`${theme} · KB override note border on ${surface.name} reaches 3:1`, () => {
-        const painted = composite(tokenColor(theme, "--accent-custom"), base());
+        const painted = composite(tokenColor(theme, "--color-accent-custom"), base());
         expect(contrast(painted, base())).toBeGreaterThanOrEqual(NON_TEXT_MIN);
       });
     }
@@ -371,12 +371,20 @@ describe("badge and note contrast (issue #114)", () => {
     // WebKit before Safari 16.2 has no color-mix(), so macOS 13 paints the
     // static tint while newer engines paint the color-mix() expression. The
     // two must stay the same colour.
-    const accent = tokenColor(theme, "--accent-custom");
+    const accent = tokenColor(theme, "--color-accent-custom");
     expect(tokenColor(theme, "--color-badge-custom-tint")).toEqual({
       r: accent.r,
       g: accent.g,
       b: accent.b,
       a: 0.18,
     });
+  });
+
+  it.each(ALL_THEMES)("%s danger text clears AA on its error fill", (theme) => {
+    // --color-fg-on-danger is the only text colour paired with --color-error.
+    // Solarized's red is light enough that ink drops to 4.14:1, so that theme
+    // overrides the token to white; every other theme inherits ink.
+    expect(contrast(tokenColor(theme, "--color-fg-on-danger"), tokenColor(theme, "--color-error")))
+      .toBeGreaterThanOrEqual(TEXT_MIN);
   });
 });

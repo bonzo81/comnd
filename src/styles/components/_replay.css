@@ -1,4 +1,4 @@
-﻿/* Command Replay â€” side panel list, save dialog, variable prompt (docs/09) */
+/* Command Replay â€” side panel list, save dialog, variable prompt (docs/09) */
 
 /* Top-level management view */
 .replay-screen {
@@ -15,7 +15,7 @@
   gap: var(--space-3);
 }
 .rsm-title {
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   margin: 0;
   margin-right: auto;
 }
