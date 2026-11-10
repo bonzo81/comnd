@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use russh::keys::key::safe_rng;
-use russh::keys::{Algorithm, PrivateKey, PublicKey};
+use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, Pty};
 use tokio::net::TcpListener;
@@ -317,10 +317,13 @@ impl server::Handler for MockHandler {
     /// Check-mode semantics (Tailscale): accept ANY publickey. Russh verifies
     /// the signature; acceptance means the session opens pending browser auth.
     /// Device personas reject unknown keys, like real gear.
+    ///
+    /// 0.65: the key arrives as `VerifiedPublicKey` — russh checks the
+    /// signature before this callback, so `_key` is ownership-verified.
     async fn auth_publickey(
         &mut self,
         user: &str,
-        _public_key: &PublicKey,
+        _key: russh::server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
         match self.kbd_int {
