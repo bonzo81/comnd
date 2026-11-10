@@ -2,22 +2,24 @@
  * Sidebar Content — renders command detail in the side panel
  * Syntax highlighting, examples, metadata, tags.
  *
- * Layout: an identity band (name, syntax, caller-supplied actions, description)
- * over a two-pane payload grid (token help, examples) and a footer rail of
- * facts, tags and the reference link. The band's hairline is the only rule in
- * the pane; the panes reflow to a single column when the pane is narrow.
+ * Layout: an identity band (name, caller-supplied actions, description) over a
+ * two-pane payload grid (tokens, examples) and a stacked metadata footer of
+ * facts, tags and the reference link. The band's hairline is the only rule above
+ * the payload; the panes reflow to a single column when the pane is narrow.
  *
- * Phase 5.7: when `command.tokens` is present, per-token help is rendered as a
- * two-column list. The tokenized notation is drawn only as a fallback, for
- * commands whose tokens carry no help text — otherwise it would repeat the
- * `syntax` line already shown in the band. Validation issues come from the Rust
+ * Phase 5.7: the syntax line heads the Tokens pane as its grammar, followed by
+ * per-token help as a two-column list. The tokenized notation replaces the
+ * syntax line only when no token carries help text — the two carry the same
+ * information, so only one is ever drawn. Validation issues come from the Rust
  * validator via the per-platform validation cache (see validation-cache.ts).
  */
 
 import { Command } from "./suggestion-engine";
 import { escHtml, formatMode } from "./format";
+import { icons } from "./icons";
 import { issuesFor } from "./validation-cache";
 import { renderToken, renderTokenHelp } from "./tokens";
+import { showToast } from "./toast";
 
 export class SidebarContent {
   /**
@@ -33,7 +35,6 @@ export class SidebarContent {
             <h3 class="cmd-name">${escHtml(command.name)}${command.overrides
               ? `<span class="badge-custom" title="Overrides built-in KB entry — your version is shown">custom</span>`
               : ""}</h3>
-            <code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>
             ${actions}
           </div>
           <p class="cmd-description">${escHtml(command.description)}</p>
@@ -50,9 +51,10 @@ export class SidebarContent {
   private renderExamples(examples: { command: string; description: string }[]): string {
     if (!examples || examples.length === 0) return "";
     const items = examples.map(ex =>
-      `<div class="example-item" data-command="${escHtml(ex.command)}" title="Click to run">
+      `<div class="example-item" data-command="${escHtml(ex.command)}">
         <code class="example-cmd">${escHtml(ex.command)}</code>
         <span class="example-desc">${escHtml(ex.description)}</span>
+        <button type="button" class="example-copy" data-command="${escHtml(ex.command)}" aria-label="Copy ${escHtml(ex.command)}" title="Copy command">${icons.copy}</button>
       </div>`
     ).join("");
     return `
@@ -63,7 +65,7 @@ export class SidebarContent {
     `;
   }
 
-  /** Footer rail: mode/category/version facts, tag pills, reference link. */
+  /** Footer: stacked mode/category/version facts, tag pills, reference link. */
   private renderFooter(command: Command, referenceUrl: string | null): string {
     const facts: string[] = [];
     if (command.mode) facts.push(this.fact("Mode", formatMode(command.mode)));
@@ -79,11 +81,13 @@ export class SidebarContent {
       : "";
 
     if (facts.length === 0 && !tags && !docs) return "";
-    return `<footer class="cmd-foot">${facts.join("")}${tags}${docs}</footer>`;
+    const factList = facts.length > 0 ? `<dl class="cmd-facts">${facts.join("")}</dl>` : "";
+    const tagList = tags ? `<div class="cmd-tags">${tags}</div>` : "";
+    return `<footer class="cmd-foot">${factList}${tagList}${docs}</footer>`;
   }
 
   private fact(key: string, value: string): string {
-    return `<span class="cmd-fact"><span class="cmd-fact-key">${escHtml(key)}</span>${escHtml(value)}</span>`;
+    return `<dt>${escHtml(key)}</dt><dd>${escHtml(value)}</dd>`;
   }
 
   private formatSyntax(syntax: string): string {
@@ -95,18 +99,29 @@ export class SidebarContent {
   }
 
   /**
-   * Phase 5.7: render per-token help as a two-column list when `tokens` is
-   * present. Falls back to the tokenized notation only when no token carries
-   * help text, so the grammar is never lost and never shown twice.
-   * Surfaces validator issues inline so a malformed token is visible.
+   * Phase 5.7: the syntax line heads this pane as the grammar the tokens belong
+   * to, followed by per-token help as a two-column list. When no token carries
+   * help text the tokenized notation stands in for the syntax line, so the same
+   * information is never drawn twice. Surfaces validator issues inline so a
+   * malformed token is visible.
    */
   private renderTokens(command: Command): string {
     const toks = command.tokens;
-    if (!toks || toks.length === 0) return "";
     const order = command.order ?? "fixed";
     const orderBadge = order !== "fixed"
       ? `<span class="token-order-badge">${escHtml(order)}</span>`
       : "";
+
+    // A command with no tokens still needs somewhere for its grammar to live.
+    if (!toks || toks.length === 0) {
+      if (!command.syntax) return "";
+      return `
+        <section class="cmd-pane">
+          <h4 class="cmd-pane-label">Syntax</h4>
+          <code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>
+        </section>
+      `;
+    }
 
     const help = renderTokenHelp(toks);
 
@@ -126,12 +141,40 @@ export class SidebarContent {
       `;
     }
 
+    const syntax = command.syntax
+      ? `<code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>`
+      : "";
+
     return `
       <section class="cmd-pane">
         <h4 class="cmd-pane-label">Tokens ${orderBadge}</h4>
+        ${syntax}
         ${help}
         ${issueLine}
       </section>
     `;
   }
+}
+
+/**
+ * Wire the copy buttons in a freshly rendered detail pane. The rows themselves
+ * may also be click-to-run (the terminal side panel sends the command), so the
+ * button's click must not bubble to the row.
+ */
+export function wireExampleCopy(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>(".example-copy").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const command = btn.dataset.command;
+      if (!command) return;
+      if (!navigator.clipboard) {
+        showToast("Clipboard is unavailable", "error");
+        return;
+      }
+      navigator.clipboard.writeText(command).then(
+        () => showToast("Command copied", "success"),
+        () => showToast("Could not copy the command", "error"),
+      );
+    });
+  });
 }

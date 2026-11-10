@@ -4,7 +4,7 @@
  */
 
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, disableKbCommand, enableKbCommand, getDisabledCommands, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
-import { SidebarContent } from "../lib/sidebar-content";
+import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { escAttr, escHtml, formatMode } from "../lib/format";
 import { confirmDialog } from "../lib/confirm-dialog";
@@ -362,6 +362,9 @@ export class KbViewerDialog {
 
     // Ignore button (non-destructive — no confirm)
     document.getElementById("kb-cmd-ignore-btn")?.addEventListener("click", () => this.ignoreCommand());
+
+    // Copy buttons on example rows
+    if (this.container) wireExampleCopy(this.container);
 
     // Enable buttons in the Ignored section
     this.container.querySelectorAll(".kb-btn-enable").forEach((el) => {

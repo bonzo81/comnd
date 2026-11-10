@@ -34,7 +34,7 @@ import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
 import { GhostText } from "../lib/ghost-text";
-import { SidebarContent } from "../lib/sidebar-content";
+import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { formatMode } from "../lib/format";
@@ -1427,6 +1427,7 @@ export class TerminalView {
         }
       });
     });
+    wireExampleCopy(content);
   }
 
   private updateSidebarPlaceholder() {

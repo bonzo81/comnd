@@ -243,7 +243,7 @@ body.tv-resizing * {
 .cmd-band-top {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-1) var(--space-3);
 }
 
@@ -254,10 +254,13 @@ body.tv-resizing * {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.01em;
-  color: var(--color-text-primary);
+  color: var(--color-accent);
 }
 
+/* Grammar line. Heads the Tokens pane, so it reads as that pane's subject. */
 .cmd-syntax {
+  display: block;
+  margin: 0 0 var(--space-2);
   max-width: 100%;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -321,7 +324,7 @@ body.tv-resizing * {
 
 .cmd-description {
   margin: var(--space-2) 0 0;
-  max-width: 68ch;
+  max-width: var(--prose-max-width);
   font-size: var(--font-size-sm);
   line-height: var(--prose-line-height);
   word-spacing: var(--prose-word-spacing);
@@ -329,12 +332,13 @@ body.tv-resizing * {
   white-space: pre-wrap;
 }
 
-/* Payload: flags and examples share a row when the pane is wide. */
+/* Payload: the token grammar always leads, examples always follow it. A fixed
+   order beats a wrapping row — the reader learns one layout, and the flags are
+   never pushed into a narrow column beside the examples. */
 .cmd-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
-  align-items: start;
   margin-top: var(--space-4);
 }
 
@@ -434,21 +438,56 @@ body.tv-resizing * {
 .cmd-examples {
   display: flex;
   flex-direction: column;
+  /* Hug the text: each tinted row stops at its widest line, not the pane edge. */
+  align-items: flex-start;
   gap: var(--space-1);
 }
 
 .example-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: var(--space-1-5) var(--space-2);
+  /* Right padding reserves the corner for the copy button. */
+  padding: var(--space-1-5) var(--space-8) var(--space-1-5) var(--space-2);
   background: var(--color-surface-secondary);
   border-radius: var(--radius-sm);
-  cursor: pointer;
 }
 
 .example-item:hover {
   background: var(--color-surface-selected);
+}
+
+/* The terminal side panel's rows also run on click; the KB pane's rows copy. */
+.sb-content .example-item {
+  cursor: pointer;
+}
+
+.example-copy {
+  position: absolute;
+  top: var(--space-0-5);
+  right: var(--space-0-5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.example-copy:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.example-copy svg {
+  width: var(--space-3);
+  height: var(--space-3);
 }
 
 .example-cmd {
@@ -462,25 +501,40 @@ body.tv-resizing * {
   color: var(--color-text-secondary);
 }
 
+/* Metadata block: stacked label/value rows, tag pills under them, docs link last. */
 .cmd-foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.cmd-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-4);
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.cmd-facts dt,
+.cmd-facts dd {
+  margin: 0;
+  padding: var(--space-0-5) 0;
+}
+
+.cmd-facts dt {
+  color: var(--color-text-secondary);
+}
+
+.cmd-facts dd {
+  color: var(--color-text-primary);
+}
+
+.cmd-tags {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin-top: var(--space-4);
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-secondary);
-}
-
-.cmd-fact {
-  display: inline-flex;
-  align-items: baseline;
   gap: var(--space-1);
-}
-
-.cmd-fact-key {
-  /* Same AA-clearing colour as the value; the 4px flex gap separates them. */
-  color: var(--color-text-secondary);
+  margin-top: var(--space-2);
 }
 
 .tag-badge {
@@ -492,24 +546,16 @@ body.tv-resizing * {
   border-radius: var(--radius-lg);
 }
 
-.cmd-foot .tag-badge {
-  padding: 0 var(--space-2);
-  background: var(--color-surface-secondary);
-  font-size: var(--font-size-2xs);
-  border-radius: var(--radius-pill);
-}
-
 .cmd-ref-link {
-  margin: 0 0 0 auto;
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-secondary);
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
   text-decoration: none;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .cmd-ref-link:hover {
-  color: var(--color-text-primary);
-  border-bottom-color: var(--color-border-strong);
+  text-decoration: underline;
 }
 
 

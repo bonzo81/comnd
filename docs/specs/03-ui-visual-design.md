@@ -169,7 +169,7 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
    * Required params (`<name>`) in accent colour
    * Optional params (`[...]`) in warning colour
 3. **Description** — body text. Plain language explanation.
-4. **Examples** — each in a monospace code block. **Clickable** — clicking an example inserts it into the terminal input (writes to shadow buffer + sends to SSH channel). Hover state indicates interactivity.
+4. **Examples** — each in a monospace code block. **Clickable** — clicking an example inserts it into the terminal input (writes to shadow buffer + sends to SSH channel). Hover state indicates interactivity. Each block also carries a small copy button in its top-right corner; copying does not run the command, so the KB viewer (which never runs examples) offers the same affordance.
 5. **Divider**
 6. **Metadata rows** (muted label + value) — platform · version introduced · mode. De-emphasised, does not compete with description.
 7. **Tags** — shown as pills/chips (e.g. `interfaces` `networking` `troubleshooting`). Post-MVP: clickable to filter related commands.
