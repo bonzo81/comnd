@@ -130,6 +130,48 @@ export async function waitFor(browser, predicate, timeoutMsg, timeout = WAIT_MS)
   );
 }
 
+const ACT_ON_ACTIONS = new Set(["click", "dblclick"]);
+
+/**
+ * Find an element and act on it in one in-page step.
+ *
+ * `browser.$()` resolves a WebDriver node handle, and the app re-renders whole
+ * panels after an async load, so a handle taken before that render points at a
+ * detached node and the next command fails with "Stale element found" instead
+ * of retrying. This never holds a handle: the lookup and the action run in the
+ * same script, and a retry repeats both together, so a render between attempts
+ * is harmless. The wait exists only so a missing element times out naming the
+ * selector — an error thrown by the action itself is not swallowed.
+ */
+export async function actOn(browser, selector, { action = "click", index = 0, timeout = WAIT_MS } = {}) {
+  if (!ACT_ON_ACTIONS.has(action)) {
+    throw new Error(`actOn: unknown action ${JSON.stringify(action)} for ${selector}`);
+  }
+  await browser.waitUntil(
+    async () => browser.execute(
+      (sel, at, kind) => {
+        const element = document.querySelectorAll(sel)[at];
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden"
+          || element.getClientRects().length === 0) {
+          return false;
+        }
+        if (kind === "click") {
+          element.click();
+        } else {
+          element.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+        }
+        return true;
+      },
+      selector,
+      index,
+      action,
+    ),
+    { timeout, interval: 100, timeoutMsg: `${action} on ${selector}: the element never appeared` },
+  );
+}
+
 export async function startDriver(dataDir, extraEnv = {}) {
   const port = await freePort();
   const env = {
@@ -186,6 +228,7 @@ export async function runCase(test, suite = {}) {
       },
     });
     await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
+    // Safe: `body` is never replaced by a render, and the handle is used once.
     await (await browser.$("body")).waitForExist({ timeout: 20_000 });
     appReady = true;
     // A wedged WebDriver session otherwise blocks the whole job until its timeout.

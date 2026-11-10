@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  actOn,
   buildApp,
   invoke,
   pause,
@@ -63,11 +64,9 @@ const EXPECTED_PATHS = [
 
 // ─── UI helpers ─────────────────────────────────────────────────────
 
+// Act through the DOM so no node handle survives a re-render (issue #126).
 async function click(browser, selector) {
-  const element = await browser.$(selector);
-  await element.waitForExist({ timeout: WAIT_MS });
-  await element.waitForClickable({ timeout: WAIT_MS });
-  await element.click();
+  await actOn(browser, selector);
 }
 
 /** Set a form field and fire the events the app listens for. */
@@ -131,6 +130,7 @@ async function waitForText(browser, selector, expected) {
 async function openNetboxSettings(browser) {
   await click(browser, "#title-bar-settings");
   await click(browser, '.settings-nav-item[data-item-id="netbox"]');
+  // Safe: a single awaited wait, never acted on or re-queried.
   await (await browser.$("#netbox-url")).waitForExist({ timeout: WAIT_MS });
 }
 
@@ -238,6 +238,7 @@ const groupLabel = (browser, id) =>
  * click that lands during a re-render.
  */
 async function expandGroup(browser, id) {
+  // Safe: a single awaited wait, never acted on or re-queried.
   await (await browser.$(`.nav-group-row[data-group-id="${id}"]`)).waitForExist({ timeout: WAIT_MS });
   const clickButton = () =>
     browser.execute((groupId) => {
@@ -361,6 +362,7 @@ const tests = [
       await enableNetbox(browser);
       await setInput(browser, "#netbox-url", baseUrl);
       await setInput(browser, "#netbox-token", TYPED_TOKEN);
+      // Safe: single awaited reads, never acted on or re-queried.
       assert.equal(
         await (await browser.$("#netbox-token-save")).isEnabled(),
         false,
@@ -369,11 +371,13 @@ const tests = [
 
       await click(browser, "#netbox-test-btn");
       await waitForText(browser, "#netbox-test-status", CONNECTED_TEXT);
+      // Safe: single awaited reads, never acted on or re-queried.
       assert.match(
         await (await browser.$("#netbox-test-status")).getAttribute("class"),
         /import-test-ok/,
         "a successful Test must render as success, not an error",
       );
+      // Safe: a single awaited read, never acted on or re-queried.
       assert.equal(
         await (await browser.$("#netbox-token-save")).isEnabled(),
         true,
@@ -688,6 +692,7 @@ const tests = [
         await clearToasts(browser);
         await click(browser, "#netbox-test-btn");
         await waitForText(browser, "#netbox-test-status", `Connection failed: ${current.test}`);
+        // Safe: a single awaited read, never acted on or re-queried.
         assert.match(
           await (await browser.$("#netbox-test-status")).getAttribute("class"),
           /import-test-err/,
@@ -733,6 +738,7 @@ const tests = [
           before.cache,
           `${current.scenario}: a failed sync must leave netbox-cache.json byte-identical`,
         );
+        // Safe: a single awaited read, never acted on or re-queried.
         assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
       }
 
@@ -775,6 +781,7 @@ const tests = [
         before.cache,
         "second_page_error: a partial sync must leave netbox-cache.json byte-identical",
       );
+      // Safe: a single awaited read, never acted on or re-queried.
       assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
     },
   },

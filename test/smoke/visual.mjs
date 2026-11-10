@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildApp, invoke, pause, root, runCase, runUnderXvfb, WAIT_MS } from "./lib/harness.mjs";
+import { actOn, buildApp, invoke, pause, root, runCase, runUnderXvfb, WAIT_MS } from "./lib/harness.mjs";
 
 const VIEWPORT = { width: 1280, height: 800 };
 
@@ -403,7 +403,7 @@ async function captureAll(browser, outDir) {
   await browser.keys(["\uE00C"]);
   await waitForGone(browser, ".modal-panel.host-form", "Escape did not close the new-connection form");
 
-  await (await browser.$(".sb-shortcuts")).click();
+  await actOn(browser, ".sb-shortcuts");
   await waitForSelector(browser, ".modal-panel.shortcuts-modal", "the shortcuts modal did not open");
   await pause(200);
   await capture({
@@ -415,9 +415,9 @@ async function captureAll(browser, outDir) {
   await waitForGone(browser, ".modal-panel.shortcuts-modal", "Escape did not close the shortcuts modal");
 
   await openNavSection(browser, "kb");
-  await (await browser.$('.nav-item[data-section="kb"][data-sub-id="browse"]')).click();
-  await waitForSelector(browser, ".kb-command-item[data-index=\"0\"]", "the knowledge base command list did not render");
-  await (await browser.$('.kb-command-item[data-index="0"]')).click();
+  await actOn(browser, '.nav-item[data-section="kb"][data-sub-id="browse"]');
+  await waitForSelector(browser, '.kb-command-item[data-index="0"]', "the knowledge base command list did not render");
+  await actOn(browser, '.kb-command-item[data-index="0"]');
   await waitForSelector(browser, "#kb-command-detail", "the knowledge base detail panel did not render");
   await pause(200);
   await capture({
@@ -426,7 +426,7 @@ async function captureAll(browser, outDir) {
     state: "default platform, first command selected, detail panel populated",
   });
 
-  await (await browser.$("#kb-cmd-delete-btn")).click();
+  await actOn(browser, "#kb-cmd-delete-btn");
   await waitForSelector(browser, ".modal-panel.delete-confirm", "the delete confirmation did not open");
   await pause(200);
   await capture({
@@ -434,11 +434,11 @@ async function captureAll(browser, outDir) {
     screen: "Delete confirmation dialog",
     state: "in-app confirm dialog over the Knowledge Base, raised by the command Delete button",
   });
-  await (await browser.$(".confirm-cancel")).click();
+  await actOn(browser, ".confirm-cancel");
   await waitForGone(browser, ".modal-panel.delete-confirm", "Cancel did not close the delete confirmation");
 
   await openNavSection(browser, "replay");
-  await (await browser.$('.nav-item[data-section="replay"][data-sub-id="manage"]')).click();
+  await actOn(browser, '.nav-item[data-section="replay"][data-sub-id="manage"]');
   await waitForSelector(browser, ".rsm-item[data-id]", "the replay command list did not render");
   await pause(200);
   await capture({
@@ -447,9 +447,9 @@ async function captureAll(browser, outDir) {
     state: "three seeded commands across three platforms, one with a {{variable}}",
   });
 
-  await (await browser.$("#title-bar-settings")).click();
+  await actOn(browser, "#title-bar-settings");
   await waitForSelector(browser, ".settings-nav-item", "the settings screen did not open");
-  await (await browser.$('.settings-nav-item[data-item-id="general"]')).click();
+  await actOn(browser, '.settings-nav-item[data-item-id="general"]');
   await pause(300);
   await capture({
     file: "07-settings-general.png",
@@ -457,8 +457,9 @@ async function captureAll(browser, outDir) {
     state: "General pane",
   });
 
-  await (await browser.$(`.nav-host-row[data-host-id="${seeded.mockHostId}"]`)).doubleClick();
+  await actOn(browser, `.nav-host-row[data-host-id="${seeded.mockHostId}"]`, { action: "dblclick" });
   await acceptHostKeyIfNeeded(browser);
+  // Safe: one awaited read per poll; no handle outlives the predicate.
   await browser.waitUntil(async () => (await browser.$(".tv-sb-dot")).getAttribute("class")
     .then((classes) => classes?.includes("sb-connected") ?? false), {
     timeout: 20_000,
@@ -467,8 +468,9 @@ async function captureAll(browser, outDir) {
   });
   await waitForTerminal(browser, "user@host:~$", "the mock prompt did not appear");
 
+  // Safe: this handle is only read; the click below goes through actOn.
   const suggestions = await browser.$(".tv-suggestions-btn");
-  if (await suggestions.getAttribute("aria-pressed") !== "true") await suggestions.click();
+  if (await suggestions.getAttribute("aria-pressed") !== "true") await actOn(browser, ".tv-suggestions-btn");
 
   await sendKeys(browser, "ip ");
   await browser.waitUntil(async () => visible(browser, ".suggestion-dropdown"), {
@@ -496,7 +498,8 @@ async function captureAll(browser, outDir) {
       + `(${suggestionState.names.join(", ")}) with ghost text ${JSON.stringify(suggestionState.ghost)}; side panel closed`,
   });
 
-  await (await browser.$(".tv-panel-btn")).click();
+  await actOn(browser, ".tv-panel-btn");
+  // Safe: one awaited read per poll; no handle outlives the predicate.
   await browser.waitUntil(async () => (await browser.$("#tv-sidebar")).getAttribute("class")
     .then((classes) => !(classes ?? "").includes("hidden")), {
     timeout: WAIT_MS,
