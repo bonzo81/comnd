@@ -97,7 +97,8 @@ export function renderToken(t: CommandToken, opts: RenderTokenOpts = {}): string
 
 /**
  * Render per-token help (choice flag meanings, var descriptions) as a
- * definition list. Empty string when no token carries help text.
+ * definition list — a `<dl>` grid, so every flag label shares one column.
+ * Empty string when no token carries help text.
  */
 export function renderTokenHelp(tokens: CommandToken[]): string {
   const rows: string[] = [];
@@ -105,12 +106,12 @@ export function renderTokenHelp(tokens: CommandToken[]): string {
     if (isChoice(t) && t.descriptions) {
       for (const opt of t.choice) {
         const d = t.descriptions[opt];
-        if (d) rows.push(`<div class="token-help-row"><code>${escHtml(opt)}</code><span>${escHtml(d)}</span></div>`);
+        if (d) rows.push(`<dt><code>${escHtml(opt)}</code></dt><dd>${escHtml(d)}</dd>`);
       }
     }
     if (isVar(t) && t.description) {
-      rows.push(`<div class="token-help-row"><code>&lt;${escHtml(t.var)}&gt;</code><span>${escHtml(t.description)}</span></div>`);
+      rows.push(`<dt><code>&lt;${escHtml(t.var)}&gt;</code></dt><dd>${escHtml(t.description)}</dd>`);
     }
   }
-  return rows.length ? `<div class="token-help">${rows.join("")}</div>` : "";
+  return rows.length ? `<dl class="token-help">${rows.join("")}</dl>` : "";
 }

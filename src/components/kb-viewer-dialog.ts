@@ -201,18 +201,16 @@ export class KbViewerDialog {
     const sidebar = new SidebarContent();
     const cmd = this.selectedCommand;
     const isOverride = !!cmd.overrides;
-    return `
-      <div class="kb-detail-wrapper">
-        <div class="kb-detail-actions">
-          <button class="btn-secondary btn-small kb-btn-edit" id="kb-cmd-edit-btn">${icons.pencil} Edit</button>
-          <button class="btn-secondary btn-small kb-btn-ignore" id="kb-cmd-ignore-btn">Ignore</button>
-          <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn">${icons.trash} ${isOverride ? "Restore built-in version" : "Delete"}</button>
-        </div>
-        <div class="kb-detail-sidebar">
-          ${isOverride ? `<div class="kb-override-note">This is your custom version — it overrides the built-in KB entry with the same name. Deleting it restores the built-in version.</div>` : ""}
-          ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null)}
-        </div>
+    const actions = `
+      <div class="cmd-actions">
+        <button class="btn-secondary btn-small kb-btn-edit" id="kb-cmd-edit-btn" aria-label="Edit command" title="Edit command">${icons.pencil}</button>
+        <button class="btn-secondary btn-small kb-btn-ignore" id="kb-cmd-ignore-btn" aria-label="Ignore command" title="Ignore command">${icons.eyeOff}</button>
+        <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn" aria-label="${isOverride ? "Restore built-in version" : "Delete command"}" title="${isOverride ? "Restore built-in version" : "Delete command"}">${icons.trash}</button>
       </div>
+    `;
+    return `
+      ${isOverride ? `<div class="kb-override-note">This is your custom version — it overrides the built-in KB entry with the same name. Deleting it restores the built-in version.</div>` : ""}
+      ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null, actions)}
     `;
   }
 
