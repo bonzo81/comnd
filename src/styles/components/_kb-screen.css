@@ -25,6 +25,15 @@
   display: none;
 }
 
+/* The browse tab hosts the two-pane viewer: the panel fills the height and
+   hands the scrolling to the command list and the detail pane, so the toolbar
+   and the list stay put while the detail scrolls. */
+.kb-browse-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ─── KB Platform Filter (browse mode top bar) ────────────────────── */
 .kb-platform-filter {
   display: flex;
