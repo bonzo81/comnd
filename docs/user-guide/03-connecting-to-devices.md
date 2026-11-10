@@ -50,9 +50,13 @@ You do not need to configure anything special. Keyboard-interactive support is a
 
 ### Browser Authentication (Tailscale-style)
 
-Some hosts (for example, Tailscale SSH in check mode) require you to authenticate via a web browser before SSH access is granted. When this happens, Comnd detects the authentication URL in the server banner or in the keyboard-interactive instructions. The app opens the URL in your default browser.
+Some hosts (for example, Tailscale SSH in check mode) require you to authenticate via a web browser before SSH access is granted. When this happens, Comnd detects the authentication URL in the server banner or in the keyboard-interactive instructions.
 
-The connection overlay shows the URL and provides an **Open again** button if you need to re-open it. After you complete authentication in the browser, the connection usually continues on its own. The server keeps the connection open while you authenticate. If the connection times out instead, click **Retry**. You are already authenticated, so the retry connects immediately.
+Comnd never opens the URL on its own. The connection overlay shows the URL and an **Open login page** button, and the browser opens only when you click that button. The URL comes from the remote device, so Comnd leaves the decision to open it to you.
+
+**Note:** If you run the Tailscale client on the same machine, it may open the browser for you first. Tailscale handles check-mode authentication at the network layer, so its window can appear before Comnd has drawn the overlay. Both point at the same URL, so complete either one and the connection continues.
+
+After you complete authentication in the browser, the connection usually continues on its own. The server keeps the connection open while you authenticate. If the connection times out instead, click **Retry**. You are already authenticated, so the retry connects immediately.
 
 ## Host Key Verification
 

@@ -28,6 +28,15 @@ SSH keys protected by a passphrase are supported. You will be prompted when conn
 
 Some devices using keyboard-interactive authentication (common on F5 TMOS and certain Cisco platforms) expect a specific question-and-answer format. If keyboard-interactive fails, try switching the host authentication method to password.
 
+### "A browser tab opened by itself when I connected"
+
+**Your Tailscale client opened it, not Comnd.**
+When a host requires browser authentication (Tailscale SSH in check mode, for example), the Tailscale client running on your machine can open the login URL in your default browser. This happens at the network layer, so the tab can appear before Comnd draws its connection overlay. See [Browser Authentication](03-connecting-to-devices.md#browser-authentication-tailscale-style).
+
+Comnd itself never opens the URL on its own. It shows an **Open login page** button and waits for you to click it, because the URL comes from the remote device.
+
+You do not need to do anything. Complete the sign-in in whichever tab opened; the connection continues once authentication succeeds. If the connection times out first, click **Retry**. You are already authenticated, so the retry connects immediately.
+
 ### "Host key has changed"
 
 **This is a security warning, not an error.**
