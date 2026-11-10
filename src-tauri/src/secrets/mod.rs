@@ -92,7 +92,10 @@ impl ProviderRegistry {
         if provider_enabled(config, "proton") {
             list.push(Arc::new(providers::proton::ProtonProvider));
         }
-        #[cfg(debug_assertions)]
+        // Also compiled for `test` builds: `cargo test --release` has
+        // `debug_assertions` off but `test` on, and the registry test below
+        // asserts this registration. Shipping release binaries compile it out.
+        #[cfg(any(debug_assertions, test))]
         if std::env::var_os("COMND_TEST_MOCK_SECRET").is_some() {
             list.push(Arc::new(TestMockSecretProvider));
         }
@@ -109,10 +112,10 @@ impl ProviderRegistry {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 struct TestMockSecretProvider;
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[async_trait]
 impl SecretProvider for TestMockSecretProvider {
     fn id(&self) -> &'static str {
