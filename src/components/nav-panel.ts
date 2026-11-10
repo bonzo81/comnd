@@ -28,6 +28,7 @@ import { log, LogTag } from "../lib/logger";
 import { icons } from "../lib/icons";
 import { initContextMenu } from "../lib/a11y";
 import { showToast } from "../lib/toast";
+import { readStorage, writeStorage } from "../lib/storage";
 import { NetBoxConfigureDialog } from "./netbox-configure-dialog";
 
 export type NavSection = "connections" | "kb" | "replay";
@@ -60,7 +61,7 @@ export class NavPanel {
   private container: HTMLElement;
   private cb: NavCallbacks;
   private openSections = new Set<NavSection>(["connections"]);
-  /** Expanded group ids. Persisted to localStorage so a reload preserves the
+  /** Expanded group ids. Persisted to Web Storage so a reload preserves the
    *  tree state. Without persistence, a reload collapses every group except
    *  All Hosts, which the user perceives as "expand state is flaky". */
   private expandedGroups = new Set<string>(NavPanel.loadExpanded());
@@ -103,25 +104,22 @@ export class NavPanel {
   private static STORAGE_KEY = "comnd.nav.expandedGroups";
 
   private static loadExpanded(): string[] {
+    const raw = readStorage(NavPanel.STORAGE_KEY);
+    if (!raw) return [ALL_GROUP_ID];
     try {
-      const raw = localStorage.getItem(NavPanel.STORAGE_KEY);
-      if (!raw) return [ALL_GROUP_ID];
       const arr = JSON.parse(raw);
       if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
         return arr.length > 0 ? arr : [ALL_GROUP_ID];
       }
     } catch {
-      // fall through to default
+      // corrupt JSON — fall through to default
     }
     return [ALL_GROUP_ID];
   }
 
   private persistExpanded() {
-    try {
-      localStorage.setItem(NavPanel.STORAGE_KEY, JSON.stringify(Array.from(this.expandedGroups)));
-    } catch {
-      // localStorage unavailable / quota — state stays in-memory only
-    }
+    // A failed write leaves the in-memory group state in effect.
+    writeStorage(NavPanel.STORAGE_KEY, JSON.stringify(Array.from(this.expandedGroups)));
   }
 
   /** Expand a group and persist. */
