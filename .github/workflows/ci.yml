@@ -94,6 +94,14 @@ jobs:
         run: cargo test -- --nocapture
         working-directory: src-tauri
 
+      # Release-profile tests run on one leg: cfg profile divergence is
+      # platform-independent, and `--no-run` only compiles, so it cannot catch
+      # a runtime assertion about a `debug_assertions`-gated registration.
+      - name: cargo test --release --lib
+        if: matrix.platform == 'ubuntu-22.04'
+        run: cargo test --release --lib
+        working-directory: src-tauri
+
       # Rust coverage runs on one leg only (see the frontend job comment), so it is a
       # Linux baseline: `#[cfg(unix)]` / `#[cfg(windows)]` change which lines exist
       # and run, and the macOS/Windows paths are unmeasured.
