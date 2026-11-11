@@ -102,7 +102,7 @@ export function renderToken(t: CommandToken, opts: RenderTokenOpts = {}): string
  */
 export function renderTokenHelp(tokens: CommandToken[]): string {
   const rows: string[] = [];
-  for (const t of tokens) {
+  for (const [i, t] of tokens.entries()) {
     if (isChoice(t) && t.descriptions) {
       for (const opt of t.choice) {
         const d = t.descriptions[opt];
@@ -110,8 +110,22 @@ export function renderTokenHelp(tokens: CommandToken[]): string {
       }
     }
     if (isVar(t) && t.description) {
-      rows.push(`<dt><code>&lt;${escHtml(t.var)}&gt;</code></dt><dd>${escHtml(t.description)}</dd>`);
+      const lead = leadIn(tokens[i - 1]);
+      rows.push(`<dt><code>${lead}&lt;${escHtml(t.var)}&gt;</code></dt><dd>${escHtml(t.description)}</dd>`);
     }
   }
   return rows.length ? `<dl class="token-help">${rows.join("")}</dl>` : "";
+}
+
+/**
+ * A var's label carries the token that introduces it when that token is a flag
+ * or an optional keyword (`-d <data>`, `vlan <vlan-id>`). The authored syntax
+ * may list neither the flag nor the argument, so the pairing has to survive
+ * here or the reader cannot tell which switch takes the value.
+ */
+function leadIn(prev: CommandToken | undefined): string {
+  if (!prev || !isLit(prev)) return "";
+  const isFlag = /^--?[A-Za-z0-9]/.test(prev.lit);
+  if (!isFlag && !prev.optional) return "";
+  return `${escHtml(prev.lit)} `;
 }

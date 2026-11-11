@@ -8,10 +8,11 @@
  * the payload; the panes reflow to a single column when the pane is narrow.
  *
  * Phase 5.7: the syntax line heads the Tokens pane as its grammar, followed by
- * per-token help as a two-column list. The tokenized notation replaces the
- * syntax line only when no token carries help text — the two carry the same
- * information, so only one is ever drawn. Validation issues come from the Rust
- * validator via the per-platform validation cache (see validation-cache.ts).
+ * per-token help as a two-column list; each help row repeats the flag or
+ * keyword that takes its value. The tokenized notation is drawn only when the
+ * authored syntax is absent, so the pane never states the grammar twice.
+ * Validation issues come from the Rust validator via the per-platform
+ * validation cache (see validation-cache.ts).
  */
 
 import { Command } from "./suggestion-engine";
@@ -100,9 +101,10 @@ export class SidebarContent {
 
   /**
    * Phase 5.7: the syntax line heads this pane as the grammar the tokens belong
-   * to, followed by per-token help as a two-column list. When no token carries
-   * help text the tokenized notation stands in for the syntax line, so the same
-   * information is never drawn twice. Surfaces validator issues inline so a
+   * to, followed by per-token help as a two-column list. A command whose tokens
+   * carry no help text still shows its authored syntax here rather than the
+   * tokenized notation, because only the authored form keeps the `[ ]` grouping
+   * that marks a keyword optional. Surfaces validator issues inline so a
    * malformed token is visible.
    */
   private renderTokens(command: Command): string {
@@ -133,10 +135,13 @@ export class SidebarContent {
 
     if (!help && !issueLine) {
       const parts = toks.map((t) => renderToken(t, { badges: true })).join(" ");
+      const grammar = command.syntax
+        ? `<code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>`
+        : `<code class="token-breakdown">${parts}</code>`;
       return `
         <section class="cmd-pane">
           <h4 class="cmd-pane-label">Tokens ${orderBadge}</h4>
-          <code class="token-breakdown">${parts}</code>
+          ${grammar}
         </section>
       `;
     }

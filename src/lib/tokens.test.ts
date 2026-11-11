@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderToken } from "./tokens";
+import { renderToken, renderTokenHelp } from "./tokens";
 
 describe("renderToken", () => {
   it("renders non-current lit with empty-class wrapper and per-word spans", () => {
@@ -55,6 +55,51 @@ describe("renderToken", () => {
     );
     expect(renderToken({ pipe: true, filters: [{ lit: "i&n" }], optional: true })).toBe(
       '<span class="token-pipe ">| i&amp;n</span>',
+    );
+  });
+});
+
+describe("renderTokenHelp", () => {
+  it("pairs a var with the flag that takes it", () => {
+    expect(renderTokenHelp([
+      { lit: "curl" },
+      { lit: "-d", optional: true },
+      { var: "data", type: "free", optional: true, description: "POST body" },
+    ])).toBe(
+      '<dl class="token-help"><dt><code>-d &lt;data&gt;</code></dt><dd>POST body</dd></dl>',
+    );
+  });
+
+  it("pairs a var with an optional keyword that takes it", () => {
+    expect(renderTokenHelp([
+      { lit: "show mac address-table" },
+      { lit: "vlan", optional: true },
+      { var: "vlan-id", type: "numeric", optional: true, description: "VLAN number" },
+    ])).toBe(
+      '<dl class="token-help"><dt><code>vlan &lt;vlan-id&gt;</code></dt><dd>VLAN number</dd></dl>',
+    );
+  });
+
+  it("leaves the label bare when a required subcommand precedes the var", () => {
+    expect(renderTokenHelp([
+      { lit: "show ip route" },
+      { var: "network", type: "free", optional: true, description: "Destination prefix" },
+    ])).toBe(
+      '<dl class="token-help"><dt><code>&lt;network&gt;</code></dt><dd>Destination prefix</dd></dl>',
+    );
+  });
+
+  it("pairs only with the token immediately before the var", () => {
+    expect(renderTokenHelp([
+      { lit: "curl" },
+      { lit: "-H", optional: true },
+      { var: "header", description: "Extra header" },
+      { var: "url", description: "URL to fetch" },
+    ])).toBe(
+      '<dl class="token-help">' +
+        '<dt><code>-H &lt;header&gt;</code></dt><dd>Extra header</dd>' +
+        '<dt><code>&lt;url&gt;</code></dt><dd>URL to fetch</dd>' +
+        "</dl>",
     );
   });
 });
