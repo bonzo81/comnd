@@ -140,8 +140,11 @@ const ACT_ON_ACTIONS = new Set(["click", "dblclick"]);
  * detached node and the next command fails with "Stale element found" instead
  * of retrying. This never holds a handle: the lookup and the action run in the
  * same script, and a retry repeats both together, so a render between attempts
- * is harmless. The wait exists only so a missing element times out naming the
- * selector — an error thrown by the action itself is not swallowed.
+ * is harmless. Polling also covers a control that is rendered but still
+ * disabled, whose click is swallowed, which is the wait-for-clickable
+ * behaviour `browser.$().click()` used to give. The wait exists only so an
+ * unusable element times out naming the selector — an error thrown by the
+ * action itself is not swallowed.
  */
 export async function actOn(browser, selector, { action = "click", index = 0, timeout = WAIT_MS } = {}) {
   if (!ACT_ON_ACTIONS.has(action)) {
@@ -157,6 +160,9 @@ export async function actOn(browser, selector, { action = "click", index = 0, ti
           || element.getClientRects().length === 0) {
           return false;
         }
+        // A rendered but disabled control ignores the click, so returning here
+        // would stop polling on a no-op and leave the next wait to time out.
+        if (element.matches(":disabled")) return false;
         if (kind === "click") {
           element.click();
         } else {
@@ -168,7 +174,11 @@ export async function actOn(browser, selector, { action = "click", index = 0, ti
       index,
       action,
     ),
-    { timeout, interval: 100, timeoutMsg: `${action} on ${selector}: the element never appeared` },
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `${action} on ${selector}: the element never became actionable (missing, hidden or disabled)`,
+    },
   );
 }
 
