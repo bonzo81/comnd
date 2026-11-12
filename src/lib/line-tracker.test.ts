@@ -225,6 +225,23 @@ describe("LineTracker — chunk boundaries (issue #134)", () => {
     expect(t.currentLine).toBe("Router#");
     expect(onPromptDetected).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a pending escape when a prompt reset lands between its chunks", () => {
+    // SuggestionController.onPromptDetected() calls tracker.reset() while the
+    // output stream is still running, so an escape can straddle the reset.
+    let t: LineTracker;
+    const onPromptDetected = vi.fn(() => t.reset());
+    t = new LineTracker(vi.fn(), onPromptDetected, vi.fn());
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    t.feed("Router#\x1b[3"); // prompt line, then the CSI starts
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("2msh"); // completes ESC[32m, then the typed command
+
+    expect(t.currentLine).toBe("sh");
+  });
 });
 
 describe("LineTracker — line reconstruction", () => {

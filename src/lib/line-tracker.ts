@@ -73,8 +73,10 @@ export class LineTracker {
       clearTimeout(this.noMatchTimer);
       this.noMatchTimer = null;
     }
-    // New session context — drop the previous session's line state.
+    // New session context — drop the previous session's line state, including
+    // any escape sequence the old stream left half-delivered.
     this.reset();
+    this.stripper.reset();
   }
 
   /** Feed SSH output data: one char walk drives both line and prompt state. */
@@ -230,9 +232,15 @@ export class LineTracker {
     return this.line.endsWith(expected) ? expected : null;
   }
 
-  /** Drop reconstructed line state (prompt detection state survives). */
+  /**
+   * Drop reconstructed line state (prompt detection state survives).
+   *
+   * The stripper's pending escape is deliberately kept: a prompt reset can land
+   * between two chunks of one escape sequence (`Router#\x1b[3` then `2msh`), and
+   * dropping it there would leak the escape tail into the next command line.
+   * Escape state is cleared per session by {@link loadPatterns}.
+   */
   reset() {
-    this.stripper.reset();
     this.line = "";
     this.lastLineValue = "";
     this.learnedPrompt = "";
