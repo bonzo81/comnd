@@ -1339,11 +1339,20 @@ async function enableSuggestions(browser) {
   );
 }
 
-/** Wait until the ghost shows exactly `text` (a visible overlay, not display none). */
+/** Wait until the ghost shows exactly `text` in a box the user can actually see. */
 async function waitForGhost(browser, text, behavior) {
   await browser.waitUntil(async () => browser.execute((expected) => {
     const ghost = document.querySelector(".ghost-text");
-    return !!ghost && getComputedStyle(ghost).display !== "none" && ghost.textContent === expected;
+    if (!ghost || ghost.textContent !== expected) return false;
+    // `display` alone accepts a hidden ghost: `visibility: hidden` and a
+    // collapsed box both leave the text unreadable on screen.
+    const style = getComputedStyle(ghost);
+    const rect = ghost.getBoundingClientRect();
+    return style.display !== "none"
+      && style.visibility === "visible"
+      && ghost.getClientRects().length > 0
+      && rect.width > 0
+      && rect.height > 0;
   }, text), {
     timeout: WAIT_MS,
     interval: 100,
@@ -1383,7 +1392,9 @@ async function hitTestCentre(browser, selector) {
  * The visible ghost's geometry, read in a single execute so the numbers cannot
  * come from two different renders. `expectedLeft` applies the placement formula
  * under test (`GhostText.positionAtCursor`): the left edge of `.xterm-screen`
- * plus one cell per column the cursor has advanced.
+ * plus one cell per column the cursor has advanced. Returns null when the ghost
+ * has no box a user could see, so the caller's assertion fails rather than
+ * measuring an invisible overlay.
  */
 async function measureGhost(browser) {
   return browser.execute(() => {
@@ -1392,6 +1403,13 @@ async function measureGhost(browser) {
     const term = window.__comndTerminal;
     const cols = term?.cols ?? 0;
     if (!ghost || !screen || !cols || !term) return null;
+    const ghostRect = ghost.getBoundingClientRect();
+    const ghostStyle = getComputedStyle(ghost);
+    if (ghostStyle.display === "none"
+      || ghostStyle.visibility !== "visible"
+      || ghost.getClientRects().length === 0
+      || ghostRect.width === 0
+      || ghostRect.height === 0) return null;
     const rect = screen.getBoundingClientRect();
     const cellWidth = rect.width / cols;
     const cursorX = term.buffer.active.cursorX;
@@ -1477,7 +1495,19 @@ async function main() {
         // Suggestions auto-open the dropdown, so both overlays are on screen and
         // both hit-tests run here rather than in a scenario of their own.
         const overlays = await browser.execute(() => {
-          const visible = (el) => !!el && getComputedStyle(el).display !== "none";
+          // A visible overlay means a box the user can see, not merely a
+          // non-`none` display: `visibility: hidden` and a collapsed box both
+          // leave nothing on screen while the text and geometry still read.
+          const visible = (el) => {
+            if (!el) return false;
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== "none"
+              && style.visibility === "visible"
+              && el.getClientRects().length > 0
+              && rect.width > 0
+              && rect.height > 0;
+          };
           const name = (el) => el
             ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
             : "nothing";
@@ -1509,7 +1539,7 @@ async function main() {
           return { ghostUp: true, dropdownUp: true, ghostProbe, dropdownProbe };
         });
         assert(overlays.ghostUp && overlays.dropdownUp,
-          "Suggestion accept: expected both the ghost and the dropdown to be up for 'ip r'");
+          "Suggestion accept: expected both the ghost and the dropdown to be visible for 'ip r'");
         const { ghostProbe, dropdownProbe } = overlays;
         assert(ghostProbe.onScreen && ghostProbe.found,
           `Suggestion accept: could not sample the ghost at ${ghostProbe.point} `
@@ -1529,7 +1559,8 @@ async function main() {
         // since that one moves by a cell too.
         const anchor = await measureGhost(browser);
         assert(anchor,
-          "Suggestion accept: could not measure the ghost before typing 'o'");
+          "Suggestion accept: could not measure the ghost before typing 'o' "
+          + "(missing, hidden, or without a non-empty box)");
         const anchorOff = anchor.left - anchor.expectedLeft;
         assert(Math.abs(anchorOff) <= 1,
           `Suggestion accept: the ghost starts ${(anchorOff / anchor.cellWidth).toFixed(2)} cells `
@@ -1542,7 +1573,8 @@ async function main() {
         await waitForGhost(browser, "ute", "Suggestion accept");
         const shifted = await measureGhost(browser);
         assert(shifted,
-          "Suggestion accept: could not measure the ghost after typing 'o'");
+          "Suggestion accept: could not measure the ghost after typing 'o' "
+          + "(missing, hidden, or without a non-empty box)");
         const cells = (shifted.left - anchor.left) / shifted.cellWidth;
         assert(Math.abs(cells - 1) <= 1 / shifted.cellWidth,
           `Suggestion accept: the ghost moved ${cells.toFixed(2)} cells `
