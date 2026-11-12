@@ -66,10 +66,12 @@ const MUTATION_CASES = {
   },
   // Scoped to the prefix path (stripPrefix stops stripping) so the ghost and
   // dropdown assertions in `suggestion-accept` and `dropdown-click` stay green:
-  // only `prefix-suggestion` types a prefix command.
+  // only `prefix-suggestion` types a prefix command. The matched message is the
+  // missing-ghost timeout itself, so a later failure in the same scenario (a
+  // stalled mock, say) cannot stand in for a proven broken prefix.
   suggestion: {
     scenario: "prefix-suggestion",
-    expectedFailure: /Prefix suggestion: [\s\S]*mutation activation: suggestion applied/,
+    expectedFailure: /Prefix suggestion: expected the ghost to show 'ctl'[\s\S]*mutation activation: suggestion applied/,
   },
 };
 
@@ -1350,18 +1352,26 @@ async function waitForGhost(browser, text, behavior) {
 }
 
 /**
- * The visible ghost's left edge and one cell width, read in a single execute so
- * the geometry cannot come from two different renders.
+ * The visible ghost's geometry, read in a single execute so the numbers cannot
+ * come from two different renders. `expectedLeft` applies the placement formula
+ * under test (`GhostText.positionAtCursor`): the left edge of `.xterm-screen`
+ * plus one cell per column the cursor has advanced.
  */
 async function measureGhost(browser) {
   return browser.execute(() => {
     const ghost = document.querySelector(".ghost-text");
     const screen = document.querySelector(".xterm-screen");
-    const cols = window.__comndTerminal?.cols ?? 0;
-    if (!ghost || !screen || !cols) return null;
+    const term = window.__comndTerminal;
+    const cols = term?.cols ?? 0;
+    if (!ghost || !screen || !cols || !term) return null;
+    const rect = screen.getBoundingClientRect();
+    const cellWidth = rect.width / cols;
+    const cursorX = term.buffer.active.cursorX;
     return {
       left: ghost.getBoundingClientRect().left,
-      cellWidth: screen.getBoundingClientRect().width / cols,
+      cellWidth,
+      cursorX,
+      expectedLeft: rect.left + cursorX * cellWidth,
     };
   });
 }
@@ -1440,7 +1450,7 @@ async function main() {
         // both hit-tests run here rather than in a scenario of their own.
         const overlays = await browser.execute(() => {
           const visible = (el) => !!el && getComputedStyle(el).display !== "none";
-          const describe = (el) => el
+          const name = (el) => el
             ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
             : "nothing";
           const ghost = document.querySelector(".ghost-text");
@@ -1448,41 +1458,71 @@ async function main() {
           if (!visible(ghost) || !visible(dropdown)) {
             return { ghostUp: visible(ghost), dropdownUp: visible(dropdown) };
           }
-          const rect = (el) => el.getBoundingClientRect();
-          const at = (el) => {
-            const r = rect(el);
-            return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          // Centre point, whether that point is on screen at all, and what sits
+          // there. Outside the viewport elementFromPoint returns null, which
+          // would otherwise read as "the overlay did not swallow the click" and
+          // pass a test that never actually sampled the overlay.
+          const probe = (el) => {
+            const r = el.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            const onScreen = x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+            const hit = onScreen ? document.elementFromPoint(x, y) : null;
+            return {
+              point: `${Math.round(x)},${Math.round(y)}`,
+              onScreen,
+              found: !!hit,
+              hit: name(hit),
+              holds: !!hit && (hit === el || el.contains(hit)),
+            };
           };
-          const ghostHit = at(ghost);
-          const dropdownHit = at(dropdown);
-          return {
-            ghostUp: true,
-            dropdownUp: true,
-            ghostHit: describe(ghostHit),
-            ghostSwallowed: ghostHit === ghost || ghost.contains(ghostHit),
-            dropdownHit: describe(dropdownHit),
-            dropdownHolds: dropdownHit === dropdown || dropdown.contains(dropdownHit),
-          };
+          const ghostProbe = probe(ghost);
+          const dropdownProbe = probe(dropdown);
+          return { ghostUp: true, dropdownUp: true, ghostProbe, dropdownProbe };
         });
         assert(overlays.ghostUp && overlays.dropdownUp,
           "Suggestion accept: expected both the ghost and the dropdown to be up for 'ip r'");
-        assert(!overlays.ghostSwallowed,
-          `Suggestion accept: the ghost is not click-through at its centre (hit ${overlays.ghostHit})`);
-        assert(overlays.dropdownHolds,
-          `Suggestion accept: nothing clickable at the dropdown centre (hit ${overlays.dropdownHit})`);
-        // The ghost is placed from the cursor cell, so one more character must
-        // move it exactly one cell right. A one-render-stale anchor leaves the
-        // remainder sitting over the character it is meant to continue.
+        const { ghostProbe, dropdownProbe } = overlays;
+        assert(ghostProbe.onScreen && ghostProbe.found,
+          `Suggestion accept: could not sample the ghost at ${ghostProbe.point} `
+          + `(on screen: ${ghostProbe.onScreen}, hit ${ghostProbe.hit})`);
+        assert(!ghostProbe.holds,
+          `Suggestion accept: the ghost is not click-through at its centre `
+          + `(hit ${ghostProbe.hit} at ${ghostProbe.point})`);
+        assert(dropdownProbe.onScreen && dropdownProbe.found,
+          `Suggestion accept: could not sample the dropdown at ${dropdownProbe.point} `
+          + `(on screen: ${dropdownProbe.onScreen}, hit ${dropdownProbe.hit})`);
+        assert(dropdownProbe.holds,
+          `Suggestion accept: nothing clickable at the dropdown centre `
+          + `(hit ${dropdownProbe.hit} at ${dropdownProbe.point})`);
+        // The ghost is anchored to the cursor cell, so its absolute left edge is
+        // the screen's left edge plus one cell per cursor column. Checking only
+        // the shift below would pass a ghost parked a cell behind the cursor,
+        // since that one moves by a cell too.
         const anchor = await measureGhost(browser);
+        assert(anchor,
+          "Suggestion accept: could not measure the ghost before typing 'o'");
+        const anchorOff = anchor.left - anchor.expectedLeft;
+        assert(Math.abs(anchorOff) <= 1,
+          `Suggestion accept: the ghost starts ${(anchorOff / anchor.cellWidth).toFixed(2)} cells `
+          + `from the cursor cell at column ${anchor.cursorX} `
+          + `(${anchor.cellWidth.toFixed(1)}px per cell)`);
+        // One more character must move the ghost exactly one cell right. A
+        // one-render-stale anchor leaves the remainder sitting over the
+        // character it is meant to continue.
         await sendKeys(browser, "o");
         await waitForGhost(browser, "ute", "Suggestion accept");
         const shifted = await measureGhost(browser);
-        assert(anchor && shifted,
-          "Suggestion accept: could not measure the ghost before and after typing 'o'");
+        assert(shifted,
+          "Suggestion accept: could not measure the ghost after typing 'o'");
         const cells = (shifted.left - anchor.left) / shifted.cellWidth;
         assert(Math.abs(cells - 1) <= 1 / shifted.cellWidth,
           `Suggestion accept: the ghost moved ${cells.toFixed(2)} cells `
           + `(${shifted.cellWidth.toFixed(1)}px per cell) for one character`);
+        const shiftedOff = shifted.left - shifted.expectedLeft;
+        assert(Math.abs(shiftedOff) <= 1,
+          `Suggestion accept: the ghost ended ${(shiftedOff / shifted.cellWidth).toFixed(2)} cells `
+          + `from the cursor cell at column ${shifted.cursorX}`);
         await sendKeys(browser, "\uE004");
         await sendKeys(browser, "\uE007");
         const expected = [...Buffer.from("ip route\r")];
