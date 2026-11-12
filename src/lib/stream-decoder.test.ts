@@ -9,8 +9,8 @@ describe("StreamingTextDecoder", () => {
     const first = d.decode(bytes.slice(0, 1));
     const second = d.decode(bytes.slice(1));
 
-    expect(first + second).toBe("é");
-    expect(first + second).not.toContain("\ufffd");
+    expect(first.text + second.text).toBe("é");
+    expect(first.text + second.text).not.toContain("\ufffd");
   });
 
   it("reconstructs a multibyte sample fed one byte at a time", () => {
@@ -19,9 +19,24 @@ describe("StreamingTextDecoder", () => {
     const d = new StreamingTextDecoder();
 
     let out = "";
-    for (const byte of bytes) out += d.decode(Uint8Array.of(byte));
+    for (const byte of bytes) out += d.decode(Uint8Array.of(byte)).text;
 
     expect(out).toBe(text);
+  });
+
+  it("holds a split codepoint's bytes out of both write paths until it completes", () => {
+    // The highlighting path writes `text` and the raw path writes `bytes`; a
+    // branch switch between chunks must not hand either one half a character.
+    const bytes = new TextEncoder().encode("\né");
+    const d = new StreamingTextDecoder();
+
+    const first = d.decode(bytes.slice(0, 2));
+    const second = d.decode(bytes.slice(2));
+
+    expect(first.text).toBe("\n");
+    expect([...first.bytes]).toEqual([0x0a]);
+    expect(second.text).toBe("é");
+    expect([...second.bytes]).toEqual([0xc3, 0xa9]);
   });
 
   it("reset discards an incomplete trailing sequence", () => {
@@ -31,6 +46,8 @@ describe("StreamingTextDecoder", () => {
 
     d.reset();
 
-    expect(d.decode(new TextEncoder().encode("ok"))).toBe("ok");
+    const next = d.decode(new TextEncoder().encode("ok"));
+    expect(next.text).toBe("ok");
+    expect(new TextDecoder().decode(next.bytes)).toBe("ok");
   });
 });

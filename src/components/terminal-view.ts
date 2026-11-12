@@ -858,8 +858,11 @@ export class TerminalView {
   private handleSessionEvent(e: SessionEvent) {
     switch (e.type) {
       case "output": {
-        const bytes = e.data;
-        const text = this.outputDecoder.decode(bytes);
+        // `decoded.bytes` holds complete characters only — a codepoint split
+        // between events is withheld and delivered with the next chunk, so the
+        // raw byte path never writes half a character (issue #135).
+        const decoded = this.outputDecoder.decode(e.data);
+        const text = decoded.text;
 
         if (e.phase === "connected") {
           const buf = this.terminal!.buffer.active;
@@ -883,7 +886,7 @@ export class TerminalView {
               if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
             });
           } else {
-            this.terminal?.write(bytes, () => {
+            this.terminal?.write(decoded.bytes, () => {
               const b = this.terminal?.buffer.active;
               if (b) this.timestampGutter?.onWrite(lineBefore, b.baseY + b.cursorY);
             });
@@ -905,7 +908,7 @@ export class TerminalView {
           // tracker or shadow buffer, so an auth prompt cannot corrupt
           // mode detection; the first connected-phase output initializes
           // the tracker cleanly.
-          this.terminal?.write(bytes);
+          this.terminal?.write(decoded.bytes);
         } else {
           // Connection phase — capture output for the output pane
           const cleanText = stripAnsi(text);
