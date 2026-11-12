@@ -20,6 +20,7 @@ import {
   netboxGetSites, netboxGetRoles, netboxGetTags,
   NetBoxConfig, NetBoxDeviceEntry, NetBoxChoice,
 } from "../lib/tauri-api";
+import { getVersion } from "@tauri-apps/api/app";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { showToast, showToastWithAction } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";
@@ -103,6 +104,9 @@ export class SettingsScreen {
   private itemId = "llm";
   private config: AppConfig | null = null;
   private sessionLogDefaultDir = "";
+  /** Running app version from the Tauri app plugin (issue #102); "" hides
+   *  the rail footer rather than showing a placeholder. */
+  private appVersion = "";
   private availableModels: string[] = [];
   private providerStatuses = new Map<string, ProviderInfo>();
   private providerStates = new Map<string, ProviderState>();
@@ -172,6 +176,9 @@ export class SettingsScreen {
 
   async mount(container: HTMLElement) {
     this.container = container;
+    // Runs alongside the config read, but with its own catch: a version
+    // failure must not blank the config, and the rail footer simply hides.
+    const version = getVersion().catch(() => "");
     try {
       [this.config, this.sessionLogDefaultDir] = await Promise.all([
         getAppConfig(),
@@ -180,6 +187,7 @@ export class SettingsScreen {
     } catch {
       this.config = null;
     }
+    this.appVersion = await version;
     this.render();
 
     // Re-render when the mode is toggled elsewhere (status bar) while open.
@@ -220,6 +228,7 @@ export class SettingsScreen {
     const enabledNow = this.container.querySelector<HTMLInputElement>("#netbox-enabled")?.checked;
     if (enabledNow !== undefined && this.netboxConfig) this.netboxConfig.enabled = enabledNow;
     const label = SETTINGS_NAV.find((n) => n.id === this.itemId)?.label ?? "Settings";
+    const appVersion = this.appVersion.trim();
     const body =
       this.itemId === "llm" ? this.renderLlm()
       : this.itemId === "general" ? this.renderGeneral()
@@ -243,6 +252,9 @@ export class SettingsScreen {
                 <span class="settings-nav-label">${escHtml(item.label)}</span>
               </button>`;
           }).join("")}
+          ${appVersion
+            ? `<span class="settings-nav-version">Version v${escHtml(appVersion)}</span>`
+            : ""}
         </nav>
         <div class="settings-page">
           ${body}
