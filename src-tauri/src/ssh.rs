@@ -510,7 +510,10 @@ impl client::Handler for ClientHandler {
 
 pub struct SshSession {
     session: client::Handle<ClientHandler>,
-    channel: russh::Channel<client::Msg>,
+    /// The write half only. The read half is dropped at connect time so the
+    /// channel's bounded inbound queue is never the thing that stalls the
+    /// connection — see the split in `connect` and issue #136.
+    channel: russh::ChannelWriteHalf<client::Msg>,
     pub session_id: u64,
 }
 
@@ -669,6 +672,17 @@ impl SshSession {
         .await
         .map_err(|_| format!("Channel setup timed out after 10s for {}", addr))?
         ?;
+
+        // Take the write half and drop the read half (issue #136). russh
+        // delivers inbound channel data twice: once to `Handler::data`, and
+        // again into a bounded mpsc (`channel_buffer_size`, 100 packets) that
+        // backs `ChannelReadHalf`. Nothing here ever reads that queue, so the
+        // 101st inbound packet parked the event loop on `chan.send().await` —
+        // output and `ssh_send` both stopped. Dropping the receiver makes those
+        // sends fail immediately instead. The app's only output path is the
+        // Handler, which is untouched.
+        let (read_half, channel) = channel.split();
+        drop(read_half);
 
         log::info!("SSH session ready for {}", addr);
 
@@ -1478,6 +1492,9 @@ mod tests {
         }
 
         // Unique per run, so only this connect can put these in a log line.
+        let _connect = connect_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let marker = format!(
             "{}-{}",
             std::process::id(),
@@ -1633,6 +1650,192 @@ mod tests {
             );
         }
 
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
+
+    /// Tests that run a real connect share the process-wide
+    /// `known_hosts_override()` slot and `pending_tofu()` map, so they must not
+    /// overlap.
+    fn connect_slot() -> &'static std::sync::Mutex<()> {
+        static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        &SLOT
+    }
+
+    /// Poll the recorded output until `done` holds, or `limit` expires. `false`
+    /// means the deadline passed, so a wedged session fails a test instead of
+    /// hanging the suite.
+    async fn wait_for_output(
+        buffer: &Arc<std::sync::Mutex<Vec<u8>>>,
+        limit: std::time::Duration,
+        done: impl Fn(&[u8]) -> bool,
+    ) -> bool {
+        let poll = async {
+            loop {
+                {
+                    let snapshot = buffer
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if done(&snapshot) {
+                        return;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(limit, poll).await.is_ok()
+    }
+
+    /// Issue #136: russh copies every inbound channel packet both to
+    /// `Handler::data` and into a bounded per-channel queue (100 packets) that
+    /// backs `ChannelReadHalf`. Nothing in comnd read that queue, so the 101st
+    /// inbound packet parked the event loop on its channel send — output stopped
+    /// and `ssh_send` never returned. `SshSession` now keeps only the write
+    /// half, so the queue is gone and a burst is harmless.
+    #[tokio::test]
+    async fn session_survives_more_inbound_packets_than_the_channel_queue_holds() {
+        use crate::hosts::AgentAuth;
+        use crate::transcript::OutputSink;
+
+        /// Records transcript output, decoded back to raw bytes.
+        struct RecordingSink(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl OutputSink for RecordingSink {
+            fn emit_output(&self, encoded: &str) {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .expect("transcript sink emitted invalid base64");
+                self.0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .extend_from_slice(&bytes);
+            }
+        }
+
+        struct NoopEvents;
+        #[async_trait::async_trait]
+        impl ConnectionEvents for NoopEvents {
+            fn emit(&self, _event: ConnectionEvent) {}
+            async fn evict(&self, _session_id: u64) {}
+        }
+
+        let _connect = connect_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let output = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let session_id: u64 = 0x0068_0000_0000_0002;
+        let password = "burst-probe-secret";
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "comnd_burst_probe_{}_{}",
+            std::process::id(),
+            session_id
+        ));
+        std::fs::create_dir_all(&temp_root).expect("create burst temp dir");
+        known_hosts_override()
+            .lock()
+            .expect("known-hosts override lock")
+            .replace(temp_root.join("known_hosts.json"));
+        struct KnownHostsGuard;
+        impl Drop for KnownHostsGuard {
+            fn drop(&mut self) {
+                if let Ok(mut override_path) = known_hosts_override().lock() {
+                    *override_path = None;
+                }
+            }
+        }
+        let _known_hosts_guard = KnownHostsGuard;
+
+        let (port, server) = crate::test_server::start_password_only_mock_server(password).await;
+
+        let (tofu_done_tx, tofu_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let tofu_task = tokio::spawn(async move {
+            for _ in 0..1_500 {
+                let sender = pending_tofu()
+                    .lock()
+                    .ok()
+                    .and_then(|mut map| map.remove(&session_id));
+                if let Some(sender) = sender {
+                    let _ = sender.send(true);
+                    let _ = tofu_done_tx.send(());
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+
+        let result = SshSession::connect(
+            Arc::new(NoopEvents),
+            Box::new(RecordingSink(output.clone())),
+            "127.0.0.1",
+            port,
+            "tester",
+            Some(password),
+            None,
+            AgentAuth::Off,
+            80,
+            24,
+            session_id,
+            false,
+            true,
+            None,
+            None,
+        )
+        .await;
+        let tofu_answered = tokio::time::timeout(std::time::Duration::from_secs(15), tofu_done_rx)
+            .await
+            .is_ok();
+        tofu_task.abort();
+        let session =
+            result.unwrap_or_else(|error| panic!("connect to the mock SSH server failed: {error}"));
+        assert!(
+            tofu_answered,
+            "the test never answered the TOFU prompt: check_server_key did not park on pending_tofu()"
+        );
+
+        // Ask the mock for more inbound packets than russh's per-channel queue
+        // holds.
+        let burst_send =
+            tokio::time::timeout(std::time::Duration::from_secs(15), session.send(b"burst\r"))
+                .await;
+        assert!(
+            matches!(burst_send, Ok(Ok(()))),
+            "sending the burst command did not complete: {burst_send:?}"
+        );
+
+        let expected = crate::test_server::BURST_PACKETS;
+        let arrived = wait_for_output(&output, std::time::Duration::from_secs(20), |bytes| {
+            bytes.iter().filter(|byte| **byte == b'#').count() >= expected
+        })
+        .await;
+        let received = output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|byte| **byte == b'#')
+            .count();
+        assert!(
+            arrived,
+            "output stopped after {received} of {expected} inbound packets — the channel read half is being held again (issue #136)"
+        );
+
+        // The send path must still work after the burst, and so must output.
+        let ping_send =
+            tokio::time::timeout(std::time::Duration::from_secs(15), session.send(b"PING")).await;
+        assert!(
+            matches!(ping_send, Ok(Ok(()))),
+            "ssh_send stopped completing after the inbound burst: {ping_send:?}"
+        );
+        let echoed = wait_for_output(&output, std::time::Duration::from_secs(15), |bytes| {
+            bytes.windows(4).any(|window| window == b"PING")
+        })
+        .await;
+        assert!(
+            echoed,
+            "output stopped reaching the handler after the inbound burst: the PING echo never arrived"
+        );
+
+        drop(session);
+        server.abort();
         let _ = std::fs::remove_dir_all(&temp_root);
     }
 }
