@@ -3,12 +3,14 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import {
+  actOn,
   buildApp,
   invoke,
   pause,
   runCase,
   runSuite,
   runUnderXvfb,
+  waitFor,
   WAIT_MS,
 } from "./lib/harness.mjs";
 
@@ -968,7 +970,7 @@ async function createHost(browser, overrides = {}) {
 }
 
 async function openSettings(browser) {
-  await (await browser.$("#title-bar-settings")).click();
+  await actOn(browser, "#title-bar-settings");
   // Poll: `$(".settings-nav-item")` matches eight rows, so strict mode fails.
   await browser.waitUntil(
     async () => browser.execute(() => !!document.querySelector(".settings-nav-item")),
@@ -977,19 +979,22 @@ async function openSettings(browser) {
 }
 
 async function openSettingsItem(browser, itemId) {
-  await (await browser.$(`.settings-nav-item[data-item-id="${itemId}"]`)).click();
+  // The item's async load re-renders the whole nav, so the click must not hold
+  // a handle taken before that render (issue #126).
+  await actOn(browser, `.settings-nav-item[data-item-id="${itemId}"]`);
 }
 
 /** Expand a collapsible nav section (Knowledge Base, Replay) if it is closed. */
 async function openNavSection(browser, section) {
   const selector = `.nav-section-header[data-section="${section}"]`;
+  // Safe: one awaited wait, never acted on and never re-queried.
   await (await browser.$(selector)).waitForExist({ timeout: WAIT_MS });
   const expanded = () => browser.execute(
     (sel) => document.querySelector(sel)?.getAttribute("aria-expanded") === "true",
     selector,
   );
   if (!(await expanded())) {
-    await browser.execute((sel) => document.querySelector(sel)?.click(), selector);
+    await actOn(browser, selector);
   }
   await browser.waitUntil(expanded, {
     timeout: WAIT_MS,
@@ -1001,6 +1006,7 @@ async function openNavSection(browser, section) {
 /** Expand a folder row in the nav tree if it is collapsed. */
 async function expandNavGroup(browser, groupId) {
   const selector = `.nav-group-row[data-group-id="${groupId}"]`;
+  // Safe: one awaited wait, never acted on and never re-queried.
   await (await browser.$(selector)).waitForExist({ timeout: WAIT_MS });
   const collapsed = () => browser.execute((sel) => {
     const row = document.querySelector(sel);
@@ -1008,10 +1014,7 @@ async function expandNavGroup(browser, groupId) {
     return (row.querySelector(".nav-toggle")?.textContent ?? "").includes("▸");
   }, selector);
   if (await collapsed()) {
-    await browser.execute(
-      (sel) => document.querySelector(sel)?.querySelector(".nav-item")?.click(),
-      selector,
-    );
+    await actOn(browser, `${selector} .nav-item`);
   }
   await browser.waitUntil(async () => !(await collapsed()), {
     timeout: WAIT_MS,
@@ -1077,8 +1080,9 @@ async function configureNetbox(browser) {
   const baseUrl = await invoke(browser, "test_netbox_server");
   await openSettings(browser);
   await openSettingsItem(browser, "netbox");
+  // Safe: one awaited wait; the enable switch is then clicked through actOn.
   await (await browser.$("#netbox-enabled")).waitForExist({ timeout: WAIT_MS });
-  await (await browser.$("#netbox-enabled")).click();
+  await actOn(browser, "#netbox-enabled");
   await browser.waitUntil(
     async () => (await invoke(browser, "netbox_get_config")).config.enabled === true,
     { timeout: WAIT_MS, interval: 200, timeoutMsg: "NetBox: the enable switch never persisted" },
@@ -1086,13 +1090,13 @@ async function configureNetbox(browser) {
   await pause(200);
   await setField(browser, "#netbox-url", baseUrl);
   await setField(browser, "#netbox-token", "smoke-legacy-token");
-  await (await browser.$("#netbox-test-btn")).click();
+  await actOn(browser, "#netbox-test-btn");
   await browser.waitUntil(async () => {
     const status = await browser.execute(() =>
       document.querySelector("#netbox-test-status")?.textContent?.trim() ?? "");
     return status.startsWith("Connected");
   }, { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox: Test Connection never reported Connected" });
-  await (await browser.$("#netbox-token-save")).click();
+  await actOn(browser, "#netbox-token-save");
   await waitForToast(browser, /^Connection saved$/, "NetBox");
   await clearToasts(browser);
   return baseUrl;
@@ -1100,7 +1104,7 @@ async function configureNetbox(browser) {
 
 async function syncNetbox(browser, pattern) {
   await clearToasts(browser);
-  await (await browser.$("#netbox-sync-btn")).click();
+  await actOn(browser, "#netbox-sync-btn");
   return waitForToast(browser, pattern, "NetBox");
 }
 
@@ -1160,21 +1164,23 @@ async function createAndConnect(
   await browser.refresh();
 
   const selector = `.hs-host-item[data-host-id="${host.id}"]`;
-  const item = await browser.$(selector);
-  await item.waitForDisplayed({ timeout: 15_000 });
-  await item.click();
+  // Selecting the row re-renders the list, so click through actOn rather than
+  // holding a handle across that render.
+  await actOn(browser, selector);
+  // Safe: one awaited read per poll; no handle outlives the predicate.
   await browser.waitUntil(async () => (await browser.$(selector).getAttribute("aria-selected")) === "true", {
     timeout: 5_000,
     interval: 100,
     timeoutMsg: "Known smoke-test host was not selected",
   });
-  await (await browser.$(selector)).doubleClick();
+  await actOn(browser, selector, { action: "dblclick" });
   await acceptHostKeyIfNeeded(browser);
   return host;
 }
 
 async function waitForConnection(browser) {
   await browser.waitUntil(async () => {
+    // Safe: one awaited read per poll; no handle outlives the predicate.
     const classes = await (await browser.$(".tv-sb-dot")).getAttribute("class");
     return classes?.includes("sb-connected") ?? false;
   }, {
@@ -1311,8 +1317,9 @@ async function main() {
       name: "suggestion-accept",
       async run(browser, dataDir) {
         await launchAndConnect(browser, dataDir);
+        // Safe: this handle is only read; the click below goes through actOn.
         const toggle = await browser.$(".tv-suggestions-btn");
-        if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
+        if (await toggle.getAttribute("aria-pressed") !== "true") await actOn(browser, ".tv-suggestions-btn");
         await sendKeys(browser, "ip r");
         await browser.waitUntil(async () => browser.execute(() => {
           const ghost = document.querySelector(".ghost-text");
@@ -1349,19 +1356,22 @@ async function main() {
         await waitForTerminal(browser, "Password:");
         await sendKeys(browser, "wrong-secret");
         await sendKeys(browser, "\uE007");
+        // Safe: one awaited read per poll, and the handle is never acted on.
         await browser.waitUntil(async () => (await browser.$(".tv-overlay-error")).isDisplayed(), {
           timeout: 20_000,
           interval: 100,
           timeoutMsg: "Rejected auth: failure recovery message did not appear",
         });
+        // Safe: a single awaited read, never re-queried.
         const errorText = await (await browser.$(".tv-overlay-error")).getText();
         assert.match(
           errorText,
           /Authentication failed|Connection dropped during setup/i,
           "Rejected auth: expected a clear recovery error",
         );
-        await (await browser.$(".tv-overlay-back")).click();
+        await actOn(browser, ".tv-overlay-back");
         await waitForSessionCleanup(browser, "Rejected auth");
+        // Safe: a single awaited read, never re-queried.
         assert.equal(await (await browser.$(".tv-sb-dot")).isExisting(), false);
       },
     },
@@ -1436,7 +1446,7 @@ async function main() {
       name: "user-disconnect",
       async run(browser, dataDir) {
         const host = await launchAndConnect(browser, dataDir);
-        await (await browser.$(".session-tab-close")).click();
+        await actOn(browser, ".session-tab-close");
         await browser.waitUntil(async () => browser.execute(() => [...document.querySelectorAll("button")]
           .some((button) => button.textContent?.trim() === "Close Session")), {
           timeout: 5_000,
@@ -1452,6 +1462,7 @@ async function main() {
           interval: 100,
           timeoutMsg: "User disconnect: mock host did not observe the SSH connection close",
         });
+        // Safe: a single awaited read, never re-queried.
         assert(await (await browser.$(`.hs-host-item[data-host-id="${host.id}"]`)).isDisplayed());
       },
     },
@@ -1539,6 +1550,7 @@ async function main() {
             timeoutMsg: "Duplicate session: the already-connected dialog did not appear",
           },
         );
+        // Safe: a single awaited read, never re-queried.
         assert.equal(
           (await (await browser.$("#duplicate-session-title")).getText()).trim(),
           `${host.display_name} is already connected`,
@@ -1589,7 +1601,7 @@ async function main() {
 
         // "Open another session" creates an independent second session.
         await reconnect();
-        await (await browser.$(".duplicate-session-new")).click();
+        await actOn(browser, ".duplicate-session-new");
         await browser.waitUntil(async () => (await tabCount()) === 2, {
           timeout: WAIT_MS,
           interval: 100,
@@ -1657,7 +1669,7 @@ async function main() {
         );
 
         // Switching tabs keeps each session's own suggestion state.
-        await (await browser.$$(".session-tab"))[0].click();
+        await actOn(browser, ".session-tab");
         const switched = await wrapperState();
         assert.equal(switched[0].visible, true, "Duplicate session: the first tab should now be visible");
         assert.equal(
@@ -1672,7 +1684,7 @@ async function main() {
         );
 
         // Closing one session leaves the other responsive.
-        await (await browser.$$(".session-tab-close"))[1].click();
+        await actOn(browser, ".session-tab-close", { index: 1 });
         await browser.execute(() => [...document.querySelectorAll("button")]
           .find((button) => button.textContent?.trim() === "Close Session")
           ?.click());
@@ -1707,6 +1719,7 @@ async function main() {
         // been used once to appear in it (as createAndConnect does).
         await invoke(browser, "touch_host", { id: host.id });
         await browser.refresh();
+        // Safe: each is a single awaited wait, never acted on or re-queried.
         await (await browser.$(".hs-host-list")).waitForExist({ timeout: WAIT_MS });
         await (await browser.$(`.hs-host-item[data-host-id="${host.id}"]`))
           .waitForDisplayed({ timeout: WAIT_MS });
@@ -1771,9 +1784,8 @@ async function main() {
         // KB import is an embedded tab panel rather than a modal (approved
         // deviation: reachability and names only, no trap to assert).
         await openNavSection(browser, "kb");
-        const importItem = await browser.$('.nav-item[data-sub-id="import"]');
-        await importItem.waitForDisplayed({ timeout: WAIT_MS });
-        await importItem.click();
+        await actOn(browser, '.nav-item[data-sub-id="import"]');
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#import-mode-url")).waitForExist({ timeout: WAIT_MS });
         const importPanel = (await tabWalk(browser, 40)).stops;
         assert(
@@ -1791,13 +1803,12 @@ async function main() {
         // Replay save is a real modal: focus starts inside, Tab and Shift+Tab
         // stay inside, and Escape returns focus to the button that opened it.
         await openNavSection(browser, "replay");
-        const manageItem = await browser.$('.nav-item[data-sub-id="manage"]');
-        await manageItem.waitForDisplayed({ timeout: WAIT_MS });
-        await manageItem.click();
-        const addCommand = await browser.$(".rsm-add");
-        await addCommand.waitForDisplayed({ timeout: WAIT_MS });
+        await actOn(browser, '.nav-item[data-sub-id="manage"]');
+        await waitFor(browser, () => !!document.querySelector(".rsm-add"),
+          "Keyboard focus: the replay command list did not render");
         await browser.execute(() => document.querySelector(".rsm-add")?.focus());
         await browser.keys("\uE007");
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#rsv-title")).waitForExist({ timeout: WAIT_MS });
         assert(
           await browser.execute(() => document.querySelector("#rsv-text") === document.activeElement),
@@ -1978,7 +1989,7 @@ async function main() {
           "Sidebar resize: the mock host recorded no PTY size for the initial session",
         );
 
-        await (await browser.$(".tv-panel-btn")).click();
+        await actOn(browser, ".tv-panel-btn");
         await browser.waitUntil(async () => {
           const state = await geometry();
           return state.sidebarVisible && state.expanded === "true";
@@ -2021,7 +2032,7 @@ async function main() {
         );
 
         // Closing the sidebar must restore the terminal and the PTY width.
-        await (await browser.$(".tv-panel-btn")).click();
+        await actOn(browser, ".tv-panel-btn");
         await browser.waitUntil(async () => {
           const state = await geometry();
           return !state.sidebarVisible && state.expanded === "false";
@@ -2051,6 +2062,7 @@ async function main() {
         await installSmokeHelpers(browser);
         await createHost(browser, { display_name: "Names host" });
         await browser.refresh();
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$(".hs-host-list")).waitForExist({ timeout: WAIT_MS });
         await installSmokeHelpers(browser);
 
@@ -2070,7 +2082,7 @@ async function main() {
         await configureNetbox(browser);
         await invoke(browser, "test_netbox_set_scenario", { scenario: "server_error" });
         await clearToasts(browser);
-        await (await browser.$("#netbox-sync-btn")).click();
+        await actOn(browser, "#netbox-sync-btn");
         const toast = await waitForToast(browser, /Sync failed: NetBox server error \(HTTP 500\)/,
           "Accessible names");
         const errorToast = toast.toasts.find((entry) => /Sync failed/.test(entry.message));
@@ -2091,10 +2103,12 @@ async function main() {
         await installSmokeHelpers(browser);
         await createHost(browser, { display_name: "Theme host" });
         await browser.refresh();
+        // Safe: single awaited waits, never acted on or re-queried.
         await (await browser.$(".hs-host-list")).waitForExist({ timeout: WAIT_MS });
         await installSmokeHelpers(browser);
         await openSettings(browser);
         await openSettingsItem(browser, "theme");
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#theme-app")).waitForExist({ timeout: WAIT_MS });
 
         const applyTheme = async (theme) => {
@@ -2148,6 +2162,7 @@ async function main() {
         // Reading Comfort, then enlarged UI text, both measured rather than
         // assumed: the scale token must change and the text must grow.
         await openSettingsItem(browser, "reading-comfort");
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#rc-enabled")).waitForExist({ timeout: WAIT_MS });
         const measure = () => browser.execute(() => {
           const label = document.querySelector('.settings-nav-item[data-item-id="reading-comfort"]');
@@ -2158,11 +2173,12 @@ async function main() {
           };
         });
         const before = await measure();
-        await (await browser.$("#rc-enabled")).click();
+        await actOn(browser, "#rc-enabled");
         await browser.waitUntil(
           async () => (await measure()).readingComfort === "on",
           { timeout: WAIT_MS, interval: 100, timeoutMsg: "Reading Comfort: the mode never turned on" },
         );
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#rc-ui-scale")).waitForExist({ timeout: WAIT_MS });
         await setField(browser, "#rc-ui-scale", "1.5");
         await browser.waitUntil(
@@ -2209,6 +2225,7 @@ async function main() {
           }));
         }
         await browser.refresh();
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$(".nav-panel")).waitForExist({ timeout: WAIT_MS });
         await installSmokeHelpers(browser);
 
@@ -2222,9 +2239,11 @@ async function main() {
 
         // Expand the folder tree so the long names are actually rendered.
         await expandNavGroup(browser, group.id);
+        // Safe: single awaited waits, never acted on or re-queried.
         await (await browser.$(`.nav-host-row[data-host-id="${hosts[0].id}"]`))
           .waitForDisplayed({ timeout: WAIT_MS });
         await expandNavGroup(browser, nestedGroup.id);
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$(`.nav-group-row[data-group-id="${nestedGroup.id}"]`))
           .waitForDisplayed({ timeout: WAIT_MS });
         // Rows a group expand inserts belong to the same roving group: the
@@ -2260,11 +2279,9 @@ async function main() {
 
         // A dialog taller than the window must scroll, not clip its controls.
         await openNavSection(browser, "replay");
-        const manageItem = await browser.$('.nav-item[data-sub-id="manage"]');
-        await manageItem.waitForDisplayed({ timeout: WAIT_MS });
-        await manageItem.click();
-        await (await browser.$(".rsm-add")).waitForDisplayed({ timeout: WAIT_MS });
-        await (await browser.$(".rsm-add")).click();
+        await actOn(browser, '.nav-item[data-sub-id="manage"]');
+        await actOn(browser, ".rsm-add");
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$(".modal-panel")).waitForExist({ timeout: WAIT_MS });
         const panel = await browser.execute(() => {
           const element = document.querySelector(".modal-panel");
@@ -2401,6 +2418,7 @@ async function main() {
           button.focus();
           row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 120, clientY: 240 }));
         }, hostId);
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$('.ctx-item[data-action="configure"]')).waitForExist({ timeout: WAIT_MS });
         const menuFocus = await browser.execute(() => {
           const menu = document.querySelector("#nav-context-menu");
@@ -2430,6 +2448,7 @@ async function main() {
         }
         assert(reached, "NetBox configure: ArrowDown never reached the Configure menu item");
         await browser.action("key").down("\uE007").up("\uE007").perform();
+        // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#nb-cfg-title")).waitForExist({ timeout: WAIT_MS });
 
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.unnamed(".modal-panel")), [],
