@@ -2934,6 +2934,7 @@ mod tests {
         let cfg = NetBoxConfig::from_json(None);
         assert!(!cfg.enabled);
         assert!(!cfg.show_empty_folders);
+        assert!(!cfg.allow_invalid_certs, "TLS verification must default to on");
         assert_eq!(cfg.default_port, 22);
         assert_eq!(cfg.platform_policy, "skip");
 
@@ -2941,6 +2942,10 @@ mod tests {
         let cfg = NetBoxConfig::from_json(Some(&legacy));
         assert!(cfg.enabled);
         assert!(!cfg.show_empty_folders);
+        assert!(
+            !cfg.allow_invalid_certs,
+            "a config predating the field must not opt out of TLS verification"
+        );
 
         // Malformed JSON → defaults (never break reads)
         let bad = serde_json::json!({"enabled": "yes please", "default_port": "abc"});
