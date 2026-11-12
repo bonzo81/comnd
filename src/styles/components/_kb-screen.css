@@ -34,6 +34,15 @@
   overflow: hidden;
 }
 
+/* A load error replaces the viewer, landing directly in this panel, so the
+   panel's clipping would cut off its Close button on a short window. The state
+   fills the panel and scrolls itself instead. */
+.kb-browse-panel > .import-error {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* ─── KB Platform Filter (browse mode top bar) ────────────────────── */
 .kb-platform-filter {
   display: flex;

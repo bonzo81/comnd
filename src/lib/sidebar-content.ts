@@ -104,8 +104,9 @@ export class SidebarContent {
    * to, followed by per-token help as a two-column list. A command whose tokens
    * carry no help text still shows its authored syntax here rather than the
    * tokenized notation, because only the authored form keeps the `[ ]` grouping
-   * that marks a keyword optional. Surfaces validator issues inline so a
-   * malformed token is visible.
+   * that marks a keyword optional; conversely a command with no authored syntax
+   * falls back to the notation so no token goes undrawn. Surfaces validator
+   * issues inline so a malformed token is visible.
    */
   private renderTokens(command: Command): string {
     const toks = command.tokens;
@@ -133,11 +134,14 @@ export class SidebarContent {
       ? `<div class="token-issues">${issues.map((iss) => `<div class="token-issue">${escHtml(iss.message)}</div>`).join("")}</div>`
       : "";
 
+    // The authored syntax anchors the grammar. The tokenized notation stands in
+    // only when a command arrives without one, so a token that carries no help
+    // text is never left with no visible representation.
+    const grammar = command.syntax
+      ? `<code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>`
+      : `<code class="token-breakdown">${toks.map((t) => renderToken(t, { badges: true })).join(" ")}</code>`;
+
     if (!help && !issueLine) {
-      const parts = toks.map((t) => renderToken(t, { badges: true })).join(" ");
-      const grammar = command.syntax
-        ? `<code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>`
-        : `<code class="token-breakdown">${parts}</code>`;
       return `
         <section class="cmd-pane">
           <h4 class="cmd-pane-label">Tokens ${orderBadge}</h4>
@@ -146,14 +150,10 @@ export class SidebarContent {
       `;
     }
 
-    const syntax = command.syntax
-      ? `<code class="cmd-syntax">${this.formatSyntax(command.syntax)}</code>`
-      : "";
-
     return `
       <section class="cmd-pane">
         <h4 class="cmd-pane-label">Tokens ${orderBadge}</h4>
-        ${syntax}
+        ${grammar}
         ${help}
         ${issueLine}
       </section>
@@ -165,9 +165,15 @@ export class SidebarContent {
  * Wire the copy buttons in a freshly rendered detail pane. The rows themselves
  * may also be click-to-run (the terminal side panel sends the command), so the
  * button's click must not bubble to the row.
+ *
+ * A pointer press is cancelled so the button never takes focus: in the terminal
+ * side panel xterm owns focus, and losing it would swallow keystrokes until the
+ * user clicked back. Cancelling `pointerdown` leaves keyboard activation alone —
+ * the button is still tab-focusable and still copies on Enter or Space.
  */
 export function wireExampleCopy(root: ParentNode): void {
   root.querySelectorAll<HTMLElement>(".example-copy").forEach((btn) => {
+    btn.addEventListener("pointerdown", (event) => event.preventDefault());
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
       const command = btn.dataset.command;
