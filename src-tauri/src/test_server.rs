@@ -30,6 +30,11 @@ use russh::server::{self, Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, Pty};
 use tokio::net::TcpListener;
 
+/// Inbound packet count for the mock's `burst` command: 300 separate
+/// one-byte CHANNEL_DATA packets, the volume issue #136 reproduced the
+/// wedge at (russh's per-channel inbound queue holds 100).
+pub const BURST_PACKETS: usize = 300;
+
 // ─── Mock Server Handler ─────────────────────────────────────────────
 
 /// Per-connection state for one SSH connection. Lives on the handler
@@ -49,6 +54,9 @@ struct ConnState {
     esc_buf: Vec<u8>,
     /// The `disconnect` command asks the mock to close the remote channel.
     disconnect_requested: bool,
+    /// The `burst` command asks the mock to push `BURST_PACKETS` separate
+    /// one-byte CHANNEL_DATA packets back-to-back (issue #136).
+    burst_requested: bool,
 }
 
 /// Per-connection handler: auth (captures username) + interactive shell.
@@ -109,6 +117,12 @@ impl MockHandler {
     fn dispatch_command(&mut self, cmd: &str, out: &mut Vec<u8>) {
         if cmd == "top" {
             self.start_top(out);
+            return;
+        }
+        if cmd == "burst" {
+            // The burst leaves as separate packets from `data`, so nothing is
+            // written to `out` here.
+            self.state.burst_requested = true;
             return;
         }
         if self.state.user == "cisco" {
@@ -520,6 +534,14 @@ impl server::Handler for MockHandler {
             session.close(channel)?;
         } else if !out.is_empty() && !self.mute_output {
             session.data(channel, out)?;
+        }
+        if self.state.burst_requested {
+            self.state.burst_requested = false;
+            // One `Session::data` call per packet: the point is the packet
+            // count, not the byte count.
+            for _ in 0..BURST_PACKETS {
+                session.data(channel, vec![b'#'])?;
+            }
         }
         Ok(())
     }
