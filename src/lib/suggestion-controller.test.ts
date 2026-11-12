@@ -5,7 +5,7 @@ import { LineTracker } from "./line-tracker";
 import { GhostText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import type { SuggestionResult } from "./suggestion-engine";
-import type { Command } from "./tauri-api";
+import type { Command, PlatformIndex } from "./tauri-api";
 import { resetSinks, setLogLevel, setSinks, type LogRecord } from "./logger";
 
 const cmd = (name: string, mode = "bash"): Command => ({
@@ -700,5 +700,79 @@ describe("SuggestionController — order-of-application pins", () => {
 
     ghostHide.mockRestore();
     dropdownHide.mockRestore();
+  });
+});
+
+describe("SuggestionController — prefix commands", () => {
+  const linuxIndex = {
+    id: "linux-bash",
+    name: "Linux",
+    description: "",
+    reference_url: "",
+    versions: [],
+    prompt_patterns: {},
+    default_mode: "shell",
+    prefix_commands: { sudo: { unlocks: ["shell"], skip_flag_value: ["-u"] } },
+  } as unknown as PlatformIndex;
+
+  const systemctl: Command = {
+    name: "systemctl restart",
+    syntax: "systemctl restart <unit>",
+    description: "",
+    category: "test",
+    mode: "shell",
+    aliases: [],
+    examples: [],
+    versions: { introduced: null, deprecated: null, notes: null },
+    tags: [],
+    tokens: [{ lit: "systemctl restart" }, { var: "unit", type: "free" }],
+  };
+
+  /** Legacy (no `tokens`) command — exercises the name-remainder path. */
+  const legacySystemctl: Command = {
+    ...systemctl,
+    name: "systemctl",
+    syntax: "systemctl <unit>",
+    tokens: undefined,
+  };
+
+  function withPrefix(command: Command) {
+    const ctx = makeController();
+    ctx.c.setPlatformIndex(linuxIndex);
+    ctx.c.loadCommands([command], "linux-bash", null);
+    ctx.c.setMode("shell");
+    // Keep the dropdown out of the way so Tab uses the ghost remaining.
+    ctx.c.setSuggestionsEnabled(false);
+    return ctx;
+  }
+
+  it("ghosts the inner remainder for `sudo system` without re-including `sudo `", () => {
+    const ctx = withPrefix(systemctl);
+
+    type(ctx, "sudo system");
+    vi.advanceTimersByTime(50);
+
+    expect(ghostText(ctx.container)).toBe("ctl");
+    expect(ghostText(ctx.container)).not.toContain("sudo");
+  });
+
+  it("derives the ghost from the stripped input for a legacy prefix match", () => {
+    const ctx = withPrefix(legacySystemctl);
+
+    type(ctx, "sudo system");
+    vi.advanceTimersByTime(50);
+
+    expect(ghostText(ctx.container)).toBe("ctl");
+  });
+
+  it("Tab accepts only the inner remainder", () => {
+    const ctx = withPrefix(systemctl);
+
+    type(ctx, "sudo system");
+    vi.advanceTimersByTime(50);
+    ctx.c.keyIn("\t");
+
+    expect(ctx.sent[ctx.sent.length - 1]).toBe("ctl");
+    expect(ctx.c.input).toBe("");
   });
 });
