@@ -1080,8 +1080,16 @@ async function configureNetbox(browser) {
   const baseUrl = await invoke(browser, "test_netbox_server");
   await openSettings(browser);
   await openSettingsItem(browser, "netbox");
-  // Safe: one awaited wait; the enable switch is then clicked through actOn.
-  await (await browser.$("#netbox-enabled")).waitForExist({ timeout: WAIT_MS });
+  // The pane's async load re-renders the whole screen, so this wait must not
+  // hold a node handle across that render (issue #126).
+  await browser.waitUntil(
+    async () => browser.execute(() => !!document.querySelector("#netbox-enabled")),
+    {
+      timeout: WAIT_MS,
+      interval: 100,
+      timeoutMsg: "NetBox: the settings pane never rendered the enable switch",
+    },
+  );
   await actOn(browser, "#netbox-enabled");
   await browser.waitUntil(
     async () => (await invoke(browser, "netbox_get_config")).config.enabled === true,

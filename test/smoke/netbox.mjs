@@ -130,8 +130,16 @@ async function waitForText(browser, selector, expected) {
 async function openNetboxSettings(browser) {
   await click(browser, "#title-bar-settings");
   await click(browser, '.settings-nav-item[data-item-id="netbox"]');
-  // Safe: a single awaited wait, never acted on or re-queried.
-  await (await browser.$("#netbox-url")).waitForExist({ timeout: WAIT_MS });
+  // The pane's async load re-renders the whole screen, so this wait must not
+  // hold a node handle across that render (issue #126).
+  await browser.waitUntil(
+    async () => browser.execute(() => !!document.querySelector("#netbox-url")),
+    {
+      timeout: WAIT_MS,
+      interval: 100,
+      timeoutMsg: "the NetBox settings pane did not render",
+    },
+  );
 }
 
 const netboxBodyLocked = (browser) =>
