@@ -21,7 +21,7 @@ import {
 // The category is passed to the frontend through test_smoke_mutation so an
 // assertion can prove the mutation actually ran; a broken seam would otherwise
 // let an unmutated app satisfy the expected-failure match.
-const MUTATION_CATEGORIES = ["ssh_send", "focus", "name", "layout"];
+const MUTATION_CATEGORIES = ["ssh_send", "focus", "name", "layout", "suggestion"];
 
 function parseMutation(argv) {
   const equals = argv.find((arg) => arg.startsWith("--mutation="));
@@ -63,6 +63,13 @@ const MUTATION_CASES = {
   layout: {
     scenario: "sidebar-pty-resize",
     expectedFailure: /Sidebar resize: .*did not shrink the terminal[\s\S]*mutation activation: layout applied/,
+  },
+  // Scoped to the prefix path (stripPrefix stops stripping) so the ghost and
+  // dropdown assertions in `suggestion-accept` and `dropdown-click` stay green:
+  // only `prefix-suggestion` types a prefix command.
+  suggestion: {
+    scenario: "prefix-suggestion",
+    expectedFailure: /Prefix suggestion: [\s\S]*mutation activation: suggestion applied/,
   },
 };
 
@@ -1315,6 +1322,50 @@ async function launchAndConnect(browser, dataDir) {
   return host;
 }
 
+// Suggestions are off until the toolbar toggle is pressed, and the session
+// view is rebuilt under it, so act through actOn and read the state with one
+// execute per poll instead of holding a handle.
+async function enableSuggestions(browser) {
+  const pressed = await browser.execute(() =>
+    document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null,
+  );
+  if (pressed !== "true") await actOn(browser, ".tv-suggestions-btn");
+  await waitFor(
+    browser,
+    () => document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") === "true",
+    "Suggestions: the toolbar toggle never reported pressed",
+  );
+}
+
+/** Wait until the ghost shows exactly `text` (a visible overlay, not display none). */
+async function waitForGhost(browser, text, behavior) {
+  await browser.waitUntil(async () => browser.execute((expected) => {
+    const ghost = document.querySelector(".ghost-text");
+    return !!ghost && getComputedStyle(ghost).display !== "none" && ghost.textContent === expected;
+  }, text), {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: `${behavior}: expected the ghost to show '${text}'`,
+  });
+}
+
+/**
+ * The visible ghost's left edge and one cell width, read in a single execute so
+ * the geometry cannot come from two different renders.
+ */
+async function measureGhost(browser) {
+  return browser.execute(() => {
+    const ghost = document.querySelector(".ghost-text");
+    const screen = document.querySelector(".xterm-screen");
+    const cols = window.__comndTerminal?.cols ?? 0;
+    if (!ghost || !screen || !cols) return null;
+    return {
+      left: ghost.getBoundingClientRect().left,
+      cellWidth: screen.getBoundingClientRect().width / cols,
+    };
+  });
+}
+
 async function commandRoundTrip(browser, dataDir) {
   await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
@@ -1382,25 +1433,116 @@ async function main() {
       name: "suggestion-accept",
       async run(browser, dataDir) {
         await launchAndConnect(browser, dataDir);
-        // Safe: this handle is only read; the click below goes through actOn.
-        const toggle = await browser.$(".tv-suggestions-btn");
-        if (await toggle.getAttribute("aria-pressed") !== "true") await actOn(browser, ".tv-suggestions-btn");
+        await enableSuggestions(browser);
         await sendKeys(browser, "ip r");
-        await browser.waitUntil(async () => browser.execute(() => {
+        await waitForGhost(browser, "oute", "Suggestion accept");
+        // Suggestions auto-open the dropdown, so both overlays are on screen and
+        // both hit-tests run here rather than in a scenario of their own.
+        const overlays = await browser.execute(() => {
+          const visible = (el) => !!el && getComputedStyle(el).display !== "none";
+          const describe = (el) => el
+            ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
+            : "nothing";
           const ghost = document.querySelector(".ghost-text");
-          return !!ghost && getComputedStyle(ghost).display !== "none" && ghost.textContent === "oute";
-        }), {
-          timeout: WAIT_MS,
-          interval: 100,
-          timeoutMsg: "Suggestion accept: expected ghost remainder 'oute' for 'ip r'",
+          const dropdown = document.querySelector(".suggestion-dropdown");
+          if (!visible(ghost) || !visible(dropdown)) {
+            return { ghostUp: visible(ghost), dropdownUp: visible(dropdown) };
+          }
+          const rect = (el) => el.getBoundingClientRect();
+          const at = (el) => {
+            const r = rect(el);
+            return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          };
+          const ghostHit = at(ghost);
+          const dropdownHit = at(dropdown);
+          return {
+            ghostUp: true,
+            dropdownUp: true,
+            ghostHit: describe(ghostHit),
+            ghostSwallowed: ghostHit === ghost || ghost.contains(ghostHit),
+            dropdownHit: describe(dropdownHit),
+            dropdownHolds: dropdownHit === dropdown || dropdown.contains(dropdownHit),
+          };
         });
+        assert(overlays.ghostUp && overlays.dropdownUp,
+          "Suggestion accept: expected both the ghost and the dropdown to be up for 'ip r'");
+        assert(!overlays.ghostSwallowed,
+          `Suggestion accept: the ghost is not click-through at its centre (hit ${overlays.ghostHit})`);
+        assert(overlays.dropdownHolds,
+          `Suggestion accept: nothing clickable at the dropdown centre (hit ${overlays.dropdownHit})`);
+        // The ghost is placed from the cursor cell, so one more character must
+        // move it exactly one cell right. A one-render-stale anchor leaves the
+        // remainder sitting over the character it is meant to continue.
+        const anchor = await measureGhost(browser);
+        await sendKeys(browser, "o");
+        await waitForGhost(browser, "ute", "Suggestion accept");
+        const shifted = await measureGhost(browser);
+        assert(anchor && shifted,
+          "Suggestion accept: could not measure the ghost before and after typing 'o'");
+        const cells = (shifted.left - anchor.left) / shifted.cellWidth;
+        assert(Math.abs(cells - 1) <= 1 / shifted.cellWidth,
+          `Suggestion accept: the ghost moved ${cells.toFixed(2)} cells `
+          + `(${shifted.cellWidth.toFixed(1)}px per cell) for one character`);
         await sendKeys(browser, "\uE004");
         await sendKeys(browser, "\uE007");
         const expected = [...Buffer.from("ip route\r")];
         const actual = await waitForBytes(browser, expected.length, "Suggestion accept");
         assertBytes(actual, expected, "Suggestion accept: only the completion remainder was sent");
         await waitForTerminal(browser, "ip route");
-        assert.equal(countOccurrences(await terminalText(browser), "ip route"), 1);
+        const seen = countOccurrences(await terminalText(browser), "ip route");
+        assert.equal(seen, 1,
+          `Suggestion accept: expected 'ip route' in the terminal exactly once, saw ${seen}`);
+      },
+    },
+    {
+      name: "prefix-suggestion",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir);
+        await enableSuggestions(browser);
+        // The engine strips the `sudo` prefix and matches `system` against the
+        // inner command, ghosting its remainder.
+        await sendKeys(browser, "sudo system");
+        await waitForGhost(browser, "ctl", "Prefix suggestion");
+        await sendKeys(browser, "\uE004");
+        await sendKeys(browser, "\uE007");
+        const expected = [...Buffer.from("sudo systemctl\r")];
+        const actual = await waitForBytes(browser, expected.length, "Prefix suggestion");
+        assertBytes(actual, expected,
+          "Prefix suggestion: expected 'sudo systemctl' and Enter at the mock");
+        await waitForTerminal(browser, "sudo systemctl");
+        const seen = countOccurrences(await terminalText(browser), "sudo systemctl");
+        assert.equal(seen, 1,
+          `Prefix suggestion: expected 'sudo systemctl' in the terminal exactly once, saw ${seen}`);
+      },
+    },
+    {
+      name: "dropdown-click",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir);
+        await enableSuggestions(browser);
+        // Seven bundled commands match a single `s`, ordered by name, so row 1
+        // is `sed`; clicking it must send only the remainder after the typed
+        // letter.
+        await sendKeys(browser, "s");
+        await waitFor(browser, () => document.querySelectorAll(".suggestion-item").length > 1,
+          "Dropdown click: expected the dropdown to list at least two 's' commands");
+        const rowName = await browser.execute(() =>
+          document.querySelector('.suggestion-item[data-index="1"] .suggestion-name')?.textContent ?? null);
+        assert.equal(rowName, "sed",
+          `Dropdown click: row 1 is ${JSON.stringify(rowName)}, expected 'sed'`);
+        await actOn(browser, '.suggestion-item[data-index="1"]', { action: "click" });
+        await waitFor(browser, () => {
+          const dropdown = document.querySelector(".suggestion-dropdown");
+          return !dropdown || getComputedStyle(dropdown).display === "none";
+        }, "Dropdown click: clicking row 1 left the dropdown open");
+        await sendKeys(browser, "\uE007");
+        const expected = [...Buffer.from("sed\r")];
+        const actual = await waitForBytes(browser, expected.length, "Dropdown click");
+        assertBytes(actual, expected, "Dropdown click: expected 'sed' and Enter at the mock");
+        await waitForTerminal(browser, "sed");
+        const seen = countOccurrences(await terminalText(browser), "sed");
+        assert.equal(seen, 1,
+          `Dropdown click: expected 'sed' in the terminal exactly once, saw ${seen}`);
       },
     },
     {
@@ -2566,10 +2708,11 @@ async function main() {
     },
   ];
 
-  // A focus/name/layout run boots the same app with COMND_SMOKE_MUTATION set
-  // and drives only the scenario that regression is supposed to break. The
-  // expected failure must name the assertion and carry proof that the
-  // frontend applied the mutation, so a broken seam cannot pass silently.
+  // A focus/name/layout/suggestion run boots the same app with
+  // COMND_SMOKE_MUTATION set and drives only the scenario that regression is
+  // supposed to break. The expected failure must name the assertion and carry
+  // proof that the frontend applied the mutation, so a broken seam cannot pass
+  // silently.
   if (mutationCategory) {
     const target = MUTATION_CASES[mutationCategory];
     const scenario = tests.find((test) => test.name === target.scenario);

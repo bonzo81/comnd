@@ -2,16 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Smoke-only deliberate regressions (issue #89). The runner boots the app with
- * `COMND_SMOKE_MUTATION=focus|name|layout` and then expects the matching
- * assertion to fail; a clean run means the assertion no longer catches the
- * class of bug it exists to catch.
+ * `COMND_SMOKE_MUTATION=focus|name|layout|suggestion` and then expects the
+ * matching assertion to fail; a clean run means the assertion no longer
+ * catches the class of bug it exists to catch.
  *
  * The mutation is applied before `new App()` so the regression is in place for
  * the whole session, exactly as a real bug would be. Nothing here runs in a
  * release build: the command behind `test_smoke_mutation` is debug-only and the
  * module is only imported when Vite builds with `--mode smoke`.
  */
-export type SmokeMutation = "focus" | "name" | "layout";
+export type SmokeMutation = "focus" | "name" | "layout" | "suggestion";
 
 const STYLE_ID = "comnd-smoke-mutation-style";
 
@@ -88,6 +88,9 @@ export async function applySmokeMutation(): Promise<void> {
   if (category === "focus") mutateFocus();
   else if (category === "name") mutateName();
   else if (category === "layout") mutateLayout();
-  else return;
+  // `suggestion` needs no DOM change of its own: the marker written below
+  // makes SuggestionEngine.stripPrefix stop stripping, which only the prefix
+  // scenario reaches (issue #138).
+  else if (category !== "suggestion") return;
   document.documentElement.dataset.smokeMutation = category;
 }
