@@ -27,6 +27,19 @@ describe("AnsiStripper — chunk boundaries", () => {
     expect(s.feed("\\link text")).toBe("link text");
   });
 
+  it("discards a large OSC payload fed in small chunks", () => {
+    // Payload is dropped as it arrives, not buffered and re-scanned: real
+    // payloads (OSC 52 clipboard, OSC 1337 inline images) can be huge.
+    const s = new AnsiStripper();
+    const payload = "QUJD".repeat(2000);
+
+    expect(s.feed("\x1b]52;c;")).toBe("");
+    for (let i = 0; i < payload.length; i += 37) {
+      expect(s.feed(payload.slice(i, i + 37))).toBe("");
+    }
+    expect(s.feed("\x07Router#")).toBe("Router#");
+  });
+
   it("reset discards a pending partial sequence", () => {
     const s = new AnsiStripper();
     s.feed("\x1b[32");

@@ -40,9 +40,18 @@ function isAsciiLetter(ch: string): boolean {
  * An incomplete trailing CSI or OSC sequence is held until the next chunk;
  * everything else is stripped exactly as {@link stripAnsi} strips it. Call
  * {@link reset} when the stream ends or a new session starts.
+ *
+ * OSC payload is discarded as it arrives rather than buffered: payloads can be
+ * large (OSC 52 clipboard data, OSC 1337 inline images) and re-scanning a
+ * growing buffer on every chunk is quadratic on the UI thread.
  */
 export class AnsiStripper {
+  // Incomplete CSI (or lone ESC) from the previous chunk — a few bytes at most.
   private pending = "";
+  // Inside an OSC sequence: the payload is dropped, only the terminators matter.
+  private inOsc = false;
+  // An ESC inside an OSC payload that may be the first half of ST (ESC \).
+  private oscEsc = false;
 
   /** Strip one chunk, retaining any incomplete trailing escape sequence. */
   feed(chunk: string): string {
@@ -52,6 +61,11 @@ export class AnsiStripper {
     let i = 0;
 
     while (i < text.length) {
+      if (this.inOsc) {
+        i = this.skipOscPayload(text, i);
+        continue;
+      }
+
       const esc = text.indexOf("\x1b", i);
       if (esc === -1) {
         out += text.slice(i);
@@ -62,7 +76,7 @@ export class AnsiStripper {
 
       if (next === undefined) {
         // Lone trailing ESC — could be the start of a split sequence.
-        this.pending = text.slice(esc);
+        this.pending = "\x1b";
         break;
       }
 
@@ -84,28 +98,8 @@ export class AnsiStripper {
       }
 
       if (next === "]") {
-        let j = esc + 2;
-        let end = -1;
-        while (j < text.length) {
-          if (text[j] === "\x07") {
-            end = j + 1;
-            break;
-          }
-          if (text[j] === "\x1b") {
-            // ST is ESC \ — hold the sequence if the backslash is still to come.
-            if (j + 1 >= text.length) break;
-            if (text[j + 1] === "\\") {
-              end = j + 2;
-              break;
-            }
-          }
-          j++;
-        }
-        if (end === -1) {
-          this.pending = text.slice(esc);
-          break;
-        }
-        i = end; // complete OSC — stripped, payload included
+        this.inOsc = true;
+        i = esc + 2;
         continue;
       }
 
@@ -117,8 +111,45 @@ export class AnsiStripper {
     return out;
   }
 
+  /**
+   * Discard OSC payload from `i`, returning the index just past the terminator
+   * (or the end of the chunk when the sequence is still open). Nothing of the
+   * payload is retained.
+   */
+  private skipOscPayload(text: string, i: number): number {
+    if (this.oscEsc) {
+      this.oscEsc = false;
+      if (text[i] === "\\") {
+        this.inOsc = false; // ST split between ESC and backslash
+        return i + 1;
+      }
+      // The ESC was payload content — keep scanning.
+    }
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "\x07") {
+        this.inOsc = false;
+        return i + 1;
+      }
+      if (ch === "\x1b") {
+        if (i + 1 >= text.length) {
+          this.oscEsc = true; // ST may complete in the next chunk
+          return text.length;
+        }
+        if (text[i + 1] === "\\") {
+          this.inOsc = false;
+          return i + 2;
+        }
+      }
+      i++;
+    }
+    return i;
+  }
+
   /** Drop any pending partial sequence (stream ended or new session). */
   reset(): void {
     this.pending = "";
+    this.inOsc = false;
+    this.oscEsc = false;
   }
 }
