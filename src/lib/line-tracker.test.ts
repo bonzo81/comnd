@@ -189,6 +189,44 @@ describe("LineTracker — prompt detection", () => {
   });
 });
 
+describe("LineTracker — chunk boundaries (issue #134)", () => {
+  it("strips a CSI sequence split across chunks before matching the prompt", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    t.feed("\x1b[3"); // chunk 1 ends mid-CSI
+    t.feed("2mRouter#"); // chunk 2 completes the escape
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("one-byte chunks produce the same line and one prompt detection", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    for (const ch of "\x1b[32mRouter#") t.feed(ch);
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("a split OSC sequence leaves no payload text in the reconstructed line", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    // Payload deliberately contains the prompt text — it must not leak.
+    t.feed("\x1b]0;Router# login banner");
+    t.feed("\x07Router#");
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("LineTracker — line reconstruction", () => {
   it("tracks the current line across chunks and newlines", () => {
     const { t } = makeTracker();

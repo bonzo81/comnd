@@ -6,7 +6,7 @@
  * stripAnsi call per chunk. See docs/plans/plan-line-tracker.md.
  */
 
-import { stripAnsi } from "./ansi";
+import { AnsiStripper } from "./ansi";
 import type { PlatformIndex } from "./tauri-api";
 
 /** mode name → regex pattern (from the platform's index.yaml). */
@@ -25,6 +25,8 @@ export class LineTracker {
   /** Text of the last matched prompt (trimmed) — used for echo re-sync. */
   private lastPromptText = "";
 
+  // Holds a CSI/OSC sequence split across output chunks.
+  private stripper = new AnsiStripper();
   // Reconstructed line (char walk)
   private line = "";
   // Line content before the last \r/\n — the prompt line when the prompt is
@@ -77,7 +79,7 @@ export class LineTracker {
 
   /** Feed SSH output data: one char walk drives both line and prompt state. */
   feed(data: string) {
-    const clean = stripAnsi(data);
+    const clean = this.stripper.feed(data);
     for (const ch of clean) {
       if (ch === "\n" || ch === "\r") {
         if (this.line) this.lastLineValue = this.line;
@@ -230,6 +232,7 @@ export class LineTracker {
 
   /** Drop reconstructed line state (prompt detection state survives). */
   reset() {
+    this.stripper.reset();
     this.line = "";
     this.lastLineValue = "";
     this.learnedPrompt = "";
