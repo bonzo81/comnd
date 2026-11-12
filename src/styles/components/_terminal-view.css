@@ -225,46 +225,49 @@ body.tv-resizing * {
 .sb-disconnected { color: var(--color-error); }
 
 /* â”€â”€â”€ Sidebar Command Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
 .cmd-detail {
-  font-size: var(--font-size-base);
-  line-height: var(--prose-line-height);
-  word-spacing: var(--prose-word-spacing);
-  max-width: var(--prose-max-width);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+/* Identity band. Its hairline is the only rule inside the detail pane. */
+.cmd-band {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cmd-band-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
 }
 
 .cmd-name {
+  margin: 0;
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
   font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   color: var(--color-accent);
-  margin-bottom: var(--space-3);
 }
 
-/* docs/10 Â§ Part 2: override note in the KB viewer detail panel */
-.kb-override-note {
-  margin-bottom: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-accent-custom);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.syntax-block {
-  background: var(--color-surface-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
+/* Grammar line. Heads the Tokens pane, so it reads as that pane's subject. */
+.cmd-syntax {
+  display: block;
+  margin: 0 0 var(--space-2);
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  margin-bottom: var(--space-3);
-  overflow-x: auto;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
   white-space: pre-wrap;
-}
-
-.syntax-block code {
-  font-family: inherit;
+  overflow-x: auto;
 }
 
 .syntax-required {
@@ -276,121 +279,128 @@ body.tv-resizing * {
   opacity: 0.8;
 }
 
-.cmd-description {
+/* Caller-owned actions (KB viewer only; the terminal side panel passes none). */
+.cmd-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.cmd-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-6);
+  height: var(--space-6);
+  padding: 0;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+}
+
+.cmd-actions .btn-secondary:hover {
+  background: var(--color-surface-hover);
   color: var(--color-text-primary);
+}
+
+.cmd-actions .kb-btn-delete:hover {
+  color: var(--color-error);
+}
+
+.cmd-actions svg {
+  width: var(--space-4);
+  height: var(--space-4);
+  flex-shrink: 0;
+}
+
+/* docs/10 Part 2: override note in the KB viewer detail panel */
+.kb-override-note {
   margin-bottom: var(--space-3);
-  white-space: pre-wrap;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent-custom);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.cmd-description {
+  margin: var(--space-2) 0 0;
+  max-width: var(--prose-max-width);
+  font-size: var(--font-size-sm);
   line-height: var(--prose-line-height);
   word-spacing: var(--prose-word-spacing);
-}
-
-.cmd-examples {
-  margin-bottom: var(--space-3);
-}
-
-.cmd-examples h4 {
-  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: var(--space-2);
+  white-space: pre-wrap;
 }
 
-.example-item {
+/* Payload: the token grammar always leads, examples always follow it. A fixed
+   order beats a wrapping row — the reader learns one layout, and the flags are
+   never pushed into a narrow column beside the examples. */
+.cmd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.cmd-pane {
+  min-width: 0;
+}
+
+.cmd-pane-label {
   display: flex;
-  flex-direction: column;
-  padding: var(--space-1-5) var(--space-2);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  margin-bottom: var(--space-1);
-}
-
-.example-item:hover {
-  background: var(--color-surface-selected);
-}
-
-.example-cmd {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
-}
-
-.example-desc {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.cmd-meta {
-  margin-bottom: var(--space-3);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
-}
-
-.meta-row {
-  display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  padding: var(--space-0-5) 0;
-  font-size: var(--font-size-sm);
-}
-
-.meta-label {
-  color: var(--color-text-secondary);
-  min-width: 80px;
-}
-
-.meta-value {
-  color: var(--color-text-primary);
-}
-
-.cmd-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-}
-
-.tag-badge {
-  display: inline-block;
-  background: var(--color-surface-selected);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-lg);
-}
-
-/* â”€â”€â”€ Phase 5.7: token breakdown in side panel + KB viewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-.cmd-tokens {
-  margin-bottom: var(--space-3);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
-}
-
-.cmd-tokens h4 {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
   letter-spacing: 0.5px;
-  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  /* Secondary, not tertiary: 10px labels must still clear WCAG AA. */
+  color: var(--color-text-secondary);
 }
 
 .token-order-badge {
   display: inline-block;
-  font-size: var(--font-size-xs);
-  background: var(--color-surface-selected);
-  color: var(--color-accent);
   padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
-  margin-left: var(--space-1);
-  text-transform: none;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
   letter-spacing: 0;
+  text-transform: none;
+  border-radius: var(--radius-sm);
+}
+
+/* Phase 5.7: per-token help. One grid, so every flag label shares a column. */
+.token-help {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.token-help dt,
+.token-help dd {
+  margin: 0;
+  padding: var(--space-1) 0;
+}
+
+.token-help dt code {
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+.token-help dd {
+  line-height: 1.45;
+  color: var(--color-text-primary);
 }
 
 .token-breakdown {
+  display: block;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   white-space: pre-wrap;
-  display: block;
 }
 
 .token-lit { color: var(--color-text-primary); font-weight: 600; }
@@ -400,6 +410,7 @@ body.tv-resizing * {
 .token-var { color: var(--color-accent); font-style: italic; }
 .token-var.opt { opacity: 0.8; }
 .token-pipe { color: var(--color-text-secondary); }
+
 .token-type-badge,
 .token-source-badge {
   display: inline-block;
@@ -416,6 +427,7 @@ body.tv-resizing * {
 .token-issues {
   margin-top: var(--space-2);
 }
+
 .token-issue {
   color: var(--color-error);
   font-size: var(--font-size-xs);
@@ -423,36 +435,129 @@ body.tv-resizing * {
   padding: var(--space-1) 0;
 }
 
-.token-help {
+.cmd-examples {
+  display: flex;
+  flex-direction: column;
+  /* Hug the text: each tinted row stops at its widest line, not the pane edge. */
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.example-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  /* Right padding reserves the corner for the copy button. */
+  padding: var(--space-1-5) var(--space-8) var(--space-1-5) var(--space-2);
+  background: var(--color-surface-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.example-item:hover {
+  background: var(--color-surface-selected);
+}
+
+/* The terminal side panel's rows also run on click; the KB pane's rows copy. */
+.sb-content .example-item {
+  cursor: pointer;
+}
+
+.example-copy {
+  position: absolute;
+  top: var(--space-0-5);
+  right: var(--space-0-5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.example-copy:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.example-copy svg {
+  width: var(--space-3);
+  height: var(--space-3);
+}
+
+.example-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.example-desc {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-secondary);
+}
+
+/* Metadata block: stacked label/value rows, tag pills under them, docs link last. */
+.cmd-foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.cmd-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-4);
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.cmd-facts dt,
+.cmd-facts dd {
+  margin: 0;
+  padding: var(--space-0-5) 0;
+}
+
+.cmd-facts dt {
+  color: var(--color-text-secondary);
+}
+
+.cmd-facts dd {
+  color: var(--color-text-primary);
+}
+
+.cmd-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
   margin-top: var(--space-2);
 }
-.token-help-row {
-  display: flex;
-  gap: var(--space-2);
-  font-size: var(--font-size-xs);
-  padding: 2px 0;
-}
-.token-help-row code {
-  font-family: var(--font-mono);
-  color: var(--color-accent);
-  flex-shrink: 0;
-  min-width: 4em;
-}
-.token-help-row span {
+
+.tag-badge {
+  display: inline-block;
+  background: var(--color-surface-selected);
   color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-lg);
 }
 
 .cmd-ref-link {
   display: inline-block;
-  color: var(--color-accent);
-  font-size: var(--font-size-sm);
-  text-decoration: none;
   margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: none;
 }
 
 .cmd-ref-link:hover {
   text-decoration: underline;
 }
+
 
 /* â”€â”€â”€ Platform Badge Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Qualified with .hs-host-badge so the badge colour wins over that base rule

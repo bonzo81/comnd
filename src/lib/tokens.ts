@@ -97,20 +97,35 @@ export function renderToken(t: CommandToken, opts: RenderTokenOpts = {}): string
 
 /**
  * Render per-token help (choice flag meanings, var descriptions) as a
- * definition list. Empty string when no token carries help text.
+ * definition list — a `<dl>` grid, so every flag label shares one column.
+ * Empty string when no token carries help text.
  */
 export function renderTokenHelp(tokens: CommandToken[]): string {
   const rows: string[] = [];
-  for (const t of tokens) {
+  for (const [i, t] of tokens.entries()) {
     if (isChoice(t) && t.descriptions) {
       for (const opt of t.choice) {
         const d = t.descriptions[opt];
-        if (d) rows.push(`<div class="token-help-row"><code>${escHtml(opt)}</code><span>${escHtml(d)}</span></div>`);
+        if (d) rows.push(`<dt><code>${escHtml(opt)}</code></dt><dd>${escHtml(d)}</dd>`);
       }
     }
     if (isVar(t) && t.description) {
-      rows.push(`<div class="token-help-row"><code>&lt;${escHtml(t.var)}&gt;</code><span>${escHtml(t.description)}</span></div>`);
+      const lead = leadIn(tokens[i - 1]);
+      rows.push(`<dt><code>${lead}&lt;${escHtml(t.var)}&gt;</code></dt><dd>${escHtml(t.description)}</dd>`);
     }
   }
-  return rows.length ? `<div class="token-help">${rows.join("")}</div>` : "";
+  return rows.length ? `<dl class="token-help">${rows.join("")}</dl>` : "";
+}
+
+/**
+ * A var's label carries the token that introduces it when that token is a flag
+ * or an optional keyword (`-d <data>`, `vlan <vlan-id>`). The authored syntax
+ * may list neither the flag nor the argument, so the pairing has to survive
+ * here or the reader cannot tell which switch takes the value.
+ */
+function leadIn(prev: CommandToken | undefined): string {
+  if (!prev || !isLit(prev)) return "";
+  const isFlag = /^--?[A-Za-z0-9]/.test(prev.lit);
+  if (!isFlag && !prev.optional) return "";
+  return `${escHtml(prev.lit)} `;
 }

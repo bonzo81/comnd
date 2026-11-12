@@ -258,17 +258,16 @@
 }
 
 /* â”€â”€â”€ KB Viewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.kb-viewer {
-  width: 700px;
-  max-width: 90vw;
-}
-
+/* Two-pane browser mounted straight into the KB screen's browse panel, which
+   supplies the height (see .kb-browse-panel). The toolbar is fixed and the
+   command list and detail pane scroll on their own. */
 .kb-viewer-toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .kb-platform-select {
@@ -292,8 +291,8 @@
 
 .kb-viewer-body {
   display: flex;
-  height: 55vh;
-  max-height: 500px;
+  flex: 1;
+  min-height: 0;
 }
 
 .kb-command-list {
@@ -310,7 +309,6 @@
   padding: var(--space-4);
   line-height: var(--prose-line-height);
   word-spacing: var(--prose-word-spacing);
-  max-width: var(--prose-max-width);
 }
 
 .kb-category {
@@ -372,21 +370,7 @@
   opacity: 0.7;
 }
 
-/* â”€â”€â”€ KB Edit / Delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.kb-detail-wrapper {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.kb-detail-actions {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
+/* ─── KB Edit / Delete ─────────────────────────────────────────────────── */
 .kb-edit-field {
   display: block;
   margin-bottom: var(--space-3);
