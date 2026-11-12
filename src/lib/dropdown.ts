@@ -16,6 +16,11 @@ import { moveListItem } from "./listbox-nav";
 
 export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
 
+interface ChoiceMode {
+  options: string[];
+  descriptions?: Record<string, string>;
+}
+
 export class Dropdown {
   private container: HTMLElement;
   private el: HTMLDivElement;
@@ -26,7 +31,7 @@ export class Dropdown {
   private currentPrefix = "";
 
   /** When non-null, the dropdown shows choice options instead of commands. */
-  private choiceMode: { options: string[]; descriptions?: Record<string, string>; sourceIndex: number } | null = null;
+  private choiceMode: ChoiceMode | null = null;
 
   constructor(container: HTMLElement, onAccept: AcceptFn) {
     this.container = container;
@@ -43,9 +48,11 @@ export class Dropdown {
     this.items = results;
     this.currentPrefix = prefix;
     this.selectedIndex = 0;
-    this.choiceMode = null;
+    this._pendingPayload = null;
+    this.choiceMode = this.deriveChoiceMode(results);
     this._visible = true;
-    this.render();
+    if (this.choiceMode) this.renderChoice();
+    else this.render();
     this.el.style.display = "block";
   }
 
@@ -63,26 +70,43 @@ export class Dropdown {
 
   /** Update results (e.g. when user types more) */
   updateResults(results: SuggestionResult[]) {
-    if (this.choiceMode) {
-      // Refresh choice-mode from the new top result if possible.
-      const top = results[0];
-      const tm = top?.tokenMatch;
-      if (top && tm && top.command.tokens?.[tm.currentTokenIndex] && isChoiceTok(top.command.tokens[tm.currentTokenIndex])) {
-        const tok = top.command.tokens[tm.currentTokenIndex] as { choice: string[]; descriptions?: Record<string, string> };
-        this.choiceMode = { options: tok.choice, descriptions: tok.descriptions, sourceIndex: this.selectedIndex };
-        this.selectedIndex = 0;
-        this.renderChoice();
-        return;
-      }
-      this.choiceMode = null;
-    }
     this.items = results;
     if (results.length === 0) {
       this.hide();
       return;
     }
+
+    const next = this.deriveChoiceMode(results);
+    const prevOptions = this.choiceMode?.options;
+    const sameOptions = !!next && !!prevOptions && sameOptionsInOrder(next.options, prevOptions);
+
+    this.choiceMode = next;
+    if (next) {
+      // Typing the partial word leaves the options unchanged — keep the
+      // arrow-key position instead of snapping back to the first row.
+      this.selectedIndex = sameOptions
+        ? Math.min(this.selectedIndex, next.options.length - 1)
+        : 0;
+      this.renderChoice();
+      return;
+    }
+
     this.selectedIndex = Math.min(this.selectedIndex, results.length - 1);
     this.render();
+  }
+
+  /**
+   * Choice mode is derived from the results the dropdown already receives:
+   * the top result's current token is a `choice` and its words become the
+   * rows (docs/plans/010-plan-kb-token-engine.md § 3.2, MVP simplification).
+   */
+  private deriveChoiceMode(results: SuggestionResult[]): ChoiceMode | null {
+    const top = results[0];
+    const tm = top?.tokenMatch;
+    if (!top || !tm) return null;
+    const tok = top.command.tokens?.[tm.currentTokenIndex];
+    if (!tok || !isChoiceTok(tok)) return null;
+    return { options: tok.choice, descriptions: tok.descriptions };
   }
 
   /** Move selection up */
@@ -114,17 +138,30 @@ export class Dropdown {
       const top = this.items[0];
       if (!top) return null;
       const pick = this.choiceMode.options[this.selectedIndex] ?? "";
-      // Merge with the user's current word (ghost may already cover part of it).
-      const cur = this.currentPrefix.match(/\S*$/)?.[0] ?? "";
-      const merged = cur && pick.toLowerCase().startsWith(cur.toLowerCase())
-        ? pick.substring(cur.length)
-        : pick;
-      this._pendingPayload = { kind: "choice", options: this.choiceMode.options, pick: merged };
+      this._pendingPayload = {
+        kind: "choice",
+        options: this.choiceMode.options,
+        pick: this.mergeChoiceRemainder(pick),
+      };
       return top;
     }
     this._pendingPayload = null;
     if (this.items.length === 0) return null;
     return this.items[this.selectedIndex] ?? null;
+  }
+
+  /**
+   * Remainder to send for a choice pick, merged with the partially typed
+   * word. The token match carries the live word; `currentPrefix` is frozen
+   * when the dropdown opens, so it is only a fallback.
+   */
+  private mergeChoiceRemainder(pick: string): string {
+    const typed = this.items[0]?.tokenMatch?.currentTokenInput
+      ?? this.currentPrefix.match(/\S*$/)?.[0]
+      ?? "";
+    return typed && pick.toLowerCase().startsWith(typed.toLowerCase())
+      ? pick.substring(typed.length)
+      : pick;
   }
 
   private _pendingPayload: GhostPayload | null = null;
@@ -209,7 +246,11 @@ export class Dropdown {
       const pick = this.choiceMode.options[this.selectedIndex] ?? "";
       const top = this.items[0];
       if (top) {
-        this.onAccept(top.command, { kind: "choice", options: this.choiceMode.options, pick });
+        this.onAccept(top.command, {
+          kind: "choice",
+          options: this.choiceMode.options,
+          pick: this.mergeChoiceRemainder(pick),
+        });
       }
     } else {
       const selected = this.items[this.selectedIndex];
@@ -254,4 +295,8 @@ export class Dropdown {
     }
     return escHtml(name);
   }
+}
+
+function sameOptionsInOrder(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((opt, i) => opt === b[i]);
 }

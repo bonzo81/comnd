@@ -172,3 +172,171 @@ describe("Dropdown — mouse accept", () => {
     expect(dropdown.isVisible()).toBe(false);
   });
 });
+
+const SYSTEMCTL_OPTIONS = [
+  "status", "start", "stop", "restart", "reload", "enable", "disable", "mask",
+  "unmask", "is-active", "is-enabled", "list-units", "list-unit-files", "daemon-reload",
+];
+
+const SYSTEMCTL_DESCRIPTIONS: Record<string, string> = {
+  status: "Show unit status and recent log lines",
+  start: "Start a unit",
+  stop: "Stop a unit",
+  restart: "Restart a unit",
+  reload: "Reload the service's own config",
+  enable: "Enable at boot (does not start now)",
+  disable: "Disable at boot",
+  mask: "Prevent the unit from ever starting",
+  unmask: "Undo mask",
+  "is-active": "Check whether a unit is running",
+  "is-enabled": "Check boot-time enablement",
+  "list-units": "List loaded units",
+  "list-unit-files": "List installed unit files",
+  "daemon-reload": "Reload systemd's unit files",
+};
+
+function systemctlTokens(): CommandToken[] {
+  return [
+    { lit: "systemctl" },
+    { choice: [...SYSTEMCTL_OPTIONS], descriptions: { ...SYSTEMCTL_DESCRIPTIONS } },
+    { lit: "--now", optional: true },
+    { var: "unit", type: "free", optional: true },
+  ];
+}
+
+function systemctlResult(tokens: CommandToken[], currentTokenInput = ""): SuggestionResult {
+  return makeResult(makeCommand("systemctl", { tokens }), {
+    tokenMatch: tokenMatchAt(tokens, 1, currentTokenInput),
+  });
+}
+
+describe("Dropdown — choice mode", () => {
+  it("renders one .choice-row per allowed word with its KB description", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    const rows = container.querySelectorAll(".suggestion-item.choice-row");
+    expect(rows).toHaveLength(SYSTEMCTL_OPTIONS.length);
+    expect(container.querySelector(".scroll-indicator")).toBeNull();
+
+    rows.forEach((row, i) => {
+      const word = SYSTEMCTL_OPTIONS[i];
+      expect(row.querySelector(".suggestion-name")?.textContent).toBe(word);
+      expect(row.querySelector(".choice-desc")?.textContent).toBe(SYSTEMCTL_DESCRIPTIONS[word]);
+    });
+  });
+
+  it("moves .selected between choice rows and wraps like listbox-nav", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    const selectedIndex = () => {
+      const selected = container.querySelectorAll(".choice-row.selected");
+      expect(selected).toHaveLength(1);
+      return (selected[0] as HTMLElement).dataset.index;
+    };
+
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("2");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe(String(SYSTEMCTL_OPTIONS.length - 1));
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("0");
+  });
+
+  it("sends the full word when none of it has been typed", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="1"]')!.click();
+
+    expect(onAccept).toHaveBeenCalledTimes(1);
+    expect(onAccept.mock.calls[0][0].name).toBe("systemctl");
+    expect(onAccept.mock.calls[0][1]).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "start",
+    });
+    expect(dropdown.isVisible()).toBe(false);
+  });
+
+  it("sends only the merged remainder when part of the word is typed", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="1"]')!.click();
+
+    expect(onAccept.mock.calls[0][1]).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "rt",
+    });
+  });
+
+  it("merges from the live token match on the keyboard accept path", () => {
+    const tokens = systemctlTokens();
+    const { dropdown } = makeDropdown();
+    // Opened before "sta" was typed, so the cached prefix is stale by design.
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    dropdown.moveDown();
+    const selected = dropdown.getSelected();
+    expect(selected?.command.name).toBe("systemctl");
+    expect(dropdown.getSelectedPayload()).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "rt",
+    });
+  });
+
+  it("keeps the arrow-key position while the partial word is typed", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.moveDown();
+    dropdown.moveDown();
+
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect(selected).toHaveLength(1);
+    expect((selected[0] as HTMLElement).dataset.index).toBe("2");
+  });
+
+  it("returns to command rows when the current token is no longer a choice", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    expect(container.querySelectorAll(".choice-row")).toHaveLength(SYSTEMCTL_OPTIONS.length);
+
+    dropdown.updateResults([
+      makeResult(makeCommand("systemctl", { tokens }), { tokenMatch: tokenMatchAt(tokens, 2) }),
+    ]);
+
+    expect(container.querySelector(".choice-row")).toBeNull();
+    expect(container.querySelectorAll(".suggestion-item")).toHaveLength(1);
+  });
+
+  it("hides when the choice results disappear", () => {
+    const tokens = systemctlTokens();
+    const { dropdown } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    dropdown.updateResults([]);
+
+    expect(dropdown.isVisible()).toBe(false);
+  });
+});
