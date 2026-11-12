@@ -37,6 +37,7 @@ import { GhostText } from "../lib/ghost-text";
 import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
+import { StreamingTextDecoder } from "../lib/stream-decoder";
 import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
 import type { SessionLifecycle } from "../lib/duplicate-session";
@@ -177,6 +178,8 @@ export class TerminalView {
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
   private outputBuffer: string[] = [];
+  /** One decoder per session so split UTF-8 codepoints survive the chunk seam. */
+  private outputDecoder = new StreamingTextDecoder();
   private fontSize = getTerminalFontSize();
 
   private resizeHandler: (() => void) | null = null;
@@ -781,6 +784,8 @@ export class TerminalView {
     log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
     this.connectCancelled = false;
     this.authInteractive = false;
+    // New session: drop any bytes held from a split codepoint.
+    this.outputDecoder.reset();
 
     // Update top bar
     this.updateHostInfo();
@@ -854,7 +859,7 @@ export class TerminalView {
     switch (e.type) {
       case "output": {
         const bytes = e.data;
-        const text = new TextDecoder().decode(bytes);
+        const text = this.outputDecoder.decode(bytes);
 
         if (e.phase === "connected") {
           const buf = this.terminal!.buffer.active;
@@ -1707,6 +1712,7 @@ export class TerminalView {
       this.tofuDialogClose = null;
     }
     this.channel.dispose();
+    this.outputDecoder.reset();
 
     if (this.resizeHandler) {
       window.removeEventListener("resize", this.resizeHandler);
