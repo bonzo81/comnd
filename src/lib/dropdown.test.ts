@@ -302,18 +302,76 @@ describe("Dropdown — choice mode", () => {
     });
   });
 
-  it("keeps the arrow-key position while the partial word is typed", () => {
+  it("keeps the arrow-key position while the partial word still completes that row", () => {
     const tokens = systemctlTokens();
     const { dropdown, container } = makeDropdown();
     dropdown.show([systemctlResult(tokens)], "systemctl ");
-    dropdown.moveDown();
     dropdown.moveDown();
 
     dropdown.updateResults([systemctlResult(tokens, "sta")]);
 
     const selected = container.querySelectorAll(".choice-row.selected");
     expect(selected).toHaveLength(1);
-    expect((selected[0] as HTMLElement).dataset.index).toBe("2");
+    expect((selected[0] as HTMLElement).dataset.index).toBe("1");
+  });
+
+  it("moves the selection to a row the partial word can complete", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.moveDown();
+    dropdown.moveDown();
+
+    // "sta" rules out "stop", so the selection cannot stay on it.
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect((selected[0] as HTMLElement).dataset.index).toBe("0");
+  });
+
+  it("keeps every row visible but marks the ones the partial word rules out", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    const rows = container.querySelectorAll<HTMLElement>(".choice-row");
+    expect(rows).toHaveLength(SYSTEMCTL_OPTIONS.length);
+    expect(rows[0].getAttribute("aria-disabled")).toBeNull();
+    expect(rows[1].getAttribute("aria-disabled")).toBeNull();
+    expect(rows[2].getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("skips rows the partial word cannot complete when navigating", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    const selectedIndex = () => {
+      const selected = container.querySelectorAll(".choice-row.selected");
+      expect(selected).toHaveLength(1);
+      return (selected[0] as HTMLElement).dataset.index;
+    };
+
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("1");
+  });
+
+  it("ignores clicks on rows the partial word cannot complete", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="2"]')!.click();
+
+    // Accepting "stop" here would leave "systemctl stastop" on the wire.
+    expect(onAccept).not.toHaveBeenCalled();
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect((selected[0] as HTMLElement).dataset.index).toBe("0");
   });
 
   it("returns to command rows when the current token is no longer a choice", () => {

@@ -3,9 +3,9 @@
  * Positioned near the terminal cursor. Max 8 visible items.
  *
  * Phase 3: rows show a tokenized suffix (remaining tokens) with the current
- * token highlighted. For `choice` tokens, the dropdown can switch into a
+ * token highlighted. For `choice` tokens, the dropdown switches into a
  * "choice mode" where rows are the choice options instead of commands. See
- * docs/plans/plan-kb-token-engine.md § 3.2.
+ * docs/plans/010-plan-kb-token-engine.md § 3.2.
  */
 
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
@@ -19,6 +19,8 @@ export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
 interface ChoiceMode {
   options: string[];
   descriptions?: Record<string, string>;
+  /** The partially typed current word, from the live token match. */
+  typed: string;
 }
 
 export class Dropdown {
@@ -47,9 +49,9 @@ export class Dropdown {
   show(results: SuggestionResult[], prefix: string) {
     this.items = results;
     this.currentPrefix = prefix;
-    this.selectedIndex = 0;
-    this._pendingPayload = null;
     this.choiceMode = this.deriveChoiceMode(results);
+    this.selectedIndex = this.choiceMode ? firstCompatibleIndex(this.choiceMode) : 0;
+    this._pendingPayload = null;
     this._visible = true;
     if (this.choiceMode) this.renderChoice();
     else this.render();
@@ -78,15 +80,15 @@ export class Dropdown {
 
     const next = this.deriveChoiceMode(results);
     const prevOptions = this.choiceMode?.options;
-    const sameOptions = !!next && !!prevOptions && sameOptionsInOrder(next.options, prevOptions);
 
     this.choiceMode = next;
     if (next) {
       // Typing the partial word leaves the options unchanged — keep the
-      // arrow-key position instead of snapping back to the first row.
-      this.selectedIndex = sameOptions
-        ? Math.min(this.selectedIndex, next.options.length - 1)
-        : 0;
+      // arrow-key position as long as the row can still complete that word.
+      const keep = !!prevOptions
+        && sameOptionsInOrder(next.options, prevOptions)
+        && isCompatible(next, this.selectedIndex);
+      this.selectedIndex = keep ? this.selectedIndex : firstCompatibleIndex(next);
       this.renderChoice();
       return;
     }
@@ -99,6 +101,8 @@ export class Dropdown {
    * Choice mode is derived from the results the dropdown already receives:
    * the top result's current token is a `choice` and its words become the
    * rows (docs/plans/010-plan-kb-token-engine.md § 3.2, MVP simplification).
+   * Rows are never filtered by the typed word; only the selection skips rows
+   * that word cannot complete to.
    */
   private deriveChoiceMode(results: SuggestionResult[]): ChoiceMode | null {
     const top = results[0];
@@ -106,7 +110,14 @@ export class Dropdown {
     if (!top || !tm) return null;
     const tok = top.command.tokens?.[tm.currentTokenIndex];
     if (!tok || !isChoiceTok(tok)) return null;
-    return { options: tok.choice, descriptions: tok.descriptions };
+    const mode: ChoiceMode = {
+      options: tok.choice,
+      descriptions: tok.descriptions,
+      typed: tm.currentTokenInput ?? "",
+    };
+    // Staying in choice mode with nothing selectable would leave Tab with no
+    // row to merge, so fall back to the command rows instead.
+    return compatibleIndexes(mode).length > 0 ? mode : null;
   }
 
   /** Move selection up */
@@ -120,11 +131,18 @@ export class Dropdown {
   }
 
   private move(delta: number) {
-    const count = this.choiceMode ? this.choiceMode.options.length : this.items.length;
-    moveListItem(count, this.selectedIndex, (i) => {
+    if (this.choiceMode) {
+      const compat = compatibleIndexes(this.choiceMode);
+      if (compat.length === 0) return;
+      const pos = compat.indexOf(this.selectedIndex);
+      const step = pos < 0 ? 0 : (pos + delta + compat.length) % compat.length;
+      this.selectedIndex = compat[step];
+      this.renderChoice();
+      return;
+    }
+    moveListItem(this.items.length, this.selectedIndex, (i) => {
       this.selectedIndex = i;
-      if (this.choiceMode) this.renderChoice();
-      else this.render();
+      this.render();
     }, delta);
   }
 
@@ -156,7 +174,8 @@ export class Dropdown {
    * when the dropdown opens, so it is only a fallback.
    */
   private mergeChoiceRemainder(pick: string): string {
-    const typed = this.items[0]?.tokenMatch?.currentTokenInput
+    const typed = this.choiceMode?.typed
+      ?? this.items[0]?.tokenMatch?.currentTokenInput
       ?? this.currentPrefix.match(/\S*$/)?.[0]
       ?? "";
     return typed && pick.toLowerCase().startsWith(typed.toLowerCase())
@@ -221,19 +240,24 @@ export class Dropdown {
   }
 
   private renderChoice() {
-    if (!this.choiceMode) return;
-    const opts = this.choiceMode.options;
-    const descs = this.choiceMode.descriptions;
+    const mode = this.choiceMode;
+    if (!mode) return;
+    const opts = mode.options;
+    const descs = mode.descriptions;
     this.el.innerHTML = opts.map((opt, i) => {
       const isSelected = i === this.selectedIndex;
-      return `<div class="suggestion-item choice-row${isSelected ? " selected" : ""}" data-index="${i}">
+      // Rows the typed word cannot complete stay visible but are not
+      // selectable — accepting one would append a different word to it.
+      const disabled = !isCompatible(mode, i);
+      return `<div class="suggestion-item choice-row${isSelected ? " selected" : ""}" data-index="${i}"${disabled ? ' aria-disabled="true"' : ""}>
         <span class="suggestion-name">${escHtml(opt)}</span>
         ${descs?.[opt] ? `<span class="choice-desc">${escHtml(descs[opt])}</span>` : ""}
       </div>`;
     }).join("");
     this.el.querySelectorAll(".choice-row").forEach((el) => {
+      const idx = parseInt((el as HTMLElement).dataset.index ?? "0", 10);
+      if (!isCompatible(mode, idx)) return;
       el.addEventListener("click", () => {
-        const idx = parseInt((el as HTMLElement).dataset.index ?? "0", 10);
         this.selectedIndex = idx;
         this.acceptCurrent();
       });
@@ -299,4 +323,21 @@ export class Dropdown {
 
 function sameOptionsInOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((opt, i) => opt === b[i]);
+}
+
+/** Can the partially typed word still complete to this option? */
+function isCompatible(mode: ChoiceMode, index: number): boolean {
+  const opt = mode.options[index];
+  if (!opt) return false;
+  return !mode.typed || opt.toLowerCase().startsWith(mode.typed.toLowerCase());
+}
+
+function compatibleIndexes(mode: ChoiceMode): number[] {
+  return mode.options
+    .map((_, i) => i)
+    .filter((i) => isCompatible(mode, i));
+}
+
+function firstCompatibleIndex(mode: ChoiceMode): number {
+  return compatibleIndexes(mode)[0] ?? 0;
 }
