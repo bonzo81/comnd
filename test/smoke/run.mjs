@@ -1352,6 +1352,34 @@ async function waitForGhost(browser, text, behavior) {
 }
 
 /**
+ * What sits at the centre of `selector`, read in one execute. `elementFromPoint`
+ * returns null for a point off screen, so those report `found: false` rather
+ * than a hit that was never sampled.
+ */
+async function hitTestCentre(browser, selector) {
+  return browser.execute((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return { missing: true };
+    const name = (node) => (node
+      ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}`
+      : "nothing");
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const onScreen = x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+    const hit = onScreen ? document.elementFromPoint(x, y) : null;
+    return {
+      missing: false,
+      point: `${Math.round(x)},${Math.round(y)}`,
+      onScreen,
+      found: !!hit,
+      self: !!hit && (hit === el || el.contains(hit)),
+      hit: name(hit),
+    };
+  }, selector);
+}
+
+/**
  * The visible ghost's geometry, read in a single execute so the numbers cannot
  * come from two different renders. `expectedLeft` applies the placement formula
  * under test (`GhostText.positionAtCursor`): the left edge of `.xterm-screen`
@@ -1570,6 +1598,16 @@ async function main() {
           document.querySelector('.suggestion-item[data-index="1"] .suggestion-name')?.textContent ?? null);
         assert.equal(rowName, "sed",
           `Dropdown click: row 1 is ${JSON.stringify(rowName)}, expected 'sed'`);
+        // `actOn` dispatches a synthetic click, which a row the pointer cannot
+        // reach (inside a clipped overlay, or under `pointer-events: none`)
+        // would still accept. Hit-test the row's centre first so the click below
+        // proves a pointer can get there.
+        const reach = await hitTestCentre(browser, '.suggestion-item[data-index="1"]');
+        assert(!reach.missing && reach.onScreen && reach.found && reach.self,
+          reach.missing
+            ? "Dropdown click: row 1 was gone before the pointer reachability check"
+            : `Dropdown click: row 1 is not reachable by the pointer at ${reach.point} `
+              + `(on screen: ${reach.onScreen}, hit ${reach.hit})`);
         await actOn(browser, '.suggestion-item[data-index="1"]', { action: "click" });
         await waitFor(browser, () => {
           const dropdown = document.querySelector(".suggestion-dropdown");
