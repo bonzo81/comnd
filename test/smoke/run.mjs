@@ -328,6 +328,10 @@ async function installSmokeHelpers(browser) {
 
     // Every focus indicator this app uses: an outline, a box-shadow, or a
     // pseudo-element that draws the ring.
+    // `documentFocused` travels with every reading because Blink only matches
+    // `:focus-visible` while the app window is the OS foreground window: a
+    // reading taken after another window took focus shows no ring even though
+    // the stylesheet draws one, and the flag is what tells those apart.
     const focusStyle = (el) => {
       if (!el) {
         return {
@@ -336,6 +340,7 @@ async function installSmokeHelpers(browser) {
           outlineColor: "transparent",
           boxShadow: "none",
           pseudoShadow: "none",
+          documentFocused: document.hasFocus(),
         };
       }
       const style = getComputedStyle(el);
@@ -351,6 +356,7 @@ async function installSmokeHelpers(browser) {
         outlineColor: style.outlineColor,
         boxShadow: style.boxShadow,
         pseudoShadow,
+        documentFocused: document.hasFocus(),
       };
     };
 
@@ -507,21 +513,25 @@ async function tabWalk(browser, max = 20, { reset = true } = {}) {
   }
   const stops = [];
   let tabInterceptors = 0;
+  const readStop = () => browser.execute(() => {
+    const el = document.activeElement;
+    // Tag the stop so its unfocused style can be read after the walk.
+    if (el && el !== document.body && !el.hasAttribute("data-comnd-stop")) {
+      const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
+      window.__comndSmokeStopSeq = seq;
+      el.setAttribute("data-comnd-stop", String(seq));
+    }
+    return {
+      ...window.__comndSmoke.active(),
+      ...window.__comndSmoke.focusStyle(el),
+      styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
+    };
+  });
   for (let index = 0; index < max; index += 1) {
     await browser.keys("\uE004");
-    const state = await browser.execute(() => {
-      const el = document.activeElement;
-      // Tag the stop so its unfocused style can be read after the walk.
-      if (el && el !== document.body && !el.hasAttribute("data-comnd-stop")) {
-        const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
-        window.__comndSmokeStopSeq = seq;
-        el.setAttribute("data-comnd-stop", String(seq));
-      }
-      return {
-        ...window.__comndSmoke.active(),
-        ...window.__comndSmoke.focusStyle(el),
-        styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
-      };
+    const state = await readWithRingRetry(browser, readStop, {
+      isStop: (stop) => !!stop.tag && stop.tag !== "body",
+      styleOf: (stop) => stop,
     });
     if (!state.tag || state.tag === "body") break;
     stops.push(state);
@@ -630,11 +640,38 @@ function shadowVisible(value) {
   });
 }
 
+/** True when a reading paints a focus ring of its own. */
+function ringPainted(style) {
+  return (style.outlineStyle !== "none"
+      && parseFloat(style.outlineWidth) > 0
+      && colorAlpha(style.outlineColor) > 0)
+    || shadowVisible(style.boxShadow)
+    || shadowVisible(style.pseudoShadow);
+}
+
+/**
+ * Read the focused element, and when the reading shows no focus ring at all,
+ * press Shift and read the same element once more.
+ *
+ * Blink stops matching `:focus-visible` for the focused element while the app
+ * window is not the OS foreground window, so a reading taken in that moment
+ * reports no ring on a stop whose stylesheet draws one. Shift is a key press
+ * that types nothing and restores keyboard modality, and it does not move
+ * focus, so the second reading covers the same stop. A ring that is genuinely
+ * absent — the `focus` mutation — is absent from both readings, and the
+ * failure message then says the re-read did not recover it.
+ */
+async function readWithRingRetry(browser, read, { isStop, styleOf }) {
+  const first = await read();
+  if (!first || !isStop(first) || ringPainted(styleOf(first))) return first;
+  await browser.keys("\uE008");
+  const again = await read();
+  if (again && (again.styleKey ?? "") === (first.styleKey ?? "")
+    && ringPainted(styleOf(again))) return again;
+  return { ...first, ringRetry: "still absent on the Shift re-read" };
+}
+
 function assertFocusVisible(stop, label) {
-  const outlined = stop.outlineStyle !== "none"
-    && parseFloat(stop.outlineWidth) > 0
-    && colorAlpha(stop.outlineColor) > 0;
-  const shadowed = shadowVisible(stop.boxShadow) || shadowVisible(stop.pseudoShadow);
   const resting = stop.resting;
   // A visible indicator is not enough on its own: it has to differ from the
   // unfocused style, or a permanently drawn border or shadow would pass.
@@ -645,13 +682,16 @@ function assertFocusVisible(stop, label) {
       || stop.boxShadow !== resting.boxShadow
       || stop.pseudoShadow !== resting.pseudoShadow);
   assert(
-    (outlined || shadowed) && changed,
+    ringPainted(stop) && changed,
     `${label}: ${stopLabel(stop)} has no visible focus indicator `
     + `(outline ${stop.outlineStyle} ${stop.outlineWidth} ${stop.outlineColor}, `
     + `box-shadow ${stop.boxShadow}, pseudo ${stop.pseudoShadow}; `
     + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"} `
     + `${resting?.outlineColor ?? "?"}, box-shadow ${resting?.boxShadow ?? "?"}, `
-    + `pseudo ${resting?.pseudoShadow ?? "?"})`,
+    + `pseudo ${resting?.pseudoShadow ?? "?"}; `
+    + `document focused ${stop.documentFocused ?? "?"}, `
+    + `unfocused document focused ${resting?.documentFocused ?? "?"})`
+    + (stop.ringRetry ? `; Shift re-read: ${stop.ringRetry}` : ""),
   );
 }
 
@@ -664,7 +704,7 @@ function assertFocusVisible(stop, label) {
  * reaches it.
  */
 async function assertScriptFocusStop(browser, selector, label) {
-  const probe = await browser.execute((sel) => {
+  const probeOnce = () => browser.execute((sel) => {
     const el = document.querySelector(sel);
     if (!el) return null;
     if (document.activeElement === el) el.blur();
@@ -678,9 +718,18 @@ async function assertScriptFocusStop(browser, selector, label) {
       focused: window.__comndSmoke.focusStyle(document.activeElement),
     };
   }, selector);
+  const probe = await readWithRingRetry(browser, probeOnce, {
+    isStop: (state) => state?.took,
+    styleOf: (state) => state.focused,
+  });
   assert(probe, `${label}: ${selector} is not in the document`);
   assert(probe.took, `${label}: ${selector} cannot take focus (tabIndex ${probe.tabIndex})`);
-  const stop = { ...probe.active, ...probe.focused, resting: probe.resting };
+  const stop = {
+    ...probe.active,
+    ...probe.focused,
+    resting: probe.resting,
+    ringRetry: probe.ringRetry,
+  };
   assertNamed(stop, label);
   assertFocusVisible(stop, label);
   await browser.execute((sel) => document.querySelector(sel)?.blur(), selector);
@@ -824,7 +873,10 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
   const forward = [];
   for (let step = 0; step < 12; step += 1) {
     await browser.keys("\uE004");
-    const state = await inspect(panelSelector);
+    const state = await readWithRingRetry(browser, () => inspect(panelSelector), {
+      isStop: (stop) => stop.inside,
+      styleOf: (stop) => stop.focus,
+    });
     assert(
       state.inside,
       `${label}: Tab moved focus out of the dialog to ${describeActive(state.active)}`
@@ -910,7 +962,12 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
     return out;
   }, panelSelector);
   for (const state of cycle) {
-    assertFocusVisible({ ...state.active, ...state.focus, resting: resting[state.styleKey] ?? null }, label);
+    assertFocusVisible({
+      ...state.active,
+      ...state.focus,
+      resting: resting[state.styleKey] ?? null,
+      ringRetry: state.ringRetry,
+    }, label);
   }
 
   const named = await inspect(panelSelector);
