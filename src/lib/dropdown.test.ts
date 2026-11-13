@@ -60,6 +60,31 @@ function makeDropdown() {
   return { dropdown, container, onAccept };
 }
 
+/** jsdom has no layout, so fake fixed-height rows to exercise scroll maths. */
+function stubRowGeometry(rowHeight: number) {
+  const proto = HTMLElement.prototype;
+  const savedTop = Object.getOwnPropertyDescriptor(proto, "offsetTop");
+  const savedHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight");
+  Object.defineProperty(proto, "offsetTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("choice-row")
+        ? Number(this.dataset.index ?? "0") * rowHeight
+        : 0;
+    },
+  });
+  Object.defineProperty(proto, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("choice-row") ? rowHeight : 0;
+    },
+  });
+  cleanups.push(() => {
+    if (savedTop) Object.defineProperty(proto, "offsetTop", savedTop);
+    if (savedHeight) Object.defineProperty(proto, "offsetHeight", savedHeight);
+  });
+}
+
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
 });
@@ -220,12 +245,58 @@ describe("Dropdown — choice mode", () => {
     const rows = container.querySelectorAll(".suggestion-item.choice-row");
     expect(rows).toHaveLength(SYSTEMCTL_OPTIONS.length);
     expect(container.querySelector(".scroll-indicator")).toBeNull();
+    expect(container.querySelector(".badge-custom")).toBeNull();
 
     rows.forEach((row, i) => {
       const word = SYSTEMCTL_OPTIONS[i];
       expect(row.querySelector(".suggestion-name")?.textContent).toBe(word);
       expect(row.querySelector(".choice-desc")?.textContent).toBe(SYSTEMCTL_DESCRIPTIONS[word]);
     });
+  });
+
+  it("shows the custom-override badge once above the option rows", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const custom = makeCommand("systemctl", { tokens, overrides: true });
+
+    dropdown.show([makeResult(custom, { tokenMatch: tokenMatchAt(tokens, 1) })], "systemctl ");
+
+    expect(container.querySelectorAll(".badge-custom")).toHaveLength(1);
+    expect(container.querySelector(".choice-header .badge-custom")?.textContent).toBe("custom");
+    expect(container.querySelector(".choice-row .badge-custom")).toBeNull();
+  });
+
+  it("scrolls the selected row into the eight-row window", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const list = container.querySelector<HTMLElement>(".suggestion-dropdown")!;
+    const rowHeight = 32;
+    const viewHeight = 8 * rowHeight;
+    let scrollTop = 0;
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: viewHeight });
+    Object.defineProperty(list, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+    stubRowGeometry(rowHeight);
+
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    expect(list.classList.contains("choice-mode")).toBe(true);
+    expect(scrollTop).toBe(0);
+
+    // Rows 9+ sit below the eight-row cap; the selection must stay on screen.
+    for (let i = 0; i < 8; i++) dropdown.moveDown();
+    expect((container.querySelector(".choice-row.selected") as HTMLElement).dataset.index).toBe("8");
+    expect(scrollTop).toBe(rowHeight);
+
+    dropdown.moveUp();
+    expect(scrollTop).toBe(rowHeight);
+
+    for (let i = 0; i < 7; i++) dropdown.moveUp();
+    expect(scrollTop).toBe(0);
   });
 
   it("moves .selected between choice rows and wraps like listbox-nav", () => {
@@ -386,6 +457,9 @@ describe("Dropdown — choice mode", () => {
 
     expect(container.querySelector(".choice-row")).toBeNull();
     expect(container.querySelectorAll(".suggestion-item")).toHaveLength(1);
+    expect(
+      container.querySelector(".suggestion-dropdown")!.classList.contains("choice-mode"),
+    ).toBe(false);
   });
 
   it("hides when the choice results disappear", () => {

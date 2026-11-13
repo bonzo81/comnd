@@ -200,6 +200,7 @@ export class Dropdown {
   private render() {
     const maxVisible = 8;
     const visibleItems = this.items.slice(0, maxVisible);
+    this.el.classList.remove("choice-mode");
 
     this.el.innerHTML = visibleItems.map((item, i) => {
       const isSelected = i === this.selectedIndex;
@@ -212,9 +213,7 @@ export class Dropdown {
       const suffix = this.tokenSuffix(item);
       // docs/10 § Part 2: "custom" tag when this command overrides a bundled
       // entry with the same name.
-      const customBadge = item.command.overrides
-        ? `<span class="badge-custom" title="Overrides built-in KB entry — your version is shown">custom</span>`
-        : "";
+      const customBadge = item.command.overrides ? customBadgeHtml() : "";
       return `<div class="suggestion-item${isSelected ? " selected" : ""}" data-index="${i}">
         <span class="suggestion-name">${name}${customBadge}</span>
         <span class="token-suffix">${suffix}</span>
@@ -244,7 +243,13 @@ export class Dropdown {
     if (!mode) return;
     const opts = mode.options;
     const descs = mode.descriptions;
-    this.el.innerHTML = opts.map((opt, i) => {
+    this.el.classList.add("choice-mode");
+    // The badge describes the overriding command, not an option word, so it
+    // is shown once above the rows instead of on each row.
+    const header = this.items[0]?.command.overrides
+      ? `<div class="choice-header">${customBadgeHtml()}</div>`
+      : "";
+    this.el.innerHTML = header + opts.map((opt, i) => {
       const isSelected = i === this.selectedIndex;
       // Rows the typed word cannot complete stay visible but are not
       // selectable — accepting one would append a different word to it.
@@ -262,6 +267,25 @@ export class Dropdown {
         this.acceptCurrent();
       });
     });
+    this.scrollSelectedIntoView();
+  }
+
+  /**
+   * Choice mode renders every option, unlike command rows which are capped at
+   * eight, so the selected row is scrolled into the visible window instead of
+   * being clipped (arrow keys can select a row below the fold).
+   */
+  private scrollSelectedIntoView() {
+    const sel = this.el.querySelector<HTMLElement>(".choice-row.selected");
+    if (!sel) return;
+    // The dropdown is positioned, so rows' offsetParent is the dropdown and
+    // offsetTop is already a scroll-content coordinate.
+    const top = sel.offsetTop;
+    const bottom = top + sel.offsetHeight;
+    if (top < this.el.scrollTop) this.el.scrollTop = top;
+    else if (bottom > this.el.scrollTop + this.el.clientHeight) {
+      this.el.scrollTop = bottom - this.el.clientHeight;
+    }
   }
 
   /** Accept the current selection (command or choice option). */
@@ -323,6 +347,11 @@ export class Dropdown {
 
 function sameOptionsInOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((opt, i) => opt === b[i]);
+}
+
+/** "custom" tag for a command that overrides its bundled KB entry. */
+function customBadgeHtml(): string {
+  return `<span class="badge-custom" title="Overrides built-in KB entry — your version is shown">custom</span>`;
 }
 
 /** Can the partially typed word still complete to this option? */

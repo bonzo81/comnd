@@ -63,6 +63,20 @@
   max-height: calc(5 * var(--space-8) + var(--space-1));
 }
 
+/* Choice mode renders every option (one row per allowed word), so the body
+   scrolls and the selected row is kept in view instead of being clipped. */
+.suggestion-dropdown.choice-mode {
+  overflow-y: auto;
+}
+
+/* The custom-override badge belongs to the command, so choice mode shows it
+   once above the option rows. */
+.choice-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-3) 0;
+}
+
 .suggestion-item {
   display: flex;
   justify-content: space-between;
