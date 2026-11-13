@@ -26,20 +26,57 @@ export interface DecodedChunk {
 
 const EMPTY = new Uint8Array(0);
 
+/** Length of the sequence `lead` introduces, or 0 when it cannot start one. */
+function sequenceLength(lead: number): number {
+  if (lead >= 0xc2 && lead <= 0xdf) return 2;
+  if (lead >= 0xe0 && lead <= 0xef) return 3;
+  if (lead >= 0xf0 && lead <= 0xf4) return 4;
+  return 0;
+}
+
+/**
+ * Whether `byte` is an allowed continuation at `index` (1-based) of a sequence
+ * introduced by `lead`. The restricted second-byte ranges are what keeps
+ * overlong forms, surrogates and values above U+10FFFF out.
+ */
+function isContinuation(lead: number, index: number, byte: number): boolean {
+  if (index > 1) return (byte & 0xc0) === 0x80;
+  switch (lead) {
+    case 0xe0:
+      return byte >= 0xa0 && byte <= 0xbf;
+    case 0xed:
+      return byte >= 0x80 && byte <= 0x9f;
+    case 0xf0:
+      return byte >= 0x90 && byte <= 0xbf;
+    case 0xf4:
+      return byte >= 0x80 && byte <= 0x8f;
+    default:
+      return (byte & 0xc0) === 0x80;
+  }
+}
+
 /**
  * Length of a trailing UTF-8 sequence that is valid so far but is still
  * missing continuation bytes (0 when the chunk ends on a character boundary).
- * Mirrors what `TextDecoder` withholds, so the two stay in step.
+ *
+ * Only a prefix `TextDecoder` itself would be withholding counts. An invalid
+ * lead (`0xff`, a stray continuation) or an invalid continuation (`0xe0 0x80`,
+ * `0xf4 0x90`) is already decoded as U+FFFD, so it must not be held: holding
+ * it would put characters in `text` whose bytes are missing from `bytes`.
  */
 function incompleteTailLength(bytes: Uint8Array): number {
-  for (let back = 1; back <= Math.min(3, bytes.length); back++) {
-    const b = bytes[bytes.length - back];
-    // Continuation byte — the lead byte is further back.
-    if ((b & 0xc0) === 0x80) continue;
-    const needed = b >= 0xf0 && b <= 0xf4 ? 4 : b >= 0xe0 ? 3 : b >= 0xc2 ? 2 : 0;
-    return needed > back ? back : 0;
+  const maxBack = Math.min(3, bytes.length);
+  let back = 1;
+  // Walk back over continuation bytes to the lead byte.
+  while (back <= maxBack && (bytes[bytes.length - back] & 0xc0) === 0x80) back++;
+  if (back > bytes.length) return 0;
+  const start = bytes.length - back;
+  const lead = bytes[start];
+  if (sequenceLength(lead) <= back) return 0;
+  for (let index = 1; index < back; index++) {
+    if (!isContinuation(lead, index, bytes[start + index])) return 0;
   }
-  return 0;
+  return back;
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
@@ -59,7 +96,7 @@ export class StreamingTextDecoder {
     // new bytes; `held` exists solely to keep those bytes out of `bytes`.
     const text = this.decoder.decode(bytes, { stream: true });
     const all = this.held.length === 0 ? bytes : concat(this.held, bytes);
-    const tail = all.length === 0 ? 0 : incompleteTailLength(all);
+    const tail = incompleteTailLength(all);
     this.held = tail === 0 ? EMPTY : all.slice(all.length - tail);
     return {
       text,
