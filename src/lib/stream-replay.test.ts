@@ -6,13 +6,22 @@
  * An SSH session delivers output in arbitrary byte slices, so a CSI/OSC
  * sequence or a multibyte codepoint can be split across two chunks. This
  * suite replays the same synthetic byte stream four times at different chunk
- * sizes — 1 byte, 2 bytes, 3 bytes and the whole event — and asserts the
- * product reaches the same state every time. The replay uses the real path
- * (`StreamingTextDecoder.decode` → `SuggestionController.onOutput` →
- * `LineTracker.feed`) with the real `GhostText` and `Dropdown`; there is no
- * second parser, stripper or prompt matcher in here.
+ * sizes — 1 byte, 2 bytes, 3 bytes and the whole event — plus once more as
+ * slow interleaved chunks, and asserts the product reaches the same final
+ * state every time. The interleaved schedule delivers 2-byte chunks 100 ms
+ * apart, so a burst outlives the 300 ms output window opened by its newline
+ * and a repaint lands in pieces. Its gaps stay below the idle tick, but they
+ * still shift the phase of the 2 s passthrough window, which suppresses the
+ * echo re-sync while it holds — the issue allows that, so the interleaved run
+ * is compared on final state only, while the byte-only schedules have to agree
+ * at every step and at every settled checkpoint.
+ * The replay uses the real path (`StreamingTextDecoder.decode` →
+ * `SuggestionController.onOutput` → `LineTracker.feed`) with the real
+ * `GhostText` and `Dropdown`; there is no second parser, stripper or prompt
+ * matcher in here.
  *
- * What is compared across schedules: at every step, the tracker-owned state
+ * What is compared across schedules: at every step for the byte-only
+ * schedules, the tracker-owned state
  * (`currentLine`, prompt mode, secret-prompt flag, passthrough, and the prompt
  * detection / mode change / secret detection counts) plus the bytes sent to
  * the remote. At every settled checkpoint — a step followed by an `idle` long
@@ -119,11 +128,25 @@ function pick(sample: Sample, fields: ReadonlyArray<keyof Sample>): Record<strin
   return picked;
 }
 
-const SCHEDULES: ReadonlyArray<{ label: string; chunk: number }> = [
-  { label: "1-byte", chunk: 1 },
-  { label: "2-byte", chunk: 2 },
-  { label: "3-byte", chunk: 3 },
-  { label: "whole-stream", chunk: Number.POSITIVE_INFINITY },
+interface Schedule {
+  label: string;
+  /** Bytes per `decode` call; `Infinity` delivers a whole burst at once. */
+  chunk: number;
+  /** Fake-clock ms between the chunks of one burst, as a slow device does. */
+  gap: number;
+}
+
+const SCHEDULES: ReadonlyArray<Schedule> = [
+  { label: "1-byte", chunk: 1, gap: 0 },
+  { label: "2-byte", chunk: 2, gap: 0 },
+  { label: "3-byte", chunk: 3, gap: 0 },
+  { label: "whole-stream", chunk: Number.POSITIVE_INFINITY, gap: 0 },
+  // Interleaved delivery, as a loaded link produces: the gaps stay below the
+  // 200 ms idle window so no idle tick falls inside a burst, while a long burst
+  // still outlives the 300 ms output window opened by its newline. The gaps do
+  // accumulate into timer phase (see the comparison below), so this schedule is
+  // held to final state only.
+  { label: "interleaved", chunk: 2, gap: 100 },
 ];
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -561,10 +584,10 @@ interface ReplayResult {
 }
 
 /**
- * Replay one fixture through the production wiring (`terminal-view.ts`) at the
- * given chunk size, sampling the observable state after every step.
+ * Replay one fixture through the production wiring (`terminal-view.ts`) under
+ * the given schedule, sampling the observable state after every step.
  */
-function replay(fixture: Fixture, chunk: number): ReplayResult {
+function replay(fixture: Fixture, schedule: Schedule): ReplayResult {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const ghost = new GhostText(terminalStub(), container);
@@ -643,8 +666,9 @@ function replay(fixture: Fixture, chunk: number): ReplayResult {
   // which re-arms the tracker's idle timer.
   const feed = (text: string) => {
     const bytes = new TextEncoder().encode(text);
-    for (let offset = 0; offset < bytes.length; offset += chunk) {
-      controller.onOutput(decoder.decode(bytes.slice(offset, offset + chunk)).text);
+    for (let offset = 0; offset < bytes.length; offset += schedule.chunk) {
+      if (offset > 0 && schedule.gap > 0) vi.advanceTimersByTime(schedule.gap);
+      controller.onOutput(decoder.decode(bytes.slice(offset, offset + schedule.chunk)).text);
     }
   };
 
@@ -674,8 +698,8 @@ function replay(fixture: Fixture, chunk: number): ReplayResult {
   return { samples, sent };
 }
 
-function replayAllSchedules(fixture: Fixture): Array<{ label: string } & ReplayResult> {
-  return SCHEDULES.map((schedule) => ({ label: schedule.label, ...replay(fixture, schedule.chunk) }));
+function replayAllSchedules(fixture: Fixture): Array<Schedule & ReplayResult> {
+  return SCHEDULES.map((schedule) => ({ ...schedule, ...replay(fixture, schedule) }));
 }
 
 /**
@@ -700,22 +724,34 @@ describe("stream replay — chunking schedules are equivalent", () => {
   for (const fixture of FIXTURES) {
     it(`${fixture.label} reaches the same state under every schedule`, () => {
       const runs = replayAllSchedules(fixture);
-      const baseline = runs[runs.length - 1];
+      // Whole-stream is the reference: it is the only schedule that is also
+      // the natural single write the SSH layer would deliver.
+      const byteRuns = runs.filter((run) => run.gap === 0);
+      const baseline = byteRuns[byteRuns.length - 1];
       const settled = checkpoints(fixture);
 
       for (const run of runs) {
         expect(run.samples.length, `${run.label} step count`).toBe(baseline.samples.length);
-        for (let i = 0; i < baseline.samples.length; i++) {
-          // Tracker-owned state must agree at every step: it is derived from the
-          // whole char stream, so no schedule may see a different value.
-          expect(pick(run.samples[i], TRACKER_FIELDS), `${run.label} step ${i}`).toEqual(
-            pick(baseline.samples[i], TRACKER_FIELDS),
-          );
-        }
-        for (const i of settled) {
-          expect(pick(run.samples[i], ALL_FIELDS), `${run.label} settled step ${i}`).toEqual(
-            pick(baseline.samples[i], ALL_FIELDS),
-          );
+        // A schedule that also moves the clock changes timer phase, not just
+        // chunking: its 2 s passthrough window expires at a different byte
+        // offset, and while passthrough holds the echo re-sync is suppressed by
+        // design. Only its final state is required to agree — the same rule the
+        // issue sets for any schedule that changes idle timing. The mid-burst
+        // settle bug this matrix targets is regressed by the fake-timer tests in
+        // suggestion-controller.test.ts, which pin the exact timings.
+        if (run.gap === 0) {
+          for (let i = 0; i < baseline.samples.length; i++) {
+            // Tracker-owned state must agree at every step: it is derived from
+            // the whole char stream, so no schedule may see a different value.
+            expect(pick(run.samples[i], TRACKER_FIELDS), `${run.label} step ${i}`).toEqual(
+              pick(baseline.samples[i], TRACKER_FIELDS),
+            );
+          }
+          for (const i of settled) {
+            expect(pick(run.samples[i], ALL_FIELDS), `${run.label} settled step ${i}`).toEqual(
+              pick(baseline.samples[i], ALL_FIELDS),
+            );
+          }
         }
         // The keystroke path is schedule-independent by construction; asserting
         // it keeps a stray interception (Tab, Ctrl+W) from hiding in a fixture.
@@ -724,7 +760,7 @@ describe("stream replay — chunking schedules are equivalent", () => {
 
       for (const run of runs) {
         const last = run.samples[run.samples.length - 1];
-        // Golden final state per schedule, so four identically wrong runs
+        // Golden final state per schedule, so five identically wrong runs
         // cannot agree their way to a pass.
         expect(pick(last, ALL_FIELDS), `${run.label} final state`).toEqual(fixture.expected);
       }
