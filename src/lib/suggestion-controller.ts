@@ -165,6 +165,8 @@ export class SuggestionController {
   // True when line-editing keys made the shadow buffer untrustworthy â€”
   // suggestions suppressed until next Enter/Ctrl+C/prompt or echo re-sync.
   private cursorMoved = false;
+  // Typed while the buffer was untrusted and not yet shown by the echo.
+  private unEchoedInput = "";
   private suggestionsEnabled = false;
   private connected = false;
   private readonly deps: ControllerDeps;
@@ -271,9 +273,13 @@ export class SuggestionController {
 
     if (!this.secretInputActive) {
       for (const op of r.shadowOps) {
-        if (op.op === "append") this.shadowBuffer.append(op.ch);
-        else if (op.op === "backspace") this.shadowBuffer.backspace();
-        else if (op.op === "reset") this.reset();
+        if (op.op === "append") {
+          this.shadowBuffer.append(op.ch);
+          if (this.cursorMoved) this.unEchoedInput += op.ch;
+        } else if (op.op === "backspace") {
+          this.shadowBuffer.backspace();
+          if (this.cursorMoved) this.unEchoedInput = this.unEchoedInput.slice(0, -1);
+        } else if (op.op === "reset") this.reset();
       }
     }
 
@@ -290,7 +296,10 @@ export class SuggestionController {
   /** Clipboard paste: forward the text and mirror it into the shadow buffer. */
   paste(text: string): void {
     this.deps.send(text);
-    if (!this.secretInputActive) this.shadowBuffer.appendAll(text);
+    if (!this.secretInputActive) {
+      this.shadowBuffer.appendAll(text);
+      if (this.cursorMoved) this.unEchoedInput += text;
+    }
   }
 
   /** Line-editing keys (arrows etc.) made the buffer untrustworthy. */
@@ -302,6 +311,7 @@ export class SuggestionController {
   private reset(): void {
     this.shadowBuffer.reset();
     this.cursorMoved = false;
+    this.unEchoedInput = "";
   }
 
   // â”€â”€â”€ Output handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -322,7 +332,10 @@ export class SuggestionController {
         // buffer would be wiped. onStreamSettled clears the flag once the whole
         // burst has landed.
         const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
-        if (echoed !== null) this.shadowBuffer.setContent(echoed);
+        if (echoed !== null) {
+          this.consumeEchoedInput(echoed);
+          this.shadowBuffer.setContent(echoed + this.unEchoedInput);
+        }
       } else {
         // Trusted EOL state (buffer reliable) â€” learn the prompt prefix
         // from line = prompt + buffer for platforms without prompt
@@ -339,6 +352,11 @@ export class SuggestionController {
       this.receivingOutput = true;
       this.deps.ghost()?.hide();
       this.deps.dropdown()?.hide();
+    }
+    // Every chunk while receiving keeps the window open: a repaint's tail can
+    // trail its newline by more than the window, and settling there would
+    // reconcile against a half-landed line.
+    if (this.receivingOutput) {
       if (this.outputTimer) clearTimeout(this.outputTimer);
       this.outputTimer = setTimeout(() => {
         this.receivingOutput = false;
@@ -368,6 +386,14 @@ export class SuggestionController {
     if (!this.cursorMoved || this.receivingOutput || tracker.isPassthrough) return;
     const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
     if (echoed === null) return;
+    this.consumeEchoedInput(echoed);
+    // Local input the echo has not shown yet is not a repaint artefact — keep
+    // it appended and stay untrusted until the echo catches up, otherwise the
+    // reconcile would drop keystrokes typed while the repaint was landing.
+    if (this.unEchoedInput) {
+      this.shadowBuffer.setContent(echoed + this.unEchoedInput);
+      return;
+    }
     const unchanged = echoed === this.shadowBuffer.content;
     this.shadowBuffer.setContent(echoed);
     this.cursorMoved = false;
@@ -375,6 +401,25 @@ export class SuggestionController {
     // suggestions back; a changed one means an edit is in flight and the next
     // keystroke triggers the query.
     if (unchanged && echoed) this.debounceSuggestionQuery(echoed);
+  }
+
+  /**
+   * Drop the leading chars of the un-echoed input that `echoed` now shows.
+   *
+   * The echo prints typed chars in order, so a caught-up prefix appears as a
+   * suffix of the echo-derived content. Matching greedily (a char at a time)
+   * handles a partially echoed burst: `show` + typed `xy` landing as `showx`
+   * leaves `y` pending rather than re-appending both.
+   */
+  private consumeEchoedInput(echoed: string): void {
+    let matched = 0;
+    while (
+      matched < this.unEchoedInput.length
+      && echoed.endsWith(this.unEchoedInput.slice(0, matched + 1))
+    ) {
+      matched++;
+    }
+    if (matched > 0) this.unEchoedInput = this.unEchoedInput.slice(matched);
   }
 
   /** Prompt detected - reset shadow buffer, suppress output flag. */

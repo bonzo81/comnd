@@ -638,13 +638,13 @@ function replay(fixture: Fixture, chunk: number): ReplayResult {
   });
 
   // Bytes → decoder → controller.onOutput, exactly as the ssh-output listener
-  // does. A chunk that decodes to "" holds only half a codepoint, and the
-  // listener never calls onOutput with empty text either.
+  // does. Empty decodes are forwarded too: a chunk holding half a codepoint
+  // decodes to "" and the production listener still calls onOutput with it,
+  // which re-arms the tracker's idle timer.
   const feed = (text: string) => {
     const bytes = new TextEncoder().encode(text);
     for (let offset = 0; offset < bytes.length; offset += chunk) {
-      const decoded = decoder.decode(bytes.slice(offset, offset + chunk)).text;
-      if (decoded) controller.onOutput(decoded);
+      controller.onOutput(decoder.decode(bytes.slice(offset, offset + chunk)).text);
     }
   };
 
