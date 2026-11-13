@@ -165,6 +165,10 @@ export class SuggestionController {
   // True when line-editing keys made the shadow buffer untrustworthy â€”
   // suggestions suppressed until next Enter/Ctrl+C/prompt or echo re-sync.
   private cursorMoved = false;
+  // Output arrived after the latest line-editing key. A settle for output that
+  // predates the key would reconcile against the pre-edit echo and then let the
+  // repaint land on a trusted buffer, so it must not restore trust.
+  private outputSinceCursorMove = false;
   // Typed while the buffer was untrusted and not yet shown by the echo.
   private unEchoedInput = "";
   private suggestionsEnabled = false;
@@ -305,6 +309,7 @@ export class SuggestionController {
   /** Line-editing keys (arrows etc.) made the buffer untrustworthy. */
   markCursorMoved(): void {
     this.cursorMoved = true;
+    this.outputSinceCursorMove = false;
   }
 
   /** Reset the shadow buffer and trust state (Enter/Ctrl+C/prompt/accept). */
@@ -312,6 +317,7 @@ export class SuggestionController {
     this.shadowBuffer.reset();
     this.cursorMoved = false;
     this.unEchoedInput = "";
+    this.outputSinceCursorMove = false;
   }
 
   // â”€â”€â”€ Output handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -324,6 +330,7 @@ export class SuggestionController {
   onOutput(text: string): void {
     const tracker = this.deps.tracker;
     tracker.feed(text);
+    if (this.cursorMoved) this.outputSinceCursorMove = true;
 
     if (!this.receivingOutput && !tracker.isPassthrough) {
       if (this.cursorMoved) {
@@ -383,6 +390,10 @@ export class SuggestionController {
    */
   private onStreamSettled(): void {
     const tracker = this.deps.tracker;
+    // A quiet tick armed before the last line-editing key still sees the
+    // pre-edit echo: trusting it would make the repaint land on a trusted
+    // buffer and skip its reconcile. Wait for output that postdates the key.
+    if (!this.outputSinceCursorMove) return;
     if (!this.cursorMoved || this.receivingOutput || tracker.isPassthrough) return;
     const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
     if (echoed === null) return;
@@ -397,6 +408,7 @@ export class SuggestionController {
     const unchanged = echoed === this.shadowBuffer.content;
     this.shadowBuffer.setContent(echoed);
     this.cursorMoved = false;
+    this.outputSinceCursorMove = false;
     // An unchanged line means the arrow key edited nothing, so bring
     // suggestions back; a changed one means an edit is in flight and the next
     // keystroke triggers the query.

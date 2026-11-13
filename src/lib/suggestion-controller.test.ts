@@ -249,6 +249,43 @@ describe("SuggestionController — output handling", () => {
     expect(ctx.c.input).toBe("show");
   });
 
+  it("a repaint that outlives the output window settles on the whole line", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show");
+    ctx.c.onOutput("lab$ show");
+    ctx.c.markCursorMoved();
+    // The repaint opens the 300ms window, then lands two chunks late — the
+    // deadline from the first chunk passes while the line is still arriving.
+    ctx.c.onOutput("\r\nlab$ sh");
+    vi.advanceTimersByTime(250);
+    ctx.c.onOutput("o");
+    vi.advanceTimersByTime(100);
+    // Mid-burst the buffer holds the reconcile from the first chunk; the
+    // point is that the closed deadline did not trust or wipe it.
+    expect(ctx.c.input).toBe("sh");
+    ctx.c.onOutput("w");
+    vi.advanceTimersByTime(300);
+    expect(ctx.c.input).toBe("show");
+  });
+
+  it("settlement ignores a quiet tick armed before the line-editing key", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show ip");
+    // The echo arms the idle tick while the buffer is still trusted.
+    ctx.c.onOutput("lab$ show ip");
+    expect(ctx.c.input).toBe("show ip");
+    vi.advanceTimersByTime(150);
+    // Ctrl+W goes to the remote, which repaints a shorter line later.
+    ctx.c.markCursorMoved();
+    vi.advanceTimersByTime(60);
+    ctx.c.onOutput("\rlab$ show ");
+    vi.advanceTimersByTime(300);
+    // Trusting the earlier echo would have left the buffer on the long line.
+    expect(ctx.c.input).toBe("show ");
+  });
+
   it("settlement keeps input typed while the repaint is landing", () => {
     const ctx = makeController();
     ctx.c.setMode("bash");
