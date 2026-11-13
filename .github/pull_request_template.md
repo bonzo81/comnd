@@ -12,9 +12,13 @@ Closes #
 - [ ] `npm run test`
 - [ ] `cargo check --all-targets` (in `src-tauri/`)
 - [ ] `cargo test` (in `src-tauri/`)
+- [ ] `cargo test --release --lib` (in `src-tauri/`) — required when adding or changing a
+      test around debug-only (`debug_assertions`) code
 - [ ] `npm run smoke` — required when touching the keystroke path, the suggestion
       controller, the terminal view, or `test/smoke/`
 - [ ] `npm run smoke:mutation` — required when `test/smoke/` or the mock host changed
+- [ ] `npm run smoke -- --mutation=focus|name|layout|suggestion` — required when touching
+      the focus, accessible-name, layout, or suggestion-overlay assertions
 - [ ] `npx commitlint --from origin/main` — Conventional Commits, 72-char subject
 
 ## Notes for reviewers

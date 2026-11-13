@@ -35,7 +35,7 @@ body:
     id: version
     attributes:
       label: Comnd version
-      description: From the release installer or Help > About.
+      description: Shown at the bottom of the Settings navigation.
   - type: dropdown
     id: os
     attributes:
