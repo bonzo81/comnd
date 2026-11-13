@@ -189,6 +189,78 @@ describe("LineTracker — prompt detection", () => {
   });
 });
 
+describe("LineTracker — chunk boundaries (issue #134)", () => {
+  it("strips a CSI sequence split across chunks before matching the prompt", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    t.feed("\x1b[3"); // chunk 1 ends mid-CSI
+    t.feed("2mRouter#"); // chunk 2 completes the escape
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("one-byte chunks produce the same line and one prompt detection", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    for (const ch of "\x1b[32mRouter#") t.feed(ch);
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("a split OSC sequence leaves no payload text in the reconstructed line", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    // Payload deliberately contains the prompt text — it must not leak.
+    t.feed("\x1b]0;Router# login banner");
+    t.feed("\x07Router#");
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("a new stream discards an OSC the dropped session left open", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    // Connection drops mid-OSC — no BEL or ST ever arrives.
+    t.feed("\x1b]0;Router# login banner");
+
+    // Reconnect whose platform-index load failed: loadPatterns is not called.
+    t.resetStream();
+
+    t.feed("Router#");
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a pending escape when a prompt reset lands between its chunks", () => {
+    // SuggestionController.onPromptDetected() calls tracker.reset() while the
+    // output stream is still running, so an escape can straddle the reset.
+    let t: LineTracker;
+    const onPromptDetected = vi.fn(() => t.reset());
+    t = new LineTracker(vi.fn(), onPromptDetected, vi.fn());
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    t.feed("Router#\x1b[3"); // prompt line, then the CSI starts
+    vi.advanceTimersByTime(200);
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+
+    t.feed("2msh"); // completes ESC[32m, then the typed command
+
+    expect(t.currentLine).toBe("sh");
+  });
+});
+
 describe("LineTracker — line reconstruction", () => {
   it("tracks the current line across chunks and newlines", () => {
     const { t } = makeTracker();

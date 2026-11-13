@@ -6,7 +6,7 @@
  * stripAnsi call per chunk. See docs/plans/plan-line-tracker.md.
  */
 
-import { stripAnsi } from "./ansi";
+import { AnsiStripper } from "./ansi";
 import type { PlatformIndex } from "./tauri-api";
 
 /** mode name → regex pattern (from the platform's index.yaml). */
@@ -25,6 +25,8 @@ export class LineTracker {
   /** Text of the last matched prompt (trimmed) — used for echo re-sync. */
   private lastPromptText = "";
 
+  // Holds a CSI/OSC sequence split across output chunks.
+  private stripper = new AnsiStripper();
   // Reconstructed line (char walk)
   private line = "";
   // Line content before the last \r/\n — the prompt line when the prompt is
@@ -71,13 +73,29 @@ export class LineTracker {
       clearTimeout(this.noMatchTimer);
       this.noMatchTimer = null;
     }
-    // New session context — drop the previous session's line state.
+    // New session context — drop the previous session's line state, including
+    // any escape sequence the old stream left half-delivered.
     this.reset();
+    this.resetStream();
+  }
+
+  /**
+   * Start a new output stream, discarding escape state the previous one left
+   * half-delivered.
+   *
+   * A connection can drop mid-OSC (`ESC ]0;host` without its terminator) and
+   * leave the stripper inside the payload, where it swallows everything up to
+   * the next BEL or ST. {@link loadPatterns} clears this, but it is skipped
+   * when the platform index fails to load, so callers must also reset here on
+   * connect. Ordinary prompt resets keep the state — see {@link reset}.
+   */
+  resetStream() {
+    this.stripper.reset();
   }
 
   /** Feed SSH output data: one char walk drives both line and prompt state. */
   feed(data: string) {
-    const clean = stripAnsi(data);
+    const clean = this.stripper.feed(data);
     for (const ch of clean) {
       if (ch === "\n" || ch === "\r") {
         if (this.line) this.lastLineValue = this.line;
@@ -228,7 +246,14 @@ export class LineTracker {
     return this.line.endsWith(expected) ? expected : null;
   }
 
-  /** Drop reconstructed line state (prompt detection state survives). */
+  /**
+   * Drop reconstructed line state (prompt detection state survives).
+   *
+   * The stripper's pending escape is deliberately kept: a prompt reset can land
+   * between two chunks of one escape sequence (`Router#\x1b[3` then `2msh`), and
+   * dropping it there would leak the escape tail into the next command line.
+   * Escape state is cleared per session by {@link loadPatterns}.
+   */
   reset() {
     this.line = "";
     this.lastLineValue = "";
