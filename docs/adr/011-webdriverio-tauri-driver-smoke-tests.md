@@ -63,6 +63,24 @@ its ghost. `suggestion-accept` grew the anchor and hit-test assertions, and
 `dropdown-click` covers mouse accept, so a broken overlay now fails the clean
 run as well as a mutation.
 
+Amended 2026-11-13: after issue #133, two more categories cover control geometry
+at the window the app opens with (1200x800), because the visual baseline is a
+review aid and a pixel diff cannot tell a control that moved off screen from one
+that was restyled. `kb-layout` moves `.cmd-actions` and `.kb-count` off the right
+edge, so `kb-layout`'s in-window box assertion has to fail;
+`terminal-sidebar-layout` does the same for the terminal side panel's
+`.example-copy`, `.cmd-ref-link` and `#tv-sidebar-resizer`, pinning them to the
+viewport with `position: fixed` because the panel scrolls and a scrolled box
+would otherwise come back into view. Scrolling into view is vertical only: the
+panel's `overflow-y: auto` makes it scroll horizontally too, so a horizontal
+scroll could pull a control that really overflows back into the window and hide
+the regression, and the helper restores every ancestor's horizontal offset
+before it measures. Both scenarios also hit-test each control's
+centre and assert that `.kb-command-detail` and `.sb-content` do not scroll
+horizontally, which keeps the assertion honest about an element that is on screen
+but covered. Neither scenario resizes the window: it measures what the default
+window shows.
+
 ## Consequences
 
 - Tests cover the desktop webview, Tauri commands, real Rust SSH client, and
@@ -79,7 +97,7 @@ run as well as a mutation.
 - Each mutation category breaks exactly one scenario and reports two facts: the
   assertion's own failure message and `mutation activation: <category> applied`.
   Only the `ssh_send` run also requires the non-zero drop count, because only it
-  touches the SSH path. The four frontend categories sit behind the same
+  touches the SSH path. The six frontend categories sit behind the same
   `#[cfg(debug_assertions)]` command and the `smoke` Vite mode, so neither the
   command nor the module ships in a release build.
 - The mutation check is verified by breaking the drop: add

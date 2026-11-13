@@ -21,7 +21,15 @@ import {
 // The category is passed to the frontend through test_smoke_mutation so an
 // assertion can prove the mutation actually ran; a broken seam would otherwise
 // let an unmutated app satisfy the expected-failure match.
-const MUTATION_CATEGORIES = ["ssh_send", "focus", "name", "layout", "suggestion"];
+const MUTATION_CATEGORIES = [
+  "ssh_send",
+  "focus",
+  "name",
+  "layout",
+  "suggestion",
+  "kb-layout",
+  "terminal-sidebar-layout",
+];
 
 function parseMutation(argv) {
   const equals = argv.find((arg) => arg.startsWith("--mutation="));
@@ -72,6 +80,18 @@ const MUTATION_CASES = {
   suggestion: {
     scenario: "prefix-suggestion",
     expectedFailure: /Prefix suggestion: expected the ghost to show 'ctl'[\s\S]*mutation activation: suggestion applied/,
+  },
+  // Issue #133: KB and side-panel control geometry. Each mutation moves one
+  // screen's controls off the window, so the scenario's own in-window box
+  // assertion must fail; the hit-test and scroll-width assertions cover the
+  // cases CSS cannot fake (an element that is on screen but covered).
+  "kb-layout": {
+    scenario: "kb-layout",
+    expectedFailure: /KB layout: .* is outside the window[\s\S]*mutation activation: kb-layout applied/,
+  },
+  "terminal-sidebar-layout": {
+    scenario: "terminal-sidebar-layout",
+    expectedFailure: /Terminal sidebar layout: .* is outside the window[\s\S]*mutation activation: terminal-sidebar-layout applied/,
   },
 };
 
@@ -1363,11 +1383,12 @@ async function waitForGhost(browser, text, behavior) {
 /**
  * What sits at the centre of `selector`, read in one execute. `elementFromPoint`
  * returns null for a point off screen, so those report `found: false` rather
- * than a hit that was never sampled.
+ * than a hit that was never sampled. `index` picks among several matches, which
+ * the side panel needs because it renders one copy button per example.
  */
-async function hitTestCentre(browser, selector) {
-  return browser.execute((sel) => {
-    const el = document.querySelector(sel);
+async function hitTestCentre(browser, selector, index = 0) {
+  return browser.execute((sel, at) => {
+    const el = document.querySelectorAll(sel)[at];
     if (!el) return { missing: true };
     const name = (node) => (node
       ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}`
@@ -1385,7 +1406,65 @@ async function hitTestCentre(browser, selector) {
       self: !!hit && (hit === el || el.contains(hit)),
       hit: name(hit),
     };
-  }, selector);
+  }, selector, index);
+}
+
+/**
+ * One control's box and hit test at the window size the app opens with. `label`
+ * names the owning scenario's assertion so a failure says which screen broke,
+ * and `index` selects among several matches. The box must sit inside the window
+ * and its centre must hit the control itself, which catches an element that is
+ * on screen but covered by a sibling.
+ *
+ * `scroll` brings the control into view first, for a panel that scrolls by
+ * design: the terminal side panel is `overflow-y: auto`, so a long entry puts
+ * its last controls below the fold until the user scrolls. Only that vertical
+ * scroll survives: `overflow-y: auto` makes the panel scroll horizontally too,
+ * so `scrollIntoView` could pull a control that really overflows back into the
+ * window and hide the regression it is meant to catch. Every ancestor's
+ * horizontal offset is therefore restored before the box is read, and the
+ * scroll and the measurement share one execute so the box always describes the
+ * layout the assertions are about.
+ */
+async function assertControlInWindow(browser, selector, index, label, { scroll = false } = {}) {
+  const name = selector.startsWith("#") ? selector : `${selector}[${index}]`;
+  const box = await browser.execute((sel, at, bring) => {
+    const el = document.querySelectorAll(sel)[at];
+    if (!el) return null;
+    if (bring) {
+      const ancestors = [];
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        ancestors.push([node, node.scrollLeft]);
+      }
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      for (const [node, left] of ancestors) node.scrollLeft = left;
+    }
+    const r = el.getBoundingClientRect();
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }, selector, index, scroll);
+  assert(box, `${label}: ${name} was never rendered`);
+  assert(
+    box.left >= 0 && box.top >= 0 && box.right <= box.width && box.bottom <= box.height,
+    `${label}: ${name} is outside the window `
+      + `(left ${Math.round(box.left)}, top ${Math.round(box.top)}, `
+      + `right ${Math.round(box.right)}, bottom ${Math.round(box.bottom)}, `
+      + `window ${box.width}x${box.height})`,
+  );
+  const hit = await hitTestCentre(browser, selector, index);
+  assert(!hit.missing, `${label}: ${name} disappeared after its box was measured`);
+  assert(
+    hit.onScreen && hit.found && hit.self,
+    `${label}: ${name} is not hit-testable at its centre `
+      + `(point ${hit.point}, onScreen=${hit.onScreen}, found=${hit.found}, `
+      + `self=${hit.self}, hit ${hit.hit})`,
+  );
 }
 
 /**
@@ -2385,6 +2464,115 @@ async function main() {
           finalSizes.length > openSizes.length && finalSizes[finalSizes.length - 1][0] >= before[0],
           `Sidebar resize: closing the sidebar did not restore the PTY width `
           + `(sizes ${JSON.stringify(finalSizes)})`,
+        );
+      },
+    },
+    {
+      // Issue #133: the KB browse detail actions and the command count must stay
+      // on screen at the window the app opens with (1200x800 per
+      // src-tauri/tauri.conf.json), so this scenario never resizes the window.
+      name: "kb-layout",
+      async run(browser) {
+        await openNavSection(browser, "kb");
+        await actOn(browser, '.nav-item[data-section="kb"][data-sub-id="browse"]');
+        await waitFor(
+          browser,
+          () => !!document.querySelector(".kb-command-item"),
+          "KB layout: the browse list never rendered a command",
+        );
+        // Any command works for the detail pane, so take the first one rather
+        // than depending on one platform's ordering.
+        await actOn(browser, ".kb-command-item");
+        await waitFor(
+          browser,
+          () => !!document.querySelector("#kb-cmd-edit-btn"),
+          "KB layout: selecting a command did not render the detail actions",
+        );
+
+        for (const id of ["#kb-cmd-edit-btn", "#kb-cmd-ignore-btn", "#kb-cmd-delete-btn"]) {
+          await assertControlInWindow(browser, id, 0, "KB layout");
+        }
+
+        const count = await browser.execute(() => {
+          const el = document.querySelector(".kb-count");
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, width: window.innerWidth };
+        });
+        assert(count, "KB layout: .kb-count was never rendered");
+        assert(
+          count.left >= 0 && count.right <= count.width,
+          `KB layout: .kb-count is outside the window `
+            + `(left ${Math.round(count.left)}, right ${Math.round(count.right)}, `
+            + `window ${count.width}px wide)`,
+        );
+
+        const detail = await browser.execute(() => {
+          const el = document.querySelector(".kb-command-detail");
+          if (!el) return null;
+          return { clientWidth: el.clientWidth, scrollWidth: el.scrollWidth };
+        });
+        assert(detail, "KB layout: .kb-command-detail was never rendered");
+        assert.equal(
+          detail.clientWidth,
+          detail.scrollWidth,
+          `KB layout: .kb-command-detail scrolls horizontally `
+            + `(clientWidth ${detail.clientWidth}, scrollWidth ${detail.scrollWidth})`,
+        );
+      },
+    },
+    {
+      // Issue #133: the same geometry rules for the terminal's side panel, which
+      // renders the same SidebarContent markup in a 320px column.
+      name: "terminal-sidebar-layout",
+      async run(browser, dataDir) {
+        await installSmokeHelpers(browser);
+        await launchAndConnect(browser, dataDir);
+        await enableSuggestions(browser);
+        await actOn(browser, ".tv-panel-btn");
+        await waitFor(
+          browser,
+          () => document.querySelector(".tv-panel-btn")?.getAttribute("aria-expanded") === "true",
+          "Terminal sidebar layout: the side panel did not open",
+        );
+        await sendKeys(browser, "ip r");
+        await waitFor(
+          browser,
+          () => !!document.querySelector(".sb-content .cmd-name"),
+          "Terminal sidebar layout: typing a command did not fill the side panel",
+        );
+
+        // One copy button per example, so index through however many the
+        // command renders rather than assuming a fixed count.
+        const copies = await browser.execute(
+          () => document.querySelectorAll(".sb-content .example-copy").length,
+        );
+        assert(
+          copies > 0,
+          "Terminal sidebar layout: the side panel rendered no example copy button",
+        );
+        for (let i = 0; i < copies; i += 1) {
+          await assertControlInWindow(browser, ".sb-content .example-copy", i, "Terminal sidebar layout",
+            { scroll: true });
+        }
+        await assertControlInWindow(browser, ".sb-content .cmd-ref-link", 0, "Terminal sidebar layout",
+          { scroll: true });
+        // The resizer is unhidden by toggleSidebar, so it must be on screen
+        // whenever the panel is open.
+        await assertControlInWindow(browser, "#tv-sidebar-resizer", 0, "Terminal sidebar layout",
+          { scroll: true });
+
+        const content = await browser.execute(() => {
+          const el = document.querySelector(".sb-content");
+          if (!el) return null;
+          return { clientWidth: el.clientWidth, scrollWidth: el.scrollWidth };
+        });
+        assert(content, "Terminal sidebar layout: .sb-content was never rendered");
+        assert.equal(
+          content.clientWidth,
+          content.scrollWidth,
+          `Terminal sidebar layout: .sb-content scrolls horizontally `
+            + `(clientWidth ${content.clientWidth}, scrollWidth ${content.scrollWidth})`,
         );
       },
     },
