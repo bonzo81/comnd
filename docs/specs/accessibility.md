@@ -37,9 +37,9 @@ Implemented and verified by code review + build:
 ## Automated checks in the smoke suite (2026-11)
 
 `npm run smoke` asserts the keyboard and layout claims above against the real
-app, and `npm run smoke -- --mutation=focus|name|layout` proves each category of
-assertion still fails when that behaviour is deliberately broken. What the
-suite covers:
+app, and `npm run smoke -- --mutation=focus|name|layout|suggestion|kb-layout|terminal-sidebar-layout`
+proves each category of assertion still fails when that behaviour is deliberately
+broken. What the suite covers:
 
 - Keyboard reachability and a visible focus indicator on the connection
   manager, the terminal with the side panel open and closed, settings, and the
