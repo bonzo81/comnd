@@ -124,9 +124,11 @@ static OPEN_URL_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 #[cfg(any(debug_assertions, test))]
 static AUTH_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-// The list is never cleared and one keyboard-interactive round can carry many
-// prompts, each potentially holding a URL, so bound both its length and each
-// entry — a hostile server must not be able to grow it without limit.
+// The list is never cleared, and a long debug or smoke run accumulates one
+// entry per keyboard-interactive round, so bound both its length and each
+// entry to keep that run's memory flat. This structure and its only writer
+// are cfg-gated to debug and test builds: the list never ships in a release
+// build, so the bound protects the run, not the shipped app.
 #[cfg(any(debug_assertions, test))]
 const AUTH_URLS_MAX_ENTRIES: usize = 16;
 #[cfg(any(debug_assertions, test))]
