@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { createHarness } from "../../tests/harness";
 import type { AppConfig, NetBoxConfig } from "../lib/tauri-api";
+import type { ConfigSaveDescriptor } from "../lib/config-save";
 import { SettingsScreen } from "./settings-screen";
 
 async function renderNetbox(showEmptyFolders = false) {
@@ -304,199 +305,288 @@ describe("SettingsScreen — stale async page loads", () => {
   });
 });
 
-describe("SettingsScreen — rejected config writes (#87)", () => {
-  afterEach(() => {
-    document.querySelectorAll(".toast").forEach((el) => el.remove());
-  });
+describe("SettingsScreen — config save wiring (#148)", () => {
+  interface Wire {
+    name: string;
+    page: "general" | "logging";
+    control: string;
+    field: keyof AppConfig & string;
+    failure: string;
+    /** Value handed to ConfigSaver.save. */
+    value: unknown;
+    command: string;
+    args: Record<string, unknown>;
+    /** Stored config the rollback would read back. */
+    stored: Partial<AppConfig>;
+    /** What that stored config renders into the control. */
+    rendered: string;
+    read: (el: HTMLElement) => string;
+    trigger: (container: HTMLElement) => void | Promise<void>;
+    /** Dialog plugin answer for the browse buttons. */
+    dialog?: { command: string; result: string };
+  }
 
-  async function setup(overrides: Partial<AppConfig> = {}) {
+  const SET_COMMANDS = [
+    "set_log_level",
+    "set_log_max_size",
+    "set_max_sessions",
+    "set_duplicate_session_policy",
+    "set_session_logging",
+    "set_session_log_timestamps",
+    "set_session_log_dir",
+    "set_log_file_path",
+  ];
+
+  const selectValue = (el: HTMLElement) => (el as HTMLSelectElement).value;
+  const inputValue = (el: HTMLElement) => (el as HTMLInputElement).value;
+  const checked = (el: HTMLElement) => String((el as HTMLInputElement).checked);
+
+  function setSelect(container: HTMLElement, selector: string, value: string) {
+    const el = container.querySelector<HTMLSelectElement>(selector);
+    if (!el) throw new Error(`missing ${selector}`);
+    el.value = value;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  function setText(container: HTMLElement, selector: string, value: string) {
+    const el = container.querySelector<HTMLInputElement>(selector);
+    if (!el) throw new Error(`missing ${selector}`);
+    el.value = value;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  function clickOn(container: HTMLElement, selector: string) {
+    const el = container.querySelector<HTMLElement>(selector);
+    if (!el) throw new Error(`missing ${selector}`);
+    el.click();
+  }
+
+  const WIRES: Wire[] = [
+    {
+      name: "log level",
+      page: "logging",
+      control: "#log-level",
+      field: "log_level",
+      failure: "Failed to save log level",
+      value: "debug",
+      command: "set_log_level",
+      args: { level: "debug" },
+      stored: { log_level: "warn" },
+      rendered: "warn",
+      read: selectValue,
+      trigger: (container) => setSelect(container, "#log-level", "debug"),
+    },
+    {
+      name: "log file size",
+      page: "logging",
+      control: "#log-max-size",
+      field: "log_max_size_mb",
+      failure: "Failed to save log file size",
+      value: 50,
+      command: "set_log_max_size",
+      args: { maxMb: 50 },
+      stored: { log_max_size_mb: 100 },
+      rendered: "100",
+      read: selectValue,
+      trigger: (container) => setSelect(container, "#log-max-size", "50"),
+    },
+    {
+      name: "session limit",
+      page: "general",
+      control: "#max-sessions",
+      field: "max_sessions",
+      failure: "Failed to save session limit",
+      value: 20,
+      command: "set_max_sessions",
+      args: { max: 20 },
+      stored: { max_sessions: 50 },
+      rendered: "50",
+      read: selectValue,
+      trigger: (container) => setSelect(container, "#max-sessions", "20"),
+    },
+    {
+      name: "duplicate session policy",
+      page: "general",
+      control: "#duplicate-session-policy",
+      field: "duplicate_session_policy",
+      failure: "Failed to save duplicate session policy",
+      value: "allow",
+      command: "set_duplicate_session_policy",
+      args: { policy: "allow" },
+      stored: { duplicate_session_policy: "focus" },
+      rendered: "focus",
+      read: selectValue,
+      trigger: (container) => setSelect(container, "#duplicate-session-policy", "allow"),
+    },
+    {
+      name: "session logging",
+      page: "logging",
+      control: "#session-logging",
+      field: "session_logging",
+      failure: "Failed to save session logging",
+      value: false,
+      command: "set_session_logging",
+      args: { enabled: false },
+      stored: { session_logging: true },
+      rendered: "true",
+      read: checked,
+      trigger: (container) => clickOn(container, "#session-logging"),
+    },
+    {
+      name: "session log timestamps",
+      page: "logging",
+      control: "#session-log-timestamps",
+      field: "session_log_timestamps",
+      failure: "Failed to save session log timestamps",
+      value: true,
+      command: "set_session_log_timestamps",
+      args: { enabled: true },
+      stored: { session_log_timestamps: false },
+      rendered: "false",
+      read: checked,
+      trigger: (container) => clickOn(container, "#session-log-timestamps"),
+    },
+    {
+      // Typed input is trimmed before it is persisted.
+      name: "session log directory",
+      page: "logging",
+      control: "#session-log-dir",
+      field: "session_log_dir",
+      failure: "Failed to save session log directory",
+      value: "/srv/logs",
+      command: "set_session_log_dir",
+      args: { dir: "/srv/logs" },
+      stored: { session_log_dir: "/var/log/comnd" },
+      rendered: "/var/log/comnd",
+      read: inputValue,
+      trigger: (container) => setText(container, "#session-log-dir", "  /srv/logs  "),
+    },
+    {
+      name: "session log directory reset",
+      page: "logging",
+      control: "#session-log-dir",
+      field: "session_log_dir",
+      failure: "Failed to reset session log directory",
+      value: null,
+      command: "set_session_log_dir",
+      args: { dir: null },
+      stored: { session_log_dir: "/var/log/comnd" },
+      rendered: "/var/log/comnd",
+      read: inputValue,
+      trigger: (container) => clickOn(container, "#session-log-dir-reset"),
+    },
+    {
+      name: "session log directory browse",
+      page: "logging",
+      control: "#session-log-dir",
+      field: "session_log_dir",
+      failure: "Failed to save session log directory",
+      value: "/picked/logs",
+      command: "set_session_log_dir",
+      args: { dir: "/picked/logs" },
+      stored: { session_log_dir: "/var/log/comnd" },
+      rendered: "/var/log/comnd",
+      read: inputValue,
+      trigger: (container) => clickOn(container, "#session-log-dir-browse"),
+      dialog: { command: "plugin:dialog|open", result: "/picked/logs" },
+    },
+    {
+      name: "log file path",
+      page: "logging",
+      control: "#log-file-path",
+      field: "log_file_path",
+      failure: "Failed to save log file path",
+      value: "/tmp/comnd.log",
+      command: "set_log_file_path",
+      args: { path: "/tmp/comnd.log" },
+      stored: { log_file_path: "/var/log/comnd.log" },
+      rendered: "/var/log/comnd.log",
+      read: inputValue,
+      trigger: (container) => setText(container, "#log-file-path", "/tmp/comnd.log"),
+    },
+    {
+      name: "log file path reset",
+      page: "logging",
+      control: "#log-file-path",
+      field: "log_file_path",
+      failure: "Failed to reset log file path",
+      value: null,
+      command: "set_log_file_path",
+      args: { path: null },
+      stored: { log_file_path: "/var/log/comnd.log" },
+      rendered: "/var/log/comnd.log",
+      read: inputValue,
+      trigger: (container) => clickOn(container, "#log-file-reset"),
+    },
+    {
+      name: "log file path browse",
+      page: "logging",
+      control: "#log-file-path",
+      field: "log_file_path",
+      failure: "Failed to save log file path",
+      value: "/picked/comnd.log",
+      command: "set_log_file_path",
+      args: { path: "/picked/comnd.log" },
+      stored: { log_file_path: "/var/log/comnd.log" },
+      rendered: "/var/log/comnd.log",
+      read: inputValue,
+      trigger: (container) => clickOn(container, "#log-file-browse"),
+      dialog: { command: "plugin:dialog|save", result: "/picked/comnd.log" },
+    },
+  ];
+
+  async function render(wire: Wire) {
     const h = createHarness();
-    let stored = h.fixtures.appConfig(overrides);
-    h.ipc.mockImpl("get_app_config", () => structuredClone(stored));
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
     h.ipc.mock("get_session_log_dir", "");
+    for (const command of SET_COMMANDS) h.ipc.mock(command, undefined);
+    if (wire.dialog) h.ipc.mock(wire.dialog.command, wire.dialog.result);
     const container = h.mount();
     const screen = new SettingsScreen();
     await screen.mount(container);
-    return {
-      h,
-      container,
-      screen,
-      stored: () => stored,
-      persist: (patch: Partial<AppConfig>) => {
-        stored = { ...stored, ...patch };
-      },
-    };
+    screen.setItem(wire.page);
+    return { h, container, screen };
   }
 
-  it("toasts and restores the stored log level when set_log_level rejects", async () => {
-    const { h, container, screen, stored } = await setup({ log_level: "info" });
-    h.ipc.mockImpl("set_log_level", () => {
-      throw new Error("invalid level");
+  it.each(WIRES)("routes $name through exactly one descriptor", async (wire) => {
+    const { h, container, screen } = await render(wire);
+    const saved: { descriptor: ConfigSaveDescriptor<HTMLElement>; value: unknown }[] = [];
+    vi.spyOn(screen.saver, "save").mockImplementation(async (descriptor, value) => {
+      saved.push({ descriptor: descriptor as ConfigSaveDescriptor<HTMLElement>, value });
     });
-    screen.setItem("logging");
-    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
-    select.value = "debug";
-    select.dispatchEvent(new Event("change"));
 
-    await vi.waitFor(() => expect(document.body.textContent).toContain("Failed to save log level"));
-    await vi.waitFor(() => expect(select.value).toBe(stored().log_level));
+    await wire.trigger(container);
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+
+    const [{ descriptor, value }] = saved;
+    expect(descriptor.field).toEqual({ key: wire.field, failure: wire.failure });
+    expect(descriptor.control).toBe(container.querySelector(wire.control));
+    expect(value).toBe(wire.value);
+
+    // The descriptor's write is the field's own setter, with the value baked in.
+    await descriptor.write();
+    expect(h.ipc.calls(wire.command)).toEqual([{ args: wire.args }]);
+
+    // Its apply renders the stored config back into that same control.
+    descriptor.apply(h.fixtures.appConfig(wire.stored), descriptor.control!);
+    expect(wire.read(descriptor.control!)).toBe(wire.rendered);
   });
 
-  it("toasts and restores the stored log file size when set_log_max_size rejects", async () => {
-    const { h, container, screen, stored } = await setup({ log_max_size_mb: 10 });
-    h.ipc.mockImpl("set_log_max_size", () => {
-      throw new Error("save failed");
-    });
-    screen.setItem("logging");
-    const select = container.querySelector<HTMLSelectElement>("#log-max-size")!;
-    select.value = "50";
-    select.dispatchEvent(new Event("change"));
+  it("does not save when the browse dialog is dismissed", async () => {
+    const wire = WIRES.find((w) => w.name === "log file path browse")!;
+    const h = createHarness();
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
+    h.ipc.mock("get_session_log_dir", "");
+    h.ipc.mock("plugin:dialog|save", null);
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem(wire.page);
+    const save = vi.spyOn(screen.saver, "save");
 
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save log file size"),
-    );
-    await vi.waitFor(() => expect(select.value).toBe(String(stored().log_max_size_mb)));
-  });
-
-  it("toasts and restores the stored session limit when set_max_sessions rejects", async () => {
-    const { h, container, screen, stored } = await setup({ max_sessions: 30 });
-    h.ipc.mockImpl("set_max_sessions", () => {
-      throw new Error("save failed");
-    });
-    screen.setItem("general");
-    const select = container.querySelector<HTMLSelectElement>("#max-sessions")!;
-    select.value = "50";
-    select.dispatchEvent(new Event("change"));
-
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save session limit"),
-    );
-    await vi.waitFor(() => expect(select.value).toBe(String(stored().max_sessions)));
-  });
-
-  it("toasts and restores the stored session logging flag when set_session_logging rejects", async () => {
-    const { h, container, screen, stored } = await setup({ session_logging: true });
-    h.ipc.mockImpl("set_session_logging", () => {
-      throw new Error("save failed");
-    });
-    screen.setItem("logging");
-    const input = container.querySelector<HTMLInputElement>("#session-logging")!;
-    input.click();
-    expect(input.checked).toBe(false);
-
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save session logging"),
-    );
-    await vi.waitFor(() => expect(input.checked).toBe(stored().session_logging));
-  });
-
-  it("toasts and restores the stored timestamps flag when set_session_log_timestamps rejects", async () => {
-    const { h, container, screen, stored } = await setup({ session_log_timestamps: false });
-    h.ipc.mockImpl("set_session_log_timestamps", () => {
-      throw new Error("save failed");
-    });
-    screen.setItem("logging");
-    const input = container.querySelector<HTMLInputElement>("#session-log-timestamps")!;
-    input.click();
-    expect(input.checked).toBe(true);
-
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save session log timestamps"),
-    );
-    await vi.waitFor(() => expect(input.checked).toBe(stored().session_log_timestamps));
-  });
-
-  it("keeps a log level change that the backend persisted", async () => {
-    const { h, container, screen, stored, persist } = await setup({ log_level: "info" });
-    h.ipc.mockImpl("set_log_level", (args) => {
-      persist({ log_level: (args as { level: string }).level });
-      return null;
-    });
-    screen.setItem("logging");
-    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
-    select.value = "debug";
-    select.dispatchEvent(new Event("change"));
-
-    await vi.waitFor(() => expect(stored().log_level).toBe("debug"));
-    await vi.waitFor(() => expect(h.ipc.calls("get_app_config")).toHaveLength(2));
-    expect(select.value).toBe("debug");
-    expect(document.body.textContent).not.toContain("Failed to save log level");
-  });
-
-  it("caches the written value when the re-read after a save fails", async () => {
-    const { h, container, screen, stored, persist } = await setup({ log_level: "info" });
-    let readsFail = false;
-    h.ipc.mockImpl("get_app_config", () => {
-      if (readsFail) throw new Error("config read failed");
-      return structuredClone(stored());
-    });
-    let saves = 0;
-    h.ipc.mockImpl("set_log_level", (args) => {
-      saves += 1;
-      if (saves === 2) throw new Error("save failed");
-      persist({ log_level: (args as { level: string }).level });
-      return null;
-    });
-    screen.setItem("logging");
-    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
-
-    // The save succeeds but the follow-up read fails, so the cache has to take
-    // the written value directly.
-    readsFail = true;
-    select.value = "debug";
-    select.dispatchEvent(new Event("change"));
-    await vi.waitFor(() => expect(stored().log_level).toBe("debug"));
+    clickOn(container, "#log-file-browse");
     await new Promise((r) => setTimeout(r, 0));
-
-    // A later rejected save restores from that cache; the stale "info" would
-    // contradict the value the backend actually holds.
-    select.value = "warn";
-    select.dispatchEvent(new Event("change"));
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save log level"),
-    );
-    await vi.waitFor(() => expect(select.value).toBe("debug"));
-  });
-
-  it("ignores a stale re-read that resolves after a newer change", async () => {
-    const { h, container, screen, stored, persist } = await setup({ log_level: "info" });
-    const staleSnapshot = structuredClone(stored());
-    let releaseStaleRead: (() => void) | undefined;
-    let holdNextRead = false;
-    h.ipc.mockImpl("get_app_config", () => {
-      if (holdNextRead) {
-        holdNextRead = false;
-        return new Promise<AppConfig>((resolve) => {
-          releaseStaleRead = () => resolve(staleSnapshot);
-        });
-      }
-      return structuredClone(stored());
-    });
-    let saves = 0;
-    h.ipc.mockImpl("set_log_level", (args) => {
-      saves += 1;
-      if (saves === 1) throw new Error("save failed");
-      persist({ log_level: (args as { level: string }).level });
-      return null;
-    });
-    screen.setItem("logging");
-    const select = container.querySelector<HTMLSelectElement>("#log-level")!;
-
-    holdNextRead = true;
-    select.value = "debug";
-    select.dispatchEvent(new Event("change"));
-    await vi.waitFor(() =>
-      expect(document.body.textContent).toContain("Failed to save log level"),
-    );
-
-    // A newer change lands while the rejection's re-read is still in flight.
-    select.value = "warn";
-    select.dispatchEvent(new Event("change"));
-    await vi.waitFor(() => expect(stored().log_level).toBe("warn"));
-
-    releaseStaleRead?.();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(select.value).toBe("warn");
+    expect(save).not.toHaveBeenCalled();
   });
 });
 
@@ -547,6 +637,48 @@ describe("SettingsScreen — duplicate-session policy freshness", () => {
     screen.setItem("appearance");
     screen.setItem("general");
     expect(select().value).toBe("focus");
+  });
+});
+
+describe("SettingsScreen — config refresh freshness (#148)", () => {
+  it("keeps the newest snapshot when an older refresh resolves last", async () => {
+    const h = createHarness();
+    let config = h.fixtures.appConfig({ log_level: "info" });
+    let holdReads = false;
+    const pendingReads: Array<(value: AppConfig) => void> = [];
+    h.ipc.mockImpl("get_app_config", () => {
+      if (!holdReads) return config;
+      return new Promise<AppConfig>((resolve) => pendingReads.push(resolve));
+    });
+    h.ipc.mock("get_session_log_dir", "");
+    h.ipc.mockImpl("set_log_level", (args) => {
+      config = h.fixtures.appConfig({ log_level: (args as { level: string }).level });
+      return null;
+    });
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem("logging");
+    const select = () => container.querySelector<HTMLSelectElement>("#log-level")!;
+    expect(select().value).toBe("info");
+
+    // Hold both post-save refreshes so the older one can land last.
+    holdReads = true;
+    select().value = "debug";
+    select().dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(pendingReads).toHaveLength(1));
+    select().value = "warn";
+    select().dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(pendingReads).toHaveLength(2));
+
+    pendingReads[1](h.fixtures.appConfig({ log_level: "warn" }));
+    await new Promise((r) => setTimeout(r, 0));
+    pendingReads[0](h.fixtures.appConfig({ log_level: "debug" }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    screen.setItem("general");
+    screen.setItem("logging");
+    expect(select().value).toBe("warn");
   });
 });
 

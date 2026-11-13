@@ -37,6 +37,7 @@ import {
 import { checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction } from "../lib/updater";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { normalizeDuplicateSessionPolicy } from "../lib/duplicate-session";
+import { ConfigSaveDescriptor, ConfigSaver } from "../lib/config-save";
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
   import { APP_THEMES, getAppTheme, setAppTheme, Theme } from "../lib/theme";
@@ -103,6 +104,14 @@ export class SettingsScreen {
   private container: HTMLElement | null = null;
   private itemId = "llm";
   private config: AppConfig | null = null;
+  /** One transactional save path for every config field on this screen.
+   *  Exposed so page-level tests can assert each control is wired to the
+   *  descriptor it should be. */
+  readonly saver = new ConfigSaver({
+    getConfig: () => this.config,
+    setConfig: (config) => { this.config = config; },
+    refreshConfig: () => this.refreshConfig(),
+  });
   private sessionLogDefaultDir = "";
   /** Running app version from the Tauri app plugin (issue #102); "" hides
    *  the rail footer rather than showing a placeholder. */
@@ -1186,6 +1195,105 @@ export class SettingsScreen {
     }
   }
 
+  // ── Config save descriptors (issue #148) ────────────────────────────────
+  // One descriptor per persisted field: the write, the control to restore on
+  // failure, and how the stored config renders back into that control.
+  //
+  // `control` is a getter: render() rebuilds the page, so a save still in
+  // flight must restore whatever is mounted now. Restoring the element the
+  // descriptor was built with would update a detached node and leave the
+  // visible setting on the rejected value.
+
+  private logLevelDescriptor(level: string): ConfigSaveDescriptor<HTMLSelectElement> {
+    const resolve = () => this.container?.querySelector<HTMLSelectElement>("#log-level") ?? null;
+    return {
+      field: { key: "log_level", failure: "Failed to save log level" },
+      get control() { return resolve(); },
+      write: () => setLogLevel(level),
+      apply: (config, select) => { select.value = config?.log_level ?? "info"; },
+    };
+  }
+
+  private logMaxSizeDescriptor(maxMb: number): ConfigSaveDescriptor<HTMLSelectElement> {
+    const resolve = () => this.container?.querySelector<HTMLSelectElement>("#log-max-size") ?? null;
+    return {
+      field: { key: "log_max_size_mb", failure: "Failed to save log file size" },
+      get control() { return resolve(); },
+      write: () => setLogMaxSize(maxMb),
+      apply: (config, select) => { select.value = String(config?.log_max_size_mb ?? 10); },
+    };
+  }
+
+  private maxSessionsDescriptor(max: number): ConfigSaveDescriptor<HTMLSelectElement> {
+    const resolve = () => this.container?.querySelector<HTMLSelectElement>("#max-sessions") ?? null;
+    return {
+      field: { key: "max_sessions", failure: "Failed to save session limit" },
+      get control() { return resolve(); },
+      write: () => setMaxSessions(max),
+      apply: (config, select) => { select.value = String(config?.max_sessions ?? 30); },
+    };
+  }
+
+  private duplicatePolicyDescriptor(policy: string): ConfigSaveDescriptor<HTMLSelectElement> {
+    const resolve =
+      () => this.container?.querySelector<HTMLSelectElement>("#duplicate-session-policy") ?? null;
+    return {
+      field: { key: "duplicate_session_policy", failure: "Failed to save duplicate session policy" },
+      get control() { return resolve(); },
+      write: () => setDuplicateSessionPolicy(policy),
+      apply: (config, select) => {
+        select.value = normalizeDuplicateSessionPolicy(config?.duplicate_session_policy);
+      },
+    };
+  }
+
+  private sessionLoggingDescriptor(enabled: boolean): ConfigSaveDescriptor<HTMLInputElement> {
+    const resolve = () => this.container?.querySelector<HTMLInputElement>("#session-logging") ?? null;
+    return {
+      field: { key: "session_logging", failure: "Failed to save session logging" },
+      get control() { return resolve(); },
+      write: () => setSessionLogging(enabled),
+      apply: (config, input) => { input.checked = config?.session_logging ?? true; },
+    };
+  }
+
+  private sessionLogTimestampsDescriptor(enabled: boolean): ConfigSaveDescriptor<HTMLInputElement> {
+    const resolve =
+      () => this.container?.querySelector<HTMLInputElement>("#session-log-timestamps") ?? null;
+    return {
+      field: { key: "session_log_timestamps", failure: "Failed to save session log timestamps" },
+      get control() { return resolve(); },
+      write: () => setSessionLogTimestamps(enabled),
+      apply: (config, input) => { input.checked = config?.session_log_timestamps ?? true; },
+    };
+  }
+
+  private sessionLogDirDescriptor(
+    dir: string | null,
+    failure = "Failed to save session log directory",
+  ): ConfigSaveDescriptor<HTMLInputElement> {
+    const resolve = () => this.container?.querySelector<HTMLInputElement>("#session-log-dir") ?? null;
+    return {
+      field: { key: "session_log_dir", failure },
+      get control() { return resolve(); },
+      write: () => setSessionLogDir(dir),
+      apply: (config, input) => { input.value = config?.session_log_dir ?? ""; },
+    };
+  }
+
+  private logFilePathDescriptor(
+    path: string | null,
+    failure = "Failed to save log file path",
+  ): ConfigSaveDescriptor<HTMLInputElement> {
+    const resolve = () => this.container?.querySelector<HTMLInputElement>("#log-file-path") ?? null;
+    return {
+      field: { key: "log_file_path", failure },
+      get control() { return resolve(); },
+      write: () => setLogFilePath(path),
+      apply: (config, input) => { input.value = config?.log_file_path ?? ""; },
+    };
+  }
+
   private bindEvents() {
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
@@ -1203,115 +1311,39 @@ export class SettingsScreen {
       setTimestampFormat((e.target as HTMLSelectElement).value as TimestampFormat);
     });
 
-    let logLevelSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#log-level")?.addEventListener("change", (e) => {
-      const seq = ++logLevelSaveSeq;
       const level = (e.target as HTMLSelectElement).value;
-      void setLogLevel(level)
-        .then(() => {
-          if (this.config) this.config.log_level = level;
-          return this.refreshConfig();
-        })
-        .catch(async () => {
-          showToast("Failed to save log level", "error");
-          const fetched = await getAppConfig().catch(() => null);
-          if (seq !== logLevelSaveSeq) return;
-          if (fetched) this.config = fetched;
-          const select = this.container?.querySelector<HTMLSelectElement>("#log-level");
-          if (select) select.value = this.config?.log_level ?? "info";
-        });
+      void this.saver.save(this.logLevelDescriptor(level), level);
     });
 
-    let logMaxSizeSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#log-max-size")?.addEventListener("change", (e) => {
-      const seq = ++logMaxSizeSaveSeq;
       const maxMb = parseInt((e.target as HTMLSelectElement).value, 10);
-      void setLogMaxSize(maxMb)
-        .then(() => {
-          if (this.config) this.config.log_max_size_mb = maxMb;
-          return this.refreshConfig();
-        })
-        .catch(async () => {
-          showToast("Failed to save log file size", "error");
-          const fetched = await getAppConfig().catch(() => null);
-          if (seq !== logMaxSizeSaveSeq) return;
-          if (fetched) this.config = fetched;
-          const select = this.container?.querySelector<HTMLSelectElement>("#log-max-size");
-          if (select) select.value = String(this.config?.log_max_size_mb ?? 10);
-        });
+      void this.saver.save(this.logMaxSizeDescriptor(maxMb), maxMb);
     });
 
-    let maxSessionsSaveSeq = 0;
     this.container?.querySelector<HTMLSelectElement>("#max-sessions")?.addEventListener("change", (e) => {
-      const seq = ++maxSessionsSaveSeq;
       const max = parseInt((e.target as HTMLSelectElement).value, 10);
-      void setMaxSessions(max)
-        .then(() => {
-          if (this.config) this.config.max_sessions = max;
-          return this.refreshConfig();
-        })
-        .catch(async () => {
-          showToast("Failed to save session limit", "error");
-          const fetched = await getAppConfig().catch(() => null);
-          if (seq !== maxSessionsSaveSeq) return;
-          if (fetched) this.config = fetched;
-          const select = this.container?.querySelector<HTMLSelectElement>("#max-sessions");
-          if (select) select.value = String(this.config?.max_sessions ?? 30);
-        });
+      void this.saver.save(this.maxSessionsDescriptor(max), max);
     });
 
     this.container?.querySelector<HTMLSelectElement>("#duplicate-session-policy")?.addEventListener("change", (e) => {
       const value = (e.target as HTMLSelectElement).value;
-      void setDuplicateSessionPolicy(value)
-        .then(() => this.refreshConfig())
-        .catch(() => {
-          showToast("Failed to save duplicate session policy", "error");
-        });
+      void this.saver.save(this.duplicatePolicyDescriptor(value), value);
     });
 
-    let sessionLoggingSaveSeq = 0;
     this.container?.querySelector<HTMLInputElement>("#session-logging")?.addEventListener("change", (e) => {
-      const seq = ++sessionLoggingSaveSeq;
       const enabled = (e.target as HTMLInputElement).checked;
-      void setSessionLogging(enabled)
-        .then(() => {
-          if (this.config) this.config.session_logging = enabled;
-          return this.refreshConfig();
-        })
-        .catch(async () => {
-          showToast("Failed to save session logging", "error");
-          const fetched = await getAppConfig().catch(() => null);
-          if (seq !== sessionLoggingSaveSeq) return;
-          if (fetched) this.config = fetched;
-          const input = this.container?.querySelector<HTMLInputElement>("#session-logging");
-          if (input) input.checked = this.config?.session_logging ?? true;
-        });
+      void this.saver.save(this.sessionLoggingDescriptor(enabled), enabled);
     });
 
-    let sessionLogTimestampsSaveSeq = 0;
     this.container?.querySelector<HTMLInputElement>("#session-log-timestamps")?.addEventListener("change", (e) => {
-      const seq = ++sessionLogTimestampsSaveSeq;
       const enabled = (e.target as HTMLInputElement).checked;
-      void setSessionLogTimestamps(enabled)
-        .then(() => {
-          if (this.config) this.config.session_log_timestamps = enabled;
-          return this.refreshConfig();
-        })
-        .catch(async () => {
-          showToast("Failed to save session log timestamps", "error");
-          const fetched = await getAppConfig().catch(() => null);
-          if (seq !== sessionLogTimestampsSaveSeq) return;
-          if (fetched) this.config = fetched;
-          const input = this.container?.querySelector<HTMLInputElement>("#session-log-timestamps");
-          if (input) input.checked = this.config?.session_log_timestamps ?? true;
-        });
+      void this.saver.save(this.sessionLogTimestampsDescriptor(enabled), enabled);
     });
 
     this.container?.querySelector<HTMLInputElement>("#session-log-dir")?.addEventListener("change", (e) => {
       const v = (e.target as HTMLInputElement).value.trim();
-      void setSessionLogDir(v || null).then(() => this.refreshConfig()).catch(() => {
-        showToast("Failed to save session log directory", "error");
-      });
+      void this.saver.save(this.sessionLogDirDescriptor(v || null), v || null);
     });
 
     this.container?.querySelector<HTMLInputElement>("#session-log-dir")?.addEventListener("keydown", (e) => {
@@ -1321,9 +1353,10 @@ export class SettingsScreen {
     this.container?.querySelector<HTMLButtonElement>("#session-log-dir-reset")?.addEventListener("click", () => {
       const input = this.container?.querySelector<HTMLInputElement>("#session-log-dir");
       if (input) input.value = "";
-      void setSessionLogDir(null).then(() => this.refreshConfig()).catch(() => {
-        showToast("Failed to reset session log directory", "error");
-      });
+      void this.saver.save(
+        this.sessionLogDirDescriptor(null, "Failed to reset session log directory"),
+        null,
+      );
     });
 
     this.container?.querySelector<HTMLButtonElement>("#session-log-dir-browse")?.addEventListener("click", () => void this.browseSessionLogDir());
@@ -1341,9 +1374,7 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("change", (e) => {
       const v = (e.target as HTMLInputElement).value.trim();
-      void setLogFilePath(v || null).then(() => this.refreshConfig()).catch(() => {
-        showToast("Failed to save log file path", "error");
-      });
+      void this.saver.save(this.logFilePathDescriptor(v || null), v || null);
     });
 
     this.container?.querySelector<HTMLInputElement>("#log-file-path")?.addEventListener("keydown", (e) => {
@@ -1353,9 +1384,10 @@ export class SettingsScreen {
     this.container?.querySelector<HTMLButtonElement>("#log-file-reset")?.addEventListener("click", () => {
       const input = this.container?.querySelector<HTMLInputElement>("#log-file-path");
       if (input) input.value = "";
-      void setLogFilePath(null).then(() => this.refreshConfig()).catch(() => {
-        showToast("Failed to reset log file path", "error");
-      });
+      void this.saver.save(
+        this.logFilePathDescriptor(null, "Failed to reset log file path"),
+        null,
+      );
     });
 
     this.container?.querySelector<HTMLButtonElement>("#log-file-browse")?.addEventListener("click", () => void this.browseLogFile());
@@ -1864,9 +1896,15 @@ export class SettingsScreen {
     }
   }
 
+  /** Newest read wins: a read started earlier must not commit a snapshot that
+   *  a later refresh (or a save's optimistic patch) already superseded. */
+  private refreshSeq = 0;
+
   private async refreshConfig() {
+    const seq = ++this.refreshSeq;
     try {
-      this.config = await getAppConfig();
+      const config = await getAppConfig();
+      if (seq === this.refreshSeq) this.config = config;
     } catch {
       // keep existing config
     }
@@ -1881,11 +1919,10 @@ export class SettingsScreen {
       if (selected) {
         const input = this.container?.querySelector<HTMLInputElement>("#log-file-path");
         if (input) input.value = selected;
-        await setLogFilePath(selected);
-        await this.refreshConfig();
+        await this.saver.save(this.logFilePathDescriptor(selected), selected);
       }
     } catch {
-      // User cancelled — no-op.
+      // User cancelled — no-op. A rejected write is reported by ConfigSaver.
     }
   }
 
@@ -1895,11 +1932,10 @@ export class SettingsScreen {
       if (selected) {
         const input = this.container?.querySelector<HTMLInputElement>("#session-log-dir");
         if (input) input.value = selected;
-        await setSessionLogDir(selected);
-        await this.refreshConfig();
+        await this.saver.save(this.sessionLogDirDescriptor(selected), selected);
       }
     } catch {
-      // User cancelled — no-op.
+      // User cancelled — no-op. A rejected write is reported by ConfigSaver.
     }
   }
 
