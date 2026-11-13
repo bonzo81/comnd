@@ -63,6 +63,19 @@
   overflow-wrap: break-word;
 }
 
+/* Runtime version, pinned to the bottom of the rail: plain text, never a
+   focus stop, so the roving tabindex still cycles only .settings-nav-item. */
+.settings-nav-version {
+  margin-top: auto;
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  /* Same wrapping contract as .settings-nav-label — the rail is a fixed
+     196px (issue #116) and must not widen for a long version string. */
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 /* ─── Content pane ──────────────────────────────────────────────── */
 .settings-page {
   flex: 1;

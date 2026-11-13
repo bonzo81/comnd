@@ -549,3 +549,66 @@ describe("SettingsScreen — duplicate-session policy freshness", () => {
     expect(select().value).toBe("focus");
   });
 });
+
+describe("SettingsScreen — version footer (#102)", () => {
+  async function mountWithVersion(version?: string | Promise<never>) {
+    const h = createHarness();
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
+    h.ipc.mock("get_session_log_dir", "");
+    if (version !== undefined) {
+      if (typeof version === "string") h.ipc.mock("plugin:app|version", version);
+      else h.ipc.mockImpl("plugin:app|version", () => version);
+    }
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    return { h, container, screen };
+  }
+
+  it("renders the runtime version as the last child of the rail", async () => {
+    const { container } = await mountWithVersion("0.5.0");
+    const nav = container.querySelector<HTMLElement>(".settings-nav")!;
+    const line = nav.lastElementChild!;
+
+    expect(line.classList.contains("settings-nav-version")).toBe(true);
+    expect(line.textContent).toBe("Version v0.5.0");
+    // The value comes from the runtime call, not a literal in the markup.
+    expect(nav.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+  });
+
+  it("keeps the footer non-interactive", async () => {
+    const { container } = await mountWithVersion("0.5.0");
+    const line = container.querySelector<HTMLElement>(".settings-nav-version")!;
+
+    expect(line.hasAttribute("tabindex")).toBe(false);
+    expect(line.getAttribute("role")).toBeNull();
+    expect(line.tagName).toBe("SPAN");
+  });
+
+  it("omits the footer when the version call rejects", async () => {
+    const { container } = await mountWithVersion(Promise.reject(new Error("no app plugin")));
+    expect(container.querySelector(".settings-nav-version")).toBeNull();
+    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+  });
+
+  it("omits the footer when the version is empty", async () => {
+    const { container } = await mountWithVersion("");
+    expect(container.querySelector(".settings-nav-version")).toBeNull();
+    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+  });
+
+  it("leaves the roving tabindex cycling only the nav buttons", async () => {
+    const { container } = await mountWithVersion("0.5.0");
+    const nav = container.querySelector<HTMLElement>(".settings-nav")!;
+    const buttons = nav.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    const footer = container.querySelector(".settings-nav-version")!;
+    buttons[0].focus();
+
+    nav.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(document.activeElement).toBe(buttons[buttons.length - 1]);
+    expect(document.activeElement).not.toBe(footer);
+
+    nav.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(document.activeElement).toBe(buttons[0]);
+  });
+});
