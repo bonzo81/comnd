@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose new behaviour for Comnd
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, or what is painful about it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should exist after this ships?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve it, and why they are worse.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Closest existing label; a maintainer applies it.
+      options:
+        - security
+        - testing
+        - ci
+        - accessibility
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      description: A maintainer applies the matching label.
+      options:
+        - p1 - blocks a verification gate
+        - p2 - planned work
+        - p3 - backlog
+    validations:
+      required: true
