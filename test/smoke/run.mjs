@@ -21,7 +21,7 @@ import {
 // The category is passed to the frontend through test_smoke_mutation so an
 // assertion can prove the mutation actually ran; a broken seam would otherwise
 // let an unmutated app satisfy the expected-failure match.
-const MUTATION_CATEGORIES = ["ssh_send", "focus", "name", "layout"];
+const MUTATION_CATEGORIES = ["ssh_send", "focus", "name", "layout", "suggestion"];
 
 function parseMutation(argv) {
   const equals = argv.find((arg) => arg.startsWith("--mutation="));
@@ -63,6 +63,15 @@ const MUTATION_CASES = {
   layout: {
     scenario: "sidebar-pty-resize",
     expectedFailure: /Sidebar resize: .*did not shrink the terminal[\s\S]*mutation activation: layout applied/,
+  },
+  // Scoped to the prefix path (stripPrefix stops stripping) so the ghost and
+  // dropdown assertions in `suggestion-accept` and `dropdown-click` stay green:
+  // only `prefix-suggestion` types a prefix command. The matched message is the
+  // missing-ghost timeout itself, so a later failure in the same scenario (a
+  // stalled mock, say) cannot stand in for a proven broken prefix.
+  suggestion: {
+    scenario: "prefix-suggestion",
+    expectedFailure: /Prefix suggestion: expected the ghost to show 'ctl'[\s\S]*mutation activation: suggestion applied/,
   },
 };
 
@@ -328,6 +337,10 @@ async function installSmokeHelpers(browser) {
 
     // Every focus indicator this app uses: an outline, a box-shadow, or a
     // pseudo-element that draws the ring.
+    // `documentFocused` travels with every reading because Blink only matches
+    // `:focus-visible` while the app window is the OS foreground window: a
+    // reading taken after another window took focus shows no ring even though
+    // the stylesheet draws one, and the flag is what tells those apart.
     const focusStyle = (el) => {
       if (!el) {
         return {
@@ -336,6 +349,7 @@ async function installSmokeHelpers(browser) {
           outlineColor: "transparent",
           boxShadow: "none",
           pseudoShadow: "none",
+          documentFocused: document.hasFocus(),
         };
       }
       const style = getComputedStyle(el);
@@ -351,6 +365,7 @@ async function installSmokeHelpers(browser) {
         outlineColor: style.outlineColor,
         boxShadow: style.boxShadow,
         pseudoShadow,
+        documentFocused: document.hasFocus(),
       };
     };
 
@@ -507,21 +522,25 @@ async function tabWalk(browser, max = 20, { reset = true } = {}) {
   }
   const stops = [];
   let tabInterceptors = 0;
+  const readStop = () => browser.execute(() => {
+    const el = document.activeElement;
+    // Tag the stop so its unfocused style can be read after the walk.
+    if (el && el !== document.body && !el.hasAttribute("data-comnd-stop")) {
+      const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
+      window.__comndSmokeStopSeq = seq;
+      el.setAttribute("data-comnd-stop", String(seq));
+    }
+    return {
+      ...window.__comndSmoke.active(),
+      ...window.__comndSmoke.focusStyle(el),
+      styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
+    };
+  });
   for (let index = 0; index < max; index += 1) {
     await browser.keys("\uE004");
-    const state = await browser.execute(() => {
-      const el = document.activeElement;
-      // Tag the stop so its unfocused style can be read after the walk.
-      if (el && el !== document.body && !el.hasAttribute("data-comnd-stop")) {
-        const seq = (window.__comndSmokeStopSeq ?? 0) + 1;
-        window.__comndSmokeStopSeq = seq;
-        el.setAttribute("data-comnd-stop", String(seq));
-      }
-      return {
-        ...window.__comndSmoke.active(),
-        ...window.__comndSmoke.focusStyle(el),
-        styleKey: el?.getAttribute?.("data-comnd-stop") ?? "",
-      };
+    const state = await readWithRingRetry(browser, readStop, {
+      isStop: (stop) => !!stop.tag && stop.tag !== "body",
+      styleOf: (stop) => stop,
     });
     if (!state.tag || state.tag === "body") break;
     stops.push(state);
@@ -630,11 +649,38 @@ function shadowVisible(value) {
   });
 }
 
+/** True when a reading paints a focus ring of its own. */
+function ringPainted(style) {
+  return (style.outlineStyle !== "none"
+      && parseFloat(style.outlineWidth) > 0
+      && colorAlpha(style.outlineColor) > 0)
+    || shadowVisible(style.boxShadow)
+    || shadowVisible(style.pseudoShadow);
+}
+
+/**
+ * Read the focused element, and when the reading shows no focus ring at all,
+ * press Shift and read the same element once more.
+ *
+ * Blink stops matching `:focus-visible` for the focused element while the app
+ * window is not the OS foreground window, so a reading taken in that moment
+ * reports no ring on a stop whose stylesheet draws one. Shift is a key press
+ * that types nothing and restores keyboard modality, and it does not move
+ * focus, so the second reading covers the same stop. A ring that is genuinely
+ * absent — the `focus` mutation — is absent from both readings, and the
+ * failure message then says the re-read did not recover it.
+ */
+async function readWithRingRetry(browser, read, { isStop, styleOf }) {
+  const first = await read();
+  if (!first || !isStop(first) || ringPainted(styleOf(first))) return first;
+  await browser.keys("\uE008");
+  const again = await read();
+  if (again && (again.styleKey ?? "") === (first.styleKey ?? "")
+    && ringPainted(styleOf(again))) return again;
+  return { ...first, ringRetry: "still absent on the Shift re-read" };
+}
+
 function assertFocusVisible(stop, label) {
-  const outlined = stop.outlineStyle !== "none"
-    && parseFloat(stop.outlineWidth) > 0
-    && colorAlpha(stop.outlineColor) > 0;
-  const shadowed = shadowVisible(stop.boxShadow) || shadowVisible(stop.pseudoShadow);
   const resting = stop.resting;
   // A visible indicator is not enough on its own: it has to differ from the
   // unfocused style, or a permanently drawn border or shadow would pass.
@@ -645,13 +691,16 @@ function assertFocusVisible(stop, label) {
       || stop.boxShadow !== resting.boxShadow
       || stop.pseudoShadow !== resting.pseudoShadow);
   assert(
-    (outlined || shadowed) && changed,
+    ringPainted(stop) && changed,
     `${label}: ${stopLabel(stop)} has no visible focus indicator `
     + `(outline ${stop.outlineStyle} ${stop.outlineWidth} ${stop.outlineColor}, `
     + `box-shadow ${stop.boxShadow}, pseudo ${stop.pseudoShadow}; `
     + `unfocused outline ${resting?.outlineStyle ?? "?"} ${resting?.outlineWidth ?? "?"} `
     + `${resting?.outlineColor ?? "?"}, box-shadow ${resting?.boxShadow ?? "?"}, `
-    + `pseudo ${resting?.pseudoShadow ?? "?"})`,
+    + `pseudo ${resting?.pseudoShadow ?? "?"}; `
+    + `document focused ${stop.documentFocused ?? "?"}, `
+    + `unfocused document focused ${resting?.documentFocused ?? "?"})`
+    + (stop.ringRetry ? `; Shift re-read: ${stop.ringRetry}` : ""),
   );
 }
 
@@ -664,7 +713,7 @@ function assertFocusVisible(stop, label) {
  * reaches it.
  */
 async function assertScriptFocusStop(browser, selector, label) {
-  const probe = await browser.execute((sel) => {
+  const probeOnce = () => browser.execute((sel) => {
     const el = document.querySelector(sel);
     if (!el) return null;
     if (document.activeElement === el) el.blur();
@@ -678,9 +727,18 @@ async function assertScriptFocusStop(browser, selector, label) {
       focused: window.__comndSmoke.focusStyle(document.activeElement),
     };
   }, selector);
+  const probe = await readWithRingRetry(browser, probeOnce, {
+    isStop: (state) => state?.took,
+    styleOf: (state) => state.focused,
+  });
   assert(probe, `${label}: ${selector} is not in the document`);
   assert(probe.took, `${label}: ${selector} cannot take focus (tabIndex ${probe.tabIndex})`);
-  const stop = { ...probe.active, ...probe.focused, resting: probe.resting };
+  const stop = {
+    ...probe.active,
+    ...probe.focused,
+    resting: probe.resting,
+    ringRetry: probe.ringRetry,
+  };
   assertNamed(stop, label);
   assertFocusVisible(stop, label);
   await browser.execute((sel) => document.querySelector(sel)?.blur(), selector);
@@ -824,7 +882,10 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
   const forward = [];
   for (let step = 0; step < 12; step += 1) {
     await browser.keys("\uE004");
-    const state = await inspect(panelSelector);
+    const state = await readWithRingRetry(browser, () => inspect(panelSelector), {
+      isStop: (stop) => stop.inside,
+      styleOf: (stop) => stop.focus,
+    });
     assert(
       state.inside,
       `${label}: Tab moved focus out of the dialog to ${describeActive(state.active)}`
@@ -910,7 +971,12 @@ async function assertModalTrap(browser, panelSelector, label, { expectedControls
     return out;
   }, panelSelector);
   for (const state of cycle) {
-    assertFocusVisible({ ...state.active, ...state.focus, resting: resting[state.styleKey] ?? null }, label);
+    assertFocusVisible({
+      ...state.active,
+      ...state.focus,
+      resting: resting[state.styleKey] ?? null,
+      ringRetry: state.ringRetry,
+    }, label);
   }
 
   const named = await inspect(panelSelector);
@@ -1258,6 +1324,104 @@ async function launchAndConnect(browser, dataDir) {
   return host;
 }
 
+// Suggestions are off until the toolbar toggle is pressed, and the session
+// view is rebuilt under it, so act through actOn and read the state with one
+// execute per poll instead of holding a handle.
+async function enableSuggestions(browser) {
+  const pressed = await browser.execute(() =>
+    document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null,
+  );
+  if (pressed !== "true") await actOn(browser, ".tv-suggestions-btn");
+  await waitFor(
+    browser,
+    () => document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") === "true",
+    "Suggestions: the toolbar toggle never reported pressed",
+  );
+}
+
+/** Wait until the ghost shows exactly `text` in a box the user can actually see. */
+async function waitForGhost(browser, text, behavior) {
+  await browser.waitUntil(async () => browser.execute((expected) => {
+    const ghost = document.querySelector(".ghost-text");
+    if (!ghost || ghost.textContent !== expected) return false;
+    // `display` alone accepts a hidden ghost: `visibility: hidden` and a
+    // collapsed box both leave the text unreadable on screen.
+    const style = getComputedStyle(ghost);
+    const rect = ghost.getBoundingClientRect();
+    return style.display !== "none"
+      && style.visibility === "visible"
+      && ghost.getClientRects().length > 0
+      && rect.width > 0
+      && rect.height > 0;
+  }, text), {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: `${behavior}: expected the ghost to show '${text}'`,
+  });
+}
+
+/**
+ * What sits at the centre of `selector`, read in one execute. `elementFromPoint`
+ * returns null for a point off screen, so those report `found: false` rather
+ * than a hit that was never sampled.
+ */
+async function hitTestCentre(browser, selector) {
+  return browser.execute((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return { missing: true };
+    const name = (node) => (node
+      ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}`
+      : "nothing");
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const onScreen = x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+    const hit = onScreen ? document.elementFromPoint(x, y) : null;
+    return {
+      missing: false,
+      point: `${Math.round(x)},${Math.round(y)}`,
+      onScreen,
+      found: !!hit,
+      self: !!hit && (hit === el || el.contains(hit)),
+      hit: name(hit),
+    };
+  }, selector);
+}
+
+/**
+ * The visible ghost's geometry, read in a single execute so the numbers cannot
+ * come from two different renders. `expectedLeft` applies the placement formula
+ * under test (`GhostText.positionAtCursor`): the left edge of `.xterm-screen`
+ * plus one cell per column the cursor has advanced. Returns null when the ghost
+ * has no box a user could see, so the caller's assertion fails rather than
+ * measuring an invisible overlay.
+ */
+async function measureGhost(browser) {
+  return browser.execute(() => {
+    const ghost = document.querySelector(".ghost-text");
+    const screen = document.querySelector(".xterm-screen");
+    const term = window.__comndTerminal;
+    const cols = term?.cols ?? 0;
+    if (!ghost || !screen || !cols || !term) return null;
+    const ghostRect = ghost.getBoundingClientRect();
+    const ghostStyle = getComputedStyle(ghost);
+    if (ghostStyle.display === "none"
+      || ghostStyle.visibility !== "visible"
+      || ghost.getClientRects().length === 0
+      || ghostRect.width === 0
+      || ghostRect.height === 0) return null;
+    const rect = screen.getBoundingClientRect();
+    const cellWidth = rect.width / cols;
+    const cursorX = term.buffer.active.cursorX;
+    return {
+      left: ghost.getBoundingClientRect().left,
+      cellWidth,
+      cursorX,
+      expectedLeft: rect.left + cursorX * cellWidth,
+    };
+  });
+}
+
 async function commandRoundTrip(browser, dataDir) {
   await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
@@ -1325,25 +1489,170 @@ async function main() {
       name: "suggestion-accept",
       async run(browser, dataDir) {
         await launchAndConnect(browser, dataDir);
-        // Safe: this handle is only read; the click below goes through actOn.
-        const toggle = await browser.$(".tv-suggestions-btn");
-        if (await toggle.getAttribute("aria-pressed") !== "true") await actOn(browser, ".tv-suggestions-btn");
+        await enableSuggestions(browser);
         await sendKeys(browser, "ip r");
-        await browser.waitUntil(async () => browser.execute(() => {
+        await waitForGhost(browser, "oute", "Suggestion accept");
+        // Suggestions auto-open the dropdown, so both overlays are on screen and
+        // both hit-tests run here rather than in a scenario of their own.
+        const overlays = await browser.execute(() => {
+          // A visible overlay means a box the user can see, not merely a
+          // non-`none` display: `visibility: hidden` and a collapsed box both
+          // leave nothing on screen while the text and geometry still read.
+          const visible = (el) => {
+            if (!el) return false;
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== "none"
+              && style.visibility === "visible"
+              && el.getClientRects().length > 0
+              && rect.width > 0
+              && rect.height > 0;
+          };
+          const name = (el) => el
+            ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
+            : "nothing";
           const ghost = document.querySelector(".ghost-text");
-          return !!ghost && getComputedStyle(ghost).display !== "none" && ghost.textContent === "oute";
-        }), {
-          timeout: WAIT_MS,
-          interval: 100,
-          timeoutMsg: "Suggestion accept: expected ghost remainder 'oute' for 'ip r'",
+          const dropdown = document.querySelector(".suggestion-dropdown");
+          if (!visible(ghost) || !visible(dropdown)) {
+            return { ghostUp: visible(ghost), dropdownUp: visible(dropdown) };
+          }
+          // Centre point, whether that point is on screen at all, and what sits
+          // there. Outside the viewport elementFromPoint returns null, which
+          // would otherwise read as "the overlay did not swallow the click" and
+          // pass a test that never actually sampled the overlay.
+          const probe = (el) => {
+            const r = el.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            const onScreen = x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+            const hit = onScreen ? document.elementFromPoint(x, y) : null;
+            return {
+              point: `${Math.round(x)},${Math.round(y)}`,
+              onScreen,
+              found: !!hit,
+              hit: name(hit),
+              holds: !!hit && (hit === el || el.contains(hit)),
+            };
+          };
+          const ghostProbe = probe(ghost);
+          const dropdownProbe = probe(dropdown);
+          return { ghostUp: true, dropdownUp: true, ghostProbe, dropdownProbe };
         });
+        assert(overlays.ghostUp && overlays.dropdownUp,
+          "Suggestion accept: expected both the ghost and the dropdown to be visible for 'ip r'");
+        const { ghostProbe, dropdownProbe } = overlays;
+        assert(ghostProbe.onScreen && ghostProbe.found,
+          `Suggestion accept: could not sample the ghost at ${ghostProbe.point} `
+          + `(on screen: ${ghostProbe.onScreen}, hit ${ghostProbe.hit})`);
+        assert(!ghostProbe.holds,
+          `Suggestion accept: the ghost is not click-through at its centre `
+          + `(hit ${ghostProbe.hit} at ${ghostProbe.point})`);
+        assert(dropdownProbe.onScreen && dropdownProbe.found,
+          `Suggestion accept: could not sample the dropdown at ${dropdownProbe.point} `
+          + `(on screen: ${dropdownProbe.onScreen}, hit ${dropdownProbe.hit})`);
+        assert(dropdownProbe.holds,
+          `Suggestion accept: nothing clickable at the dropdown centre `
+          + `(hit ${dropdownProbe.hit} at ${dropdownProbe.point})`);
+        // The ghost is anchored to the cursor cell, so its absolute left edge is
+        // the screen's left edge plus one cell per cursor column. Checking only
+        // the shift below would pass a ghost parked a cell behind the cursor,
+        // since that one moves by a cell too.
+        const anchor = await measureGhost(browser);
+        assert(anchor,
+          "Suggestion accept: could not measure the ghost before typing 'o' "
+          + "(missing, hidden, or without a non-empty box)");
+        const anchorOff = anchor.left - anchor.expectedLeft;
+        assert(Math.abs(anchorOff) <= 1,
+          `Suggestion accept: the ghost starts ${(anchorOff / anchor.cellWidth).toFixed(2)} cells `
+          + `from the cursor cell at column ${anchor.cursorX} `
+          + `(${anchor.cellWidth.toFixed(1)}px per cell)`);
+        // One more character must move the ghost exactly one cell right. A
+        // one-render-stale anchor leaves the remainder sitting over the
+        // character it is meant to continue.
+        await sendKeys(browser, "o");
+        await waitForGhost(browser, "ute", "Suggestion accept");
+        const shifted = await measureGhost(browser);
+        assert(shifted,
+          "Suggestion accept: could not measure the ghost after typing 'o' "
+          + "(missing, hidden, or without a non-empty box)");
+        const cells = (shifted.left - anchor.left) / shifted.cellWidth;
+        assert(Math.abs(cells - 1) <= 1 / shifted.cellWidth,
+          `Suggestion accept: the ghost moved ${cells.toFixed(2)} cells `
+          + `(${shifted.cellWidth.toFixed(1)}px per cell) for one character`);
+        const shiftedOff = shifted.left - shifted.expectedLeft;
+        assert(Math.abs(shiftedOff) <= 1,
+          `Suggestion accept: the ghost ended ${(shiftedOff / shifted.cellWidth).toFixed(2)} cells `
+          + `from the cursor cell at column ${shifted.cursorX}`);
         await sendKeys(browser, "\uE004");
         await sendKeys(browser, "\uE007");
         const expected = [...Buffer.from("ip route\r")];
         const actual = await waitForBytes(browser, expected.length, "Suggestion accept");
         assertBytes(actual, expected, "Suggestion accept: only the completion remainder was sent");
         await waitForTerminal(browser, "ip route");
-        assert.equal(countOccurrences(await terminalText(browser), "ip route"), 1);
+        const seen = countOccurrences(await terminalText(browser), "ip route");
+        assert.equal(seen, 1,
+          `Suggestion accept: expected 'ip route' in the terminal exactly once, saw ${seen}`);
+      },
+    },
+    {
+      name: "prefix-suggestion",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir);
+        await enableSuggestions(browser);
+        // The engine strips the `sudo` prefix and matches `system` against the
+        // inner command, ghosting its remainder.
+        await sendKeys(browser, "sudo system");
+        await waitForGhost(browser, "ctl", "Prefix suggestion");
+        await sendKeys(browser, "\uE004");
+        await sendKeys(browser, "\uE007");
+        const expected = [...Buffer.from("sudo systemctl\r")];
+        const actual = await waitForBytes(browser, expected.length, "Prefix suggestion");
+        assertBytes(actual, expected,
+          "Prefix suggestion: expected 'sudo systemctl' and Enter at the mock");
+        await waitForTerminal(browser, "sudo systemctl");
+        const seen = countOccurrences(await terminalText(browser), "sudo systemctl");
+        assert.equal(seen, 1,
+          `Prefix suggestion: expected 'sudo systemctl' in the terminal exactly once, saw ${seen}`);
+      },
+    },
+    {
+      name: "dropdown-click",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir);
+        await enableSuggestions(browser);
+        // Seven bundled commands match a single `s`, ordered by name, so row 1
+        // is `sed`; clicking it must send only the remainder after the typed
+        // letter.
+        await sendKeys(browser, "s");
+        await waitFor(browser, () => document.querySelectorAll(".suggestion-item").length > 1,
+          "Dropdown click: expected the dropdown to list at least two 's' commands");
+        const rowName = await browser.execute(() =>
+          document.querySelector('.suggestion-item[data-index="1"] .suggestion-name')?.textContent ?? null);
+        assert.equal(rowName, "sed",
+          `Dropdown click: row 1 is ${JSON.stringify(rowName)}, expected 'sed'`);
+        // `actOn` dispatches a synthetic click, which a row the pointer cannot
+        // reach (inside a clipped overlay, or under `pointer-events: none`)
+        // would still accept. Hit-test the row's centre first so the click below
+        // proves a pointer can get there.
+        const reach = await hitTestCentre(browser, '.suggestion-item[data-index="1"]');
+        assert(!reach.missing && reach.onScreen && reach.found && reach.self,
+          reach.missing
+            ? "Dropdown click: row 1 was gone before the pointer reachability check"
+            : `Dropdown click: row 1 is not reachable by the pointer at ${reach.point} `
+              + `(on screen: ${reach.onScreen}, hit ${reach.hit})`);
+        await actOn(browser, '.suggestion-item[data-index="1"]', { action: "click" });
+        await waitFor(browser, () => {
+          const dropdown = document.querySelector(".suggestion-dropdown");
+          return !dropdown || getComputedStyle(dropdown).display === "none";
+        }, "Dropdown click: clicking row 1 left the dropdown open");
+        await sendKeys(browser, "\uE007");
+        const expected = [...Buffer.from("sed\r")];
+        const actual = await waitForBytes(browser, expected.length, "Dropdown click");
+        assertBytes(actual, expected, "Dropdown click: expected 'sed' and Enter at the mock");
+        await waitForTerminal(browser, "sed");
+        const seen = countOccurrences(await terminalText(browser), "sed");
+        assert.equal(seen, 1,
+          `Dropdown click: expected 'sed' in the terminal exactly once, saw ${seen}`);
       },
     },
     {
@@ -2509,10 +2818,11 @@ async function main() {
     },
   ];
 
-  // A focus/name/layout run boots the same app with COMND_SMOKE_MUTATION set
-  // and drives only the scenario that regression is supposed to break. The
-  // expected failure must name the assertion and carry proof that the
-  // frontend applied the mutation, so a broken seam cannot pass silently.
+  // A focus/name/layout/suggestion run boots the same app with
+  // COMND_SMOKE_MUTATION set and drives only the scenario that regression is
+  // supposed to break. The expected failure must name the assertion and carry
+  // proof that the frontend applied the mutation, so a broken seam cannot pass
+  // silently.
   if (mutationCategory) {
     const target = MUTATION_CASES[mutationCategory];
     const scenario = tests.find((test) => test.name === target.scenario);

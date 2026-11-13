@@ -695,6 +695,12 @@ interface StrippedPrefix {
  * complete word followed by a space — `sud` stays a normal match.
  */
 function stripPrefix(input: string, prefixes: Map<string, PrefixCommandDef>): StrippedPrefix | null {
+  // Smoke-only deliberate regression (issue #138): with COMND_SMOKE_MUTATION
+  // set to `suggestion` the prefix path never fires, so `sudo system` matches
+  // nothing and no ghost appears. Vite folds `import.meta.env.MODE` at build
+  // time, so a release bundle keeps no branch here.
+  if (import.meta.env.MODE === "smoke"
+    && document.documentElement.dataset.smokeMutation === "suggestion") return null;
   const lower = input.toLowerCase();
   for (const [word, def] of prefixes) {
     if (!lower.startsWith(word + " ")) continue;
