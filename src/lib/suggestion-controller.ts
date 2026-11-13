@@ -442,6 +442,9 @@ export class SuggestionController {
       const dd = this.deps.dropdown();
       if (dd?.isVisible()) {
         dd.updateResults(results);
+        // New results can change the selected row (and choice mode), so the
+        // preview has to follow the selection, not just the top match.
+        this.syncDropdownToGhostText();
       } else {
         this.openDropdown(results);
       }
@@ -502,10 +505,18 @@ export class SuggestionController {
   /** Re-render ghost from the current dropdown selection. */
   syncDropdownToGhostText(): void {
     if (this.secretInputActive) return;
-    const selected = this.deps.dropdown()?.getSelected();
-    if (selected) {
-      this.applyTopMatch(selected, this.shadowBuffer.content, 0);
+    const dd = this.deps.dropdown();
+    const selected = dd?.getSelected();
+    if (!selected) return;
+    // In choice mode the dropdown hands back a ready-made payload for the
+    // selected option; rebuilding from the top command would ghost a
+    // different option, so Tab would send something the preview never showed.
+    const payload = dd?.getSelectedPayload();
+    if (payload) {
+      this.deps.ghost()?.showPayload(payload, 0);
+      return;
     }
+    this.applyTopMatch(selected, this.shadowBuffer.content, 0);
   }
 
   /**

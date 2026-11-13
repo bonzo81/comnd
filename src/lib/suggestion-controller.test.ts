@@ -5,7 +5,7 @@ import { LineTracker } from "./line-tracker";
 import { GhostText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import type { SuggestionResult } from "./suggestion-engine";
-import type { Command, PlatformIndex } from "./tauri-api";
+import type { Command, CommandToken, PlatformIndex } from "./tauri-api";
 import { resetSinks, setLogLevel, setSinks, type LogRecord } from "./logger";
 
 const cmd = (name: string, mode = "bash"): Command => ({
@@ -654,6 +654,61 @@ describe("SuggestionController — keyIn dropdown navigation and line editing", 
     expect(ctx.dropdown.isVisible()).toBe(true);
     ctx.c.keyIn("\x1b[D");
     expect(ctx.dropdown.isVisible()).toBe(false);
+  });
+});
+
+describe("SuggestionController — choice mode", () => {
+  const systemctl = (): Command => ({
+    ...cmd("systemctl"),
+    tokens: [
+      { lit: "systemctl" },
+      {
+        choice: ["status", "start", "stop"],
+        descriptions: { status: "Show unit status", start: "Start a unit", stop: "Stop a unit" },
+      },
+    ] as CommandToken[],
+  });
+
+  it("ghost preview follows the selected choice row and Tab sends its remainder", () => {
+    const ctx = makeController();
+    ctx.c.loadCommands([systemctl()], "linux-bash", null);
+    ctx.c.setMode("bash");
+    ctx.c.setSuggestionsEnabled(true);
+
+    type(ctx, "systemctl ");
+    vi.advanceTimersByTime(50);
+    expect(ghostText(ctx.container)).toBe("status");
+
+    type(ctx, "sta");
+    vi.advanceTimersByTime(50);
+    // Selected row is still "status", so the preview must show its remainder.
+    expect(ghostText(ctx.container)).toBe("tus");
+
+    ctx.c.keyIn("\x1b[B");
+    expect(ghostText(ctx.container)).toBe("rt");
+
+    ctx.c.keyIn("\t");
+    expect(ctx.sent[ctx.sent.length - 1]).toBe("rt");
+    expect(ctx.dropdown.isVisible()).toBe(false);
+  });
+
+  it("Tab sends the compatible word's remainder for a one-letter token (`ip r`)", () => {
+    const ctx = makeController();
+    ctx.c.loadCommands([{
+      ...cmd("ip"),
+      tokens: [{ lit: "ip" }, { choice: ["addr", "route", "link", "neigh"] }] as CommandToken[],
+    }], "linux-bash", null);
+    ctx.c.setMode("bash");
+    ctx.c.setSuggestionsEnabled(true);
+
+    type(ctx, "ip r");
+    vi.advanceTimersByTime(50);
+    // "addr" is ruled out by the typed "r"; the row that can finish the word
+    // is "route", and Tab must send what the preview showed.
+    expect(ghostText(ctx.container)).toBe("oute");
+
+    ctx.c.keyIn("\t");
+    expect(ctx.sent[ctx.sent.length - 1]).toBe("oute");
   });
 });
 

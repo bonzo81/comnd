@@ -60,6 +60,57 @@ function makeDropdown() {
   return { dropdown, container, onAccept };
 }
 
+/**
+ * jsdom has no layout, so fake fixed-height rows and a fixed-height window to
+ * exercise the scroll maths. A real browser lays nothing out while the
+ * dropdown is display:none, so the stub reports zeros then too.
+ */
+function stubRowGeometry(rowHeight: number, visibleRows = 8) {
+  const proto = HTMLElement.prototype;
+  const viewHeight = rowHeight * visibleRows;
+  const scrollTops = new WeakMap<HTMLElement, number>();
+  const shown = (el: HTMLElement) =>
+    (el.closest(".suggestion-dropdown") as HTMLElement | null)?.style.display !== "none";
+
+  const install = (key: string, desc: PropertyDescriptor) => {
+    const saved = Object.getOwnPropertyDescriptor(proto, key);
+    Object.defineProperty(proto, key, desc);
+    cleanups.push(() => {
+      if (saved) Object.defineProperty(proto, key, saved);
+      else delete (proto as unknown as Record<string, unknown>)[key];
+    });
+  };
+
+  install("offsetTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (!shown(this) || !this.classList.contains("choice-row")) return 0;
+      return Number(this.dataset.index ?? "0") * rowHeight;
+    },
+  });
+  install("offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return shown(this) && this.classList.contains("choice-row") ? rowHeight : 0;
+    },
+  });
+  install("clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("suggestion-dropdown") && shown(this) ? viewHeight : 0;
+    },
+  });
+  install("scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return scrollTops.get(this) ?? 0;
+    },
+    set(this: HTMLElement, value: number) {
+      scrollTops.set(this, value);
+    },
+  });
+}
+
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
 });
@@ -169,6 +220,286 @@ describe("Dropdown — mouse accept", () => {
     expect(onAccept).toHaveBeenCalledTimes(1);
     expect(onAccept.mock.calls[0][0].name).toBe("beta");
     expect(onAccept.mock.calls[0][1]).toEqual({ kind: "literal", text: "beta" });
+    expect(dropdown.isVisible()).toBe(false);
+  });
+});
+
+const SYSTEMCTL_OPTIONS = [
+  "status", "start", "stop", "restart", "reload", "enable", "disable", "mask",
+  "unmask", "is-active", "is-enabled", "list-units", "list-unit-files", "daemon-reload",
+];
+
+const SYSTEMCTL_DESCRIPTIONS: Record<string, string> = {
+  status: "Show unit status and recent log lines",
+  start: "Start a unit",
+  stop: "Stop a unit",
+  restart: "Restart a unit",
+  reload: "Reload the service's own config",
+  enable: "Enable at boot (does not start now)",
+  disable: "Disable at boot",
+  mask: "Prevent the unit from ever starting",
+  unmask: "Undo mask",
+  "is-active": "Check whether a unit is running",
+  "is-enabled": "Check boot-time enablement",
+  "list-units": "List loaded units",
+  "list-unit-files": "List installed unit files",
+  "daemon-reload": "Reload systemd's unit files",
+};
+
+function systemctlTokens(): CommandToken[] {
+  return [
+    { lit: "systemctl" },
+    { choice: [...SYSTEMCTL_OPTIONS], descriptions: { ...SYSTEMCTL_DESCRIPTIONS } },
+    { lit: "--now", optional: true },
+    { var: "unit", type: "free", optional: true },
+  ];
+}
+
+function systemctlResult(tokens: CommandToken[], currentTokenInput = ""): SuggestionResult {
+  return makeResult(makeCommand("systemctl", { tokens }), {
+    tokenMatch: tokenMatchAt(tokens, 1, currentTokenInput),
+  });
+}
+
+describe("Dropdown — choice mode", () => {
+  it("renders one .choice-row per allowed word with its KB description", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    const rows = container.querySelectorAll(".suggestion-item.choice-row");
+    expect(rows).toHaveLength(SYSTEMCTL_OPTIONS.length);
+    expect(container.querySelector(".scroll-indicator")).toBeNull();
+    expect(container.querySelector(".badge-custom")).toBeNull();
+
+    rows.forEach((row, i) => {
+      const word = SYSTEMCTL_OPTIONS[i];
+      expect(row.querySelector(".suggestion-name")?.textContent).toBe(word);
+      expect(row.querySelector(".choice-desc")?.textContent).toBe(SYSTEMCTL_DESCRIPTIONS[word]);
+    });
+  });
+
+  it("shows the custom-override badge once above the option rows", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const custom = makeCommand("systemctl", { tokens, overrides: true });
+
+    dropdown.show([makeResult(custom, { tokenMatch: tokenMatchAt(tokens, 1) })], "systemctl ");
+
+    expect(container.querySelectorAll(".badge-custom")).toHaveLength(1);
+    expect(container.querySelector(".choice-header .badge-custom")?.textContent).toBe("custom");
+    expect(container.querySelector(".choice-row .badge-custom")).toBeNull();
+  });
+
+  it("scrolls the selected row into the eight-row window", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const list = container.querySelector<HTMLElement>(".suggestion-dropdown")!;
+    const rowHeight = 32;
+    stubRowGeometry(rowHeight);
+
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    expect(list.classList.contains("choice-mode")).toBe(true);
+    expect(list.scrollTop).toBe(0);
+
+    // Rows 9+ sit below the eight-row cap; the selection must stay on screen.
+    for (let i = 0; i < 8; i++) dropdown.moveDown();
+    expect((container.querySelector(".choice-row.selected") as HTMLElement).dataset.index).toBe("8");
+    expect(list.scrollTop).toBe(rowHeight);
+
+    dropdown.moveUp();
+    expect(list.scrollTop).toBe(rowHeight);
+
+    for (let i = 0; i < 7; i++) dropdown.moveUp();
+    expect(list.scrollTop).toBe(0);
+  });
+
+  it("opens with the first compatible choice scrolled into view", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const list = container.querySelector<HTMLElement>(".suggestion-dropdown")!;
+    const rowHeight = 32;
+    stubRowGeometry(rowHeight);
+
+    // "daemon" only completes to daemon-reload, the last of 14 rows, so the
+    // initial selection starts below the fold.
+    dropdown.show([systemctlResult(tokens, "daemon")], "systemctl daemon");
+
+    expect((container.querySelector(".choice-row.selected") as HTMLElement).dataset.index).toBe("13");
+    expect(list.scrollTop).toBe(14 * rowHeight - 8 * rowHeight);
+  });
+
+  it("moves .selected between choice rows and wraps like listbox-nav", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    const selectedIndex = () => {
+      const selected = container.querySelectorAll(".choice-row.selected");
+      expect(selected).toHaveLength(1);
+      return (selected[0] as HTMLElement).dataset.index;
+    };
+
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("2");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe(String(SYSTEMCTL_OPTIONS.length - 1));
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("0");
+  });
+
+  it("sends the full word when none of it has been typed", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="1"]')!.click();
+
+    expect(onAccept).toHaveBeenCalledTimes(1);
+    expect(onAccept.mock.calls[0][0].name).toBe("systemctl");
+    expect(onAccept.mock.calls[0][1]).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "start",
+    });
+    expect(dropdown.isVisible()).toBe(false);
+  });
+
+  it("sends only the merged remainder when part of the word is typed", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="1"]')!.click();
+
+    expect(onAccept.mock.calls[0][1]).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "rt",
+    });
+  });
+
+  it("merges from the live token match on the keyboard accept path", () => {
+    const tokens = systemctlTokens();
+    const { dropdown } = makeDropdown();
+    // Opened before "sta" was typed, so the cached prefix is stale by design.
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    dropdown.moveDown();
+    const selected = dropdown.getSelected();
+    expect(selected?.command.name).toBe("systemctl");
+    expect(dropdown.getSelectedPayload()).toEqual({
+      kind: "choice",
+      options: SYSTEMCTL_OPTIONS,
+      pick: "rt",
+    });
+  });
+
+  it("keeps the arrow-key position while the partial word still completes that row", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.moveDown();
+
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect(selected).toHaveLength(1);
+    expect((selected[0] as HTMLElement).dataset.index).toBe("1");
+  });
+
+  it("moves the selection to a row the partial word can complete", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    dropdown.moveDown();
+    dropdown.moveDown();
+
+    // "sta" rules out "stop", so the selection cannot stay on it.
+    dropdown.updateResults([systemctlResult(tokens, "sta")]);
+
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect((selected[0] as HTMLElement).dataset.index).toBe("0");
+  });
+
+  it("keeps every row visible but marks the ones the partial word rules out", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    const rows = container.querySelectorAll<HTMLElement>(".choice-row");
+    expect(rows).toHaveLength(SYSTEMCTL_OPTIONS.length);
+    expect(rows[0].getAttribute("aria-disabled")).toBeNull();
+    expect(rows[1].getAttribute("aria-disabled")).toBeNull();
+    expect(rows[2].getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("skips rows the partial word cannot complete when navigating", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    const selectedIndex = () => {
+      const selected = container.querySelectorAll(".choice-row.selected");
+      expect(selected).toHaveLength(1);
+      return (selected[0] as HTMLElement).dataset.index;
+    };
+
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("1");
+    dropdown.moveDown();
+    expect(selectedIndex()).toBe("0");
+    dropdown.moveUp();
+    expect(selectedIndex()).toBe("1");
+  });
+
+  it("ignores clicks on rows the partial word cannot complete", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container, onAccept } = makeDropdown();
+    dropdown.show([systemctlResult(tokens, "sta")], "systemctl sta");
+
+    container.querySelector<HTMLElement>('.choice-row[data-index="2"]')!.click();
+
+    // Accepting "stop" here would leave "systemctl stastop" on the wire.
+    expect(onAccept).not.toHaveBeenCalled();
+    const selected = container.querySelectorAll(".choice-row.selected");
+    expect((selected[0] as HTMLElement).dataset.index).toBe("0");
+  });
+
+  it("returns to command rows when the current token is no longer a choice", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+    expect(container.querySelectorAll(".choice-row")).toHaveLength(SYSTEMCTL_OPTIONS.length);
+
+    dropdown.updateResults([
+      makeResult(makeCommand("systemctl", { tokens }), { tokenMatch: tokenMatchAt(tokens, 2) }),
+    ]);
+
+    expect(container.querySelector(".choice-row")).toBeNull();
+    expect(container.querySelectorAll(".suggestion-item")).toHaveLength(1);
+    expect(
+      container.querySelector(".suggestion-dropdown")!.classList.contains("choice-mode"),
+    ).toBe(false);
+  });
+
+  it("hides when the choice results disappear", () => {
+    const tokens = systemctlTokens();
+    const { dropdown } = makeDropdown();
+    dropdown.show([systemctlResult(tokens)], "systemctl ");
+
+    dropdown.updateResults([]);
+
     expect(dropdown.isVisible()).toBe(false);
   });
 });
