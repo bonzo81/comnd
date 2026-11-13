@@ -102,7 +102,7 @@ This is the core technical challenge. The app must observe user input to power s
    * `Ctrl+C` (interrupt) — also clears shadow buffer
    * `Ctrl+Z` (suspend) — clears shadow buffer
    * `Ctrl+D` (EOF)
-   * Arrow keys when dropdown is NOT open (remote history navigation — shadow buffer resets since we can't track remote history)
+   * Arrow keys when dropdown is NOT open (remote history navigation — the shadow buffer is re-synced from the echo, since we can't track remote history)
 7. **Paste handling**: pasted text is sent to the SSH channel and added to shadow buffer in full. Suggestion engine runs against the final buffer state.
 
 **Edge cases:**
@@ -111,6 +111,7 @@ This is the core technical challenge. The app must observe user input to power s
 * **Remote tab-completion output**: When the remote device responds to Tab with completion options (multi-line output), the prompt detector treats this as command output. Shadow buffer resets on next detected prompt.
 * **Multi-line input**: Not supported in MVP — shadow buffer is single-line, reset on Enter
 * **Cisco** `**?**` **key**: Sends `?` to remote immediately (pass-through), remote displays help. Shadow buffer keeps the text before `?` so suggestions resume after help output.
+* **Line-editing keys** (arrows, Home/End, Ctrl+A/E): the remote repaints the line, so the shadow buffer is marked untrusted and re-synced from the echoed line when the output goes quiet. The re-sync waits for the 200 ms idle tick rather than acting on the first chunk of the repaint, because a repaint split across chunks hands the controller a lone `\r` whose line is still empty; acting there would wipe the buffer. Suggestions resume after that tick.
 
 ## Prompt Detection
 

@@ -39,6 +39,9 @@ export class LineTracker {
   private onModeChange: (mode: string) => void;
   private onPromptDetected: () => void;
   private onSecretPromptDetected: () => void;
+  // Fired after each idle tick's prompt check — the "the remote went quiet"
+  // edge that consumers use to re-sync state built from whole-chunk text.
+  private onSettled: (() => void) | null = null;
 
   private static readonly IDLE_MS = 200;
   private static readonly PASSTHROUGH_MS = 2000;
@@ -93,6 +96,17 @@ export class LineTracker {
     this.stripper.reset();
   }
 
+  /**
+   * Register a listener for the 200 ms idle tick, called after the prompt
+   * check. Output arrives in arbitrary byte slices, so a consumer that
+   * reconstructs state from whole-chunk text (the echo re-sync) cannot trust
+   * the first chunk that happens to look like a prompt; the idle tick is the
+   * first point where every chunk of the burst has been delivered.
+   */
+  setSettledListener(listener: (() => void) | null) {
+    this.onSettled = listener;
+  }
+
   /** Feed SSH output data: one char walk drives both line and prompt state. */
   feed(data: string) {
     const clean = this.stripper.feed(data);
@@ -117,7 +131,10 @@ export class LineTracker {
 
     // Reset idle timer
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.checkPrompt(), LineTracker.IDLE_MS);
+    this.idleTimer = setTimeout(() => {
+      this.checkPrompt();
+      this.onSettled?.();
+    }, LineTracker.IDLE_MS);
 
     // Passthrough timer — only arm on real output (contains newline) AND only
     // when prompt patterns exist. Without patterns (e.g. linux-bash has {}),

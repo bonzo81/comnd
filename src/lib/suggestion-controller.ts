@@ -173,6 +173,8 @@ export class SuggestionController {
     this.deps = deps;
     // Shadow buffer updates are the debounce trigger â€” no currentInput mirror.
     this.shadowBuffer = new ShadowBuffer((text) => this.debounceSuggestionQuery(text));
+    // Echo re-sync waits for the tracker's idle tick — see onStreamSettled.
+    deps.tracker.setSettledListener(() => this.onStreamSettled());
   }
 
   // â”€â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -315,16 +317,12 @@ export class SuggestionController {
 
     if (!this.receivingOutput && !tracker.isPassthrough) {
       if (this.cursorMoved) {
+        // Reconcile on every chunk but leave the flag set: a chunk may be only
+        // the `\r` of a repaint, where the line is momentarily empty and the
+        // buffer would be wiped. onStreamSettled clears the flag once the whole
+        // burst has landed.
         const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
-        if (echoed !== null) {
-          // Flag clears on any successful reconcile â€” even when the echoed
-          // content matches the buffer (arrow key edited nothing), otherwise
-          // the guard never lifts and suggestions stay dead.
-          const changed = echoed !== this.shadowBuffer.content;
-          this.shadowBuffer.setContent(echoed);
-          this.cursorMoved = false;
-          if (!changed && echoed) this.debounceSuggestionQuery(echoed);
-        }
+        if (echoed !== null) this.shadowBuffer.setContent(echoed);
       } else {
         // Trusted EOL state (buffer reliable) â€” learn the prompt prefix
         // from line = prompt + buffer for platforms without prompt
@@ -344,6 +342,9 @@ export class SuggestionController {
       if (this.outputTimer) clearTimeout(this.outputTimer);
       this.outputTimer = setTimeout(() => {
         this.receivingOutput = false;
+        // A repaint that arrived as a burst (it contains a newline) settles
+        // here, after the output window, not on the idle tick it skipped.
+        this.onStreamSettled();
         // Re-trigger suggestions if shadow buffer has content (e.g. after
         // paste echo). The debounce timer re-checks staleness against the
         // live buffer.
@@ -354,7 +355,29 @@ export class SuggestionController {
     }
   }
 
-  /** Prompt detected â€” reset shadow buffer, suppress output flag. */
+  /**
+   * The tracker went quiet for the full idle window: a repaint that arrived
+   * split across output chunks has fully landed, so the untrusted shadow
+   * buffer can be re-synced from the echo it now shows. Doing this on the
+   * quiet edge rather than on the first chunk keeps chunking invisible — a
+   * one-byte schedule hands `onOutput` a lone `\r`, whose empty line would
+   * reconcile the buffer to nothing.
+   */
+  private onStreamSettled(): void {
+    const tracker = this.deps.tracker;
+    if (!this.cursorMoved || this.receivingOutput || tracker.isPassthrough) return;
+    const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
+    if (echoed === null) return;
+    const unchanged = echoed === this.shadowBuffer.content;
+    this.shadowBuffer.setContent(echoed);
+    this.cursorMoved = false;
+    // An unchanged line means the arrow key edited nothing, so bring
+    // suggestions back; a changed one means an edit is in flight and the next
+    // keystroke triggers the query.
+    if (unchanged && echoed) this.debounceSuggestionQuery(echoed);
+  }
+
+  /** Prompt detected - reset shadow buffer, suppress output flag. */
   onPromptDetected(): void {
     this.secretInputActive = false;
     this.reset();
@@ -559,5 +582,6 @@ export class SuggestionController {
   dispose(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.outputTimer) clearTimeout(this.outputTimer);
+    this.deps.tracker.setSettledListener(null);
   }
 }
