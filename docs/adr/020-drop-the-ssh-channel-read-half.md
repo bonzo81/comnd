@@ -48,10 +48,13 @@ throughout precisely because it never touches the socket.
   and discard the messages. Correct, and a `wait()` loop can also observe
   `ChannelMsg::ExitStatus` and `ChannelMsg::ExitSignal`. Cost: a spawned task per
   session, a second owner of the channel, and the drain task must be cancelled
-  correctly on disconnect or it leaks. `make_reader()` is not an alternative: it
-  returns an `AsyncRead` over `Data` and `ExtendedData` bytes, so it drains the
-  queue but never yields the control messages. Either way it fixes the symptom by
-  making Comnd responsible for a queue it did not create and does not want.
+  correctly on disconnect or it leaks. `make_reader()` is not equivalent: it
+  yields only `Data`, and every other `ChannelMsg` falls through the reader's
+  catch-all arm and is dropped (`channels/io/rx.rs:79`), so a reader-only drain
+  frees the queue while silently swallowing stderr. Reading stderr needs
+  `make_reader_ext(Some(ext))` instead, and only one reader can borrow the read
+  half at a time. Either way it fixes the symptom by making Comnd responsible for
+  a queue it did not create and does not want.
 - **Raise `channel_buffer_size`.** Cost: moves the wedge to packet N+1 and hides
   the design bug behind a bigger number. Not a fix.
 - **Patch russh to `try_send` via `[patch.crates-io]`.** This is what upstream
@@ -91,10 +94,11 @@ that commit changed only the `WindowAdjusted` branch in `client/encrypted.rs`
 still uses `send().await` on the `Data`, `ExtendedData`, `Close`, `Eof`,
 `XonXoff`, `ExitStatus`, `Success` and `Failure` branches (lines 541, 554, 611,
 639, 663, 672, 822, 833). The workaround therefore cannot be retired by bumping
-the version. It is retired only when **every** inbound queue send is
-nonblocking, not when `Data` alone is fixed — `ExtendedData` reaches the same
-bounded queue, so an undrained read half stays wedged under sustained stderr
-output even after the `Data` branch is patched.
+the version. It is retired in one of two ways: upstream makes **every** inbound
+send nonblocking, or Comnd takes the read half back and drains it continuously.
+Fixing the `Data` branch alone achieves neither — `ExtendedData` feeds the same
+bounded queue, so an undrained read half still wedges under sustained stderr
+output.
 
 ## Consequences
 
@@ -117,12 +121,13 @@ output even after the `Data` branch is patched.
 - Guarded: a regression test sends 300 single-byte writes through the mock host
   and asserts output keeps flowing, which fails if the read half is ever restored
   without draining it.
-- Revisit when russh makes **all** inbound channel sends nonblocking — `Data` and
-  `ExtendedData` at minimum, since either can fill the same 100-capacity queue.
-  The options then are keeping `drop(read_half)`, or taking the read half back
-  and draining it with a `wait()` loop. Taking it back is safe only under that
-  same condition: restoring it while any inbound send still blocks would
-  reintroduce the wedge. Adopting exit-status handling is deferred by choice,
-  not planned, and no longer depends on the read half.
+- Revisit when either upstream makes **every** inbound channel send nonblocking,
+  or Comnd is ready to own a drain. `Data` and `ExtendedData` feed the same
+  100-capacity queue, so a partial upstream fix changes nothing. Taking the read
+  half back is safe as soon as something drains it continuously: a `wait()` loop
+  keeps the queue moving whether or not russh's sends still block, and what is
+  unsafe is holding the read half and not reading it. An upstream nonblocking
+  fix is what removes the need for a drain at all. Adopting exit-status handling
+  is deferred by choice, not planned, and no longer depends on the read half.
 - Related: ADR 008 covers the russh *crypto backend*. It does not cover channel
   handling and is unaffected by this decision.
