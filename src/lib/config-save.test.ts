@@ -359,3 +359,97 @@ describe("ConfigSaver — rollback fallbacks", () => {
     expect(refreshConfig).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("ConfigSaver — rollback scope", () => {
+  it("restores only the failed field, keeping another field's newer value", async () => {
+    const level = caseFor("log_level");
+    const size = caseFor("log_max_size_mb");
+    const { h, saver, cache } = setup(level);
+    // The stale snapshot carries the pre-save log size, so a whole-cache
+    // restore would revert the size save that lands while it is in flight.
+    let releaseRead!: () => void;
+    h.ipc.mockImpl(
+      "get_app_config",
+      () =>
+        new Promise<AppConfig>((resolve) => {
+          releaseRead = () => resolve(h.fixtures.appConfig({ [level.key]: level.stored } as Partial<AppConfig>));
+        }),
+    );
+    const control = level.makeControl();
+    setControl(control, level.chosen);
+
+    const rejected = saver.save(
+      descriptor(level, () => Promise.reject(new Error("save failed")), control),
+      level.chosen,
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain(level.failure));
+
+    await saver.save(descriptor(size, async () => undefined, size.makeControl()), size.chosen);
+    expect(cache()?.log_max_size_mb).toBe(size.chosen);
+
+    releaseRead();
+    await rejected;
+
+    expect(cache()?.log_level).toBe(level.stored);
+    expect(cache()?.log_max_size_mb).toBe(size.chosen);
+  });
+
+  it("restores the control that is mounted when the rollback lands", async () => {
+    const level = caseFor("log_level");
+    const h = createHarness();
+    let cache: AppConfig | null = h.fixtures.appConfig({ [level.key]: level.stored } as Partial<AppConfig>);
+    const saver = new ConfigSaver({
+      getConfig: () => cache,
+      setConfig: (next) => {
+        cache = next;
+      },
+      refreshConfig: async () => undefined,
+    });
+    const container = h.mount();
+    /** Mirrors render(): navigation rebuilds the page and its controls. */
+    const render = () => {
+      container.innerHTML = "";
+      const select = selectOf(["debug", "info", "warn", "error"], String(cache?.log_level ?? "info"));
+      select.id = "level";
+      container.appendChild(select);
+      return select;
+    };
+    const detached = render();
+    setControl(detached, level.chosen);
+
+    let releaseRead!: () => void;
+    h.ipc.mockImpl(
+      "get_app_config",
+      () =>
+        new Promise<AppConfig>((resolve) => {
+          releaseRead = () => resolve(h.fixtures.appConfig({ [level.key]: level.stored } as Partial<AppConfig>));
+        }),
+    );
+
+    const rejected = saver.save(
+      {
+        field: { key: level.key, failure: level.failure },
+        get control() {
+          return container.querySelector<HTMLSelectElement>("#level");
+        },
+        write: () => Promise.reject(new Error("save failed")),
+        apply: (config, select) => level.apply(config, select),
+      },
+      level.chosen,
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain(level.failure));
+
+    // The cache advanced and the page re-rendered while the read was in flight.
+    cache = h.fixtures.appConfig({ [level.key]: level.newer } as Partial<AppConfig>);
+    const mounted = render();
+    expect(mounted).not.toBe(detached);
+    expect(mounted.value).toBe(String(level.newer));
+
+    releaseRead();
+    await rejected;
+
+    expect(detached.value).toBe(String(level.chosen));
+    expect(mounted.value).toBe(String(level.stored));
+    expect(cache?.log_level).toBe(level.stored);
+  });
+});

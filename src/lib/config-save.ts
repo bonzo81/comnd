@@ -11,6 +11,10 @@
  * a newer one cannot overwrite the newer cache entry or control value — in
  * either direction: an old success resolving late, or an old failure's
  * re-read resolving late.
+ *
+ * A rollback is field-scoped. The re-read returns a whole snapshot, which may
+ * pre-date a save of a *different* field that landed while it was in flight,
+ * so only the failed field is copied back into the cache.
  */
 
 import { AppConfig, getAppConfig } from "./tauri-api";
@@ -26,7 +30,9 @@ export interface ConfigField {
 
 export interface ConfigSaveDescriptor<E extends HTMLElement> {
   field: ConfigField;
-  /** Element restored from the stored config when the write is rejected. */
+  /** Element restored from the stored config when the write is rejected.
+   *  Read when the rollback lands, not when the save starts, so a control that
+   *  a re-render replaced while the write was in flight is still found. */
   control: E | null;
   /** The setter to call, with the new value already captured. */
   write: () => Promise<void>;
@@ -48,6 +54,20 @@ export class ConfigSaver {
   constructor(private readonly host: ConfigSaverHost) {}
 
   /**
+   * Copy only the failed field out of the re-read. Replacing the whole cache
+   * would undo a different field's save that landed while the read was in
+   * flight, because the snapshot predates it.
+   */
+  private restore(key: ConfigField["key"], fetched: AppConfig): void {
+    const config = this.host.getConfig();
+    if (!config) {
+      this.host.setConfig(fetched);
+      return;
+    }
+    Object.assign(config, { [key]: fetched[key] });
+  }
+
+  /**
    * Persist `value`, then reconcile. Never rejects: a failed write is
    * reported through the toast and the stored config.
    */
@@ -55,7 +75,7 @@ export class ConfigSaver {
     descriptor: ConfigSaveDescriptor<E>,
     value: AppConfig[ConfigField["key"]],
   ): Promise<void> {
-    const { field, control, write, apply } = descriptor;
+    const { field, write, apply } = descriptor;
     const seq = (this.counters.get(field.key) ?? 0) + 1;
     this.counters.set(field.key, seq);
 
@@ -66,9 +86,12 @@ export class ConfigSaver {
       const fetched = await getAppConfig().catch(() => null);
       // A newer write owns the field now — this rollback is obsolete.
       if (this.counters.get(field.key) !== seq) return;
-      if (fetched) this.host.setConfig(fetched);
-      const stored = this.host.getConfig();
-      if (control) apply(stored, control);
+      if (fetched) this.restore(field.key, fetched);
+      // Re-read the control: a re-render during the write or the read replaced
+      // the element the descriptor was built with, and restoring a detached
+      // one would leave the visible setting showing the rejected value.
+      const control = descriptor.control;
+      if (control) apply(this.host.getConfig(), control);
       return;
     }
 

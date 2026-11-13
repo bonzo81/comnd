@@ -640,6 +640,48 @@ describe("SettingsScreen — duplicate-session policy freshness", () => {
   });
 });
 
+describe("SettingsScreen — config refresh freshness (#148)", () => {
+  it("keeps the newest snapshot when an older refresh resolves last", async () => {
+    const h = createHarness();
+    let config = h.fixtures.appConfig({ log_level: "info" });
+    let holdReads = false;
+    const pendingReads: Array<(value: AppConfig) => void> = [];
+    h.ipc.mockImpl("get_app_config", () => {
+      if (!holdReads) return config;
+      return new Promise<AppConfig>((resolve) => pendingReads.push(resolve));
+    });
+    h.ipc.mock("get_session_log_dir", "");
+    h.ipc.mockImpl("set_log_level", (args) => {
+      config = h.fixtures.appConfig({ log_level: (args as { level: string }).level });
+      return null;
+    });
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem("logging");
+    const select = () => container.querySelector<HTMLSelectElement>("#log-level")!;
+    expect(select().value).toBe("info");
+
+    // Hold both post-save refreshes so the older one can land last.
+    holdReads = true;
+    select().value = "debug";
+    select().dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(pendingReads).toHaveLength(1));
+    select().value = "warn";
+    select().dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(pendingReads).toHaveLength(2));
+
+    pendingReads[1](h.fixtures.appConfig({ log_level: "warn" }));
+    await new Promise((r) => setTimeout(r, 0));
+    pendingReads[0](h.fixtures.appConfig({ log_level: "debug" }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    screen.setItem("general");
+    screen.setItem("logging");
+    expect(select().value).toBe("warn");
+  });
+});
+
 describe("SettingsScreen — version footer (#102)", () => {
   async function mountWithVersion(version?: string | Promise<never>) {
     const h = createHarness();
