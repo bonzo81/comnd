@@ -1745,17 +1745,32 @@ async function main() {
         );
 
         // Prove the counter tracks the real launch path, so the zero above
-        // cannot be a dead seam: click the button the user would click and
-        // expect exactly one launch. A DOM click rather than a WebDriver one —
-        // the overlay is hidden once the session connects.
+        // cannot be a dead seam: click the button the user would click. A DOM
+        // click rather than a WebDriver one — the overlay is hidden once the
+        // session connects.
         await browser.execute(() => document.querySelector(".tv-open-auth")?.click());
+        // This wait proves only that a launch happened: a click that launches
+        // twice satisfies it too, so exactness is judged by the count below.
         await browser.waitUntil(
-          async () => (await invoke(browser, "test_smoke_open_url_calls")) === 1,
+          async () => (await invoke(browser, "test_smoke_open_url_calls")) >= 1,
           {
             timeout: 5_000,
             interval: 100,
             timeoutMsg: "Auth URL: clicking the login button did not register a launch",
           },
+        );
+        // A duplicate launch issued by the same click lands right after the
+        // first, possibly between the wait above and the read below. One fixed
+        // settle window makes it visible before the count is judged. 300 ms is
+        // a judgement call: the duplicate is issued synchronously inside the
+        // click handler, so it beats any window; a later scheduled launch
+        // would not, and this assertion does not claim to catch one.
+        await pause(300);
+        const launched = await invoke(browser, "test_smoke_open_url_calls");
+        assert.equal(
+          launched,
+          1,
+          `Auth URL: one click must launch the login URL exactly once (launched ${launched} time(s))`,
         );
       },
     },
