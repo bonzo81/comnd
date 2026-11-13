@@ -60,28 +60,54 @@ function makeDropdown() {
   return { dropdown, container, onAccept };
 }
 
-/** jsdom has no layout, so fake fixed-height rows to exercise scroll maths. */
-function stubRowGeometry(rowHeight: number) {
+/**
+ * jsdom has no layout, so fake fixed-height rows and a fixed-height window to
+ * exercise the scroll maths. A real browser lays nothing out while the
+ * dropdown is display:none, so the stub reports zeros then too.
+ */
+function stubRowGeometry(rowHeight: number, visibleRows = 8) {
   const proto = HTMLElement.prototype;
-  const savedTop = Object.getOwnPropertyDescriptor(proto, "offsetTop");
-  const savedHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight");
-  Object.defineProperty(proto, "offsetTop", {
+  const viewHeight = rowHeight * visibleRows;
+  const scrollTops = new WeakMap<HTMLElement, number>();
+  const shown = (el: HTMLElement) =>
+    (el.closest(".suggestion-dropdown") as HTMLElement | null)?.style.display !== "none";
+
+  const install = (key: string, desc: PropertyDescriptor) => {
+    const saved = Object.getOwnPropertyDescriptor(proto, key);
+    Object.defineProperty(proto, key, desc);
+    cleanups.push(() => {
+      if (saved) Object.defineProperty(proto, key, saved);
+      else delete (proto as unknown as Record<string, unknown>)[key];
+    });
+  };
+
+  install("offsetTop", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains("choice-row")
-        ? Number(this.dataset.index ?? "0") * rowHeight
-        : 0;
+      if (!shown(this) || !this.classList.contains("choice-row")) return 0;
+      return Number(this.dataset.index ?? "0") * rowHeight;
     },
   });
-  Object.defineProperty(proto, "offsetHeight", {
+  install("offsetHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.classList.contains("choice-row") ? rowHeight : 0;
+      return shown(this) && this.classList.contains("choice-row") ? rowHeight : 0;
     },
   });
-  cleanups.push(() => {
-    if (savedTop) Object.defineProperty(proto, "offsetTop", savedTop);
-    if (savedHeight) Object.defineProperty(proto, "offsetHeight", savedHeight);
+  install("clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("suggestion-dropdown") && shown(this) ? viewHeight : 0;
+    },
+  });
+  install("scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return scrollTops.get(this) ?? 0;
+    },
+    set(this: HTMLElement, value: number) {
+      scrollTops.set(this, value);
+    },
   });
 }
 
@@ -271,32 +297,37 @@ describe("Dropdown — choice mode", () => {
     const { dropdown, container } = makeDropdown();
     const list = container.querySelector<HTMLElement>(".suggestion-dropdown")!;
     const rowHeight = 32;
-    const viewHeight = 8 * rowHeight;
-    let scrollTop = 0;
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: viewHeight });
-    Object.defineProperty(list, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (v: number) => {
-        scrollTop = v;
-      },
-    });
     stubRowGeometry(rowHeight);
 
     dropdown.show([systemctlResult(tokens)], "systemctl ");
     expect(list.classList.contains("choice-mode")).toBe(true);
-    expect(scrollTop).toBe(0);
+    expect(list.scrollTop).toBe(0);
 
     // Rows 9+ sit below the eight-row cap; the selection must stay on screen.
     for (let i = 0; i < 8; i++) dropdown.moveDown();
     expect((container.querySelector(".choice-row.selected") as HTMLElement).dataset.index).toBe("8");
-    expect(scrollTop).toBe(rowHeight);
+    expect(list.scrollTop).toBe(rowHeight);
 
     dropdown.moveUp();
-    expect(scrollTop).toBe(rowHeight);
+    expect(list.scrollTop).toBe(rowHeight);
 
     for (let i = 0; i < 7; i++) dropdown.moveUp();
-    expect(scrollTop).toBe(0);
+    expect(list.scrollTop).toBe(0);
+  });
+
+  it("opens with the first compatible choice scrolled into view", () => {
+    const tokens = systemctlTokens();
+    const { dropdown, container } = makeDropdown();
+    const list = container.querySelector<HTMLElement>(".suggestion-dropdown")!;
+    const rowHeight = 32;
+    stubRowGeometry(rowHeight);
+
+    // "daemon" only completes to daemon-reload, the last of 14 rows, so the
+    // initial selection starts below the fold.
+    dropdown.show([systemctlResult(tokens, "daemon")], "systemctl daemon");
+
+    expect((container.querySelector(".choice-row.selected") as HTMLElement).dataset.index).toBe("13");
+    expect(list.scrollTop).toBe(14 * rowHeight - 8 * rowHeight);
   });
 
   it("moves .selected between choice rows and wraps like listbox-nav", () => {

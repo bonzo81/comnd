@@ -53,9 +53,11 @@ export class Dropdown {
     this.selectedIndex = this.choiceMode ? firstCompatibleIndex(this.choiceMode) : 0;
     this._pendingPayload = null;
     this._visible = true;
+    // Shown before rendering: while display is none the dropdown has no
+    // layout, so choice mode would scroll to a row it cannot measure.
+    this.el.style.display = "block";
     if (this.choiceMode) this.renderChoice();
     else this.render();
-    this.el.style.display = "block";
   }
 
   /** Hide the dropdown */
