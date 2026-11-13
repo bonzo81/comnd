@@ -232,6 +232,80 @@ describe("SuggestionController — output handling", () => {
     expect(ctx.c.input).toBe("ls -l");
   });
 
+  it("output window follows the last chunk, not the last newline", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show");
+    ctx.c.onOutput("lab$ show");
+    // An arrow key invalidates the buffer; the repaint's tail then trails its
+    // newline by more than the 300ms window.
+    ctx.c.markCursorMoved();
+    ctx.c.onOutput("\r\nlab$ sh");
+    vi.advanceTimersByTime(150);
+    ctx.c.onOutput("o");
+    vi.advanceTimersByTime(160);
+    ctx.c.onOutput("w");
+    vi.advanceTimersByTime(300);
+    expect(ctx.c.input).toBe("show");
+  });
+
+  it("a repaint that outlives the output window settles on the whole line", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show");
+    ctx.c.onOutput("lab$ show");
+    ctx.c.markCursorMoved();
+    // The repaint opens the 300ms window, then lands two chunks late — the
+    // deadline from the first chunk passes while the line is still arriving.
+    ctx.c.onOutput("\r\nlab$ sh");
+    vi.advanceTimersByTime(250);
+    ctx.c.onOutput("o");
+    vi.advanceTimersByTime(100);
+    // Mid-burst the buffer holds the reconcile from the first chunk; the
+    // point is that the closed deadline did not trust or wipe it.
+    expect(ctx.c.input).toBe("sh");
+    ctx.c.onOutput("w");
+    vi.advanceTimersByTime(300);
+    expect(ctx.c.input).toBe("show");
+  });
+
+  it("settlement ignores a quiet tick armed before the line-editing key", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show ip");
+    // The echo arms the idle tick while the buffer is still trusted.
+    ctx.c.onOutput("lab$ show ip");
+    expect(ctx.c.input).toBe("show ip");
+    vi.advanceTimersByTime(150);
+    // Ctrl+W goes to the remote, which repaints a shorter line later.
+    ctx.c.markCursorMoved();
+    vi.advanceTimersByTime(60);
+    ctx.c.onOutput("\rlab$ show ");
+    vi.advanceTimersByTime(300);
+    // Trusting the earlier echo would have left the buffer on the long line.
+    expect(ctx.c.input).toBe("show ");
+  });
+
+  it("settlement keeps input typed while the repaint is landing", () => {
+    const ctx = makeController();
+    ctx.c.setMode("bash");
+    ctx.c.buffer.appendAll("show");
+    ctx.c.onOutput("lab$ show");
+    // Arrow key, then a repaint that arrives without a newline.
+    ctx.c.markCursorMoved();
+    ctx.c.onOutput("\rlab$ show");
+    vi.advanceTimersByTime(100);
+    // Typed ahead of its echo: settling here must not drop the keystroke.
+    type(ctx, "x");
+    expect(ctx.c.input).toBe("showx");
+    vi.advanceTimersByTime(100);
+    expect(ctx.c.input).toBe("showx");
+    // The echo catches up, so the next settle trusts the buffer again.
+    ctx.c.onOutput("x");
+    vi.advanceTimersByTime(200);
+    expect(ctx.c.input).toBe("showx");
+  });
+
   it("passthrough suppresses echo re-sync", () => {
     const ctx = makeController();
     ctx.tracker.loadPatterns({ enable: "Router#" }, "user");

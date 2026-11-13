@@ -165,6 +165,12 @@ export class SuggestionController {
   // True when line-editing keys made the shadow buffer untrustworthy â€”
   // suggestions suppressed until next Enter/Ctrl+C/prompt or echo re-sync.
   private cursorMoved = false;
+  // Output arrived after the latest line-editing key. A settle for output that
+  // predates the key would reconcile against the pre-edit echo and then let the
+  // repaint land on a trusted buffer, so it must not restore trust.
+  private outputSinceCursorMove = false;
+  // Typed while the buffer was untrusted and not yet shown by the echo.
+  private unEchoedInput = "";
   private suggestionsEnabled = false;
   private connected = false;
   private readonly deps: ControllerDeps;
@@ -173,6 +179,8 @@ export class SuggestionController {
     this.deps = deps;
     // Shadow buffer updates are the debounce trigger â€” no currentInput mirror.
     this.shadowBuffer = new ShadowBuffer((text) => this.debounceSuggestionQuery(text));
+    // Echo re-sync waits for the tracker's idle tick — see onStreamSettled.
+    deps.tracker.setSettledListener(() => this.onStreamSettled());
   }
 
   // â”€â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -269,9 +277,13 @@ export class SuggestionController {
 
     if (!this.secretInputActive) {
       for (const op of r.shadowOps) {
-        if (op.op === "append") this.shadowBuffer.append(op.ch);
-        else if (op.op === "backspace") this.shadowBuffer.backspace();
-        else if (op.op === "reset") this.reset();
+        if (op.op === "append") {
+          this.shadowBuffer.append(op.ch);
+          if (this.cursorMoved) this.unEchoedInput += op.ch;
+        } else if (op.op === "backspace") {
+          this.shadowBuffer.backspace();
+          if (this.cursorMoved) this.unEchoedInput = this.unEchoedInput.slice(0, -1);
+        } else if (op.op === "reset") this.reset();
       }
     }
 
@@ -288,18 +300,24 @@ export class SuggestionController {
   /** Clipboard paste: forward the text and mirror it into the shadow buffer. */
   paste(text: string): void {
     this.deps.send(text);
-    if (!this.secretInputActive) this.shadowBuffer.appendAll(text);
+    if (!this.secretInputActive) {
+      this.shadowBuffer.appendAll(text);
+      if (this.cursorMoved) this.unEchoedInput += text;
+    }
   }
 
   /** Line-editing keys (arrows etc.) made the buffer untrustworthy. */
   markCursorMoved(): void {
     this.cursorMoved = true;
+    this.outputSinceCursorMove = false;
   }
 
   /** Reset the shadow buffer and trust state (Enter/Ctrl+C/prompt/accept). */
   private reset(): void {
     this.shadowBuffer.reset();
     this.cursorMoved = false;
+    this.unEchoedInput = "";
+    this.outputSinceCursorMove = false;
   }
 
   // â”€â”€â”€ Output handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -312,18 +330,18 @@ export class SuggestionController {
   onOutput(text: string): void {
     const tracker = this.deps.tracker;
     tracker.feed(text);
+    if (this.cursorMoved) this.outputSinceCursorMove = true;
 
     if (!this.receivingOutput && !tracker.isPassthrough) {
       if (this.cursorMoved) {
+        // Reconcile on every chunk but leave the flag set: a chunk may be only
+        // the `\r` of a repaint, where the line is momentarily empty and the
+        // buffer would be wiped. onStreamSettled clears the flag once the whole
+        // burst has landed.
         const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
         if (echoed !== null) {
-          // Flag clears on any successful reconcile â€” even when the echoed
-          // content matches the buffer (arrow key edited nothing), otherwise
-          // the guard never lifts and suggestions stay dead.
-          const changed = echoed !== this.shadowBuffer.content;
-          this.shadowBuffer.setContent(echoed);
-          this.cursorMoved = false;
-          if (!changed && echoed) this.debounceSuggestionQuery(echoed);
+          this.consumeEchoedInput(echoed);
+          this.shadowBuffer.setContent(echoed + this.unEchoedInput);
         }
       } else {
         // Trusted EOL state (buffer reliable) â€” learn the prompt prefix
@@ -341,9 +359,17 @@ export class SuggestionController {
       this.receivingOutput = true;
       this.deps.ghost()?.hide();
       this.deps.dropdown()?.hide();
+    }
+    // Every chunk while receiving keeps the window open: a repaint's tail can
+    // trail its newline by more than the window, and settling there would
+    // reconcile against a half-landed line.
+    if (this.receivingOutput) {
       if (this.outputTimer) clearTimeout(this.outputTimer);
       this.outputTimer = setTimeout(() => {
         this.receivingOutput = false;
+        // A repaint that arrived as a burst (it contains a newline) settles
+        // here, after the output window, not on the idle tick it skipped.
+        this.onStreamSettled();
         // Re-trigger suggestions if shadow buffer has content (e.g. after
         // paste echo). The debounce timer re-checks staleness against the
         // live buffer.
@@ -354,7 +380,61 @@ export class SuggestionController {
     }
   }
 
-  /** Prompt detected â€” reset shadow buffer, suppress output flag. */
+  /**
+   * The tracker went quiet for the full idle window: a repaint that arrived
+   * split across output chunks has fully landed, so the untrusted shadow
+   * buffer can be re-synced from the echo it now shows. Doing this on the
+   * quiet edge rather than on the first chunk keeps chunking invisible — a
+   * one-byte schedule hands `onOutput` a lone `\r`, whose empty line would
+   * reconcile the buffer to nothing.
+   */
+  private onStreamSettled(): void {
+    const tracker = this.deps.tracker;
+    // A quiet tick armed before the last line-editing key still sees the
+    // pre-edit echo: trusting it would make the repaint land on a trusted
+    // buffer and skip its reconcile. Wait for output that postdates the key.
+    if (!this.outputSinceCursorMove) return;
+    if (!this.cursorMoved || this.receivingOutput || tracker.isPassthrough) return;
+    const echoed = tracker.contentAfter(tracker.lastPrompt, this.shadowBuffer.content);
+    if (echoed === null) return;
+    this.consumeEchoedInput(echoed);
+    // Local input the echo has not shown yet is not a repaint artefact — keep
+    // it appended and stay untrusted until the echo catches up, otherwise the
+    // reconcile would drop keystrokes typed while the repaint was landing.
+    if (this.unEchoedInput) {
+      this.shadowBuffer.setContent(echoed + this.unEchoedInput);
+      return;
+    }
+    const unchanged = echoed === this.shadowBuffer.content;
+    this.shadowBuffer.setContent(echoed);
+    this.cursorMoved = false;
+    this.outputSinceCursorMove = false;
+    // An unchanged line means the arrow key edited nothing, so bring
+    // suggestions back; a changed one means an edit is in flight and the next
+    // keystroke triggers the query.
+    if (unchanged && echoed) this.debounceSuggestionQuery(echoed);
+  }
+
+  /**
+   * Drop the leading chars of the un-echoed input that `echoed` now shows.
+   *
+   * The echo prints typed chars in order, so a caught-up prefix appears as a
+   * suffix of the echo-derived content. Matching greedily (a char at a time)
+   * handles a partially echoed burst: `show` + typed `xy` landing as `showx`
+   * leaves `y` pending rather than re-appending both.
+   */
+  private consumeEchoedInput(echoed: string): void {
+    let matched = 0;
+    while (
+      matched < this.unEchoedInput.length
+      && echoed.endsWith(this.unEchoedInput.slice(0, matched + 1))
+    ) {
+      matched++;
+    }
+    if (matched > 0) this.unEchoedInput = this.unEchoedInput.slice(matched);
+  }
+
+  /** Prompt detected - reset shadow buffer, suppress output flag. */
   onPromptDetected(): void {
     this.secretInputActive = false;
     this.reset();
@@ -559,5 +639,6 @@ export class SuggestionController {
   dispose(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.outputTimer) clearTimeout(this.outputTimer);
+    this.deps.tracker.setSettledListener(null);
   }
 }
