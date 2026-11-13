@@ -71,7 +71,11 @@ edge, so `kb-layout`'s in-window box assertion has to fail;
 `terminal-sidebar-layout` does the same for the terminal side panel's
 `.example-copy`, `.cmd-ref-link` and `#tv-sidebar-resizer`, pinning them to the
 viewport with `position: fixed` because the panel scrolls and a scrolled box
-would otherwise come back into view. Both scenarios also hit-test each control's
+would otherwise come back into view. Scrolling into view is vertical only: the
+panel's `overflow-y: auto` makes it scroll horizontally too, so a horizontal
+scroll could pull a control that really overflows back into the window and hide
+the regression, and the helper restores every ancestor's horizontal offset
+before it measures. Both scenarios also hit-test each control's
 centre and assert that `.kb-command-detail` and `.sb-content` do not scroll
 horizontally, which keeps the assertion honest about an element that is on screen
 but covered. Neither scenario resizes the window: it measures what the default

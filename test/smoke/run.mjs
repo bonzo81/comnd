@@ -1418,16 +1418,27 @@ async function hitTestCentre(browser, selector, index = 0) {
  *
  * `scroll` brings the control into view first, for a panel that scrolls by
  * design: the terminal side panel is `overflow-y: auto`, so a long entry puts
- * its last controls below the fold until the user scrolls. The scroll and the
- * measurement share one execute, so the box always describes the post-scroll
- * layout; anything positioned out of the window stays out of it.
+ * its last controls below the fold until the user scrolls. Only that vertical
+ * scroll survives: `overflow-y: auto` makes the panel scroll horizontally too,
+ * so `scrollIntoView` could pull a control that really overflows back into the
+ * window and hide the regression it is meant to catch. Every ancestor's
+ * horizontal offset is therefore restored before the box is read, and the
+ * scroll and the measurement share one execute so the box always describes the
+ * layout the assertions are about.
  */
 async function assertControlInWindow(browser, selector, index, label, { scroll = false } = {}) {
   const name = selector.startsWith("#") ? selector : `${selector}[${index}]`;
   const box = await browser.execute((sel, at, bring) => {
     const el = document.querySelectorAll(sel)[at];
     if (!el) return null;
-    if (bring) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (bring) {
+      const ancestors = [];
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        ancestors.push([node, node.scrollLeft]);
+      }
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      for (const [node, left] of ancestors) node.scrollLeft = left;
+    }
     const r = el.getBoundingClientRect();
     return {
       left: r.left,
