@@ -1,0 +1,72 @@
+name: Bug report
+description: Something behaves differently from the specs in docs/specs/
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `docs/specs/` first — if the spec says the current behaviour is intended,
+        this is a spec question rather than a bug.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Actual behaviour, including error text or log output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should happen instead, and which spec doc says so if you know.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to ...
+        2. Type ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Comnd version
+      description: Shown at the bottom of the Settings navigation.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Desktop OS
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Closest existing label; a maintainer applies it.
+      options:
+        - security
+        - testing
+        - ci
+        - accessibility
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      description: A maintainer applies the matching label.
+      options:
+        - p1 - blocks a verification gate
+        - p2 - planned work
+        - p3 - backlog
+    validations:
+      required: true
