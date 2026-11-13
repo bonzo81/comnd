@@ -76,6 +76,20 @@ export class LineTracker {
     // New session context — drop the previous session's line state, including
     // any escape sequence the old stream left half-delivered.
     this.reset();
+    this.resetStream();
+  }
+
+  /**
+   * Start a new output stream, discarding escape state the previous one left
+   * half-delivered.
+   *
+   * A connection can drop mid-OSC (`ESC ]0;host` without its terminator) and
+   * leave the stripper inside the payload, where it swallows everything up to
+   * the next BEL or ST. {@link loadPatterns} clears this, but it is skipped
+   * when the platform index fails to load, so callers must also reset here on
+   * connect. Ordinary prompt resets keep the state — see {@link reset}.
+   */
+  resetStream() {
     this.stripper.reset();
   }
 

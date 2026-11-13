@@ -226,6 +226,23 @@ describe("LineTracker — chunk boundaries (issue #134)", () => {
     expect(onPromptDetected).toHaveBeenCalledTimes(1);
   });
 
+  it("a new stream discards an OSC the dropped session left open", () => {
+    const { t, onPromptDetected } = makeTracker();
+    t.loadPatterns({ enable: "Router#" }, "user");
+
+    // Connection drops mid-OSC — no BEL or ST ever arrives.
+    t.feed("\x1b]0;Router# login banner");
+
+    // Reconnect whose platform-index load failed: loadPatterns is not called.
+    t.resetStream();
+
+    t.feed("Router#");
+    vi.advanceTimersByTime(200);
+
+    expect(t.currentLine).toBe("Router#");
+    expect(onPromptDetected).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a pending escape when a prompt reset lands between its chunks", () => {
     // SuggestionController.onPromptDetected() calls tracker.reset() while the
     // output stream is still running, so an escape can straddle the reset.

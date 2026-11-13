@@ -784,8 +784,12 @@ export class TerminalView {
     log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
     this.connectCancelled = false;
     this.authInteractive = false;
-    // New session: drop any bytes held from a split codepoint.
+    // New session: drop any bytes held from a split codepoint, plus any escape
+    // sequence the dropped session left half-delivered. The tracker reset must
+    // happen here and not only in loadPatterns(), because a failed platform-
+    // index load skips that call and would leave the stripper swallowing output.
     this.outputDecoder.reset();
+    this.tracker.resetStream();
 
     // Update top bar
     this.updateHostInfo();
