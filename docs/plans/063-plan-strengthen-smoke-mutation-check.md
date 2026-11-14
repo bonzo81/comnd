@@ -4,6 +4,14 @@ Status: Approved; implemented (issue #61). Strengthened by issue #78, which adde
 activation signal described under Known gaps.
 Spec: bonzo81/comnd#61. Task prompt: none yet.
 
+Amended 2026-11-13: after issue #133 the same activation mechanism carries six
+frontend categories instead of the one `ssh_send` break. `kb-layout` and
+`terminal-sidebar-layout` joined `focus`, `name`, `layout` and `suggestion`, so
+`MUTATION_CASES` in `test/smoke/run.mjs` names six assertion-plus-activation
+matchers and CI runs seven mutation jobs. The two new categories exist because a
+visual baseline cannot show a control pushed outside the window; both scenarios
+assert DOM geometry at the window the app opens with, and ADR-011 records why.
+
 ## Goal
 
 The runner can break one app behaviour from the app process's environment, and running the

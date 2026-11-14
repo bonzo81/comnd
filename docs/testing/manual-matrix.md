@@ -26,7 +26,7 @@ runs, so it stays on the reviewer's list.
 | Accessible names and announcements | `npm run smoke` | A name on every control with no visible label; error toasts announced via `role="alert"` and a polite live region with a named dismiss button |
 | Layout | `npm run smoke` | Side panel resizes the terminal and drives the PTY size change instead of overlaying it (ADR-003); no clipped or overlapping controls at small windows, with long host names, an expanded folder tree, or a scrolling dialog |
 | Themes, Reading Comfort, enlarged text | `npm run smoke` | Dark, light and solarized themes, Reading Comfort mode and enlarged text render without clipped or overlapping controls |
-| Assertion strength | `npm run smoke -- --mutation=focus\|name\|layout`, `npm run smoke:mutation` | Each category of assertion still fails when the behaviour it guards is deliberately broken |
+| Assertion strength | `npm run smoke -- --mutation=focus\|name\|layout\|suggestion\|kb-layout\|terminal-sidebar-layout`, `npm run smoke:mutation` | Each category of assertion still fails when the behaviour it guards is deliberately broken |
 | Visual reference — **local only, not run in CI** | `npm run smoke:visual -- --check` | The current build reproduces the committed reference screenshots byte for byte (human review aid — see visual-baseline.md) |
 
 The automatable half of issue #57 landed as #89 (commit `3f37b71`, PR #92).
