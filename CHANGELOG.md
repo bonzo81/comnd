@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.0](https://github.com/bonzo81/comnd/compare/v0.5.0...v0.6.0) (2026-11-13)
+
+
+### Features
+
+* **kb:** split-ledger command detail pane with example copy buttons ([#130](https://github.com/bonzo81/comnd/issues/130)) ([c53a0a4](https://github.com/bonzo81/comnd/commit/c53a0a440a12dc9496b7c981b47c1e401623b484))
+* **sessions:** allow concurrent sessions to the same host ([#80](https://github.com/bonzo81/comnd/issues/80)) ([7c2a21a](https://github.com/bonzo81/comnd/commit/7c2a21a7e31c5633b062ace423ef8eb3b0a33a5d))
+* **settings:** show the running app version in the settings rail ([#145](https://github.com/bonzo81/comnd/issues/145)) ([314fe36](https://github.com/bonzo81/comnd/commit/314fe36deea834aff279aa184ddcd1379176b0a9))
+
+
+### Bug Fixes
+
+* **config:** land rejected-write feedback and record the decision ([#93](https://github.com/bonzo81/comnd/issues/93)) ([4e1ab7d](https://github.com/bonzo81/comnd/commit/4e1ab7d5f29ab8ce6e55da911e3f3e8fe13ed7e9))
+* **deps:** bump russh to 0.65 and pageant to 0.2.5 ([#125](https://github.com/bonzo81/comnd/issues/125)) ([26d2694](https://github.com/bonzo81/comnd/commit/26d2694b9a794783aeffb76701a6eb7415e7dd2d))
+* **deps:** bump russh, fast-uri and vitest to patched releases ([#63](https://github.com/bonzo81/comnd/issues/63)) ([9182885](https://github.com/bonzo81/comnd/commit/918288520a148cd44707b264221640f937de0c88))
+* **deps:** bump rustls to 0.23.46 and vite to 6.4.5 ([#81](https://github.com/bonzo81/comnd/issues/81)) ([56f7fe4](https://github.com/bonzo81/comnd/commit/56f7fe41eecb05d6153ab1afbc3f02603cafac63))
+* **deps:** bump zip to 9.x to clear dependabot alerts ([#73](https://github.com/bonzo81/comnd/issues/73)) ([90d4f0b](https://github.com/bonzo81/comnd/commit/90d4f0b16317dce652b19df39d29efc78af120e1))
+* **dropdown:** render choice token options as dropdown rows ([#143](https://github.com/bonzo81/comnd/issues/143)) ([95ff3e9](https://github.com/bonzo81/comnd/commit/95ff3e9b3edc63883fb2ff92bf1254c1435377f0))
+* **logging:** stop writing usernames to the app log ([#65](https://github.com/bonzo81/comnd/issues/65)) ([451903b](https://github.com/bonzo81/comnd/commit/451903b27a87a1e07336b289143e6e6df1ac00fa))
+* **reading-comfort:** restore typography on launch ([#110](https://github.com/bonzo81/comnd/issues/110)) ([8703c47](https://github.com/bonzo81/comnd/commit/8703c47a2c60b4d06554da5aac6b4fe320b53b3f))
+* **settings:** stop the ui text scale slider flickering on drag ([#117](https://github.com/bonzo81/comnd/issues/117)) ([72ff172](https://github.com/bonzo81/comnd/commit/72ff1721aef4d3d344b34421c8897f9ff9934096))
+* **ssh:** drop the channel read half so inbound data cannot wedge ([#137](https://github.com/bonzo81/comnd/issues/137)) ([f05ac14](https://github.com/bonzo81/comnd/commit/f05ac14e4f25f2d0ca7d3726084d5e956f0ca4de))
+* **storage:** guard Web Storage access so launch survives blocked storage ([#127](https://github.com/bonzo81/comnd/issues/127)) ([dc616b8](https://github.com/bonzo81/comnd/commit/dc616b84b516126c12defdfb1800f3b7c2334616))
+* **styles:** define missing CSS tokens and theme badge colours ([#118](https://github.com/bonzo81/comnd/issues/118)) ([81ddd43](https://github.com/bonzo81/comnd/commit/81ddd4350f9c052f7c579ab3dd991b660195af16))
+* **terminal:** hold ANSI and UTF-8 state across output chunks ([#144](https://github.com/bonzo81/comnd/issues/144)) ([f3369a8](https://github.com/bonzo81/comnd/commit/f3369a85cc83e3a2bfcfa4cd89d7f4b1176fcf5b))
+* **theme:** raise light and solarized light text contrast to WCAG AA ([#111](https://github.com/bonzo81/comnd/issues/111)) ([dce83ed](https://github.com/bonzo81/comnd/commit/dce83edc2d19f27a1e4b49b03170b8afb0a76564))
+
 ## [0.5.0](https://github.com/bonzo81/comnd/compare/v0.4.1...v0.5.0) (2026-10-19)
 
 
