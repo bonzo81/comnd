@@ -2478,18 +2478,30 @@ async function main() {
           await assertControlInWindow(browser, id, 0, "KB layout");
         }
 
+        // "Fully inside the viewport" is both axes: a count pushed below the
+        // window would leave its horizontal position alone, so checking only
+        // left/right would still pass.
         const count = await browser.execute(() => {
           const el = document.querySelector(".kb-count");
           if (!el) return null;
           const r = el.getBoundingClientRect();
-          return { left: r.left, right: r.right, width: window.innerWidth };
+          return {
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            width: window.innerWidth,
+            height: window.innerHeight,
+          };
         });
         assert(count, "KB layout: .kb-count was never rendered");
         assert(
-          count.left >= 0 && count.right <= count.width,
+          count.left >= 0 && count.right <= count.width
+            && count.top >= 0 && count.bottom <= count.height,
           `KB layout: .kb-count is outside the window `
-            + `(left ${Math.round(count.left)}, right ${Math.round(count.right)}, `
-            + `window ${count.width}px wide)`,
+            + `(left ${Math.round(count.left)}, top ${Math.round(count.top)}, `
+            + `right ${Math.round(count.right)}, bottom ${Math.round(count.bottom)}, `
+            + `window ${count.width}x${count.height})`,
         );
 
         const detail = await browser.execute(() => {
