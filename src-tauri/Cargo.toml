@@ -1,6 +1,6 @@
 [package]
 name = "comnd"
-    version = "0.5.0"
+    version = "0.6.0"
 description = "Cross-platform SSH client with context-aware command suggestions"
 authors = ["Andy Norwood"]
 edition = "2021"
