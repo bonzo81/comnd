@@ -182,6 +182,17 @@ async fn open_url_cmd(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether this process was launched from an AppImage.
+///
+/// The Tauri updater replaces a Linux AppImage in place, which needs the
+/// `$APPIMAGE` path its runtime sets. A `.deb`/`.rpm` install lives under
+/// `/usr` and has to update through the package manager, so the frontend
+/// sends those users to the release page instead (ADR-022).
+#[tauri::command]
+fn running_as_appimage() -> bool {
+    std::env::var_os("APPIMAGE").is_some_and(|v| !v.is_empty())
+}
+
 // Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡ Test Commands (debug only) Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡
 
 #[cfg(debug_assertions)]
@@ -559,6 +570,7 @@ pub fn run() {
         .invoke_handler({
             tauri::generate_handler![
                 kb::query_kb,
+                running_as_appimage,
                 platform::load_platform_index,
                 kb::validate_kb,
                 hosts::get_hosts,

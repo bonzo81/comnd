@@ -6,9 +6,14 @@
  * vitest never touches the Tauri runtime.
  *
  * Platform behaviour (ADR-006):
- *  - windows/linux — real in-app update: download, install, relaunch
- *  - darwin        — no silent replace until notarization exists; the
- *                    indicator opens the latest GitHub Release page instead
+ *  - windows              — real in-app update: download, install, relaunch
+ *  - linux (AppImage)     — same in-app update: the AppImage is replaced in
+ *                           place and relaunched
+ *  - linux (.deb/.rpm)    — the packaged app lives under /usr and can only be
+ *                           updated by the package manager, so the indicator
+ *                           opens the latest GitHub Release page (ADR-022)
+ *  - darwin               — no silent replace until notarization exists; the
+ *                           indicator opens the latest GitHub Release page
  */
 
 export type UpdatePlatform = "windows" | "linux" | "darwin";
@@ -29,9 +34,15 @@ export function detectPlatform(userAgent: string = navigator.userAgent): UpdateP
   return "linux";
 }
 
-/** darwin falls back to the GitHub Release page (ADR-006); others install in place. */
-export function updateAction(platform: UpdatePlatform): UpdateActionKind {
-  return platform === "darwin" ? "open-release-page" : "install";
+/**
+ * darwin falls back to the GitHub Release page (ADR-006), and so does a Linux
+ * install that is not an AppImage — a .deb/.rpm package cannot replace itself
+ * (ADR-022). `appImage` is ignored on every other platform.
+ */
+export function updateAction(platform: UpdatePlatform, appImage = true): UpdateActionKind {
+  if (platform === "darwin") return "open-release-page";
+  if (platform === "linux" && !appImage) return "open-release-page";
+  return "install";
 }
 
 // ─── State machine ──────────────────────────────────────────────────
@@ -104,6 +115,35 @@ export function getUpdateStatus(): UpdateStatus {
   return status;
 }
 
+/**
+ * Linux only: whether in-app install is possible, i.e. this is really an
+ * AppImage. `null` until probed; the probe runs as part of every check, before
+ * an update can be found, so a click never sees it unresolved.
+ */
+let appImage: boolean | null = null;
+
+/** Action the title-bar indicator and the Settings button should perform now. */
+export function currentUpdateAction(): UpdateActionKind {
+  return updateAction(status.platform, appImage ?? true);
+}
+
+/**
+ * Probe how Linux was installed, once. The Tauri updater replaces an AppImage
+ * in place via `$APPIMAGE`; a .deb/.rpm install has no such path, so it must
+ * fall back to the release page before the user ever clicks (ADR-022).
+ */
+async function resolveInstallChannel(): Promise<void> {
+  if (status.platform !== "linux" || appImage !== null) return;
+  try {
+    const { isRunningAsAppImage } = await import("./tauri-api");
+    appImage = await isRunningAsAppImage();
+  } catch {
+    // No Tauri runtime (unit tests) or the command is unavailable: keep the
+    // historical in-app behaviour rather than degrading a working AppImage.
+    appImage = true;
+  }
+}
+
 /** Subscribe to status changes; returns an unsubscribe function. */
 export function subscribeUpdates(fn: () => void): () => void {
   listeners.add(fn);
@@ -133,6 +173,7 @@ export async function checkForUpdatesNow(): Promise<void> {
   checking = true;
   apply({ type: "check-started" });
   try {
+    await resolveInstallChannel();
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
     if (update) {
@@ -164,8 +205,9 @@ export async function applyAvailableUpdate(): Promise<"installed" | "opened-rele
   const update = pendingUpdate;
   if (!update) throw new Error("No update available");
 
-  if (updateAction(status.platform) === "open-release-page") {
-    // macOS: never replace silently — open the latest release page (ADR-006).
+  if (currentUpdateAction() === "open-release-page") {
+    // macOS, and Linux installs that are not an AppImage: never replace
+    // silently — open the latest release page (ADR-006, ADR-022).
     // Idempotent, so a repeated click just opens the page again.
     const { openUrl } = await import("./tauri-api");
     await openUrl(RELEASE_PAGE_URL);

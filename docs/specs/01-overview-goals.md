@@ -51,7 +51,7 @@ See `docs/specs/09-command-replay.md`.
 |-----|---------------------|
 | Windows | NSIS installer (`-setup.exe`) |
 | macOS | `.dmg` / `.app` bundle |
-| Linux | `.AppImage` |
+| Linux | `.AppImage` (in-app updatable), `.deb`, `.rpm` |
 
 Built with **Tauri v2** (Rust backend + web frontend). Uses the OS native webview — no bundled browser. Small binary, native feel.
 

@@ -34,7 +34,7 @@ import {
   setTimestampFormat,
   TimestampFormat,
 } from "../lib/timestamps";
-import { checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction } from "../lib/updater";
+import { checkForUpdatesNow, currentUpdateAction, getUpdateStatus, subscribeUpdates } from "../lib/updater";
 import { getSearchIncludeTags, setSearchIncludeTags } from "../lib/search-prefs";
 import { normalizeDuplicateSessionPolicy } from "../lib/duplicate-session";
 import { ConfigSaveDescriptor, ConfigSaver } from "../lib/config-save";
@@ -1176,7 +1176,7 @@ export class SettingsScreen {
         el.textContent = "You're up to date.";
         break;
       case "update-available": {
-        const verb = updateAction(s.platform) === "open-release-page" ? "open the latest release" : "install";
+        const verb = currentUpdateAction() === "open-release-page" ? "open the latest release" : "install";
         el.textContent = `Update ${s.version ?? ""} available — click the icon in the title bar to ${verb}.`;
         break;
       }

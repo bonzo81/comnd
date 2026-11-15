@@ -69,6 +69,15 @@ describe("updateAction", () => {
   it("opens the release page on macOS (ADR-006)", () => {
     expect(updateAction("darwin")).toBe("open-release-page");
   });
+
+  it("opens the release page for a non-AppImage Linux install (ADR-022)", () => {
+    expect(updateAction("linux", false)).toBe("open-release-page");
+  });
+
+  it("ignores the AppImage flag outside Linux", () => {
+    expect(updateAction("windows", false)).toBe("install");
+    expect(updateAction("darwin", true)).toBe("open-release-page");
+  });
 });
 
 describe("nextUpdateState", () => {

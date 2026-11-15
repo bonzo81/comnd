@@ -13,7 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { importJob } from "./lib/import-status";
 import { icons } from "./lib/icons";
 import {
-  applyAvailableUpdate, checkForUpdatesNow, getUpdateStatus, subscribeUpdates, updateAction,
+  applyAvailableUpdate, checkForUpdatesNow, currentUpdateAction, getUpdateStatus, subscribeUpdates,
 } from "./lib/updater";
 import { escHtml } from "./lib/format";
 import { confirmDialog } from "./lib/confirm-dialog";
@@ -536,7 +536,7 @@ class App {
     const show = s.state === "update-available";
     this.updateIndicator.hidden = !show;
     if (!show) return;
-    const verb = updateAction(s.platform) === "open-release-page" ? "open the latest release" : "install";
+    const verb = currentUpdateAction() === "open-release-page" ? "open the latest release" : "install";
     const label = `Update ${s.version ?? ""} available — click to ${verb}`;
     this.updateIndicator.setAttribute("aria-label", label);
     this.updateIndicator.title = label;

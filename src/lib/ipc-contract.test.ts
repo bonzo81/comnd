@@ -130,6 +130,11 @@ const cases: WrapperCase[] = [
   { name: "sshResize", cmd: "ssh_resize", run: () => api.sshResize(7, 100, 40), args: { sessionId: 7, cols: 100, rows: 40 } },
   { name: "tofuRespond", cmd: "tofu_respond", run: () => api.tofuRespond(7, true), args: { sessionId: 7, accept: true } },
   { name: "openUrl", cmd: "open_url_cmd", run: () => api.openUrl("https://example.test"), args: { url: "https://example.test" } },
+  {
+    name: "isRunningAsAppImage",
+    cmd: "running_as_appimage",
+    run: () => api.isRunningAsAppImage(),
+  },
   // Config
   { name: "getAppConfig", cmd: "get_app_config", run: () => api.getAppConfig() },
   { name: "getLogLevel", cmd: "get_log_level", run: () => api.getLogLevel() },

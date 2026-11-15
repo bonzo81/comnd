@@ -313,6 +313,15 @@ export async function openUrl(url: string): Promise<void> {
   return invoke<void>("open_url_cmd", { url });
 }
 
+/**
+ * Whether the app was launched from an AppImage (`$APPIMAGE` set). Only
+ * meaningful on Linux; used to decide if the in-app updater can install
+ * (ADR-022).
+ */
+export async function isRunningAsAppImage(): Promise<boolean> {
+  return invoke<boolean>("running_as_appimage");
+}
+
 // ─── Config Commands ────────────────────────────────────────────────
 
 export interface AppConfig {
