@@ -189,8 +189,8 @@ async fn open_url_cmd(url: String) -> Result<(), String> {
 /// `/usr` and has to update through the package manager, so the frontend
 /// sends those users to the release page instead (ADR-022).
 #[tauri::command]
-fn running_as_appimage() -> bool {
-    std::env::var_os("APPIMAGE").is_some_and(|v| !v.is_empty())
+async fn running_as_appimage() -> Result<bool, String> {
+    Ok(std::env::var_os("APPIMAGE").is_some_and(|v| !v.is_empty()))
 }
 
 // Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡ Test Commands (debug only) Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡Ã”Ã¶Ã‡
