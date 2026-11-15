@@ -81,6 +81,16 @@
   flex: 1;
   max-width: 720px;
   overflow-y: auto;
+  /* Reserve the classic scrollbar's gutter unconditionally (issue #120).
+     Scrollbars that take space (Linux/GTK with overlay scrolling off) shrink
+     the content box by their width the moment the content grows past the
+     pane's height — at 1.5x UI scale the pane overflows, so the right-aligned
+     text-scale slider jumped sideways mid-drag while the pointer was still.
+     A stable gutter keeps the content box fixed for the whole scale range.
+     Overlay-scrollbar platforms (Windows/WebView2, GTK overlay on) reserve
+     0px, so their rendering is unchanged. Engines without
+     scrollbar-gutter simply ignore it and keep today's behaviour. */
+  scrollbar-gutter: stable;
   padding: var(--space-8) var(--space-8) var(--space-16);
   /* Container for the narrow-pane query below — measures the pane's own
      width, so the layout adapts to whatever the nav + rail leave it. */
