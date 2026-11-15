@@ -31,7 +31,7 @@ chmod +x Comnd_<version>_amd64.AppImage
 
 The AppImage is portable. You can run it from a USB stick without installing anything, and it is the only Linux format Comnd can update by itself (see [Updates](#updates)).
 
-It bundles its own GTK 3 and WebKitGTK, so the library versions your distro ships do not matter. Two things are taken from your system: `libwayland-client.so.0` and glibc. Any GTK 3 desktop has both at a usable version.
+It bundles GTK 3 and WebKitGTK, so the versions your distro ships of those do not matter. The graphics stack does come from your system — `libwayland-client.so.0`, EGL, GL and DRM/GBM, plus glibc — so the AppImage needs a reasonably current desktop. Check yours with `ldd --version`; Comnd needs glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9 or later). A distro with GTK 3 is not by itself enough: Ubuntu 20.04 has GTK 3 but glibc 2.31.
 
 ### Debian / Ubuntu (`.deb`)
 
@@ -60,7 +60,11 @@ These packages use the WebKitGTK and GTK 3 that your distribution provides rathe
 If an AppImage window appears with nothing drawn in it, the cause is almost always `libwayland-client.so.0`. An older AppImage build could bundle a copy that its own EGL driver then refused. The fix is to prefer your system's copy:
 
 ```bash
+# Debian, Ubuntu, and other multiarch distros
 LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libwayland-client.so.0 ./Comnd_<version>_amd64.AppImage
+
+# Fedora, RHEL, and other /usr/lib64 distros
+LD_PRELOAD=/usr/lib64/libwayland-client.so.0 ./Comnd_<version>_amd64.AppImage
 ```
 
 Better: use a release built after this was fixed (0.6.1 and later), or use the `.deb`/`.rpm`, which never contains the bundled copy.
