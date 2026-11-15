@@ -4,7 +4,7 @@
  * the real dynamic import path in updater.ts stays under test.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // updater.ts reads navigator.userAgent at import time and jsdom derives it from
 // the host OS, so pin it to keep the install-path tests identical on every OS.
@@ -24,13 +24,21 @@ import {
   updateAction,
 } from "./updater";
 
-vi.mock("@tauri-apps/plugin-updater", () => ({
-  check: vi.fn(),
+// Hoisted singletons: the install-channel tests below load a fresh updater
+// module with vi.resetModules(), which re-runs these factories. Returning the
+// same objects keeps every module instance wired to the spies we assert on.
+const pluginUpdater = vi.hoisted(() => ({ check: vi.fn() }));
+const pluginProcess = vi.hoisted(() => ({ relaunch: vi.fn().mockResolvedValue(undefined) }));
+const tauriApi = vi.hoisted(() => ({
+  isRunningAsAppImage: vi.fn().mockResolvedValue(true),
+  openUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@tauri-apps/plugin-process", () => ({
-  relaunch: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@tauri-apps/plugin-updater", () => pluginUpdater);
+
+vi.mock("@tauri-apps/plugin-process", () => pluginProcess);
+
+vi.mock("./tauri-api", () => tauriApi);
 
 import { check } from "@tauri-apps/plugin-updater";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -182,5 +190,63 @@ describe("applyAvailableUpdate (re-entry guard)", () => {
     release();
     await first;
     expect(getUpdateStatus().state).toBe("installed");
+  });
+});
+
+describe("install channel (ADR-022)", () => {
+  // updater.ts caches the probe at module scope, so each case needs a fresh
+  // module instance to observe a different probe result.
+  async function loadUpdater() {
+    vi.resetModules();
+    return import("./updater");
+  }
+
+  beforeEach(() => {
+    tauriApi.isRunningAsAppImage.mockReset();
+    tauriApi.openUrl.mockReset();
+    pluginProcess.relaunch.mockClear();
+    mockedCheck.mockReset();
+  });
+
+  it("sends a .deb/.rpm install to the release page without installing", async () => {
+    tauriApi.isRunningAsAppImage.mockResolvedValue(false);
+    const update = fakeUpdate("0.7.0");
+    mockedCheck.mockResolvedValue(update);
+
+    const updater = await loadUpdater();
+    await updater.checkForUpdatesNow();
+    expect(updater.getUpdateStatus().state).toBe("update-available");
+
+    await expect(updater.applyAvailableUpdate()).resolves.toBe("opened-release-page");
+    expect(tauriApi.openUrl).toHaveBeenCalledWith(updater.RELEASE_PAGE_URL);
+    expect(update.downloadAndInstall).not.toHaveBeenCalled();
+    expect(pluginProcess.relaunch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the in-app install for an AppImage", async () => {
+    tauriApi.isRunningAsAppImage.mockResolvedValue(true);
+    const update = fakeUpdate("0.7.0");
+    mockedCheck.mockResolvedValue(update);
+
+    const updater = await loadUpdater();
+    await updater.checkForUpdatesNow();
+
+    await expect(updater.applyAvailableUpdate()).resolves.toBe("installed");
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(pluginProcess.relaunch).toHaveBeenCalledTimes(1);
+    expect(tauriApi.openUrl).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the in-app install when the probe fails", async () => {
+    tauriApi.isRunningAsAppImage.mockRejectedValue(new Error("command not available"));
+    const update = fakeUpdate("0.7.0");
+    mockedCheck.mockResolvedValue(update);
+
+    const updater = await loadUpdater();
+    await updater.checkForUpdatesNow();
+
+    await expect(updater.applyAvailableUpdate()).resolves.toBe("installed");
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(tauriApi.openUrl).not.toHaveBeenCalled();
   });
 });
