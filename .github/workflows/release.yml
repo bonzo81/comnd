@@ -96,6 +96,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      # ADR-022 - seed the AppImage bundler with current linuxdeploy.
+      # tauri-bundler otherwise downloads its own pinned 2022 linuxdeploy fork,
+      # whose excludelist keeps libwayland-client.so.0. The 1.20 copy from
+      # Ubuntu 22.04 then shadows the host library for Mesa's EGL driver and
+      # WebKitGTK aborts on startup with EGL_BAD_PARAMETER (blank window).
+      # tauri-bundler treats ~/.cache/tauri/linuxdeploy-x86_64.AppImage as an
+      # already-installed tool and skips the download, so no patch is needed.
+      - name: seed linuxdeploy (AppImage bundler)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          linuxdeploy_dir="${HOME}/.cache/tauri"
+          mkdir -p "$linuxdeploy_dir"
+          curl -fsSL --retry 3 \
+            -o "$linuxdeploy_dir/linuxdeploy-x86_64.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
+          chmod +x "$linuxdeploy_dir/linuxdeploy-x86_64.AppImage"
+
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
