@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/bonzo81/comnd/compare/v0.6.0...v0.6.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **linux:** stop bundling libwayland-client and ship .deb/.rpm ([#158](https://github.com/bonzo81/comnd/issues/158)) ([c44df7f](https://github.com/bonzo81/comnd/commit/c44df7f8463c6496c1015efd6fecc9ecaf8109e3))
+* **settings:** reserve a scrollbar gutter in the settings pane ([#157](https://github.com/bonzo81/comnd/issues/157)) ([5f1846a](https://github.com/bonzo81/comnd/commit/5f1846a1fd61935eef20f4321bc9aa8e081c7509))
+
 ## [0.6.0](https://github.com/bonzo81/comnd/compare/v0.5.0...v0.6.0) (2026-11-14)
 
 
