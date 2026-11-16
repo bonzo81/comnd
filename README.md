@@ -2,10 +2,11 @@
 
 Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
-- **Suggestions**
-- **Terminal and sessions**
-- **Hosts and credentials**
-- **Knowledge base**
+- **Knowledge base** — Commands for every supported platform, with the syntax, parameters and examples, shipped with the app and yours to extend.
+- **Command Suggestions** — Ghost text as you type and a dropdown of every match, chosen from the device, the CLI mode and the software version.
+- **Command Replay** — The commands you run often, saved with named variables and sent again from the side panel.
+- **Terminal and sessions** — A normal SSH terminal, with tabs, coloured output, session logs and a side panel beside it.
+- **Hosts and credentials** — Hosts synced from NetBox, and secrets that stay in your keychain, SSH agent or Proton Pass.
 
 ![Comnd terminal with `ip ` typed at the prompt: the ghost-text completion `addr` follows the cursor, and the side panel shows the syntax for `ip`](docs/images/readme-terminal-suggestions.png)
 
@@ -15,6 +16,20 @@ Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
 ## Features
 
+### Knowledge base
+
+Comnd knows your commands, and it is yours to extend.
+
+- Built-in commands for every platform listed under [Supported devices](#supported-devices), including category browsing and search.
+- Add your own commands in YAML, or import them from vendor documentation with an LLM that you configure.
+- Edit, disable or import entries without touching the built-in data.
+
+### Command Replay
+
+Save the commands you use often, or the long ones with too many flags to retype.
+
+- Save a command from the terminal or type it in, mark the parts that change as named variables, and play it back from the side panel.
+- Playing inserts the command without running it, so you can check it before pressing Enter.
 ### Suggestions
 
 Comnd combines the platform you set for the host with the prompt in front of you, so the choices match where you are.
@@ -35,20 +50,17 @@ The terminal stays a normal SSH terminal. Comnd adds to the view around it, neve
 - Fully keyboard-driven, including a **Reading Comfort** preset for dyslexic readers.
 - Save commands with `{{variables}}` in Command Replay and send them again later.
 
-### Hosts and credentials
+### NetBox Hosts
 
-Comnd is not another place where your hosts and passwords pile up.
+Don't duplicate your hosts. Sync from your source of truth.
 
-- Use NetBox as the source of your host list and connect without re-entering anything. The integration is read-only.
+- Read-only integration with NetBox as the source of your host list and connect without re-entering anything.
+
+### Integrations
+
+Don't duplicate your secrets. Sync from your password managers.
+
 - Keep credentials in your operating system keychain, an SSH agent, or Proton Pass, and associate a record with a host. No password is copied into the app.
-
-### Knowledge base
-
-The command data ships with the app, and it is yours to extend.
-
-- Built-in commands for every platform listed under [Supported devices](#supported-devices), including category browsing and search.
-- Add your own commands in YAML, or import them from vendor documentation with an LLM that you configure.
-- Edit, disable or import entries without touching the built-in data.
 
 ## Screenshots
 
