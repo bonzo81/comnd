@@ -47,6 +47,19 @@ committed set: identical every time.
 | Empty states, error toasts, loading states | Already asserted in `npm run smoke`; a static image adds nothing a reviewer cannot get from the assertion. |
 | macOS | The smoke driver does not support it. No macOS coverage is claimed anywhere in this repo. |
 
+## README copies
+
+Three shots are copied by hand into `docs/images/` for the repository README:
+`readme-terminal-suggestions.png` (`09-terminal-sidebar-open.png`),
+`readme-connections.png` (`01-connections.png`) and `readme-replay.png`
+(`06-replay.png`).
+
+The copies are not part of the baseline. `--check` does not read them and
+nothing compares them, so they can only drift when a re-capture changes one of
+those screens. When that happens, copy the new image in the same commit and
+review it by eye like the baseline. Delete a copy rather than leave it stale if
+the README stops using it.
+
 ## Committed geometry
 
 The manifest is the source of truth; this section explains it.
