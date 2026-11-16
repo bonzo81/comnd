@@ -2,42 +2,48 @@
 
 Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
-- **Knowledge base** — Commands for every supported platform, with the syntax, parameters and examples, shipped with the app and yours to extend.
-- **Command Suggestions** — Ghost text as you type and a dropdown of every match, chosen from the device, the CLI mode and the software version.
-- **Command Replay** — The commands you run often, saved with named variables and sent again from the side panel.
-- **Terminal and sessions** — A normal SSH terminal, with tabs, coloured output, session logs and a side panel beside it.
-- **Hosts and credentials** — Hosts synced from NetBox, and secrets that stay in your keychain, SSH agent or Proton Pass.
+- **Knowledge base**: commands for Linux bash, Cisco IOS-XE, Cisco NX-OS and F5 TMOS, with syntax, parameters and examples. Shipped with the app and yours to extend.
+- **Command suggestions**: ghost text as you type and a dropdown of every match, based on the device platform, CLI mode and software version.
+- **Command Replay**: save the commands you run often, with named variables, and send them again from the side panel.
+- **Terminal and sessions**: a normal SSH terminal with tabs, coloured output, session logs and a side panel.
+- **Hosts and credentials**: hosts synced from NetBox, and secrets that stay in your keychain, SSH agent or Proton Pass.
 
 ![Comnd terminal with `ip ` typed at the prompt: the ghost-text completion `addr` follows the cursor, and the side panel shows the syntax for `ip`](docs/images/readme-terminal-suggestions.png)
 
 [**Download Comnd**](https://github.com/bonzo81/comnd/releases/latest) · [Installation](docs/user-guide/01-installation.md) · [Documentation](#documentation) · [Contribute](CONTRIBUTING.md)
 
-> **Development status:** Comnd is an early-stage app (pre-1.0) that is still being developed. Public releases are available to try, but features may change; it is not ready for production use. Builds are unsigned, so Windows or macOS may show first-launch security warnings. Review suggestions before you use them on important systems.
+> **Development status:** Comnd is pre-1.0 and still in development.
+>
+> - Features may change, and it is not ready for production use.
+> - Builds are unsigned, so Windows or macOS may show first-launch security warnings.
+> - Review suggestions before you use them on important systems.
 
 ## Features
 
 ### Knowledge base
 
-Comnd knows your commands, and it is yours to extend.
+The command data ships with the app, and it is yours to extend.
 
-- Built-in commands for every platform listed under [Supported devices](#supported-devices), including category browsing and search.
+- Browse and search built-in commands for every platform listed under [Supported devices](#supported-devices).
 - Add your own commands in YAML, or import them from vendor documentation with an LLM that you configure.
-- Edit, disable or import entries without touching the built-in data.
+- Edit or disable entries without touching the built-in data.
+- The knowledge base is plain YAML that you can read. No AI service is used for suggestions.
 
-### Command Replay
-
-Save the commands you use often, or the long ones with too many flags to retype.
-
-- Save a command from the terminal or type it in, mark the parts that change as named variables, and play it back from the side panel.
-- Playing inserts the command without running it, so you can check it before pressing Enter.
-### Suggestions
+### Command suggestions
 
 Comnd combines the platform you set for the host with the prompt in front of you, so the choices match where you are.
 
 - Matches on platform, CLI mode (`enable`/`config` on Cisco, `tmsh`/bash on F5) and software version.
 - Ghost text completes inline as you type. Press **Tab** to accept it.
-- **Ctrl+Space** opens a dropdown of every match, and the side panel shows the full syntax, parameters and examples for the highlighted command.
-- No AI service is used for suggestions. The knowledge base is plain YAML that you can read, edit and extend.
+- **Ctrl+Space** opens a dropdown of every match.
+- The side panel shows the full syntax, parameters and examples for the highlighted command.
+
+### Command Replay
+
+Save the commands you use often, or the long ones with too many flags to retype.
+
+- Save a command from the terminal or type it in, then mark the parts that change as named variables.
+- Play it back from the side panel. Playing inserts the command without running it, so you can check it before pressing Enter.
 
 ### Terminal and sessions
 
@@ -48,13 +54,13 @@ The terminal stays a normal SSH terminal. Comnd adds to the view around it, neve
 - Output highlighting recolours IP addresses, interface names and status keywords. Interactive programs such as `vi`, `more` and `top` are left uncoloured.
 - Optional session logging, with timestamps on each chunk of output.
 - Fully keyboard-driven, including a **Reading Comfort** preset for dyslexic readers.
-- Save commands with `{{variables}}` in Command Replay and send them again later.
 
-### NetBox Hosts
+### NetBox hosts
 
 Don't duplicate your hosts. Sync from your source of truth.
 
-- Read-only integration with NetBox as the source of your host list and connect without re-entering anything.
+- Use NetBox as the source of your host list and connect without re-entering anything.
+- The integration is read-only.
 
 ### Integrations
 
