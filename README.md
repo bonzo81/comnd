@@ -24,7 +24,7 @@ Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
 The command data ships with the app, and it is yours to extend.
 
-- Browse and search built-in commands for every device platform listed under [Supported platforms](#supported-platforms).
+- Browse and search built-in commands for Linux bash, Cisco IOS-XE, Cisco NX-OS and F5 TMOS.
 - Add your own commands in YAML, or import them from vendor documentation with an LLM that you configure.
 - Edit or disable entries without touching the built-in data.
 - No AI service is used for suggestions. Your commands stay local.
@@ -77,7 +77,7 @@ Don't duplicate your secrets. Sync from your password managers
 |---|---|
 | ![Host list with folders and recent sessions](docs/images/readme-connections.png) | ![Saved commands across three platforms, one containing a variable](docs/images/readme-replay.png) |
 
-## Supported platforms
+## Runs on
 
 ### Run Comnd on
 
@@ -89,16 +89,6 @@ Don't duplicate your secrets. Sync from your password managers
 
 See the [installation guide](docs/user-guide/01-installation.md) for requirements and steps.
 
-### Connect to (command suggestions)
-
-| Device platform | Typical devices |
-|---|---|
-| **Linux / bash** | Servers, VMs, Raspberry Pi, containers |
-| **Cisco IOS-XE** | Routers, Catalyst switches, ASR, ISR |
-| **Cisco NX-OS** | Nexus switches (3K/5K/7K/9K) |
-| **F5 BIG-IP TMOS** | BIG-IP appliances and virtual editions |
-
-Suggestions are available for the platforms above.
 
 ## Get started
 
