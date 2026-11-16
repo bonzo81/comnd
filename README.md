@@ -1,10 +1,14 @@
 # Comnd
 
-Comnd (pronounced "command") is a desktop SSH client for network engineers. It suggests commands as you type, based on the platform of the device, the CLI mode you are in, and the software version. Suggestions come from a knowledge base stored on your computer. They work offline, and your commands, terminal output, and credentials never leave your machine.
+Comnd ("command") is a multi-platform desktop SSH client for network engineers.
+
+- Suggests commands as you type, based on the device platform, the CLI mode you are in, and the software version.
+- Takes suggestions from a knowledge base stored on your computer, so they work offline.
+- Keeps your commands, terminal output and credentials on your machine.
 
 ![Comnd terminal with `ip ` typed at the prompt: the ghost-text completion `addr` follows the cursor, and the side panel shows the syntax for `ip`](docs/images/readme-terminal-suggestions.png)
 
-**[Download Comnd](https://github.com/bonzo81/comnd/releases/latest)** · [Installation](docs/user-guide/01-installation.md) · [Documentation](#documentation) · [Contribute](CONTRIBUTING.md)
+[**Download Comnd**](https://github.com/bonzo81/comnd/releases/latest) · [Installation](docs/user-guide/01-installation.md) · [Documentation](#documentation) · [Contribute](CONTRIBUTING.md)
 
 > **Development status:** Comnd is an early-stage app (pre-1.0) that is still being developed. Public releases are available to try, but features may change; it is not ready for production use. Builds are unsigned, so Windows or macOS may show first-launch security warnings. Review suggestions before you use them on important systems.
 
