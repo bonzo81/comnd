@@ -24,14 +24,14 @@ Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
 The command data ships with the app, and it is yours to extend.
 
-- Browse and search built-in commands for every platform listed under [Supported devices](#supported-devices).
+- Browse and search built-in commands for every device platform listed under [Supported platforms](#supported-platforms).
 - Add your own commands in YAML, or import them from vendor documentation with an LLM that you configure.
 - Edit or disable entries without touching the built-in data.
-- The knowledge base is plain YAML that you can read. No AI service is used for suggestions.
+- No AI service is used for suggestions. Your commands stay local.
 
 ### Command suggestions
 
-Comnd combines the platform you set for the host with the prompt in front of you, so the choices match where you are.
+Comnd show you suggestion baed on the host OS while you type.
 
 - Matches on platform, CLI mode (`enable`/`config` on Cisco, `tmsh`/bash on F5) and software version.
 - Ghost text completes inline as you type. Press **Tab** to accept it.
@@ -47,13 +47,15 @@ Save the commands you use often, or the long ones with too many flags to retype.
 
 ### Terminal and sessions
 
-The terminal stays a normal SSH terminal. Comnd adds to the view around it, never to the connection.
+Enhance the terminal as you want it.
 
-- When no suggestion is showing, **Tab** completes on the device as usual, so your normal shell habits keep working.
-- Multiple sessions open in tabs, each with its own terminal state and session log.
-- Output highlighting recolours IP addresses, interface names and status keywords. Interactive programs such as `vi`, `more` and `top` are left uncoloured.
-- Optional session logging, with timestamps on each chunk of output.
-- Fully keyboard-driven, including a **Reading Comfort** preset for dyslexic readers.
+- Timestamp the terminal 
+- Command suggestion on/off.
+- Multiple sessions.
+- Output highlighting recolours IP addresses, interface names and status keywords. 
+- Session logging, with timestamps.
+- Fully keyboard-driven
+-  **Reading Comfort** preset for dyslexic readers.
 
 ### NetBox hosts
 
@@ -64,19 +66,30 @@ Don't duplicate your hosts. Sync from your source of truth.
 
 ### Integrations
 
-Don't duplicate your secrets. Sync from your password managers.
+Don't duplicate your secrets. Sync from your password managers
 
-- Keep credentials in your operating system keychain, an SSH agent, or Proton Pass, and associate a record with a host. No password is copied into the app.
-
+- Assign a secret from you password manager to a host. No password is copied into the app.
+- Currently supports ProtonPass (protonpass cli)
+- Or keep credentials in your operating system keychain, an SSH agent 
 ## Screenshots
 
 | Connection manager | Command Replay |
 |---|---|
 | ![Host list with folders and recent sessions](docs/images/readme-connections.png) | ![Saved commands across three platforms, one containing a variable](docs/images/readme-replay.png) |
 
-## Supported devices
+## Supported platforms
 
-Comnd runs on Windows, macOS and Linux. See the [installation guide](docs/user-guide/01-installation.md) for each platform's package format.
+### Run Comnd on
+
+| Operating system | Package |
+|---|---|
+| **Windows** | NSIS installer (`-setup.exe`) |
+| **macOS** | `.dmg` / `.app` bundle |
+| **Linux** | `.AppImage`, `.deb`, `.rpm` |
+
+See the [installation guide](docs/user-guide/01-installation.md) for requirements and steps.
+
+### Connect to (command suggestions)
 
 | Device platform | Typical devices |
 |---|---|
@@ -84,6 +97,8 @@ Comnd runs on Windows, macOS and Linux. See the [installation guide](docs/user-g
 | **Cisco IOS-XE** | Routers, Catalyst switches, ASR, ISR |
 | **Cisco NX-OS** | Nexus switches (3K/5K/7K/9K) |
 | **F5 BIG-IP TMOS** | BIG-IP appliances and virtual editions |
+
+Suggestions are available for the platforms above.
 
 ## Get started
 
