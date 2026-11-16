@@ -2,9 +2,10 @@
 
 Comnd ("command") is a multi-platform desktop SSH client for network engineers.
 
-- Suggests commands as you type, based on the device platform, the CLI mode you are in, and the software version.
-- Takes suggestions from a knowledge base stored on your computer, so they work offline.
-- Keeps your commands, terminal output and credentials on your machine.
+- **Suggestions**
+- **Terminal and sessions**
+- **Hosts and credentials**
+- **Knowledge base**
 
 ![Comnd terminal with `ip ` typed at the prompt: the ghost-text completion `addr` follows the cursor, and the side panel shows the syntax for `ip`](docs/images/readme-terminal-suggestions.png)
 
