@@ -223,7 +223,8 @@
   top: 100%;
   left: 0;
   z-index: 30;
-  display: none;
+  visibility: hidden;
+  opacity: 0;
   width: max-content;
   max-width: min(320px, 100%);
   margin-top: var(--space-1);
@@ -240,11 +241,22 @@
   text-transform: none;
   word-spacing: var(--prose-word-spacing);
   pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0s linear 0.15s;
 }
 
-.settings-info:hover .settings-info-tip,
+/* A passing mouse over the icon does not flash the tip: hover waits out a
+   short delay before it fades in. Keyboard focus is deliberate, so it shows
+   at once. */
+.settings-info:hover .settings-info-tip {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.15s ease 0.35s, visibility 0s linear 0.35s;
+}
+
 .settings-info:focus-visible .settings-info-tip {
-  display: block;
+  visibility: visible;
+  opacity: 1;
+  transition: none;
 }
 
 .settings-row-desc {
