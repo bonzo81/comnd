@@ -51,6 +51,15 @@
     transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ArrowRight expands a section and focuses its first row in the same tick, so
+   the reveal would fade the focus ring in along with the list and leave
+   keyboard focus briefly invisible. Skip the reveal while focus is inside the
+   list; the header is a sibling, so opening by click or Enter still animates,
+   and collapsing moves focus back to the header, which restores it. */
+.nav-section-items.open:focus-within {
+  transition: none;
+}
+
 .nav-section-header {
   display: flex;
   align-items: center;

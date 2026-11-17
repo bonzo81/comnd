@@ -262,4 +262,5 @@ Cancel button available at all stages. On failure, error overlay with retry butt
   * a group's row actions park 2px right and slide to rest as they fade in on hover/focus;
   * the settings rail's pill fades and settles (`scale(0.97)`, 220ms) only on a real page change, and its icons nudge 2px on hover.
 * Focus indicators never animate — a ring that fades in is a ring that arrives late. A focused row may gain the hover surface, which fades. The terminal frame's ring above is the one exception, and it is colour-only on a frame that is always present.
+* Keyboard disclosure skips the reveal: ArrowRight opens a section and focuses its first row in the same tick, so an open section containing focus drops the transition rather than fading its focus ring in with the list. Opening by click or Enter focuses the header (a sibling), so it still animates.
 * Everything above is disabled under `prefers-reduced-motion: reduce` (duration collapsed to ~0, so every state still lands).
