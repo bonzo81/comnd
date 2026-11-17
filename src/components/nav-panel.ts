@@ -68,6 +68,9 @@ export class NavPanel {
   private groups: { id: string; name: string; icon: string | null; color: string | null; parent_id: string | null; sort_order: number }[] = [];
   private hosts: Host[] = [];
   private selectedHostId: string | null = null;
+  /** Set for the single render that follows a host click: the row is new DOM,
+   *  so it can only fade its selection in (CSS .nav-settle), not transition. */
+  private settlingHostId: string | null = null;
   private searchQuery = "";
   /**
    * THE active sub-item, app-wide. Exactly one sub-item is highlighted:
@@ -500,6 +503,8 @@ export class NavPanel {
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
     `;
+    // Consumed by renderHostRow for this pass only.
+    this.settlingHostId = null;
     this.bindEvents();
     this.applyRovingTabindex();
     // Context menu ARIA + keyboard navigation (arrows/Enter/Escape)
@@ -675,13 +680,14 @@ export class NavPanel {
     `;
     }
     const selected = this.selectedHostId === host.id;
+    const settle = this.settlingHostId === host.id ? " nav-settle" : "";
     const active = this.cb.getActiveSessions().has(host.id);
     // Reuse the content-area dot classes so the nav and the content panel
     // show the same green state for an active session.
     const dotClass = active ? "nav-host-dot dot-ok" : "nav-host-dot";
     const dotTitle = active ? "Session active" : (host.last_connected ? "Previously connected" : "Never connected");
     return `
-      <div class="nav-host-row ${selected ? "nav-selected" : ""}" data-host-id="${host.id}">
+      <div class="nav-host-row ${selected ? "nav-selected" : ""}${settle}" data-host-id="${host.id}">
         <button class="nav-item nav-sub" data-host-id="${host.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle"></span>
           <span class="${dotClass}" title="${escHtml(dotTitle)}"></span>
@@ -1281,6 +1287,7 @@ export class NavPanel {
       el.addEventListener("click", () => {
         if (this.dragMoved) return;
         this.selectedHostId = id;
+        this.settlingHostId = id;
         this.cb.onSelectHost(id);
         this.render();
       });
