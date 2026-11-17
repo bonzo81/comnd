@@ -744,3 +744,44 @@ describe("SettingsScreen — version footer (#102)", () => {
     expect(document.activeElement).toBe(buttons[0]);
   });
 });
+
+describe("SettingsScreen — setting prose in info tooltips", () => {
+  async function mountLogging() {
+    const h = createHarness();
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
+    h.ipc.mock("get_session_log_dir", "");
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem("logging");
+    await vi.waitFor(() => expect(container.querySelector("#log-level")).not.toBeNull());
+    return { h, container, screen };
+  }
+
+  it("renders a setting's detail as a focusable info button, not as text", async () => {
+    const { container } = await mountLogging();
+    const row = container.querySelector("#log-level")!.closest(".settings-row")!;
+
+    expect(row.querySelector(".settings-row-desc")).toBeNull();
+    const info = row.querySelector<HTMLButtonElement>(".settings-info")!;
+    expect(info.getAttribute("aria-label")).toContain("Applies immediately");
+    expect(info.querySelector(".settings-info-tip")!.textContent).toContain("Applies immediately");
+  });
+
+  it("keeps the session-log password warning visible", async () => {
+    const { container } = await mountLogging();
+    const caution = container.querySelector(".settings-caution")!;
+
+    expect(caution.textContent).toContain("including passwords");
+  });
+
+  it("closes an open tooltip on Escape", async () => {
+    const { container } = await mountLogging();
+    const info = container.querySelector<HTMLButtonElement>(".settings-info")!;
+    info.focus();
+    expect(document.activeElement).toBe(info);
+
+    info.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(document.activeElement).not.toBe(info);
+  });
+});

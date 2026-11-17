@@ -315,30 +315,49 @@ export class SettingsScreen {
 
   // ─── SettingRow helpers ─────────────────────────────────────────
 
-  /** SettingRow — label + description left, control right, one baseline.
-   *  Empty label renders a desc-only text side. */
-  private row(label: string, control: string, desc = "", forId = ""): string {
+  /** Info button — a small "i" that shows `text` on hover or keyboard focus.
+   *  The button's accessible name is the full text, so a screen reader hears
+   *  the detail without the tooltip. */
+  private infoButton(text: string): string {
+    return `<button type="button" class="settings-info" aria-label="${escAttr(text)}">${icons.info}<span class="settings-info-tip" aria-hidden="true">${escHtml(text)}</span></button>`;
+  }
+
+  /** SettingRow — label and optional info tooltip left, control right.
+   *  `info` is the tooltip text and `value` is a live readout under the label
+   *  (slider values, status lines). A row with no label shows `info` as plain
+   *  text, because there is no title to attach the tooltip to. */
+  private row(label: string, control: string, info = "", forId = "", value = ""): string {
     const labelHtml = label
-      ? `<label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>`
+      ? `<span class="settings-row-heading">
+           <label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>
+           ${info ? this.infoButton(info) : ""}
+         </span>`
       : "";
-    const descHtml = desc ? `<span class="settings-row-desc">${desc}</span>` : "";
+    const detailHtml = label
+      ? (value ? `<span class="settings-row-value">${value}</span>` : "")
+      : (info ? `<span class="settings-row-desc">${info}</span>` : "");
     return `
       <div class="settings-row">
-        <div class="settings-row-text">${labelHtml}${descHtml}</div>
+        <div class="settings-row-text">${labelHtml}${detailHtml}</div>
         <div class="settings-row-control">${control}</div>
       </div>`;
   }
 
-  /** Block variant: label + description on top, full-width control below —
+  /** Block variant: label and info tooltip on top, full-width control below —
    *  for wide widgets (path inputs, textarea, multi-select). */
-  private rowBlock(label: string, control: string, desc = "", forId = ""): string {
+  private rowBlock(label: string, control: string, info = "", forId = "", value = ""): string {
     const labelHtml = label
-      ? `<label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>`
+      ? `<span class="settings-row-heading">
+           <label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>
+           ${info ? this.infoButton(info) : ""}
+         </span>`
       : "";
-    const descHtml = desc ? `<span class="settings-row-desc">${desc}</span>` : "";
+    const detailHtml = label
+      ? (value ? `<span class="settings-row-value">${value}</span>` : "")
+      : (info ? `<span class="settings-row-desc">${info}</span>` : "");
     return `
       <div class="settings-row settings-row-block">
-        <div class="settings-row-text">${labelHtml}${descHtml}</div>
+        <div class="settings-row-text">${labelHtml}${detailHtml}</div>
         <div class="settings-row-control">${control}</div>
       </div>`;
   }
@@ -355,8 +374,8 @@ export class SettingsScreen {
   }
 
   /** Small muted group label — whitespace separation only, no divider. */
-  private group(label: string): string {
-    return `<div class="settings-group-label">${escHtml(label)}</div>`;
+  private group(label: string, info = ""): string {
+    return `<div class="settings-group-label">${escHtml(label)}${info ? this.infoButton(info) : ""}</div>`;
   }
 
   private renderLlm(): string {
@@ -367,38 +386,38 @@ export class SettingsScreen {
     const ctxLen = this.config?.llm_context_length ?? 64000;
     return `
       <form class="settings-form" id="llm-settings-form">
-        ${this.row("API Format", `
+        ${this.row("API format", `
           <select class="form-input form-input-sm" id="llm-format">
             <option value="openai" ${apiFormat === "openai" ? "selected" : ""}>OpenAI-compatible</option>
             <option value="anthropic" ${apiFormat === "anthropic" ? "selected" : ""}>Anthropic</option>
           </select>`,
-          "Covers OpenAI, Gemini, Ollama, llama.cpp, vLLM, LM Studio, Unsloth, Groq, OpenRouter, … (OpenAI-compatible) and Claude (Anthropic)",
+          "OpenAI-compatible covers OpenAI, Gemini, Ollama, LM Studio, Unsloth, Groq, and OpenRouter. Anthropic covers Claude.",
           "llm-format")}
-        ${this.row("Quick Setup", `
+        ${this.row("Provider preset", `
           <select class="form-input form-input-sm" id="llm-provider-preset">
             <option value="">— Choose a provider… —</option>
             ${LLM_PROVIDER_PRESETS.map((p) => `<option value="${escAttr(p.url)}">${escHtml(p.name)}</option>`).join("")}
           </select>`,
-          "Fills the Base URL below — edit it freely afterwards. Pick a local provider for Ollama/LM Studio.",
+          "Fills the base URL. You can edit the URL after you pick a provider.",
           "llm-provider-preset")}
         ${this.row("Base URL", `
           <input type="url" class="form-input" id="llm-url" value="${escAttr(baseUrl)}" required />`,
-          "e.g., http://localhost:11434 (Ollama), https://api.openai.com, https://api.anthropic.com",
+          "For example http://localhost:11434 (Ollama), https://api.openai.com, or https://api.anthropic.com.",
           "llm-url")}
         ${this.row("Model", this.renderModelSelect(model), "", "llm-model-select")}
-        ${this.row("API Key (cloud only)", `
+        ${this.row("API key", `
           <input type="password" class="form-input" id="llm-key" value="${escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />`,
           "", "llm-key")}
-        ${this.row("Context Length", `
+        ${this.row("Context length", `
           <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />`,
-          "Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.",
+          "Output token budget for each request. Comnd sends it to OpenAI-compatible servers as max_tokens.",
           "llm-ctx")}
         <div class="settings-inline-actions">
           <span class="${inlineStatusClass("")}" id="llm-test-status"></span>
-          <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
+          <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test connection</button>
         </div>
         <div class="settings-actions">
-          <button type="submit" class="btn-primary">Save Settings</button>
+          <button type="submit" class="btn-primary">Save settings</button>
         </div>
       </form>
     `;
@@ -408,7 +427,7 @@ export class SettingsScreen {
     if (this.availableModels.length === 0) {
       return `
         <select class="form-input form-input-mono" id="llm-model-select">
-          <option value="${escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "— Run Test Connection to load models —"}</option>
+          <option value="${escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "Run Test connection to load models"}</option>
         </select>
       `;
     }
@@ -450,12 +469,12 @@ export class SettingsScreen {
             ${opt("12h", "12-hour — 2:32:05 PM")}
             ${opt("24h-ms", "24-hour with ms — 14:32:05.123")}
           </select>`,
-          "Re-renders timestamps in open terminals immediately", "ts-format")}
+          "Open terminals update immediately.", "ts-format")}
         ${this.switchRow("auto-copy", "Copy text on selection",
-          "Automatically copies highlighted terminal text to the clipboard as you select it", autoCopy)}
-        ${this.switchRow("output-highlight", "Syntax highlighting in terminal output",
-          "Colorizes IPs, interface names, status keywords (up/down/error), and config keywords in command output. Off by default.", highlight)}
-        ${this.row("Maximum concurrent sessions", `
+          "Copies highlighted terminal text to the clipboard as you select it.", autoCopy)}
+        ${this.switchRow("output-highlight", "Highlight terminal output",
+          "Colors IP addresses, interface names, status words (up, down, error), and command keywords.", highlight)}
+        ${this.row("Maximum sessions", `
           <select class="form-input form-input-sm" id="max-sessions">
             ${sessionOpt(10, "10")}
             ${sessionOpt(20, "20")}
@@ -464,26 +483,26 @@ export class SettingsScreen {
             ${sessionOpt(100, "100")}
             ${sessionOpt(0, "Unlimited")}
           </select>`,
-          "Prevents runaway resource usage from too many open SSH connections. Applies immediately.", "max-sessions")}
-        ${this.row("When connecting to a host that is already connected", `
+          "Limits open SSH connections so the app does not use too much memory. Applies immediately.", "max-sessions")}
+        ${this.row("Duplicate session", `
           <select class="form-input form-input-sm" id="duplicate-session-policy">
             ${dupOpt("ask", "Ask each time (default)")}
-            ${dupOpt("allow", "Always open another session")}
-            ${dupOpt("focus", "Always switch to the existing session")}
+            ${dupOpt("allow", "Open another session")}
+            ${dupOpt("focus", "Switch to the existing session")}
           </select>`,
-          "Controls whether a second session to the same device opens straight away, switches to the running session, or prompts each time.", "duplicate-session-policy")}
-        ${this.group("Global Search")}
-        ${this.switchRow("search-tags", "Match command tags in search",
-          "When off, global search and KB search match command name and aliases only", tagsOn)}
-        ${this.group("Data Management")}
+          "Sets what Comnd does when you connect to a host that is already connected.", "duplicate-session-policy")}
+        ${this.group("Search")}
+        ${this.switchRow("search-tags", "Search command tags",
+          "When off, search matches command names and aliases only.", tagsOn)}
+        ${this.group("Data")}
         ${this.row("", `
           <button type="button" id="data-export" class="btn-secondary btn-small">Export backup...</button>
           <button type="button" id="data-import" class="btn-secondary btn-small">Restore from backup...</button>`,
-          "Export saves hosts, groups, config, known hosts, and knowledge base to a zip file. Restore replaces your current data (a backup of the current state is kept automatically). Restart the app after restoring.")}
+          "Export saves hosts, groups, configuration, known hosts, and the knowledge base to a zip file. Restore replaces your current data and keeps a backup of it. Restart the app after a restore.")}
         ${this.group("Updates")}
         ${this.row("", `
           <button type="button" id="check-updates" class="btn-secondary btn-small">Check for updates</button>`,
-          `<span id="update-status">Comnd checks for updates on startup. When an update is available, an icon appears in the title bar — click it to install (or to open the latest release on macOS).</span>`)}
+          `<span id="update-status">Checks for updates when the app starts.</span>`)}
       </div>
     `;
   }
@@ -498,7 +517,7 @@ export class SettingsScreen {
     const sessionDir = this.config?.session_log_dir ?? "";
     return `
       <div class="settings-form">
-        ${this.group("App Log")}
+        ${this.group("App log")}
         ${this.row("Log level", `
           <select class="form-input form-input-sm" id="log-level">
             ${levelOpt("debug", "Debug")}
@@ -506,8 +525,8 @@ export class SettingsScreen {
             ${levelOpt("warn", "Warn")}
             ${levelOpt("error", "Error")}
           </select>`,
-          "Applies immediately. Debug shows suggestion queries and PTY resize events.", "log-level")}
-        ${this.row("Log file size cap", `
+          "Debug shows suggestion queries and terminal resize events. Applies immediately.", "log-level")}
+        ${this.row("Log size limit", `
           <select class="form-input form-input-sm" id="log-max-size">
             ${sizeOpt(0, "Off")}
             ${sizeOpt(5, "5 MB")}
@@ -515,31 +534,32 @@ export class SettingsScreen {
             ${sizeOpt(50, "50 MB")}
             ${sizeOpt(100, "100 MB")}
           </select>`,
-          "File is truncated when the cap is reached. Applies on next app start.", "log-max-size")}
-        ${this.rowBlock("Log file location", `
+          "The app truncates the file when it reaches the limit. Applies at next start.", "log-max-size")}
+        ${this.rowBlock("Log file path", `
           <input type="text" class="form-input" id="log-file-path"
             value="${escAttr(this.config?.log_file_path ?? "")}"
             placeholder="Default: app data dir"
             spellcheck="false" autocomplete="off" />
           <button type="button" id="log-file-browse" class="btn-secondary btn-small">Browse...</button>
           <button type="button" id="log-file-reset" class="btn-link">Reset</button>`,
-          "Applies on next app start. Leave blank for the default location. Custom locations may have different access permissions — prefer the default for privacy.",
+          "Leave empty for the default location. Applies at next start. A custom folder can have different access permissions, so the default location is safer.",
           "log-file-path")}
-        ${this.group("Session Logging")}
-        ${this.switchRow("session-logging", "Log SSH session output to file",
-          "Writes raw terminal I/O for each connection to a per-session log file. Applies to new connections.<br />Warning: logs capture everything on screen and everything you type, including passwords (enable, sudo). Keep the log directory private.",
+        ${this.group("Session logs")}
+        ${this.switchRow("session-logging", "Log session output",
+          "Writes terminal input and output to one log file per connection. Applies to new connections.",
           this.config?.session_logging ?? true)}
-        ${this.switchRow("session-log-timestamps", "Prefix log lines with timestamps",
+        <p class="settings-caution">Logs include everything on screen and everything you type, including passwords. Keep the log folder private.</p>
+        ${this.switchRow("session-log-timestamps", "Add timestamps",
           "Adds an [HH:MM:SS] stamp before each chunk of output.",
           this.config?.session_log_timestamps ?? true)}
-        ${this.rowBlock("Session log directory", `
+        ${this.rowBlock("Session log folder", `
           <input type="text" class="form-input" id="session-log-dir"
             value="${escAttr(sessionDir)}"
             placeholder="Default: ${escAttr(this.sessionLogDefaultDir)}"
             spellcheck="false" autocomplete="off" />
           <button type="button" id="session-log-dir-browse" class="btn-secondary btn-small">Browse...</button>
           <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>`,
-          "Leave blank for the default location. Applies to new connections.",
+          "Leave empty for the default location. Applies to new connections.",
           "session-log-dir")}
       </div>
     `;
@@ -556,7 +576,7 @@ export class SettingsScreen {
           <select class="form-input form-input-sm" id="theme-app">
             ${opts}
           </select>`,
-          "Applies to the Comnd window chrome, nav panel, and settings", "theme-app")}
+          "Changes the colors of every screen.", "theme-app")}
       </div>
     `;
   }
@@ -571,24 +591,24 @@ export class SettingsScreen {
     return `
       <div class="settings-form">
         ${this.switchRow("rc-enabled", "Enable Reading Comfort",
-          "Recommended settings for dyslexic readers and anyone who finds text hard to read. Applies readability defaults as a starting point; every value below stays adjustable via its slider. Turning off restores your previous font size; your theme choice is kept.",
+          "Sets readable defaults for dyslexic readers. Every value below stays adjustable. Turning it off restores your previous font size and keeps your theme.",
           on)}
         ${on ? `
         ${this.row("", `<button type="button" id="rc-reset" class="btn-text">Reset to preset</button>`)}
         ${this.group("Adjustments")}
         ${this.row("Terminal font size", `
           <input type="range" class="form-input" id="rc-font-size" min="${TERMINAL_FONT_MIN}" max="${TERMINAL_FONT_MAX}" step="1" value="${fontSize}" />`,
-          `${fontSize}px — shared with the terminal zoom shortcuts (Ctrl+= / Ctrl+-)`, "rc-font-size")}
+          "The terminal zoom shortcuts (Ctrl+= and Ctrl+-) change this value too.", "rc-font-size", `${fontSize}px`)}
         ${this.row("UI text scale", `
           <input type="range" class="form-input" id="rc-ui-scale" min="1.0" max="1.5" step="0.05" value="${uiScale}" />`,
-          `${uiScale.toFixed(2)}× — scales all interface text (not terminal output)`, "rc-ui-scale")}
+          "Scales interface text, not terminal output.", "rc-ui-scale", `${uiScale.toFixed(2)}×`)}
         ${this.row("Terminal line height", `
           <input type="range" class="form-input" id="rc-line-height" min="1.0" max="1.8" step="0.05" value="${lineHeight}" />`,
-          `${lineHeight.toFixed(2)} — vertical spacing between terminal lines`, "rc-line-height")}
+          "Sets the vertical space between terminal lines.", "rc-line-height", `${lineHeight.toFixed(2)}`)}
         ${this.row("Terminal letter spacing", `
           <input type="range" class="form-input" id="rc-letter-spacing" min="0" max="6" step="0.5" value="${letterSpacing}" />`,
-          `${letterSpacing}px — horizontal gap between characters`, "rc-letter-spacing")}
-        ` : `<p class="settings-row-desc">Enable Reading Comfort to reveal the adjustment sliders.</p>`}
+          "Sets the horizontal space between characters.", "rc-letter-spacing", `${letterSpacing}px`)}
+        ` : `<p class="settings-row-desc">Turn on Reading Comfort to show the sliders.</p>`}
       </div>
     `;
   }
@@ -709,50 +729,50 @@ export class SettingsScreen {
 
     return `
       <div class="settings-form" id="netbox-settings">
-        ${this.switchRow("netbox-enabled", "Enable NetBox host source",
-          "Pulls devices from a NetBox instance into the host list under their own NetBox folder. Nothing syncs until you click Refresh. Changes here save automatically.",
+        ${this.switchRow("netbox-enabled", "Enable NetBox",
+          "Puts NetBox devices in the host list, in their own NetBox folder. Nothing syncs until you click Refresh. Changes here save automatically.",
           enabled)}
 
         <div class="netbox-body${enabled ? "" : " netbox-body-disabled"}">
-          ${this.group("Instance")}
+          ${this.group("Connection")}
           ${this.row("NetBox URL", `
             <input type="url" class="form-input" id="netbox-url"
                    placeholder="https://netbox.example.com" spellcheck="false" autocomplete="off"
                    value="${escAttr(cfg?.base_url ?? "")}" />`,
             "", "netbox-url")}
-          ${this.row("API Token", `
+          ${this.row("API token", `
             <input type="password" class="form-input" id="netbox-token"
                    placeholder="${this.netboxHasToken ? "Saved — enter a new token to replace" : "Paste a NetBox API token"}"
                    autocomplete="off" spellcheck="false" />`,
-            "Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.",
+            "Create a token in NetBox under your profile, then API Tokens. Read access to DCIM is enough. Comnd stores the token in the OS keychain. Test the URL and token, then click Save connection.",
             "netbox-token")}
           <div class="settings-inline-actions">
             <span class="${inlineStatusClass(testLine ? (testLine.ok ? "ok" : "err") : "")}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
-            <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
+            <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test connection</button>
           </div>
           ${this.switchRow("netbox-invalid-certs", "Allow self-signed certificates",
-            "Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.",
+            "Skips TLS checks for the NetBox URL. This is for home labs with a self-signed or internal certificate authority. Off by default, because it lets an attacker read the API token. Trust the certificate authority in the OS certificate store instead.",
             !!cfg?.allow_invalid_certs)}
           <div class="settings-actions">
-            <button type="button" class="btn-primary" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>Save Connection</button>
+            <button type="button" class="btn-primary" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>Save connection</button>
           </div>
 
-          ${this.group("Sync Filters")}
+          ${this.group("Filters")}
           ${this.row("Device status", `
             <input type="text" class="form-input" id="netbox-filter-status" placeholder="active"
                    value="${escAttr(cfg ? (filters.status ?? "") : "active")}" />`,
-            "NetBox status slug. Leave blank to sync devices in any status.", "netbox-filter-status")}
+            "Sets the NetBox status slug. Leave empty to sync devices in any status.", "netbox-filter-status")}
           ${this.renderFilterMultiSelect("netbox-filter-sites", "Sites", "Search sites…", this.netboxSites, filters.sites)}
           ${this.renderFilterMultiSelect("netbox-filter-roles", "Roles", "Search roles…", this.netboxRoles, filters.roles)}
           ${this.renderFilterMultiSelect("netbox-filter-tags", "Tags", "Search tags…", this.netboxTags, filters.tags)}
 
-          ${this.group("Platform Mapping")}
-          ${this.row("Unknown platform slugs", `
+          ${this.group("Platforms")}
+          ${this.row("Unknown platforms", `
             <select class="form-input form-input-sm" id="netbox-platform-policy">
-              <option value="skip" ${cfg?.platform_policy !== "fallback" ? "selected" : ""}>Skip device (report in sync summary)</option>
-              <option value="fallback" ${cfg?.platform_policy === "fallback" ? "selected" : ""}>Treat as fallback platform</option>
+              <option value="skip" ${cfg?.platform_policy !== "fallback" ? "selected" : ""}>Skip the device</option>
+              <option value="fallback" ${cfg?.platform_policy === "fallback" ? "selected" : ""}>Use the fallback platform</option>
             </select>`,
-            "Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu, …) map automatically. Devices with no platform use this policy too.",
+            "Known NetBox platform slugs (cisco-ios, nx-os, f5-tmos, ubuntu) map automatically. This rule also covers devices with no platform.",
             "netbox-platform-policy")}
           <div class="settings-row" id="netbox-fallback-field"${cfg?.platform_policy === "fallback" ? "" : " hidden"}>
             <div class="settings-row-text">
@@ -770,11 +790,11 @@ export class SettingsScreen {
           ${this.rowBlock("Platform overrides", `
             <textarea class="form-input" id="netbox-platform-overrides" rows="3"
                       placeholder="juniper-junos=linux-bash">${escHtml(overridesText)}</textarea>`,
-            "One per line: netbox-slug=platform. Wins over the built-in table.",
+            "One per line: netbox-slug=platform. This wins over the built-in table.",
             "netbox-platform-overrides")}
 
-          ${this.group("Default Authentication")}
-          <span class="settings-row-desc settings-block-intro">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
+          ${this.group("Default authentication",
+            "Comnd applies this to every synced device unless the device has its own overlay in Configure. The device always supplies its own username and port.")}
           ${this.row("Username", `
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
                    autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />`,
@@ -793,7 +813,7 @@ export class SettingsScreen {
             passwordBadge: this.netboxHasDefaultPw(),
             passwordBadgeLabel: "Saved",
             passwordPlaceholder: this.netboxHasDefaultPw() ? "Leave blank to keep saved password" : "Enter default password",
-            noProvidersHint: "Enable a secret manager in Settings → Auth Integrations first.",
+            noProvidersHint: "Turn on a secret manager in Settings → Auth Integrations first.",
           })}
 
           ${this.group("Devices")}
@@ -804,7 +824,7 @@ export class SettingsScreen {
           <div class="settings-toolbar">
             <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
                    value="${escAttr(this.netboxDeviceSearch)}" />
-            <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.refresh} Refresh Now</button>
+            <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.refresh} Refresh now</button>
           </div>
           <div class="netbox-device-list" id="netbox-device-list">${this.renderNetBoxDeviceList()}</div>
         </div>
@@ -818,8 +838,8 @@ export class SettingsScreen {
 
   private netboxStatusLine(): string {
     const devices = this.netboxDevices;
-    if (!this.netboxConfig?.enabled) return "Disabled — enable above, then Refresh to sync devices.";
-    if (devices.length === 0) return "No devices cached — click Refresh Now to sync from NetBox.";
+    if (!this.netboxConfig?.enabled) return "Off. Turn on NetBox above, then click Refresh now to sync devices.";
+    if (devices.length === 0) return "No cached devices. Click Refresh now to sync from NetBox.";
     const enabledCount = devices.filter((d) => d.enabled).length;
     const lastSynced = this.netboxLastSynced ? relativeTime(this.netboxLastSynced) : "never";
     return `${devices.length} device${devices.length !== 1 ? "s" : ""} cached (${enabledCount} enabled) · last synced ${lastSynced}`;
@@ -916,7 +936,7 @@ export class SettingsScreen {
                 autocomplete="off" spellcheck="false" />
               <button type="button" class="btn-secondary" data-provider-save-pat="${p.id}">Save</button>
             </div>
-            <span class="import-hint">Create a Personal Access Token in Proton Pass. Paste it here. If you use an interactive pass-cli login session, leave this field empty.</span>
+            <span class="import-hint">Create a Personal Access Token in Proton Pass, then paste it here. If you log in with pass-cli, leave this field empty.</span>
           </div>
         ` : ""}
       </div>
@@ -945,7 +965,7 @@ export class SettingsScreen {
   }
 
   private renderPlaceholder(label: string): string {
-    return `<p class="settings-placeholder">Coming soon — ${escHtml(label)} settings are not implemented yet.</p>`;
+    return `<p class="settings-placeholder">Coming soon. The ${escHtml(label)} settings are not available yet.</p>`;
   }
 
   // ─── Shortcuts pane (docs/specs/11 §Settings UI) ──────────────────
@@ -961,7 +981,7 @@ export class SettingsScreen {
     return `
       <div class="settings-form">
         <div class="sc-toolbar">
-          <span class="import-hint">Click Change, press the new keys, then press Enter — Esc cancels. Rebindings apply immediately and survive a restart.</span>
+          <span class="import-hint">Click Change, press the new keys, then press Enter. Esc cancels. The new keys work immediately and after a restart.</span>
           <button type="button" class="btn-text" id="sc-restore" ${hasOverrides ? "" : "disabled"}>Restore all defaults</button>
         </div>
         <p class="sc-live" id="sc-live" aria-live="polite">${this.scNotice ? escHtml(this.scNotice) : ""}</p>
@@ -977,7 +997,7 @@ export class SettingsScreen {
       // Ctrl+Space: pinned to literal Ctrl on every platform — the remote
       // shell understands the byte, and Cmd+Space collides with Spotlight.
       // Locked: non-editable with an explanatory tooltip (spec §macOS).
-      const why = "Pinned to Ctrl on every platform: the remote shell understands the Ctrl+Space byte, and Cmd+Space collides with macOS Spotlight.";
+      const why = "Comnd always uses Ctrl here. The remote shell reads the Ctrl+Space byte, and Cmd+Space opens Spotlight on macOS.";
       return `
         <div class="shortcut-row"${describedBy}>
           <div class="shortcut-row-main">
@@ -1301,6 +1321,17 @@ export class SettingsScreen {
   }
 
   private bindEvents() {
+    // Escape closes an open info tooltip. Bound to `.settings-page`, which is
+    // recreated on every render, so the listener cannot accumulate.
+    this.container?.querySelector<HTMLElement>(".settings-page")?.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.classList.contains("settings-info")) {
+        e.stopPropagation();
+        active.blur();
+      }
+    });
+
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
     });
@@ -1894,7 +1925,7 @@ export class SettingsScreen {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = `${icons.refresh} Refresh Now`;
+        btn.innerHTML = `${icons.refresh} Refresh now`;
       }
     }
   }
@@ -1978,11 +2009,11 @@ export class SettingsScreen {
       <div class="modal-choice-list">
         <button class="btn-primary modal-choice" id="import-overwrite">
           <span>Overwrite everything</span>
-          <span class="import-hint">Replaces all current data with the backup. Files not in the backup are deleted.</span>
+          <span class="import-hint">Replaces all current data with the backup. Comnd deletes files that are not in the backup.</span>
         </button>
         <button class="btn-secondary modal-choice" id="import-merge">
           <span>Merge</span>
-          <span class="import-hint">Combines current and backup data. You'll review any conflicts before anything is changed.</span>
+          <span class="import-hint">Combines current and backup data. You review each conflict before Comnd changes anything.</span>
         </button>
         <button class="btn-text" id="import-cancel">Cancel</button>
       </div>

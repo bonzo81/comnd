@@ -106,6 +106,10 @@
    hairline rule. More space above than below, so the heading binds to
    the rows it owns. */
 .settings-group-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -132,6 +136,7 @@
 
 /* ─── SettingRow ────────────────────────────────────────────────── */
 .settings-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -159,6 +164,87 @@
 .settings-row-label {
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
+}
+
+/* Label + info button on one line */
+.settings-row-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.settings-row-value {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.settings-caution {
+  margin: var(--space-1) 0 var(--space-3);
+  padding: 0;
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
+}
+
+/* ─── Info tooltip ─────────────────────────────────────────────────
+   A real button so keyboard and screen-reader users get the detail; the
+   bubble is decorative and shows on hover or focus. The bubble is placed
+   against the row or section heading that holds it — not the 16px icon —
+   so it can neither widen the page nor be clipped at a narrow window. */
+.settings-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: help;
+}
+
+.settings-info svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-info:hover,
+.settings-info:focus-visible {
+  color: var(--color-text-primary);
+}
+
+.settings-info-tip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: none;
+  width: max-content;
+  max-width: min(320px, 100%);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: var(--prose-line-height);
+  letter-spacing: normal;
+  text-transform: none;
+  word-spacing: var(--prose-word-spacing);
+  pointer-events: none;
+}
+
+.settings-info:hover .settings-info-tip,
+.settings-info:focus-visible .settings-info-tip {
+  display: block;
 }
 
 .settings-row-desc {
