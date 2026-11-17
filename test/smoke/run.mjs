@@ -2628,6 +2628,33 @@ async function main() {
             + `${grid.padTop}px, right ${grid.right} for ${grid.padRight}px, bottom `
             + `${grid.bottom} for ${grid.padBottom}px)`,
         );
+
+        // Everything from the tab bar down lives inside `.app-content`, whose
+        // `overflow: hidden` is the real clip edge. The tab host is a column
+        // flex container so the bar's height comes off the session wrapper; if
+        // the wrapper goes back to filling the host's whole height from below
+        // the bar, the bottom of the terminal view hangs past that edge and the
+        // status bar and the pane frame's bottom border are clipped away.
+        const clip = await browser.execute(() => {
+          const content = document.querySelector(".app-content");
+          const wrap = document.querySelector(".tv-terminal-wrap");
+          const statusbar = document.querySelector(".tv-statusbar");
+          if (!content || !wrap || !statusbar) return null;
+          const bottom = content.getBoundingClientRect().bottom
+            - parseFloat(getComputedStyle(content).borderBottomWidth);
+          return {
+            wrap: wrap.getBoundingClientRect().bottom - bottom,
+            statusbar: statusbar.getBoundingClientRect().bottom - bottom,
+          };
+        });
+        assert(clip, "Terminal sidebar layout: the terminal pane or status bar was never rendered");
+        // 1px tolerance for subpixel rounding at fractional display scale.
+        assert(
+          clip.wrap <= 1 && clip.statusbar <= 1,
+          `Terminal sidebar layout: the bottom of the terminal view is clipped `
+            + `(frame ${clip.wrap}px, status bar ${clip.statusbar}px past the bottom of `
+            + `.app-content)`,
+        );
       },
     },
     {

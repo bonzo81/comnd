@@ -29,6 +29,7 @@
   padding: var(--space-2) var(--space-4) 0;
   background: var(--color-surface-secondary);
   border-bottom: 1px solid var(--color-border);
+  flex: 0 0 auto;
 }
 
 .session-tab {
@@ -77,8 +78,20 @@
   color: var(--color-error);
 }
 
+/* The tab host stacks the tab bar above the session wrapper. It is a column
+   flex container so the bar's height is subtracted from the wrapper instead of
+   sitting on top of a 100%-tall wrapper: with `height: 100%` the wrapper filled
+   the host's whole height from below the bar, pushing the bottom of the terminal
+   view past `.app-content`, whose `overflow: hidden` then clipped it — the
+   status bar and the terminal frame's bottom border disappeared. */
+.session-tab-host {
+  display: flex;
+  flex-direction: column;
+}
+
 .session-tab-wrapper {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
