@@ -261,10 +261,13 @@
 
 /* ─── Shared form bits ──────────────────────────────────────────── */
 /* A test/save button pair with its outcome, under the field or section it
-   acts on. Same 8px rhythm as SettingRow. */
+   acts on. Same 8px rhythm as SettingRow. The outcome takes the free space on
+   the left and the actions sit on the pane's right edge, where a save footer
+   also puts them. */
 .settings-inline-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
@@ -538,16 +541,6 @@
 
 .netbox-cfg-input-wrap.has-value .netbox-cfg-reset {
   display: inline-flex;
-}
-
-/* Save Token button — highlighted after a successful Test (plan §9.2) */
-#netbox-token-save.netbox-save-token-ready {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  border-color: var(--color-accent);
-}
-#netbox-token-save.netbox-save-token-ready:hover {
-  filter: brightness(1.08);
 }
 
 /* ─── NetBox filter multi-select ────────────────────────────────── */

@@ -394,8 +394,8 @@ export class SettingsScreen {
           "Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.",
           "llm-ctx")}
         <div class="settings-inline-actions">
-          <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
           <span class="${inlineStatusClass("")}" id="llm-test-status"></span>
+          <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
         </div>
         <div class="settings-actions">
           <button type="submit" class="btn-primary">Save Settings</button>
@@ -727,13 +727,15 @@ export class SettingsScreen {
             "Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.",
             "netbox-token")}
           <div class="settings-inline-actions">
-            <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
-            <button type="button" class="btn-secondary btn-small${this.netboxTestOk ? " netbox-save-token-ready" : ""}" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>${icons.lock} Save Connection</button>
             <span class="${inlineStatusClass(testLine ? (testLine.ok ? "ok" : "err") : "")}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
+            <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
           </div>
           ${this.switchRow("netbox-invalid-certs", "Allow self-signed certificates",
             "Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.",
             !!cfg?.allow_invalid_certs)}
+          <div class="settings-actions">
+            <button type="button" class="btn-primary" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>Save Connection</button>
+          </div>
 
           ${this.group("Sync Filters")}
           ${this.row("Device status", `
@@ -1825,10 +1827,7 @@ export class SettingsScreen {
       status.className = inlineStatusClass("");
     }
     const saveBtn = this.container?.querySelector<HTMLButtonElement>("#netbox-token-save");
-    if (saveBtn) {
-      saveBtn.disabled = !this.netboxTestOk;
-      saveBtn.classList.toggle("netbox-save-token-ready", this.netboxTestOk);
-    }
+    if (saveBtn) saveBtn.disabled = !this.netboxTestOk;
   }
 
   private async testNetboxConnection() {
