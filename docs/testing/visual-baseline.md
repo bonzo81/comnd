@@ -29,10 +29,17 @@ Committed set: `test/smoke/visual-baseline/windows/`.
 `manifest.json` sits beside them and records the geometry the set was captured
 at, plus each shot's screen, state, SHA-256 and pixel size.
 
-The committed set was last captured on 2026-11-03 on Windows 11 (WebView2
-156.0.4314.58, DPR 2, 1280×800). Re-capture reproducibility was checked by
+The committed set was last captured on 2026-11-17 on Windows 11 (WebView2
+157.0.4341.46, DPR 2, 1280×800). Re-capture reproducibility was checked by
 capturing five times in a row and comparing every file's SHA-256 against the
 committed set: identical every time.
+
+That capture refreshed five of the nine shots, which had drifted since the
+previous set: the shortcuts dialog (theme badge and token work, #118, #119), the
+Knowledge Base and its delete dialog (split-ledger detail pane, #130), the
+Settings General pane (version rail, #145), and both terminal shots (pane inset
+and focus ring, #163). The other four reproduced byte for byte, so the drift was
+in the screens those changes touched and nowhere else.
 
 ### What is deliberately not covered
 
