@@ -138,6 +138,8 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 └──────────────────────────────────────────────────────────────┘
 ```
 
+The screen is inset `--space-2` (8px) inside the 1px frame on all four sides, so no glyph sits against the border and ghost text on row 0 keeps its pill background and descenders. `.tv-terminal` is `box-sizing: content-box` so FitAddon's `parseInt(getComputedStyle(...).width)` sees the *content* width; under `border-box` Chrome reports the border box there and the inset would be invisible to the fit, hanging the grid past the padding and clipping the last row and column. The timestamps gutter adds its width to the left inset instead of replacing it.
+
 ## Top Bar
 
 * **← Back** — returns to connection manager (keyboard: `Escape` when no dropdown/panel open)
@@ -252,4 +254,5 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 
 * Transitions 100–300ms, color/opacity only — never layout-shifting scale on container elements (small scale on buttons OK).
 * Ghost text and suggestion visibility are instant — no fades in the keystroke path.
-* Sidebar width, chrome tint, progress bar, toast entrance are the only animated transitions.
+* Sidebar width, chrome tint, progress bar, toast entrance and the terminal frame's focus tint are the only animated transitions.
+* **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the toolbar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). Focus also draws the app's shared focus ring: `--focus-ring-width` at `--focus-ring-offset`, transparent at rest and colour-animated, so the ring appears outside the frame with a clear gap. It sits outside rather than inset because an inset outline at `outline-offset: -1px` paints *over* the border instead of adding to it — measured on the light theme as one device pixel of `#88898a` at rest and one of `#166534` focused, with no ink added. That reads on the dark themes, whose border is a faint 1.8:1 hairline, but not on the light ones, where the border is already a strong 3.3:1 line and is the only thing separating the pane (`#F8FAFC`) from the page (`#E2E8F0`, 1.13:1). Outside, focus goes from no ink beyond the frame to a 2px ring plus a 2px gap in every theme — same light-theme column, three device pixels of `#166534`, three of surface, then the border, against one pixel of `#88898a` at rest. Width and offset are constant, the wrap's 8px margin leaves room for the ring, and no layout moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colour and extent.

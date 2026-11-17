@@ -156,7 +156,7 @@ class App {
     this.hostScreenWrapper.style.display = "";
 
     this.terminalArea = document.createElement("div");
-    this.terminalArea.className = "app-view";
+    this.terminalArea.className = "app-view session-tab-host";
     this.terminalArea.style.display = "none";
 
     this.contentCol.appendChild(this.hostScreenWrapper);

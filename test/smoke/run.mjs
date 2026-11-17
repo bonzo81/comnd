@@ -2586,6 +2586,75 @@ async function main() {
           `Terminal sidebar layout: .sb-content scrolls horizontally `
             + `(clientWidth ${content.clientWidth}, scrollWidth ${content.scrollWidth})`,
         );
+
+        // The grid must fit inside the pane's inset. FitAddon proposes rows and
+        // cols from parseInt(getComputedStyle(.tv-terminal).width), and Chrome
+        // reports the *border* box there for a border-box element, so an inset
+        // that the fit cannot see leaves the grid hanging past it into
+        // overflow:hidden — the last row and column are silently clipped.
+        // Rect-based, so it measures the outcome rather than restating the CSS.
+        const grid = await browser.execute(() => {
+          const term = document.querySelector(".tv-terminal");
+          const screen = term?.querySelector(".xterm-screen");
+          if (!term || !screen) return null;
+          const cs = getComputedStyle(term);
+          const r = term.getBoundingClientRect();
+          const s = screen.getBoundingClientRect();
+          return {
+            padLeft: parseFloat(cs.paddingLeft),
+            padRight: parseFloat(cs.paddingRight),
+            padTop: parseFloat(cs.paddingTop),
+            padBottom: parseFloat(cs.paddingBottom),
+            left: s.left - r.left,
+            top: s.top - r.top,
+            right: r.right - s.right,
+            bottom: r.bottom - s.bottom,
+          };
+        });
+        assert(grid, "Terminal sidebar layout: the terminal grid was never rendered");
+        assert(
+          grid.padLeft > 0 && grid.padTop > 0 && grid.padRight > 0 && grid.padBottom > 0,
+          `Terminal sidebar layout: the terminal screen has no inset from the pane frame `
+            + `(padding ${grid.padTop}px ${grid.padRight}px ${grid.padBottom}px ${grid.padLeft}px)`,
+        );
+        // 1px tolerance for subpixel rounding of fractional cell widths.
+        assert(
+          grid.left >= grid.padLeft - 1
+            && grid.top >= grid.padTop - 1
+            && grid.right >= grid.padRight - 1
+            && grid.bottom >= grid.padBottom - 1,
+          `Terminal sidebar layout: the terminal grid overflows its inset `
+            + `(left ${grid.left} for ${grid.padLeft}px padding, top ${grid.top} for `
+            + `${grid.padTop}px, right ${grid.right} for ${grid.padRight}px, bottom `
+            + `${grid.bottom} for ${grid.padBottom}px)`,
+        );
+
+        // Everything from the tab bar down lives inside `.app-content`, whose
+        // `overflow: hidden` is the real clip edge. The tab host is a column
+        // flex container so the bar's height comes off the session wrapper; if
+        // the wrapper goes back to filling the host's whole height from below
+        // the bar, the bottom of the terminal view hangs past that edge and the
+        // status bar and the pane frame's bottom border are clipped away.
+        const clip = await browser.execute(() => {
+          const content = document.querySelector(".app-content");
+          const wrap = document.querySelector(".tv-terminal-wrap");
+          const statusbar = document.querySelector(".tv-statusbar");
+          if (!content || !wrap || !statusbar) return null;
+          const bottom = content.getBoundingClientRect().bottom
+            - parseFloat(getComputedStyle(content).borderBottomWidth);
+          return {
+            wrap: wrap.getBoundingClientRect().bottom - bottom,
+            statusbar: statusbar.getBoundingClientRect().bottom - bottom,
+          };
+        });
+        assert(clip, "Terminal sidebar layout: the terminal pane or status bar was never rendered");
+        // 1px tolerance for subpixel rounding at fractional display scale.
+        assert(
+          clip.wrap <= 1 && clip.statusbar <= 1,
+          `Terminal sidebar layout: the bottom of the terminal view is clipped `
+            + `(frame ${clip.wrap}px, status bar ${clip.statusbar}px past the bottom of `
+            + `.app-content)`,
+        );
       },
     },
     {

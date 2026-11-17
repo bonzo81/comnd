@@ -23,7 +23,10 @@ tint themes, suggestion contrast.
   is handled by the ordinary theme/font system.
 - New global shortcuts: the toggle is a button until the shortcut registry
   (spec 11) lands.
-- Reduced-motion handling: the app has no significant animation today.
+- Reduced-motion handling: the app has no significant animation. The one
+  animated cue — the terminal frame's focus tint (spec 03 §Motion) — is
+  colour-only and drops under `prefers-reduced-motion: reduce`; both of its
+  states stay distinguishable as static colours.
 
 ## Mode semantics
 
