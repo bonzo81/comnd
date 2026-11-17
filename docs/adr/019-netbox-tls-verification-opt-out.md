@@ -6,15 +6,20 @@ Status: Accepted
 ## Context
 
 Code scanning alert #4 (`rust/disabled-certificate-check`, rule severity warning,
-security severity high) points at `src-tauri/src/netbox.rs:1043`, where
+security severity high) points at `src-tauri/src/netbox/client.rs:158`, where
 `readonly_http::ReadOnlyHttp::new` calls
 `builder.danger_accept_invalid_certs(true)`. The finding is mechanically correct
 and the default is safe: the call is reached only when a user has turned on
 "Allow self-signed certificates" for the NetBox host source.
 
+The file this cites was one module (`src-tauri/src/netbox.rs`) until issue #149
+split it into `src-tauri/src/netbox/`. The call moved without changing, which
+raised the identical finding as alert #30 at `client.rs:158`; it is dismissed the
+same way, under this ADR.
+
 **The toggle is off unless the user turns it on.** `NetBoxConfig::allow_invalid_certs`
-(`netbox.rs:633`) is a `#[serde(default)] bool`, and `impl Default for NetBoxConfig`
-sets it to `false` (`netbox.rs:657`). A config that predates the field, omits it,
+(`netbox/mod.rs:341`) is a `#[serde(default)] bool`, and `impl Default for NetBoxConfig`
+sets it to `false` (`netbox/mod.rs:365`). A config that predates the field, omits it,
 or fails to parse at all (`NetBoxConfig::from_json` falls back to
 `NetBoxConfig::default()`) therefore yields `false`, and certificate verification
 is on. Nothing in the product code flips the default.
@@ -25,19 +30,20 @@ certificates" with the help text: "Skip TLS verification for the NetBox URL (hom
 labs with a self-signed or internal CA). Off by default — it makes the API token
 MITM-able. Prefer trusting your CA in the OS cert store." Enabling it also logs
 `NetBox client for <url> built with TLS verification disabled — home-lab mode,
-token is MITM-able` (`netbox.rs:1092-1095`). The value is read by the autosave
+token is MITM-able` (`netbox/client.rs:208`). The value is read by the autosave
 path from the checkbox (`settings-screen.ts:1697`); `saveConnection` reuses the
 saved config and seeds a fresh one with `allow_invalid_certs: false`
 (`settings-screen.ts:1743`), so it cannot be switched on as a side effect of
 saving a URL or token. "Test Connection" passes the live form toggle
-(`settings-screen.ts:1793,1806` → `netbox_test_connection`, `netbox.rs:1463-1476`)
-so the tested state is the state on screen; `netbox_sync` (`netbox.rs:1502`) and
-`build_netbox_client` (`netbox.rs:1543`) read it from saved config.
+(`settings-screen.ts:1793,1806` → `netbox_test_connection`,
+`netbox/commands.rs:94-107`) so the tested state is the state on screen;
+`NetBoxInventory::sync` (`netbox/inventory.rs:136`) and `build_netbox_client`
+(`netbox/commands.rs:137`) read it from saved config.
 
 **The read-only guarantee is untouched.** All NetBox HTTP goes through
-`readonly_http` (`netbox.rs:1028-1066`): a private `reqwest::Client` exposing one
+`readonly_http` (`netbox/client.rs:143-182`): a private `reqwest::Client` exposing one
 `get` method, with `test_netbox_source_has_no_write_http_methods`
-(`netbox.rs:2684`) failing CI if a raw client or a write verb appears. Skipping
+(`netbox/client.rs:967`) failing CI if a raw client or a write verb appears. Skipping
 certificate verification loosens *who can answer* the GETs; it does not add a
 verb. The option is also inert on `http://` base URLs, where there is no TLS to
 verify.
@@ -124,8 +130,10 @@ as `won't fix` under this ADR.
   against this ADR rather than re-litigated or fixed by deleting a feature
   users rely on.
 - Harder: a dismissed alert stops notifying, so the reasoning has to be found
-  again the next time `netbox.rs` is touched. The alert comment names this file
-  for that reason; keep it pointing here if the alert is ever re-dismissed.
+  again the next time `src-tauri/src/netbox/` is touched. The alert comment names
+  this file for that reason; keep it pointing here if the alert is ever
+  re-dismissed — including after a move that re-raises the same finding under a
+  new alert number, as the #149 split did.
 - Rules out: turning the toggle on by default, and any "skip TLS for every host
   source" generalisation of it. Either supersedes this ADR.
 - Rules out: a code-scanning query or path exclusion in place of a decision. If

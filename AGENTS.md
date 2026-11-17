@@ -94,7 +94,7 @@ The token standard is `docs/adr/018-css-token-naming-standard.md`; `npm run lint
 - No local echo — shadow buffer observes only
 - No heavy logic in Rust that could run in the frontend. IPC latency harms the terminal.
 - No manual git tags or GitHub releases — release-please creates both; a human only publishes the draft
-- No writes to the NetBox API — the integration is strictly read-only (GET only). All NetBox HTTP must go through the `readonly_http` guard in `src-tauri/src/netbox.rs`; never bypass it with a raw `reqwest::Client`, and never add a write command (`netbox_*` Tauri commands are reads/syncs only)
+- No writes to the NetBox API — the integration is strictly read-only (GET only). All NetBox HTTP must go through the `readonly_http` guard in `src-tauri/src/netbox/client.rs`; never bypass it with a raw `reqwest::Client`, and never add a write command (`netbox_*` Tauri commands are reads/syncs only)
 
 ## File Locations
 
@@ -132,7 +132,10 @@ src-tauri/              # Rust backend
                         #   user_files, commands, test_util modules)
     import.rs           # KB import pipeline
     llm.rs              # LLM client (KB import only)
-    netbox.rs           # NetBox host source
+    netbox/             # NetBox host source (mod.rs shared types/constants,
+                        #   client.rs REST client + readonly_http guard, cache.rs,
+                        #   inventory.rs NetBoxInventory + sync,
+                        #   commands.rs Tauri commands, mock.rs debug-only)
     platform.rs         # Platform registry (auto-discovers <platform>/index.yaml)
     config.rs           # App settings
     replay.rs           # Command Replay storage + its own command handlers

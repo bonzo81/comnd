@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use crate::config::ConfigStore;
 use crate::hosts::HostStore;
 use crate::kb::KbManager;
-use crate::netbox::NetBoxCacheStore;
+use crate::netbox::NetBoxInventory;
 use crate::platform::PlatformRegistry;
 use crate::secrets::ProviderRegistry;
 use crate::ssh::SshManager;
@@ -26,7 +26,7 @@ pub struct AppState {
     pub providers: Mutex<ProviderRegistry>,
     /// NetBox device cache (host source). Like the other std-Mutex stores:
     /// clone data out, never hold the guard across an await.
-    pub netbox: Mutex<NetBoxCacheStore>,
+    pub netbox: Mutex<NetBoxInventory>,
     /// Known platforms (bundled + user KB dirs). Rescanned after KB reloads.
     pub platforms: Mutex<PlatformRegistry>,
     /// Human-readable reason the custom log path fell back to the default at
