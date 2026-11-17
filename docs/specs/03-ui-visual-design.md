@@ -252,4 +252,5 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 
 * Transitions 100–300ms, color/opacity only — never layout-shifting scale on container elements (small scale on buttons OK).
 * Ghost text and suggestion visibility are instant — no fades in the keystroke path.
-* Sidebar width, chrome tint, progress bar, toast entrance are the only animated transitions.
+* Sidebar width, chrome tint, progress bar, toast entrance and the terminal frame's focus tint are the only animated transitions.
+* **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the toolbar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). One hairline changes colour at the same 1px accent weight this app already gives an active surface; nothing moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colours.

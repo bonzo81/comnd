@@ -139,6 +139,25 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-primary);
+  /* The terminal is the app's keystroke surface, so its frame says whether
+     typing lands on the remote. Focus takes the hairline to the ring colour —
+     the same 1px accent this app already uses for an active surface — and
+     moving focus to the scrollback search, the side panel or the toolbar
+     returns it to neutral. The match is on .tv-terminal, not the wrap, so
+     search focus (a sibling) correctly reads as "not typing to the remote",
+     which is also when xterm hollows its cursor. Colour only: nothing moves,
+     and the keystroke path stays instant. */
+  transition: border-color 140ms ease-out;
+}
+
+.tv-terminal-wrap:has(.tv-terminal:focus-within) {
+  border-color: var(--color-focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-terminal-wrap {
+    transition: none;
+  }
 }
 
 .tv-terminal {
