@@ -546,9 +546,9 @@ export class SettingsScreen {
           "log-file-path")}
         ${this.group("Session logs")}
         ${this.switchRow("session-logging", "Log session output",
-          "Writes terminal input and output to one log file per connection. Applies to new connections.",
+          "Writes everything the device sends back to one file per connection. Applies to new connections.",
           this.config?.session_logging ?? true)}
-        <p class="settings-caution">Logs include everything on screen and everything you type, including passwords. Keep the log folder private.</p>
+        <p class="settings-caution">Logs save everything the device sends back. If the device shows a password on screen as you type it, that password is saved too. Keep the log folder private.</p>
         ${this.switchRow("session-log-timestamps", "Add timestamps",
           "Adds an [HH:MM:SS] stamp before each chunk of output.",
           this.config?.session_log_timestamps ?? true)}

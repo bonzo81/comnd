@@ -772,7 +772,8 @@ describe("SettingsScreen — setting prose in info tooltips", () => {
     const { container } = await mountLogging();
     const caution = container.querySelector(".settings-caution")!;
 
-    expect(caution.textContent).toContain("including passwords");
+    expect(caution.textContent).toContain("sends back");
+    expect(caution.textContent).toContain("Keep the log folder private");
   });
 
   it("closes an open tooltip on Escape", async () => {
