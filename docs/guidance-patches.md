@@ -164,3 +164,21 @@ step had already run green. The only way to satisfy the linter was to adopt the
 deprecated input, so following the finding would have made the workflow worse
 while looking like a fix. Nothing in AGENTS.md said a reviewer's linter could be
 wrong about a pinned action, or that this repo has no workflow linter of its own.
+
+## 2026-11-16 (PR #156)
+
+Source: weekly session audit; the session that added the issue and PR templates.
+
+### Verification Requirements
+
+Added:
+
+> `.github/pull_request_template.md` carries a hand-copied checklist of the
+> gates above, and nothing syncs it. When you add, rename or re-condition a
+> gate here (including a new `--mutation=` category), edit the template in the
+> same PR.
+
+Why: the template copies the gate list from this file, and the copy has already
+drifted: it lists four `--mutation=` categories while this file lists six. The
+session that wrote it flagged the duplication, but nothing in AGENTS.md told a
+later agent to keep the two in step.
