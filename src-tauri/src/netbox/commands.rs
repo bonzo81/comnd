@@ -114,8 +114,10 @@ pub async fn netbox_sync(
         let store = state.config.lock().map_err(|e| e.to_string())?;
         NetBoxConfig::from_json(store.host_source_config("netbox"))
     };
-    // Read before the guards so no lock is held while the keyring is queried;
-    // `sync` owns the disabled / URL / token decisions from here on.
+    // Configuration errors keep precedence over the keyring, as before the
+    // split; `sync` re-checks the same guards from the same helpers.
+    inventory::preflight(&config)?;
+    // Then the keyring, still with no lock held; `sync` owns the token guard.
     let token = credentials::get_secret(TOKEN_KEY)?;
     let policy = {
         let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
@@ -137,6 +139,8 @@ fn build_netbox_client(state: &AppState) -> Result<NetBoxClient, String> {
         let store = state.config.lock().map_err(|e| e.to_string())?;
         NetBoxConfig::from_json(store.host_source_config("netbox"))
     };
+    // URL error before the keyring, as before the split.
+    inventory::ensure_url(&config)?;
     let token = credentials::get_secret(TOKEN_KEY)?;
     inventory::client(&config, token)
 }

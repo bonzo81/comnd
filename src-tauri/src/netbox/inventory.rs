@@ -17,11 +17,37 @@ use super::{
     PlatformPolicy, SyncReport,
 };
 
-/// The three sync preconditions. They live here and only here; the settings
-/// commands reuse the same text through `client`.
+/// The three sync preconditions. They live here and only here; every path
+/// that needs them reaches them through the helpers below.
 const ERR_DISABLED: &str = "NetBox integration is disabled — enable it in Settings → NetBox";
 const ERR_NO_URL: &str = "No NetBox URL configured — set one in Settings → NetBox";
 const ERR_NO_TOKEN: &str = "No NetBox API token saved — enter one in Settings → NetBox";
+
+/// The disabled guard.
+pub(crate) fn ensure_enabled(config: &NetBoxConfig) -> Result<(), String> {
+    if config.enabled {
+        Ok(())
+    } else {
+        Err(ERR_DISABLED.to_string())
+    }
+}
+
+/// The empty-URL guard.
+pub(crate) fn ensure_url(config: &NetBoxConfig) -> Result<(), String> {
+    if config.base_url.trim().is_empty() {
+        Err(ERR_NO_URL.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// The two configuration guards, in their original order, without the token
+/// lookup. `sync` starts here, and a command calls it before reading the
+/// keyring so a keyring failure cannot mask the disabled / empty-URL guidance.
+pub(crate) fn preflight(config: &NetBoxConfig) -> Result<(), String> {
+    ensure_enabled(config)?;
+    ensure_url(config)
+}
 
 /// Build cache entries from raw devices under a platform policy.
 /// Returns the entries plus the sync report (unmatched slugs recorded once each).
@@ -71,9 +97,7 @@ pub(crate) fn client(
     config: &NetBoxConfig,
     token: Option<String>,
 ) -> Result<NetBoxClient, String> {
-    if config.base_url.trim().is_empty() {
-        return Err(ERR_NO_URL.to_string());
-    }
+    ensure_url(config)?;
     let token = token.ok_or_else(|| ERR_NO_TOKEN.to_string())?;
     NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)
 }
@@ -115,9 +139,7 @@ impl NetBoxInventory {
         token: Option<String>,
         policy: PlatformPolicy,
     ) -> Result<SyncReport, String> {
-        if !config.enabled {
-            return Err(ERR_DISABLED.to_string());
-        }
+        preflight(&config)?;
         let client = client(&config, token)?;
         let fetch = client.fetch_devices(&config.filters).await?;
         let geo = client.fetch_geo().await; // degrades internally — never fails the sync
@@ -342,6 +364,31 @@ mod tests {
             err,
             "No NetBox API token saved — enter one in Settings → NetBox"
         );
+    }
+
+    /// The config-only guards a command runs before the keyring: disabled
+    /// first, then URL, and no `enabled` check in `ensure_url` (the client
+    /// builder never looked at it).
+    #[test]
+    fn test_preflight_guards_order_and_wording() {
+        let disabled_and_empty = NetBoxConfig::default();
+        assert_eq!(
+            preflight(&disabled_and_empty).unwrap_err(),
+            "NetBox integration is disabled — enable it in Settings → NetBox"
+        );
+
+        assert_eq!(
+            preflight(&sync_config("   ")).unwrap_err(),
+            "No NetBox URL configured — set one in Settings → NetBox"
+        );
+
+        let disabled_with_url = NetBoxConfig {
+            base_url: "http://127.0.0.1:1".to_string(),
+            ..Default::default()
+        };
+        assert!(ensure_url(&disabled_with_url).is_ok());
+        assert!(preflight(&disabled_with_url).is_err());
+        assert!(preflight(&sync_config("http://127.0.0.1:1")).is_ok());
     }
 
     /// A full sync against the mock server, with no Tauri state involved.
