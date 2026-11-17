@@ -100,6 +100,12 @@ const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   { id: "vault", name: "HashiCorp Vault", available: false, fields: [] },
 ];
 
+/** Class string for a test/save outcome line — shared by the LLM and NetBox
+ *  panes so both read the same. Colour comes from the import-test-* rules. */
+function inlineStatusClass(kind: "ok" | "err" | "progress" | ""): string {
+  return `settings-inline-status${kind ? ` import-test-${kind}` : ""}`;
+}
+
 export class SettingsScreen {
   private container: HTMLElement | null = null;
   private itemId = "llm";
@@ -387,9 +393,9 @@ export class SettingsScreen {
           <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />`,
           "Output budget per LLM request — also passed to OpenAI-compatible servers as max_tokens. Does not change what the server accepts per call.",
           "llm-ctx")}
-        <div class="import-config-row">
+        <div class="settings-inline-actions">
           <button type="button" class="btn-secondary btn-small" id="llm-test-btn">${icons.bot} Test Connection</button>
-          <span class="import-model-info" id="llm-test-status"></span>
+          <span class="${inlineStatusClass("")}" id="llm-test-status"></span>
         </div>
         <div class="settings-actions">
           <button type="submit" class="btn-primary">Save Settings</button>
@@ -720,10 +726,10 @@ export class SettingsScreen {
                    autocomplete="off" spellcheck="false" />`,
             "Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.",
             "netbox-token")}
-          <div class="netbox-connection-actions">
+          <div class="settings-inline-actions">
             <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
             <button type="button" class="btn-secondary btn-small${this.netboxTestOk ? " netbox-save-token-ready" : ""}" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>${icons.lock} Save Connection</button>
-            <span class="${this.netboxTestStatusClass(testLine ? (testLine.ok ? "ok" : "err") : "")}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
+            <span class="${inlineStatusClass(testLine ? (testLine.ok ? "ok" : "err") : "")}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
           </div>
           ${this.switchRow("netbox-invalid-certs", "Allow self-signed certificates",
             "Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.",
@@ -766,7 +772,7 @@ export class SettingsScreen {
             "netbox-platform-overrides")}
 
           ${this.group("Default Authentication")}
-          <span class="settings-row-desc netbox-section-intro">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
+          <span class="settings-row-desc settings-block-intro">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
           ${this.row("Username", `
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
                    autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />`,
@@ -792,8 +798,8 @@ export class SettingsScreen {
           ${this.switchRow("netbox-show-empty-folders", "Show empty folders",
             "Show all cached regions, sites, and locations, including folders with no enabled hosts.",
             !!cfg?.show_empty_folders)}
-          <span class="settings-row-desc netbox-device-status" id="netbox-status-line">${this.netboxStatusLine()}</span>
-          <div class="netbox-device-toolbar">
+          <span class="settings-row-desc settings-block-intro" id="netbox-status-line">${this.netboxStatusLine()}</span>
+          <div class="settings-toolbar">
             <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
                    value="${escAttr(this.netboxDeviceSearch)}" />
             <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.refresh} Refresh Now</button>
@@ -802,11 +808,6 @@ export class SettingsScreen {
         </div>
       </div>
     `;
-  }
-
-  /** Status text beside Test / Save — colour comes from import-test-*. */
-  private netboxTestStatusClass(kind: "ok" | "err" | "progress" | ""): string {
-    return `netbox-connection-status${kind ? ` import-test-${kind}` : ""}`;
   }
 
   private netboxHasDefaultPw(): boolean {
@@ -1818,10 +1819,10 @@ export class SettingsScreen {
     const status = this.container?.querySelector<HTMLElement>("#netbox-test-status");
     if (status && this.netboxTestLine) {
       status.textContent = this.netboxTestLine.text;
-      status.className = this.netboxTestStatusClass(this.netboxTestLine.ok ? "ok" : "err");
+      status.className = inlineStatusClass(this.netboxTestLine.ok ? "ok" : "err");
     } else if (status) {
       status.textContent = "";
-      status.className = this.netboxTestStatusClass("");
+      status.className = inlineStatusClass("");
     }
     const saveBtn = this.container?.querySelector<HTMLButtonElement>("#netbox-token-save");
     if (saveBtn) {
@@ -1847,7 +1848,7 @@ export class SettingsScreen {
     if (btn) btn.disabled = true;
     if (status) {
       status.textContent = "Testing…";
-      status.className = this.netboxTestStatusClass("progress");
+      status.className = inlineStatusClass("progress");
     }
     try {
       const result = await netboxTestConnection(baseUrl, token, allowInvalidCerts);
@@ -2166,14 +2167,14 @@ export class SettingsScreen {
     }
     if (status) {
       status.textContent = "Testing…";
-      status.className = "import-model-info import-test-progress";
+      status.className = inlineStatusClass("progress");
     }
     try {
       const models = await testLlmConnection();
       this.availableModels = models;
       if (status) {
         status.textContent = `Connected — ${models.length} model${models.length !== 1 ? "s" : ""} available`;
-        status.className = "import-model-info import-test-ok";
+        status.className = inlineStatusClass("ok");
       }
       showToast(`Connected! ${models.length} model${models.length !== 1 ? "s" : ""} available`, "success");
       this.render();
@@ -2181,7 +2182,7 @@ export class SettingsScreen {
       this.availableModels = [];
       if (status) {
         status.textContent = `Connection failed: ${e}`;
-        status.className = "import-model-info import-test-err";
+        status.className = inlineStatusClass("err");
       }
       showToast(`Connection failed: ${e}`, "error");
     } finally {
