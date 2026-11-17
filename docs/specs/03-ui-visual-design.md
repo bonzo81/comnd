@@ -138,6 +138,8 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 └──────────────────────────────────────────────────────────────┘
 ```
 
+The screen is inset `--space-2` (8px) inside the 1px frame on all four sides, so no glyph sits against the border and ghost text on row 0 keeps its pill background and descenders. `.tv-terminal` is `box-sizing: content-box` so FitAddon's `parseInt(getComputedStyle(...).width)` sees the *content* width; under `border-box` Chrome reports the border box there and the inset would be invisible to the fit, hanging the grid past the padding and clipping the last row and column. The timestamps gutter adds its width to the left inset instead of replacing it.
+
 ## Top Bar
 
 * **← Back** — returns to connection manager (keyboard: `Escape` when no dropdown/panel open)

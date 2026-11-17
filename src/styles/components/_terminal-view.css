@@ -182,11 +182,19 @@
   overflow: hidden;
   /* Containing block for ghost text / dropdown overlays */
   position: relative;
-  /* Inset the screen from the clip edges so ghost text on row 0 / the last
-     row is not cut off (pill background + glyph descenders). FitAddon
-     subtracts this padding when proposing rows, like the timestamp gutter. */
-  padding-top: var(--space-1);
-  padding-bottom: var(--space-1);
+  /* Inset the screen from the frame on all four sides: vertical room so ghost
+     text on row 0 / the last row is not cut off (pill background + glyph
+     descenders), horizontal room so no glyph sits against the 1px border.
+
+     `content-box` is load-bearing. FitAddon proposes rows and cols from
+     `parseInt(getComputedStyle(.tv-terminal).width)`, and for a `border-box`
+     element Chrome reports the *border* box there, so padding would be
+     invisible to the fit and the grid would hang past the inset, losing the
+     last row and column to `overflow: hidden`. Content-box reports the content
+     width instead, so the padding (and the timestamps gutter below) reaches
+     the fit and the grid shrinks into the inset. */
+  box-sizing: content-box;
+  padding: var(--space-2);
 }
 
 .tv-sidebar {
@@ -648,12 +656,14 @@ body.tv-resizing * {
   display: none !important;
 }
 
-/* Padding reserves the gutter; FitAddon subtracts it so cols shrink to fit.
-   Gutter width tracks the configured format's max stamp width. */
+/* Padding reserves the gutter; FitAddon reads the content-box width, so cols
+   shrink to fit inside it. Gutter width tracks the configured format's max
+   stamp width. It adds to the base inset rather than replacing it, so the
+   screen keeps its left margin. */
 .tv-terminal.timestamps-on {
   font-family: var(--font-mono);
   --local-ts-gutter: calc(8ch + 12px);
-  padding-left: var(--local-ts-gutter);
+  padding-left: calc(var(--local-ts-gutter) + var(--space-2));
 }
 
 .tv-terminal.timestamps-on[data-ts-format="12h"] {
