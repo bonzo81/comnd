@@ -198,6 +198,8 @@
 }
 
 /* ─── Inline SVG icon sizing (see src/lib/icons.ts) ─── */
+.btn-primary svg,
+.btn-secondary svg,
 .btn-text svg,
 .btn-small svg,
 .tv-theme-btn svg,

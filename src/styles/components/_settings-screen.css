@@ -102,18 +102,32 @@
   flex-direction: column;
 }
 
-/* Group label — small, muted, whitespace separation only (no dividers) */
+/* Group label — section heading, separated from the block above by a
+   hairline rule. More space above than below, so the heading binds to
+   the rows it owns. */
 .settings-group-label {
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-tertiary);
-  margin: var(--space-6) 0 var(--space-2);
+  margin: var(--space-6) 0 var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
 .settings-group-label:first-child {
   margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* The master enable switch sits above .netbox-body, so the first NetBox section
+   still earns a divider — unlike a heading that opens a form. */
+.netbox-body > .settings-group-label:first-child {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
 /* ─── SettingRow ────────────────────────────────────────────────── */
@@ -350,6 +364,63 @@
   opacity: 0.45;
   pointer-events: none;
   user-select: none;
+}
+
+/* Section intro sentence — owns the gap to the first row below it. */
+.netbox-section-intro {
+  margin-bottom: var(--space-3);
+}
+
+/* Test / Save sit under the token field they act on, with the outcome
+   beside them. Wraps to a second line in a narrow pane. */
+.netbox-connection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.netbox-connection-status {
+  flex: 1 1 20ch;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* State colours outrank the neutral text colour above (both are class selectors
+   and these land earlier in the sheet). */
+.netbox-connection-status.import-test-ok { color: var(--color-success); }
+.netbox-connection-status.import-test-err { color: var(--color-error); }
+
+/* Filter block — same 8px row rhythm as the SettingRows above it. */
+#netbox-settings .import-field {
+  margin-bottom: var(--space-2);
+}
+
+/* Devices: status, then search + Refresh, then the list they act on. */
+.netbox-device-status {
+  margin-bottom: var(--space-3);
+}
+
+.netbox-device-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.netbox-device-toolbar .form-input {
+  flex: 1 1 22ch;
+  width: auto;
+  min-width: 0;
+}
+
+.netbox-device-toolbar .btn-secondary {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .netbox-device-list {

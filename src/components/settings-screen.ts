@@ -708,9 +708,6 @@ export class SettingsScreen {
           enabled)}
 
         <div class="netbox-body${enabled ? "" : " netbox-body-disabled"}">
-          ${this.switchRow("netbox-show-empty-folders", "Show empty folders",
-            "Show all cached regions, sites, and locations, including folders with no enabled hosts.",
-            !!cfg?.show_empty_folders)}
           ${this.group("Instance")}
           ${this.row("NetBox URL", `
             <input type="url" class="form-input" id="netbox-url"
@@ -723,10 +720,10 @@ export class SettingsScreen {
                    autocomplete="off" spellcheck="false" />`,
             "Create a token in NetBox under your profile → API Tokens (read access to DCIM is enough). Stored in the OS keychain. Test the URL + token, then click Save Connection to commit both.",
             "netbox-token")}
-          <div class="import-config-row">
+          <div class="netbox-connection-actions">
             <button type="button" class="btn-secondary btn-small" id="netbox-test-btn">${icons.bot} Test Connection</button>
             <button type="button" class="btn-secondary btn-small${this.netboxTestOk ? " netbox-save-token-ready" : ""}" id="netbox-token-save" ${this.netboxTestOk ? "" : "disabled"}>${icons.lock} Save Connection</button>
-            <span class="import-model-info${testLine ? (testLine.ok ? " import-test-ok" : " import-test-err") : ""}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
+            <span class="${this.netboxTestStatusClass(testLine ? (testLine.ok ? "ok" : "err") : "")}" id="netbox-test-status">${escHtml(testLine?.text ?? "")}</span>
           </div>
           ${this.switchRow("netbox-invalid-certs", "Allow self-signed certificates",
             "Skip TLS verification for the NetBox URL (home labs with a self-signed or internal CA). Off by default — it makes the API token MITM-able. Prefer trusting your CA in the OS cert store.",
@@ -769,7 +766,7 @@ export class SettingsScreen {
             "netbox-platform-overrides")}
 
           ${this.group("Default Authentication")}
-          <span class="settings-row-desc">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
+          <span class="settings-row-desc netbox-section-intro">Applied to every synced device unless a device has its own overlay (Configure). Username and port are always inherited per-device.</span>
           ${this.row("Username", `
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
                    autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />`,
@@ -791,19 +788,25 @@ export class SettingsScreen {
             noProvidersHint: "Enable a secret manager in Settings → Auth Integrations first.",
           })}
 
-          <div class="settings-actions">
-            <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.folder} Refresh Now</button>
-          </div>
-
           ${this.group("Devices")}
-          ${this.rowBlock("", `
+          ${this.switchRow("netbox-show-empty-folders", "Show empty folders",
+            "Show all cached regions, sites, and locations, including folders with no enabled hosts.",
+            !!cfg?.show_empty_folders)}
+          <span class="settings-row-desc netbox-device-status" id="netbox-status-line">${this.netboxStatusLine()}</span>
+          <div class="netbox-device-toolbar">
             <input type="text" class="form-input" id="netbox-device-search" placeholder="Search devices…"
                    value="${escAttr(this.netboxDeviceSearch)}" />
-            <span class="settings-row-desc" id="netbox-status-line">${this.netboxStatusLine()}</span>`)}
+            <button type="button" class="btn-secondary" id="netbox-sync-btn">${icons.refresh} Refresh Now</button>
+          </div>
           <div class="netbox-device-list" id="netbox-device-list">${this.renderNetBoxDeviceList()}</div>
         </div>
       </div>
     `;
+  }
+
+  /** Status text beside Test / Save — colour comes from import-test-*. */
+  private netboxTestStatusClass(kind: "ok" | "err" | "progress" | ""): string {
+    return `netbox-connection-status${kind ? ` import-test-${kind}` : ""}`;
   }
 
   private netboxHasDefaultPw(): boolean {
@@ -1815,10 +1818,10 @@ export class SettingsScreen {
     const status = this.container?.querySelector<HTMLElement>("#netbox-test-status");
     if (status && this.netboxTestLine) {
       status.textContent = this.netboxTestLine.text;
-      status.className = `import-model-info ${this.netboxTestLine.ok ? "import-test-ok" : "import-test-err"}`;
+      status.className = this.netboxTestStatusClass(this.netboxTestLine.ok ? "ok" : "err");
     } else if (status) {
       status.textContent = "";
-      status.className = "import-model-info";
+      status.className = this.netboxTestStatusClass("");
     }
     const saveBtn = this.container?.querySelector<HTMLButtonElement>("#netbox-token-save");
     if (saveBtn) {
@@ -1844,7 +1847,7 @@ export class SettingsScreen {
     if (btn) btn.disabled = true;
     if (status) {
       status.textContent = "Testing…";
-      status.className = "import-model-info import-test-progress";
+      status.className = this.netboxTestStatusClass("progress");
     }
     try {
       const result = await netboxTestConnection(baseUrl, token, allowInvalidCerts);
@@ -1870,7 +1873,7 @@ export class SettingsScreen {
     const btn = this.container?.querySelector<HTMLButtonElement>("#netbox-sync-btn");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Syncing…";
+      btn.innerHTML = `${icons.refresh} Syncing…`;
     }
     try {
       const report = await netboxSync();
@@ -1891,7 +1894,7 @@ export class SettingsScreen {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = `${icons.folder} Refresh Now`;
+        btn.innerHTML = `${icons.refresh} Refresh Now`;
       }
     }
   }
