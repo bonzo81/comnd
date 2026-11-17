@@ -545,9 +545,9 @@ pub fn run() {
 
             let provider_registry = secrets::ProviderRegistry::from_config(config_store.get());
 
-            let netbox_store = netbox::NetBoxCacheStore::new(&data_dir).unwrap_or_else(|e| {
+            let netbox_store = netbox::NetBoxInventory::new(&data_dir).unwrap_or_else(|e| {
                 log::warn!("Failed to init NetBox cache store: {}. Using in-memory fallback.", e);
-                netbox::NetBoxCacheStore::in_memory()
+                netbox::NetBoxInventory::in_memory()
             });
 
             let platform_registry = PlatformRegistry::scan(&kb_path, Some(user_kb_path.as_path()));
