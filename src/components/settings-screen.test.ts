@@ -768,12 +768,17 @@ describe("SettingsScreen — setting prose in info tooltips", () => {
     expect(info.querySelector(".settings-info-tip")!.textContent).toContain("Applies immediately");
   });
 
-  it("keeps the session-log password warning visible", async () => {
+  it("puts the session-log password warning on a warning tooltip", async () => {
     const { container } = await mountLogging();
-    const caution = container.querySelector(".settings-caution")!;
+    const row = container.querySelector("#session-logging")!.closest(".settings-row")!;
+    const tips = row.querySelectorAll<HTMLButtonElement>(".settings-info");
+    const warn = row.querySelector<HTMLButtonElement>(".settings-info-warn")!;
 
-    expect(caution.textContent).toContain("sends back");
-    expect(caution.textContent).toContain("Keep the log folder private");
+    expect(container.querySelector(".settings-caution")).toBeNull();
+    expect(tips).toHaveLength(1);
+    expect(warn.getAttribute("aria-label")).toContain("Keep the log folder private");
+    expect(warn.querySelector(".settings-info-tip")!.textContent).toContain("password");
+    expect(warn.querySelector("svg")).not.toBeNull();
   });
 
   it("closes an open tooltip on Escape", async () => {

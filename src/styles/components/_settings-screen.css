@@ -180,15 +180,6 @@
   font-size: var(--font-size-sm);
 }
 
-.settings-caution {
-  margin: var(--space-1) 0 var(--space-3);
-  padding: 0;
-  color: var(--color-warning);
-  font-size: var(--font-size-sm);
-  line-height: var(--prose-line-height);
-  word-spacing: var(--prose-word-spacing);
-}
-
 /* ─── Info tooltip ─────────────────────────────────────────────────
    A real button so keyboard and screen-reader users get the detail; the
    bubble is decorative and shows on hover or focus. The bubble is placed
@@ -216,6 +207,15 @@
 .settings-info:hover,
 .settings-info:focus-visible {
   color: var(--color-text-primary);
+}
+
+/* Warning variant: alert triangle in the caution colour, kept on hover and
+   focus so the row never reads as an ordinary tip. Placed after the rule
+   above because both selectors weigh the same. */
+.settings-info-warn,
+.settings-info-warn:hover,
+.settings-info-warn:focus-visible {
+  color: var(--color-warning);
 }
 
 .settings-info-tip {

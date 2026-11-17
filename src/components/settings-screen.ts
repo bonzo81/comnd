@@ -316,21 +316,26 @@ export class SettingsScreen {
   // ─── SettingRow helpers ─────────────────────────────────────────
 
   /** Info button — a small "i" that shows `text` on hover or keyboard focus.
+   *  `warn` swaps the icon for an alert triangle in the warning colour, for
+   *  detail the user must not miss.
    *  The button's accessible name is the full text, so a screen reader hears
    *  the detail without the tooltip. */
-  private infoButton(text: string): string {
-    return `<button type="button" class="settings-info" aria-label="${escAttr(text)}">${icons.info}<span class="settings-info-tip" aria-hidden="true">${escHtml(text)}</span></button>`;
+  private infoButton(text: string, warn = false): string {
+    const icon = warn ? icons.alert : icons.info;
+    const cls = warn ? "settings-info settings-info-warn" : "settings-info";
+    return `<button type="button" class="${cls}" aria-label="${escAttr(text)}">${icon}<span class="settings-info-tip" aria-hidden="true">${escHtml(text)}</span></button>`;
   }
 
   /** SettingRow — label and optional info tooltip left, control right.
    *  `info` is the tooltip text and `value` is a live readout under the label
    *  (slider values, status lines). A row with no label shows `info` as plain
-   *  text, because there is no title to attach the tooltip to. */
-  private row(label: string, control: string, info = "", forId = "", value = ""): string {
+   *  text, because there is no title to attach the tooltip to. `warn` paints
+   *  the tooltip icon as a warning. */
+  private row(label: string, control: string, info = "", forId = "", value = "", warn = false): string {
     const labelHtml = label
       ? `<span class="settings-row-heading">
            <label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>
-           ${info ? this.infoButton(info) : ""}
+           ${info ? this.infoButton(info, warn) : ""}
          </span>`
       : "";
     const detailHtml = label
@@ -345,11 +350,11 @@ export class SettingsScreen {
 
   /** Block variant: label and info tooltip on top, full-width control below —
    *  for wide widgets (path inputs, textarea, multi-select). */
-  private rowBlock(label: string, control: string, info = "", forId = "", value = ""): string {
+  private rowBlock(label: string, control: string, info = "", forId = "", value = "", warn = false): string {
     const labelHtml = label
       ? `<span class="settings-row-heading">
            <label class="settings-row-label"${forId ? ` for="${escAttr(forId)}"` : ""}>${label}</label>
-           ${info ? this.infoButton(info) : ""}
+           ${info ? this.infoButton(info, warn) : ""}
          </span>`
       : "";
     const detailHtml = label
@@ -364,12 +369,21 @@ export class SettingsScreen {
 
   /** Boolean row — native checkbox restyled as a pill switch (`.settings-switch`).
    *  The input element and its bindings are unchanged. */
-  private switchRow(id: string, label: string, desc: string, checked: boolean, extraAttrs = ""): string {
+  private switchRow(
+    id: string,
+    label: string,
+    desc: string,
+    checked: boolean,
+    extraAttrs = "",
+    warn = false,
+  ): string {
     return this.row(
       label,
       `<input type="checkbox" id="${escAttr(id)}" class="settings-switch" ${checked ? "checked" : ""} ${extraAttrs} />`,
       desc,
       id,
+      "",
+      warn,
     );
   }
 
@@ -546,9 +560,10 @@ export class SettingsScreen {
           "log-file-path")}
         ${this.group("Session logs")}
         ${this.switchRow("session-logging", "Log session output",
-          "Writes everything the device sends back to one file per connection. Applies to new connections.",
-          this.config?.session_logging ?? true)}
-        <p class="settings-caution">Logs save everything the device sends back. If the device shows a password on screen as you type it, that password is saved too. Keep the log folder private.</p>
+          "Logs save everything the device sends back. If the device shows a password on screen as you type it, that password is saved too. Keep the log folder private. Applies to new connections.",
+          this.config?.session_logging ?? true,
+          "",
+          true)}
         ${this.switchRow("session-log-timestamps", "Add timestamps",
           "Adds an [HH:MM:SS] stamp before each chunk of output.",
           this.config?.session_log_timestamps ?? true)}
