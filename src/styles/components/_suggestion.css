@@ -99,7 +99,7 @@
      the rows measures 8.9 / 6.1 / 5.2 / 2.7 for blur 4 / 6 / 8 / 20px. 6px keeps
      the line shapes as soft bands without letting the output compete with the
      command names. Derived from the elevated role rather than a new token, so
-     every theme inherits it. */
+     every theme inherits it. See docs/adr/023-translucency-reads-through-blur-radius.md. */
   background: color-mix(in srgb, var(--color-surface-elevated) 50%, transparent);
   backdrop-filter: blur(6px);
   border: 1px solid var(--color-border);

@@ -202,9 +202,10 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
   blur radius is what makes the frost legible — with the fill at 50%, the luminance spread in the
   panel measures 8.9 / 6.1 / 5.2 / 2.7 for a 4 / 6 / 8 / 20px radius against 0.1 for an opaque box —
   so 6px is used: line shapes ghost through as soft bands without competing with the command
-  names. With dense output behind it the darkest rows measured 70 luminance at the brightest
-  behind them, so primary text still clears 8:1. The side panel stays opaque, because
-  translucency there would read as an overlay (ADR-003)
+  names. With dense output behind it the rows measured a 70-luminance peak behind them, so primary
+  text still clears 8:1. The side panel stays opaque, because translucency there would read as an
+  overlay (ADR-003). The full measurement, and why the alpha cannot be the dial here, is
+  [ADR-023](../adr/023-translucency-reads-through-blur-radius.md)
 * Dismissed on `Escape`, typing a non-matching character, or clicking outside
 
 ## Connecting State
