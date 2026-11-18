@@ -262,8 +262,10 @@ body.tv-resizing * {
    fading the panel itself would show the old terminal through it for the
    duration and read as an overlay, which this panel is not (ADR-003), and a
    width transition would clip columns until the 250ms refit snaps them back.
-   So only the content interpolates — 6px from the right (the terminal side)
-   under a partial→full opacity, on the app's decelerating curve.
+   So only the content interpolates — 10px from the right (the terminal side)
+   under a faint-to-full opacity, over 220ms on the app's decelerating curve.
+   Long enough to read as arrival: at 120ms a decelerating curve is already
+   three-quarters home, which is why the first pass looked instant.
 
    Set by terminal-view.ts on the two deliberate changes of subject, opening
    the panel and switching tabs. It is deliberately absent from
@@ -271,13 +273,13 @@ body.tv-resizing * {
    path, where the pane is a live mirror of the prompt and any motion next to
    the echo reads as lag. */
 .sb-content.sb-content--enter {
-  animation: sb-content-settle 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: sb-content-settle 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes sb-content-settle {
   from {
-    opacity: 0.4;
-    transform: translateX(-6px);
+    opacity: 0.15;
+    transform: translateX(-10px);
   }
 }
 

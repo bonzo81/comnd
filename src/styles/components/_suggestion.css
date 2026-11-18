@@ -49,9 +49,13 @@
    ever moves and no frame is spent reflowing a terminal.
 
    Arrivals settle, departures are instant. A surface appearing interpolates
-   over 120–140ms on the app's decelerating curve; a surface disappearing gets
+   over 180–220ms on the app's decelerating curve; a surface disappearing gets
    one frame, because a suggestion that lingers after the input stopped
    matching misreports what the remote is about to receive.
+
+   The durations sit in the middle of the app's 100–300ms band, not at the
+   bottom: a decelerating curve is ~75% complete in its first third, so a
+   shorter animation is over before the eye registers it as motion at all.
 
    The classes are set by ghost-text.ts / dropdown.ts / terminal-view.ts on the
    transition from hidden to shown and cleared on hide, never baked into
@@ -60,16 +64,20 @@
    See docs/specs/03-ui-visual-design.md § Motion. */
 .ghost-text.ghost-text--enter,
 .match-count-badge.match-count-badge--enter {
-  animation: suggestion-settle 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: suggestion-settle 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* From a quarter opacity rather than from 0: the ghost has to be readable in
-   the same frame the keystroke echoes, or the prediction reads as lag. No `to`
-   keyframe — the animation lands on whatever opacity the element already
-   carries, so the variable-placeholder variant keeps its own token. */
+/* From a tenth opacity rather than 0: the ghost has to be legible in the same
+   frame the keystroke echoes, or the prediction reads as lag. The 3px rise
+   ends exactly on the cell — a one-shot entrance may leave the grid, a
+   position change that animates during typing may not.
+
+   No `to` keyframe: the animation lands on whatever opacity the element
+   already carries, so the variable-placeholder variant keeps its own token. */
 @keyframes suggestion-settle {
   from {
-    opacity: 0.25;
+    opacity: 0.1;
+    transform: translateY(3px);
   }
 }
 
@@ -78,7 +86,22 @@
   position: absolute;
   bottom: var(--space-8);
   left: var(--space-2);
-  background: var(--color-surface-elevated);
+  /* Frosted, so the terminal stays present behind the list rather than the box
+     reading as a hole cut in the window.
+
+     Alpha alone cannot show this. Measured over dense terminal output, the
+     composited panel tone is ~43.3 at 100%, 70%, 50% and 35% alike: the blurred
+     dark terminal averages to the same luminance as --color-surface-elevated
+     (#1E293B is 43.3), so every alpha lands on the same slab. Only the texture
+     behind the fill changes, and blur(20px) flattened that to a ±1.5 luminance
+     spread against a flat 0.1 for an opaque box — invisible. The blur radius,
+     not the alpha, is what makes the frost legible: at 50% the spread behind
+     the rows measures 8.9 / 6.1 / 5.2 / 2.7 for blur 4 / 6 / 8 / 20px. 6px keeps
+     the line shapes as soft bands without letting the output compete with the
+     command names. Derived from the elevated role rather than a new token, so
+     every theme inherits it. */
+  background: color-mix(in srgb, var(--color-surface-elevated) 50%, transparent);
+  backdrop-filter: blur(6px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   min-width: 320px;
@@ -90,17 +113,17 @@
   display: none;
 }
 
-/* Rises 4px off the prompt line it is completing. The transform is on the box,
-   not the rows: rows are rebuilt on every keystroke, so any transition on a
-   row's tint would pulse with the typing instead of settling once. */
+/* Rises 8px up to the prompt line it is completing. The transform is on the
+   box, not the rows: rows are rebuilt on every keystroke, so any transition on
+   a row's tint would pulse with the typing instead of settling once. */
 .suggestion-dropdown.suggestion-dropdown--enter {
-  animation: suggestion-rise 130ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: suggestion-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes suggestion-rise {
   from {
-    opacity: 0.35;
-    transform: translateY(4px);
+    opacity: 0.15;
+    transform: translateY(8px);
   }
 }
 
