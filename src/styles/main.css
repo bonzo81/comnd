@@ -390,6 +390,14 @@
   cursor: help;
 }
 
+/* ─── Range inputs ─── */
+/* A native range paints its own thumb and filled track. Without an accent
+   colour the UA falls back to the platform accent (blue on Windows) in every
+   theme; point it at the active theme's accent instead. */
+input[type="range"].form-input {
+  accent-color: var(--color-accent);
+}
+
 /* ─── Global focus indicators ─── */
 
 .cm-host-item:focus-visible {
