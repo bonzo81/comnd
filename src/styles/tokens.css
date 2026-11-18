@@ -27,6 +27,11 @@
   --color-accent-hover: #4ADE80;
   --color-success: #22C55E;
   --color-warning: #F59E0B;
+  /* Warning as a foreground icon on a surface: 8.31:1 on surface-primary.
+     A fill colour is not automatically a legible icon colour, so themes whose
+     warning hue misses 3:1 on their pane surface (WCAG 1.4.11, non-text)
+     override this with a darker or lighter variant of the same hue. */
+  --color-warning-fg: #F59E0B;
   --color-error: #EF4444;
   /* Text on a --color-error fill. Ink clears 4.5:1 on #EF4444 (5.08), dracula
      (6.09), monokai (6.90) and nord (4.68); solarized-light overrides it. */
@@ -140,6 +145,7 @@
   --color-accent: #166534;            /* 5.99:1 on surface-selected — WCAG AA text */
   --color-accent-hover: #14532D;
   --color-success: #15803D;
+  --color-warning-fg: #B45309;        /* 4.80:1 on surface-primary — non-text 3:1 */
 
   --color-border: rgba(0, 0, 0, 0.45); /* 3.33:1 on surface-primary — non-text */
   --color-border-strong: rgba(0, 0, 0, 0.62);
@@ -180,6 +186,7 @@
   --color-accent-hover: #caa6ff;
   --color-success: #50fa7b;
   --color-warning: #ffb86c;
+  --color-warning-fg: #ffb86c;         /* 8.36:1 on surface-primary */
   --color-error: #ff5555;
 
   --color-border: rgba(255,255,255,0.14);
@@ -217,6 +224,7 @@
   --color-accent-hover: #ffb347;
   --color-success: #a6e22e;
   --color-warning: #e6db74;
+  --color-warning-fg: #e6db74;         /* 10.44:1 on surface-primary */
   --color-error: #ff6c63;
 
   --color-border: rgba(255,255,255,0.14);
@@ -254,6 +262,7 @@
   --color-accent-hover: #1a5f91;
   --color-success: #859900;
   --color-warning: #b58900;
+  --color-warning-fg: #8a6500;         /* 4.94:1 on surface-primary — non-text 3:1 */
   --color-error: #dc322f;
   /* Ink is only 4.14:1 on solarized-light's red; white clears AA at 4.63:1. */
   --color-fg-on-danger: #FFFFFF;
@@ -297,6 +306,7 @@
   --color-accent-hover: #9bd0dd;
   --color-success: #a3be8c;            /* nord13 green */
   --color-warning: #ebcb8b;            /* nord12 yellow */
+  --color-warning-fg: #ebcb8b;         /* 8.00:1 on surface-primary */
   --color-error: #bf616a;              /* nord10 red */
 
   --color-border: rgba(216,222,233,0.14);

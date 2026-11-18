@@ -422,9 +422,9 @@ export class SettingsScreen {
         ${this.row("API key", `
           <input type="password" class="form-input" id="llm-key" value="${escAttr(apiKey)}" placeholder="Leave empty for local servers" autocomplete="off" />`,
           "", "llm-key")}
-        ${this.row("Context length", `
+        ${this.row("Reply token limit", `
           <input type="number" class="form-input" id="llm-ctx" value="${ctxLen}" min="4096" step="1024" />`,
-          "Output token budget for each request. Comnd sends it to OpenAI-compatible servers as max_tokens.",
+          "The largest reply Comnd asks for, sent as max_tokens. Comnd clamps it to between 1,024 and 8,192 tokens.",
           "llm-ctx")}
         <div class="settings-inline-actions">
           <span class="${inlineStatusClass("")}" id="llm-test-status"></span>
@@ -560,7 +560,7 @@ export class SettingsScreen {
           "log-file-path")}
         ${this.group("Session logs")}
         ${this.switchRow("session-logging", "Log session output",
-          "Logs save everything the device sends back. If the device shows a password on screen as you type it, that password is saved too. Keep the log folder private. Applies to new connections.",
+          "Saves terminal output to one file per connection, including the sign-in prompts Comnd writes itself. Typed input is never logged, but a password the device echoes on screen is. Keep the log folder private. Applies to new connections.",
           this.config?.session_logging ?? true,
           "",
           true)}
@@ -809,7 +809,7 @@ export class SettingsScreen {
             "netbox-platform-overrides")}
 
           ${this.group("Default authentication",
-            "Comnd applies this to every synced device unless the device has its own overlay in Configure. The device always supplies its own username and port.")}
+            "Fills each field a device leaves unset in Configure. Every field falls back on its own, so a device can keep its own username and still inherit this port.")}
           ${this.row("Username", `
             <input type="text" class="form-input" id="netbox-default-username" placeholder="e.g. netadmin"
                    autocomplete="off" value="${escAttr(cfg?.default_username ?? "")}" />`,
@@ -1335,17 +1335,85 @@ export class SettingsScreen {
     };
   }
 
-  private bindEvents() {
-    // Escape closes an open info tooltip. Bound to `.settings-page`, which is
-    // recreated on every render, so the listener cannot accumulate.
-    this.container?.querySelector<HTMLElement>(".settings-page")?.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-      const active = document.activeElement;
-      if (active instanceof HTMLElement && active.classList.contains("settings-info")) {
-        e.stopPropagation();
-        active.blur();
+  /** Rewrites the readout under a slider's label with the value actually
+   *  applied. The range input accepts values the library clamps, so the raw
+   *  `input.value` can disagree with what took effect. */
+  private setRowReadout(selector: string, text: string): void {
+    const row = this.container?.querySelector<HTMLElement>(selector)?.closest(".settings-row");
+    const value = row?.querySelector<HTMLElement>(".settings-row-value");
+    if (value) value.textContent = text;
+  }
+
+  /** Info tooltips — open state, hover delay, and Escape dismissal.
+   *
+   *  A CSS `:hover` reveal cannot satisfy WCAG 1.4.13: Escape would hide the
+   *  bubble and `:hover` would put it back, and a hover-only tip with focus
+   *  elsewhere sent Escape on to `main.ts`, which leaves Settings. Open state
+   *  is therefore a `data-tip-open` attribute. The bubble hangs below the row
+   *  rather than against the 16px icon, so a close waits out a grace period
+   *  long enough to carry the pointer across that gap onto the bubble, which
+   *  is itself hoverable. Escape hides the bubble without moving focus and
+   *  stops there; with no tip open the key falls through as before. */
+  private bindInfoTooltips(): void {
+    const page = this.container?.querySelector<HTMLElement>(".settings-page");
+    if (!page) return;
+    const HOVER_DELAY_MS = 350;
+    const CLOSE_GRACE_MS = 250;
+    let openTimer: number | undefined;
+    let closeTimer: number | undefined;
+
+    const buttons = () => page.querySelectorAll<HTMLElement>(".settings-info");
+    const closeAll = () => {
+      window.clearTimeout(openTimer);
+      window.clearTimeout(closeTimer);
+      buttons().forEach((btn) => btn.removeAttribute("data-tip-open"));
+    };
+    const buttonFor = (target: EventTarget | null) =>
+      target instanceof Element ? target.closest<HTMLElement>(".settings-info") : null;
+    const leavesButton = (btn: HTMLElement, next: EventTarget | null) =>
+      !(next instanceof Node && btn.contains(next));
+
+    page.addEventListener("pointerover", (e) => {
+      const btn = buttonFor(e.target);
+      if (!btn) return;
+      window.clearTimeout(closeTimer);
+      buttons().forEach((other) => {
+        if (other !== btn) other.removeAttribute("data-tip-open");
+      });
+      if (btn.hasAttribute("data-tip-open")) return;
+      window.clearTimeout(openTimer);
+      openTimer = window.setTimeout(() => btn.setAttribute("data-tip-open", ""), HOVER_DELAY_MS);
+    });
+
+    page.addEventListener("pointerout", (e) => {
+      const btn = buttonFor(e.target);
+      if (!btn || !leavesButton(btn, (e as PointerEvent).relatedTarget)) return;
+      window.clearTimeout(openTimer);
+      closeTimer = window.setTimeout(() => btn.removeAttribute("data-tip-open"), CLOSE_GRACE_MS);
+    });
+
+    page.addEventListener("focusin", (e) => {
+      const btn = buttonFor(e.target);
+      if (btn) btn.setAttribute("data-tip-open", "");
+    });
+
+    page.addEventListener("focusout", (e) => {
+      const btn = buttonFor(e.target);
+      if (btn && leavesButton(btn, (e as FocusEvent).relatedTarget)) {
+        btn.removeAttribute("data-tip-open");
       }
     });
+
+    page.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !page.querySelector(".settings-info[data-tip-open]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeAll();
+    });
+  }
+
+  private bindEvents() {
+    this.bindInfoTooltips();
 
     this.container?.querySelector<HTMLInputElement>("#search-tags")?.addEventListener("change", (e) => {
       setSearchIncludeTags((e.target as HTMLInputElement).checked);
@@ -1477,18 +1545,22 @@ export class SettingsScreen {
 
     this.container?.querySelector<HTMLInputElement>("#rc-font-size")?.addEventListener("input", (e) => {
       setTerminalFontSize(parseInt((e.target as HTMLInputElement).value, 10));
+      this.setRowReadout("#rc-font-size", `${getTerminalFontSize()}px`);
     });
 
     this.container?.querySelector<HTMLInputElement>("#rc-ui-scale")?.addEventListener("input", (e) => {
       rcUpdate({ uiScale: parseFloat((e.target as HTMLInputElement).value) });
+      this.setRowReadout("#rc-ui-scale", `${(getReadingComfortState()?.uiScale ?? RC_PRESET.uiScale).toFixed(2)}×`);
     });
 
     this.container?.querySelector<HTMLInputElement>("#rc-line-height")?.addEventListener("input", (e) => {
       rcUpdate({ lineHeight: parseFloat((e.target as HTMLInputElement).value) });
+      this.setRowReadout("#rc-line-height", `${(getReadingComfortState()?.lineHeight ?? RC_PRESET.lineHeight).toFixed(2)}`);
     });
 
     this.container?.querySelector<HTMLInputElement>("#rc-letter-spacing")?.addEventListener("input", (e) => {
       rcUpdate({ letterSpacing: parseFloat((e.target as HTMLInputElement).value) });
+      this.setRowReadout("#rc-letter-spacing", `${getReadingComfortState()?.letterSpacing ?? RC_PRESET.letterSpacing}px`);
     });
 
     this.container?.querySelector<HTMLButtonElement>("#rc-reset")?.addEventListener("click", () => {

@@ -3,6 +3,7 @@ import { createHarness } from "../../tests/harness";
 import type { AppConfig, NetBoxConfig } from "../lib/tauri-api";
 import type { ConfigSaveDescriptor } from "../lib/config-save";
 import { SettingsScreen } from "./settings-screen";
+import { enable as rcEnable, disable as rcDisable } from "../lib/reading-comfort";
 
 async function renderNetbox(showEmptyFolders = false) {
   const h = createHarness();
@@ -781,13 +782,91 @@ describe("SettingsScreen — setting prose in info tooltips", () => {
     expect(warn.querySelector("svg")).not.toBeNull();
   });
 
-  it("closes an open tooltip on Escape", async () => {
+  it("closes an open tooltip on Escape without moving focus", async () => {
     const { container } = await mountLogging();
     const info = container.querySelector<HTMLButtonElement>(".settings-info")!;
     info.focus();
     expect(document.activeElement).toBe(info);
+    expect(info.hasAttribute("data-tip-open")).toBe(true);
 
     info.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(document.activeElement).not.toBe(info);
+    expect(info.hasAttribute("data-tip-open")).toBe(false);
+    expect(document.activeElement).toBe(info);
+  });
+
+  it("leaves Escape alone when no tooltip is open", async () => {
+    const { container } = await mountLogging();
+    const select = container.querySelector<HTMLElement>("#log-level")!;
+    select.focus();
+    const onDocument = vi.fn();
+    document.addEventListener("keydown", onDocument);
+
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    select.dispatchEvent(e);
+    document.removeEventListener("keydown", onDocument);
+
+    expect(onDocument).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("opens after a hover delay and keeps the bubble open across the pointer gap", async () => {
+    const { container } = await mountLogging();
+    vi.useFakeTimers();
+    try {
+      const info = container.querySelector<HTMLButtonElement>(".settings-info")!;
+      const tip = info.querySelector(".settings-info-tip")!;
+      const outside = container.querySelector(".settings-page")!;
+      const open = () => info.hasAttribute("data-tip-open");
+
+      info.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      vi.advanceTimersByTime(349);
+      expect(open()).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(open()).toBe(true);
+
+      // Leaves the icon in the direction of the bubble, landing on nothing.
+      info.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: outside }));
+      vi.advanceTimersByTime(100);
+      // Pointer arrives on the bubble before the grace period expires.
+      tip.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      expect(open()).toBe(true);
+      vi.advanceTimersByTime(200);
+      expect(open()).toBe(true);
+
+      info.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: outside }));
+      vi.advanceTimersByTime(249);
+      expect(open()).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(open()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a slider readout in step with the applied value", async () => {
+    rcEnable();
+    const { container, screen } = await mountLogging();
+    try {
+      screen.setItem("reading-comfort");
+      await vi.waitFor(() => expect(container.querySelector("#rc-ui-scale")).not.toBeNull());
+
+      const rowFor = (id: string) => container.querySelector(`#${id}`)!.closest(".settings-row")!;
+      const set = (id: string, value: string) => {
+        const input = container.querySelector<HTMLInputElement>(`#${id}`)!;
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      set("rc-ui-scale", "1.25");
+      expect(rowFor("rc-ui-scale").querySelector(".settings-row-value")!.textContent).toBe("1.25×");
+
+      set("rc-line-height", "1.6");
+      expect(rowFor("rc-line-height").querySelector(".settings-row-value")!.textContent).toBe("1.60");
+
+      set("rc-letter-spacing", "3");
+      expect(rowFor("rc-letter-spacing").querySelector(".settings-row-value")!.textContent).toBe("3px");
+    } finally {
+      rcDisable();
+    }
   });
 });
