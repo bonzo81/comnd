@@ -132,6 +132,10 @@
    hairline rule. More space above than below, so the heading binds to
    the rows it owns. */
 .settings-group-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -158,6 +162,7 @@
 
 /* ─── SettingRow ────────────────────────────────────────────────── */
 .settings-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -185,6 +190,104 @@
 .settings-row-label {
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
+}
+
+/* Label + info button on one line */
+.settings-row-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.settings-row-value {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* ─── Info tooltip ─────────────────────────────────────────────────
+   A real button so keyboard and screen-reader users get the detail; the
+   bubble is decorative and opens on hover after a short delay, or at once
+   on keyboard focus. The bubble is placed against the row or section
+   heading that holds it — not the 16px icon — so it can neither widen the
+   page nor be clipped at a narrow window. */
+.settings-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: help;
+}
+
+.settings-info svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-info:hover,
+.settings-info:focus-visible {
+  color: var(--color-text-primary);
+}
+
+/* Warning variant: alert triangle in the caution colour, kept on hover and
+   focus so the row never reads as an ordinary tip. Placed after the rule
+   above because both selectors weigh the same. It reads --color-warning-fg,
+   not --color-warning: the icon is a graphic on the pane surface and needs
+   3:1 against it (WCAG 1.4.11), which the lighter warning fills miss in the
+   light themes. */
+.settings-info-warn,
+.settings-info-warn:hover,
+.settings-info-warn:focus-visible {
+  color: var(--color-warning-fg);
+}
+
+.settings-info-tip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  visibility: hidden;
+  opacity: 0;
+  width: max-content;
+  max-width: min(320px, 100%);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: var(--prose-line-height);
+  letter-spacing: normal;
+  text-transform: none;
+  word-spacing: var(--prose-word-spacing);
+  /* Hoverable, so a magnifier or a slow reader can move onto the text
+     without it closing (WCAG 1.4.13). */
+  pointer-events: auto;
+  cursor: auto;
+  user-select: text;
+  transition: opacity 0.15s ease, visibility 0s linear 0.15s;
+}
+
+/* The open state is an attribute set by the tooltip controller in
+   settings-screen.ts, not `:hover` or `:focus-visible`. A CSS-only reveal
+   cannot be dismissed: Escape would hide the bubble and `:hover` would put
+   it straight back, and Escape with a hover-only tip open would otherwise
+   fall through to main.ts and leave Settings. The controller also owns the
+   hover delay, the grace period that carries the pointer from the icon to
+   the bubble, and the reset on the next entry. */
+.settings-info[data-tip-open] .settings-info-tip {
+  visibility: visible;
+  opacity: 1;
 }
 
 .settings-row-desc {

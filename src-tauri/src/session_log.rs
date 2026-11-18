@@ -49,7 +49,9 @@ impl SessionLog {
             }
             match File::create(&self.file_path) {
                 Ok(f) => {
-                    // Session logs contain typed passwords (enable/sudo prompts) —
+                    // Terminal output is logged (typed input never is). That
+                    // output includes the sign-in prompts Comnd writes itself,
+                    // and a device that echoes a password puts it in the file —
                     // lock perms on unix, mirroring open_log_file in lib.rs.
                     #[cfg(unix)]
                     {
