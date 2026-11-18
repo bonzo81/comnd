@@ -544,7 +544,7 @@ export class SuggestionController {
   private applyTopMatch(top: SuggestionResult, input: string, extraMatchCount: number) {
     const payload = this.ghostPayloadForTop(top, input);
     if (payload) {
-      this.deps.ghost()?.showPayload(payload, extraMatchCount);
+      this.deps.ghost()?.showPayload(payload, extraMatchCount, input);
     } else {
       this.deps.ghost()?.hide();
     }

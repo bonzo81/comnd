@@ -30,7 +30,16 @@ function makeGhost(cursorX = 3) {
   screen.getBoundingClientRect = () => rect;
   container.getBoundingClientRect = () => rect;
 
-  const buffer = { cursorX, cursorY: 2 };
+  const buffer = {
+    cursorX,
+    cursorY: 2,
+    /** Text the screen shows on the cursor row, as xterm would report it. */
+    line: "",
+    getLine(row: number) {
+      if (row !== buffer.cursorY) return undefined;
+      return { translateToString: () => buffer.line };
+    },
+  };
   const parsedListeners: Array<() => void> = [];
   const terminal = {
     buffer: {
@@ -136,6 +145,89 @@ describe("GhostText — positioning", () => {
 
     expect(parseFloat(el.style.left)).toBe(before);
     expect(cellWidth).toBeGreaterThan(0);
+  });
+});
+
+describe("GhostText — echo anchor", () => {
+  // The remote echoes every keystroke. Until that echo is parsed the buffer
+  // cursor sits behind the shadow input, so a repaint would place the
+  // prediction in the cells the echo is about to write and the parse would
+  // then step it sideways — the per-keystroke blink. Wait for the parse.
+  it("defers the repaint until the screen shows the typed input", () => {
+    const { ghost, buffer, el, parseOutput } = makeGhost(3);
+    buffer.line = "sud";
+
+    ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+    expect(ghost.isShowing()).toBe(false);
+
+    buffer.line = "sudo";
+    buffer.cursorX = 4;
+    parseOutput();
+
+    expect(el.style.display).toBe("inline");
+    expect(el.textContent).toBe("o");
+    expect(ghost.isShowing()).toBe(true);
+  });
+
+  it("paints at once when the screen already shows the typed input", () => {
+    const { ghost, buffer, el } = makeGhost(4);
+    buffer.line = "sudo";
+
+    ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+
+    expect(el.style.display).toBe("inline");
+  });
+
+  it("keeps the painted glyphs and advances the Tab remainder while pending", () => {
+    const { ghost, buffer, el, parseOutput } = makeGhost(3);
+    buffer.line = "sud";
+    ghost.showPayload({ kind: "text", text: "o" }, 0);
+
+    // Backspace: "sud" is still on screen, so the corrected remainder must not
+    // be drawn yet — "o" sits in the cell the erase is about to clear, and the
+    // two together read as the same word.
+    ghost.showPayload({ kind: "text", text: "do" }, 0, "su");
+    expect(el.textContent).toBe("o");
+    expect(ghost.getCurrentRemainder()).toBe("do");
+
+    buffer.line = "su";
+    buffer.cursorX = 2;
+    parseOutput();
+    expect(el.textContent).toBe("do");
+  });
+
+  it("paints anyway when no echo arrives within the wait", () => {
+    vi.useFakeTimers();
+    try {
+      const { ghost, buffer, el } = makeGhost(3);
+      buffer.line = "sud";
+      ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+      expect(ghost.isShowing()).toBe(false);
+
+      vi.advanceTimersByTime(500);
+
+      expect(el.style.display).toBe("inline");
+      expect(el.textContent).toBe("o");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a pending paint when hidden", () => {
+    vi.useFakeTimers();
+    try {
+      const { ghost, buffer, el } = makeGhost(3);
+      buffer.line = "sud";
+      ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+
+      ghost.hide();
+      vi.advanceTimersByTime(500);
+
+      expect(el.style.display).toBe("none");
+      expect(ghost.isShowing()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

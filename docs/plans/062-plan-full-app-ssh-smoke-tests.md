@@ -65,12 +65,17 @@ the layout and NetBox screens) were added as the features they cover landed.
 
 The mock host answers a keystroke in-process, sub-millisecond, which is faster
 than the frontend's 40 ms suggestion debounce. That ordering hides any bug that
-needs the remote echo to arrive *after* the ghost renders. `test_smoke_server`
+needs the remote echo to arrive *after* the prediction is painted. `test_smoke_server`
 therefore takes `echoDelayMs`, and `ghost-follows-echo` passes `ECHO_DELAY_MS`
-(300 ms) to reproduce a network round-trip: the ghost for `sud` appears while
-the screen still shows `sudo`, then the echoed backspace moves the cursor and
-the ghost must re-anchor to it. Scenario code reaches the knob through
-`createAndConnect(browser, dataDir, { echoDelayMs })`.
+(300 ms) to reproduce a network round-trip. With the echo held back, the scenario
+types into `history` and asserts the contract on both edges: while the screen
+still shows the pre-keystroke line, the ghost keeps the glyphs it already has
+(the cell coverage is unchanged, so nothing blinks), and only once the line
+catches up does it repaint — one cell right after an insertion, one cell left
+after the backspace — anchored on the echoed cursor. Scenario code reaches the
+knob through `createAndConnect(browser, dataDir, { echoDelayMs })`. The ghost's
+own fallback for a host that never echoes is 500 ms, comfortably above this
+delay, so the scenario never exercises it by accident.
 
 ## Local command
 

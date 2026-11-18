@@ -16,6 +16,15 @@ export type GhostPayload =
   | { kind: "choice"; options: string[]; pick: string }         // choice token
   | { kind: "variable"; placeholder: string; hint?: string };  // var token
 
+/**
+ * How long a pending repaint waits for the keystroke's echo before painting
+ * against whatever the screen shows. Comfortably above a WAN round trip and
+ * below the point where the prediction is worse than no prediction; a host
+ * that echoes very slowly, or not at all (stty -echo, a TUI), still gets a
+ * ghost rather than losing the suggestion altogether.
+ */
+const ECHO_ANCHOR_WAIT_MS = 500;
+
 export class GhostText {
   private terminal: Terminal;
   private container: HTMLElement;
@@ -26,6 +35,12 @@ export class GhostText {
   private visible = false;
   private cursorHidden = false;
   private writeParsedDisposable: IDisposable;
+  private pendingPaint: {
+    payload: GhostPayload;
+    extraMatchCount: number;
+    input: string;
+  } | null = null;
+  private echoWaitTimer: number | null = null;
 
   constructor(terminal: Terminal, container: HTMLElement) {
     this.terminal = terminal;
@@ -40,11 +55,16 @@ export class GhostText {
     this.container.appendChild(this.badgeEl);
 
     // The remote echoes the keystroke that triggered this ghost, and that echo
-    // can land after the ghost is positioned — a backspace moves the cursor to
-    // the left, leaving the ghost one cell past the text it completes. The
-    // buffer cursor is only authoritative once xterm has parsed the output, so
-    // re-anchor on every parse rather than trusting the show-time position.
-    this.writeParsedDisposable = terminal.onWriteParsed(() => this.reposition());
+    // can land after the ghost is positioned. A pending repaint waits for it;
+    // an already-painted ghost follows the cursor once the parse moves it.
+    this.writeParsedDisposable = terminal.onWriteParsed(() => {
+      const pending = this.pendingPaint;
+      if (pending && this.screenShowsInput(pending.input)) {
+        this.paint(pending.payload, ghostPayloadText(pending.payload), pending.extraMatchCount);
+        return;
+      }
+      this.reposition();
+    });
   }
 
   /** Show ghost text with the command remainder after user's typed prefix (legacy) */
@@ -52,13 +72,36 @@ export class GhostText {
     this.showPayload({ kind: "text", text: remainder }, extraMatchCount);
   }
 
-  /** Show ghost text from a token-aware payload. */
-  showPayload(payload: GhostPayload, extraMatchCount: number) {
+  /**
+   * Show ghost text from a token-aware payload. `input` is the shadow buffer
+   * the payload was derived from; when it is given, the paint waits for the
+   * echo of the keystroke that produced it.
+   */
+  showPayload(payload: GhostPayload, extraMatchCount: number, input?: string) {
     const text = ghostPayloadText(payload);
     if (!text) {
       this.hide();
       return;
     }
+    if (input && !this.screenShowsInput(input)) {
+      // The screen has not caught up with the typed input yet, so this
+      // prediction has no correct cell to sit on: painting it now puts the
+      // glyphs in the cells the echo is about to write, and the parse then
+      // steps the whole overlay sideways — a visible blink on every keystroke
+      // whose echo is slower than the query debounce. Keep the glyphs already
+      // on screen, which are the tail of the same prediction and so cover the
+      // same cells, and paint on the parse that catches up. The logical
+      // remainder advances now, so Tab sends what that parse will show.
+      this.currentPayload = payload;
+      this.currentRemainder = text;
+      this.deferPaint(payload, extraMatchCount, input);
+      return;
+    }
+    this.paint(payload, text, extraMatchCount);
+  }
+
+  private paint(payload: GhostPayload, text: string, extraMatchCount: number) {
+    this.clearPending();
     const appearing = !this.visible;
     this.currentPayload = payload;
     this.currentRemainder = text;
@@ -101,6 +144,7 @@ export class GhostText {
 
   /** Hide ghost text */
   hide() {
+    this.clearPending();
     this.visible = false;
     this.currentPayload = null;
     this.currentRemainder = "";
@@ -116,6 +160,41 @@ export class GhostText {
     if (this.cursorHidden) {
       this.terminal.write("\x1b[?25h");
       this.cursorHidden = false;
+    }
+  }
+
+  /**
+   * Does the screen line left of the buffer cursor already end with the typed
+   * input? If not, the echo has not been parsed yet and the cursor is stale.
+   * A missing line (scrollback edge, no buffer) counts as caught up, so the
+   * ghost is never withheld for want of a line to check.
+   */
+  private screenShowsInput(input: string): boolean {
+    const buffer = this.terminal.buffer.active;
+    const line = buffer.getLine(buffer.cursorY);
+    if (!line) return true;
+    return line.translateToString(false).slice(0, buffer.cursorX).endsWith(input);
+  }
+
+  private deferPaint(payload: GhostPayload, extraMatchCount: number, input: string) {
+    this.pendingPaint = { payload, extraMatchCount, input };
+    if (this.echoWaitTimer !== null) clearTimeout(this.echoWaitTimer);
+    this.echoWaitTimer = setTimeout(() => {
+      this.echoWaitTimer = null;
+      const pending = this.pendingPaint;
+      if (!pending) return;
+      // No echo within the window: a host that does not echo, or one slower
+      // than the prediction is useful for. Paint what we have rather than
+      // losing the suggestion entirely.
+      this.paint(pending.payload, ghostPayloadText(pending.payload), pending.extraMatchCount);
+    }, ECHO_ANCHOR_WAIT_MS) as unknown as number;
+  }
+
+  private clearPending() {
+    this.pendingPaint = null;
+    if (this.echoWaitTimer !== null) {
+      clearTimeout(this.echoWaitTimer);
+      this.echoWaitTimer = null;
     }
   }
 
@@ -169,6 +248,7 @@ export class GhostText {
 
   /** Clean up DOM elements */
   destroy() {
+    this.clearPending();
     this.writeParsedDisposable.dispose();
     if (this.cursorHidden) this.terminal.write("\x1b[?25h");
     this.el.remove();
