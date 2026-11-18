@@ -50,6 +50,9 @@ Every colour, size, radius and shadow in the UI resolves to a token in `src/styl
 | `--color-*` | Every colour, surface, border, role and platform tint | `--color-surface-elevated`, `--color-focus-ring` |
 | `--space-*` | 4px-grid spacing steps | `--space-4` |
 | `--font-size-*` | Type scale, multiplied by `--text-scale` | `--font-size-base` |
+| `--font-weight-*` | Available Inter/mono weights, as a role axis | `--font-weight-semibold` |
+| `--font-leading-*` | Line height for chrome by role | `--font-leading-title` |
+| `--font-tracking-*` | Letter spacing for labels and display text | `--font-tracking-label` |
 | `--radius-*` | Corner radii | `--radius-md` |
 | `--shadow-*` | Elevation shadows | `--shadow-lg` |
 | `--focus-ring-*` | Focus ring width and offset | `--focus-ring-width` |
@@ -71,6 +74,12 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 | UI text (labels, sidebar, connection manager) | Inter, system stack fallback | 13px body, 12px metadata, 11px badges | Inter bundled via `@fontsource` (400/500/600) |
 | Sidebar command name (heading) | JetBrains Mono, bold | 16px | Monospace to match terminal context |
 | Sidebar code blocks / syntax | JetBrains Mono | 12px | Syntax colouring for optional vs required params |
+
+**Weights.** Only the three Inter weights that ship are used: `regular` (400) for body and prose, `medium` (500) for dense chrome (buttons, chips, badges), `semibold` (600) for every heading and any text carrying the primary label of its region. Nothing in the UI is 700 — Inter 700 is not loaded, so a `700` would be synthesised bold. JetBrains Mono ships 700 and the two places that need it (the command name, the syntax match highlight) use `--font-weight-bold`.
+
+**Leading.** Chrome leadings by role: `display` (1.15) for headings at 20px and up, `title` (1.3) for 14–16px headings and two-line list rows, `meta` (1.45) for 12px secondary lines, `solid` (1) for single-glyph controls, and `body` (1.5) on `body` itself. Body leading deliberately matches `--prose-line-height`'s default so prose is never tighter than the chrome around it; prose that must widen under Reading Comfort keeps `var(--prose-line-height)`, which is the Reading Comfort seam — a tooltip or a description never takes a fixed leading, or it silently loses that bump.
+
+**Tracking.** Only uppercase labels are tracked (`--font-tracking-label`, 0.06em); display headings take `--font-tracking-display` (−0.01em) to offset optical looseness at large sizes; everything else is `--font-tracking-none`. Uppercase exists in one role only — the label — and never in body copy.
 
 **Terminal font size:** adjustable via `Ctrl++` / `Ctrl+-` / `Ctrl+0` (zoom). Persisted via the `comnd-terminal-font-size` localStorage key (range 8–32px); one source of truth also written by Reading Comfort mode (spec 12).
 

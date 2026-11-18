@@ -27,10 +27,11 @@
 }
 
 .hs-recent-title {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-solid);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--font-tracking-label);
   color: var(--color-text-secondary);
 }
 
@@ -72,7 +73,7 @@
 .hs-host-badge {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--color-accent);
   min-width: 44px;
   text-align: center;
@@ -93,7 +94,7 @@
 }
 
 .hs-host-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-base);
   white-space: nowrap;
   overflow: hidden;
@@ -114,11 +115,11 @@
   background: var(--color-surface-selected);
   color: var(--color-accent);
   font-size: var(--font-size-2xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   padding: 1px var(--space-1-5);
   border-radius: var(--radius-md);
   white-space: nowrap;
-  line-height: 1.4;
+  line-height: var(--font-leading-meta);
 }
 
 .hs-tag-more {
@@ -129,6 +130,7 @@
 
 .hs-host-meta {
   font-size: var(--font-size-sm);
+  line-height: var(--font-leading-meta);
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;

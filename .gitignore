@@ -27,6 +27,7 @@ docs/*.pdf
 .opencode/
 .omo/
 .serena/
+.impeccable/
 
 # Headroom
 .headroom/

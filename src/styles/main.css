@@ -47,7 +47,7 @@
   background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-2xl);
-  line-height: 1;
+  line-height: var(--font-leading-solid);
   cursor: pointer;
 }
 
@@ -384,8 +384,8 @@
   color: var(--color-badge-custom);
   font-family: var(--font-ui);
   font-size: var(--font-size-2xs);
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--font-tracking-none);
   vertical-align: 1px;
   cursor: help;
 }

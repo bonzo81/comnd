@@ -106,7 +106,7 @@
 }
 
 .prefix-match {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--color-accent);
 }
 
@@ -147,7 +147,7 @@
 
 .token-suffix .current {
   color: var(--color-accent);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Phase 3: choice sub-rows when the current token is a choice */

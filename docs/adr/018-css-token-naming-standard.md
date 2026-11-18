@@ -114,18 +114,24 @@ requires a new ADR that supersedes this one.
 6. **Component-local properties are prefixed `--local-`**, or promoted to `tokens.css` when more
    than one component needs them.
 
-7. **No raw colour, font-size or radius values in component CSS.** Colour properties take a
-   `var()` or a keyword (`transparent`, `currentColor`, `none`, `inherit`). The type scale is
-   extended where a real step is missing; the mechanical mapping lives in the tracking issue.
+7. **No raw colour, font-size, font-weight, line-height, letter-spacing or radius values in
+   component CSS.** Colour properties take a `var()` or a keyword (`transparent`, `currentColor`,
+   `none`, `inherit`). The type scale is extended where a real step is missing; the mechanical
+   mapping lives in the tracking issue. The three non-size type axes are role tokens in
+   `tokens.css`: `--font-weight-*` (only the weights the bundled fonts actually ship, so no
+   `600` is ever synthesised from a 400 file), `--font-leading-*` (chrome leading by role —
+   `display`, `title`, `body`, `meta`, `solid`) and `--font-tracking-*` (`label`, `display`,
+   `none`). Prose that must widen under Reading Comfort keeps `var(--prose-line-height)`; a
+   component that reaches for a fixed leading on a reading surface silently disables that bump.
 
 8. **Enforcement is part of the standard, not a follow-up.** Add stylelint with `color-no-hex`,
    `custom-property-pattern`, and `declaration-property-value-allowed-list` covering
-   colour-bearing properties, `font-size`, `border-radius` and the `font` shorthand — the
-   shorthand matters because `font: 600 27px Inter` hides a raw size that a `font-size` rule
-   never sees. Add `scripts/check-css-tokens.mjs` for what stylelint cannot see:
-   `var(--undefined)`, tokens that are defined but never used, and a colour literal assigned to
-   a `--local-*` property, which `color-no-hex` misses when it is written as `rgb()`. The
-   standard is met only when `npm run lint:css` passes in CI.
+   colour-bearing properties, `font-size`, `font-weight`, `line-height`, `letter-spacing`,
+   `border-radius` and the `font` shorthand — the shorthand matters because `font: 600 27px
+   Inter` hides a raw size that a `font-size` rule never sees. Add `scripts/check-css-tokens.mjs`
+   for what stylelint cannot see: `var(--undefined)`, tokens that are defined but never used,
+   and a colour literal assigned to a `--local-*` property, which `color-no-hex` misses when it
+   is written as `rgb()`. The standard is met only when `npm run lint:css` passes in CI.
 
 9. **`tokens.css` is the single source of truth.** Reconcile the values in
    `docs/specs/03-ui-visual-design.md` and the spacing line in `AGENTS.md` to it.
@@ -142,9 +148,9 @@ requires a new ADR that supersedes this one.
   ADR amended. The rename touches about 40 files in one change and must land atomically, or the
   theme blocks and the call sites drift apart mid-merge.
 - Rules out: a new colour token outside `--color-*`; `var()` fallbacks; the `--spacing` alias;
-  raw hex, raw `rgba()`, raw `font-size` or raw radius in component CSS; an `!important`
-  component override of a global token; and landing a token change without the stylelint config
-  in the same pull request.
+  raw hex, raw `rgba()`, raw `font-size`, raw `font-weight`, raw `line-height`, raw
+  `letter-spacing` or raw radius in component CSS; an `!important` component override of a global
+  token; and landing a token change without the stylelint config in the same pull request.
 - Not covered: the visual design of the new role tokens — which exact opacity
   `--color-border-strong` uses, for example — is a design decision recorded in `tokens.css`. This
   ADR fixes the names and the enforcement, not the values.

@@ -144,6 +144,11 @@ slate assumption (check `_terminal-view.css` `.timestamps` classes).
   (1.6 already the prevailing prose value — token just names it),
   `--prose-max-width: none;`.
 
+> **Superseded:** the base default is now `72ch`, with Reading Comfort
+> narrowing to `68ch` (spec 12). The original `none` meant no cap at all, which
+> left prose running the full window width on a 1200px+ panel. The token name,
+> consumers and seam are unchanged — only the off-state value moved.
+
 `_suggestion.css`:
 
 - `.ghost-text` (line 5): `opacity: 0.6` → `opacity: var(--ghost-opacity)`.

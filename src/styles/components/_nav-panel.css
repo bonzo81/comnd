@@ -70,10 +70,11 @@
   border: none;
   color: var(--color-text-secondary);
   font-family: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-solid);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--font-tracking-label);
   cursor: pointer;
   text-align: left;
   transition: background-color 140ms ease, color 120ms ease;
@@ -189,7 +190,7 @@
 }
 
 .nav-action {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-accent);
 }
 
@@ -210,7 +211,7 @@
 .nav-sub-icon {
   flex-shrink: 0;
   font-size: var(--font-size-lg);
-  line-height: 1;
+  line-height: var(--font-leading-solid);
 }
 
 /* â”€â”€â”€ Group row (label + hover actions) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -442,7 +443,7 @@
 .nav-badge {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   min-width: 38px;
   text-align: center;
   flex-shrink: 0;
@@ -455,8 +456,11 @@
 
 .nav-soon {
   font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--font-leading-solid);
   color: var(--color-text-tertiary);
   text-transform: uppercase;
+  letter-spacing: var(--font-tracking-label);
   flex-shrink: 0;
 }
 

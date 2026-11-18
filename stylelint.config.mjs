@@ -59,6 +59,17 @@ export default {
     "declaration-property-value-allowed-list": {
       ...colourRules["declaration-property-value-allowed-list"],
       "font-size": ["inherit", "/^var\\(--font-size-[a-z0-9-]+\\)$/"],
+      // The type system's other three axes: every weight, leading and tracking
+      // is a role token, so a stray `font-weight: 600` cannot reintroduce a
+      // synthesised weight or a leading that ignores Reading Comfort.
+      "font-weight": ["inherit", "/^var\\(--font-weight-[a-z0-9-]+\\)$/"],
+      "letter-spacing": ["inherit", "/^var\\(--font-tracking-[a-z0-9-]+\\)$/"],
+      "line-height": [
+        "inherit",
+        "normal",
+        "/^var\\(--font-leading-[a-z0-9-]+\\)$/",
+        "var(--prose-line-height)",
+      ],
       "border-radius": [
         "0",
         "50%",
