@@ -57,6 +57,21 @@ These smoke tests boot the real debug desktop app against an ephemeral mock host
 
 Named tests 1–6b, 8–10 run in `npm run smoke`. Test 7 runs via `npm run smoke:mutation`.
 
+The table above covers the tests introduced with the suite; later scenarios
+(`ghost-follows-echo`, `prefix-suggestion`, `dropdown-click`, `keyboard-focus`,
+the layout and NetBox screens) were added as the features they cover landed.
+
+### Injected echo delay
+
+The mock host answers a keystroke in-process, sub-millisecond, which is faster
+than the frontend's 40 ms suggestion debounce. That ordering hides any bug that
+needs the remote echo to arrive *after* the ghost renders. `test_smoke_server`
+therefore takes `echoDelayMs`, and `ghost-follows-echo` passes `ECHO_DELAY_MS`
+(300 ms) to reproduce a network round-trip: the ghost for `sud` appears while
+the screen still shows `sudo`, then the echoed backspace moves the cursor and
+the ghost must re-anchor to it. Scenario code reaches the knob through
+`createAndConnect(browser, dataDir, { echoDelayMs })`.
+
 ## Local command
 
 `npm run smoke`: builds the debug app, starts Xvfb (Linux), starts the mock host, runs WebdriverIO specs, and tears down all owned processes on exit.

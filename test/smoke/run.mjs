@@ -121,6 +121,12 @@ const sshSuite = {
   },
 };
 
+// How long the mock holds an echoed keystroke back, in ms. A real device
+// answers over a network, so its echo lands after the 40 ms suggestion
+// debounce; the in-process mock answers far faster and would hide any bug that
+// depends on the echo arriving second.
+const ECHO_DELAY_MS = 300;
+
 async function terminalText(browser) {
   return browser.execute(() => {
     const terminal = window.__comndTerminal;
@@ -1230,9 +1236,9 @@ async function acceptHostKeyIfNeeded(browser) {
 async function createAndConnect(
   browser,
   dataDir,
-  { rejectAuth = false, muteOutput = false, interactiveAuth = false } = {},
+  { rejectAuth = false, muteOutput = false, interactiveAuth = false, echoDelayMs = 0 } = {},
 ) {
-  const port = await invoke(browser, "test_smoke_server", { rejectAuth, muteOutput });
+  const port = await invoke(browser, "test_smoke_server", { rejectAuth, muteOutput, echoDelayMs });
   const host = await invoke(browser, "save_host", {
     host: {
       id: "",
@@ -1333,8 +1339,8 @@ async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
   }
 }
 
-async function launchAndConnect(browser, dataDir) {
-  const host = await createAndConnect(browser, dataDir);
+async function launchAndConnect(browser, dataDir, opts = {}) {
+  const host = await createAndConnect(browser, dataDir, opts);
   await waitForConnection(browser);
   const statusHost = await browser.execute(() =>
     document.querySelector(".tv-sb-host")?.textContent?.trim() ?? "",
@@ -1556,6 +1562,90 @@ async function main() {
   }
 
   const tests = [
+    {
+      // The remote echoes every keystroke, so a ghost positioned from the local
+      // cursor when it appears can outlive the cursor it was placed against: an
+      // echoed backspace retreats the cursor one cell *after* the ghost has
+      // rendered. A ghost that does not follow the parsed output then sits one
+      // cell past the text it completes ("sud" with the ghost "o" a cell to its
+      // right). A real device answers over a network, so that ordering is
+      // ordinary; the in-process mock answers sub-millisecond and hides it,
+      // hence the injected echo delay.
+      name: "ghost-follows-echo",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir, { echoDelayMs: ECHO_DELAY_MS });
+        await enableSuggestions(browser);
+
+        await sendKeys(browser, "sudo");
+        // Every echo for the typed word has landed and the 300 ms output-settle
+        // window has expired, so the suggestion pipeline is idle and renders the
+        // backspace ghost before the mock can echo the backspace itself.
+        await pause(1200);
+
+        // The ghost and the cursor line in one execute, so the pair cannot come
+        // from two different renders. A hidden ghost still holds its last text,
+        // so visibility decides what counts as showing, not the text alone.
+        const snapshot = () => browser.execute(() => {
+          const ghost = document.querySelector(".ghost-text");
+          const term = window.__comndTerminal;
+          if (!term) return { ghost: "", text: "" };
+          const showing = ghost !== null
+            && getComputedStyle(ghost).display !== "none"
+            && ghost.getClientRects().length > 0;
+          const buffer = term.buffer.active;
+          return {
+            ghost: showing ? ghost.textContent ?? "" : "",
+            text: buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "",
+          };
+        });
+
+        await sendKeys(browser, "\uE003");
+        // Prove the ordering the bug needs, or the measurement below proves
+        // nothing: the ghost has to render while the screen still shows the
+        // pre-backspace text, so the wait is bounded below the echo delay. The
+        // ghost showing for "sudo" may differ from the one for "sud", hence
+        // waiting for its final text rather than the first non-empty one.
+        let before = await snapshot();
+        const ghostDeadline = Date.now() + ECHO_DELAY_MS - 80;
+        while (before.ghost !== "o" && Date.now() < ghostDeadline) {
+          await pause(15);
+          before = await snapshot();
+        }
+        assert(
+          before.ghost === "o" && before.text.endsWith("sudo"),
+          `Ghost follows echo: expected the ghost "o" to render before the echo `
+            + `(line "${before.text}", ghost ${JSON.stringify(before.ghost)})`,
+        );
+
+        let echoed = await snapshot();
+        const echoDeadline = Date.now() + 5_000;
+        while (echoed.text.endsWith("sudo") && Date.now() < echoDeadline) {
+          await pause(20);
+          echoed = await snapshot();
+        }
+        assert(
+          echoed.text.endsWith("sud"),
+          `Ghost follows echo: the backspace echo never reached the screen `
+            + `(line "${echoed.text}")`,
+        );
+
+        // The echo is now the only thing that knows where the ghost belongs.
+        const measured = await measureGhost(browser);
+        assert(
+          measured,
+          "Ghost follows echo: the ghost is not visible after the backspace echo landed",
+        );
+        // Half a cell: the placement formula is exact to well under a pixel and
+        // the regression being guarded is a whole cell wide.
+        assert(
+          Math.abs(measured.left - measured.expectedLeft) < measured.cellWidth / 2,
+          `Ghost follows echo: the ghost sits ${(measured.left - measured.expectedLeft)
+            / measured.cellWidth} cells from the echoed cursor `
+            + `(left ${measured.left}, expected ${measured.expectedLeft}, `
+            + `cursorX ${measured.cursorX}, line "${echoed.text}")`,
+        );
+      },
+    },
     {
       name: "launch-and-connect",
       run: launchAndConnect,

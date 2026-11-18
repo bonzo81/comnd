@@ -8,7 +8,7 @@
  * See docs/plans/plan-kb-token-engine.md § 3.1.
  */
 
-import { Terminal } from "@xterm/xterm";
+import { Terminal, IDisposable } from "@xterm/xterm";
 
 export type GhostPayload =
   | { kind: "text"; text: string }                              // legacy: name remainder
@@ -25,6 +25,7 @@ export class GhostText {
   private currentRemainder = "";
   private visible = false;
   private cursorHidden = false;
+  private writeParsedDisposable: IDisposable;
 
   constructor(terminal: Terminal, container: HTMLElement) {
     this.terminal = terminal;
@@ -37,6 +38,13 @@ export class GhostText {
     this.badgeEl = document.createElement("span");
     this.badgeEl.className = "match-count-badge";
     this.container.appendChild(this.badgeEl);
+
+    // The remote echoes the keystroke that triggered this ghost, and that echo
+    // can land after the ghost is positioned — a backspace moves the cursor to
+    // the left, leaving the ghost one cell past the text it completes. The
+    // buffer cursor is only authoritative once xterm has parsed the output, so
+    // re-anchor on every parse rather than trusting the show-time position.
+    this.writeParsedDisposable = terminal.onWriteParsed(() => this.reposition());
   }
 
   /** Show ghost text with the command remainder after user's typed prefix (legacy) */
@@ -161,6 +169,7 @@ export class GhostText {
 
   /** Clean up DOM elements */
   destroy() {
+    this.writeParsedDisposable.dispose();
     if (this.cursorHidden) this.terminal.write("\x1b[?25h");
     this.el.remove();
     this.badgeEl.remove();

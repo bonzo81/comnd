@@ -20,6 +20,7 @@ function terminalStub(): Terminal {
     rows: 10,
     cols: 80,
     options: {},
+    onWriteParsed: () => ({ dispose: () => {} }),
   } as unknown as Terminal;
 }
 

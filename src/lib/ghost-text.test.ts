@@ -31,6 +31,7 @@ function makeGhost(cursorX = 3) {
   container.getBoundingClientRect = () => rect;
 
   const buffer = { cursorX, cursorY: 2 };
+  const parsedListeners: Array<() => void> = [];
   const terminal = {
     buffer: {
       get active() {
@@ -41,6 +42,10 @@ function makeGhost(cursorX = 3) {
     cols: 10,
     options: { fontSize: 14 },
     write: vi.fn(),
+    onWriteParsed: (listener: () => void) => {
+      parsedListeners.push(listener);
+      return { dispose: () => parsedListeners.splice(parsedListeners.indexOf(listener), 1) };
+    },
   } as unknown as Terminal;
 
   const ghost = new GhostText(terminal, container);
@@ -54,7 +59,12 @@ function makeGhost(cursorX = 3) {
     container.remove();
   });
 
-  return { ghost, buffer, el, badge, cellWidth: rect.width / 10 };
+  /** Simulate xterm finishing a parse of remote output. */
+  const parseOutput = () => {
+    for (const listener of [...parsedListeners]) listener();
+  };
+
+  return { ghost, buffer, el, badge, cellWidth: rect.width / 10, parseOutput };
 }
 
 afterEach(() => {
@@ -100,6 +110,32 @@ describe("GhostText — positioning", () => {
     ghost.reposition();
 
     expect(parseFloat(el.style.left)).toBe(before);
+  });
+
+  it("re-anchors to the echoed cursor when output is parsed after showing", () => {
+    const { ghost, buffer, el, cellWidth, parseOutput } = makeGhost(4);
+    ghost.showPayload({ kind: "text", text: "o" }, 0);
+    const shownAt = parseFloat(el.style.left);
+
+    // A backspace echo lands late: the buffer cursor retreats one cell, and the
+    // ghost must follow it rather than stay one cell past the typed text.
+    buffer.cursorX = 3;
+    parseOutput();
+
+    expect(shownAt - parseFloat(el.style.left)).toBe(cellWidth);
+  });
+
+  it("stops tracking the cursor once destroyed", () => {
+    const { ghost, buffer, el, cellWidth, parseOutput } = makeGhost(4);
+    ghost.showPayload({ kind: "text", text: "o" }, 0);
+    ghost.destroy();
+    const before = parseFloat(el.style.left);
+
+    buffer.cursorX = 2;
+    parseOutput();
+
+    expect(parseFloat(el.style.left)).toBe(before);
+    expect(cellWidth).toBeGreaterThan(0);
   });
 });
 
