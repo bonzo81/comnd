@@ -35,6 +35,12 @@ use tokio::net::TcpListener;
 /// wedge at (russh's per-channel inbound queue holds 100).
 pub const BURST_PACKETS: usize = 300;
 
+/// The login URL the BrowserAuth persona's keyboard-interactive round and
+/// the auth banner emit. The smoke driver reads it through
+/// `test_smoke_mock_auth_url`, so this is the only definition of the fixture
+/// value (issue #107).
+pub const MOCK_AUTH_URL: &str = "https://login.tailscale.com/a/test123";
+
 // ─── Mock Server Handler ─────────────────────────────────────────────
 
 /// Per-connection state for one SSH connection. Lives on the handler
@@ -365,9 +371,9 @@ impl server::Handler for MockHandler {
                 if response.is_none() {
                     Ok(Auth::Partial {
                         name: "Tailscale SSH authentication".into(),
-                        instructions: "To authenticate, visit:\nhttps://login.tailscale.com/a/test123\n".into(),
+                        instructions: format!("To authenticate, visit:\n{MOCK_AUTH_URL}\n").into(),
                         prompts: vec![(
-                            "Visit https://login.tailscale.com/a/test123 and press enter".into(),
+                            format!("Visit {MOCK_AUTH_URL} and press enter").into(),
                             true,
                         )]
                         .into(),
@@ -434,9 +440,7 @@ impl server::Handler for MockHandler {
     /// The auth banner every persona sends (0.60 moved this from
     /// server::Config to the handler).
     async fn authentication_banner(&mut self) -> Result<Option<String>, Self::Error> {
-        Ok(Some(
-            "To authenticate, visit: https://login.tailscale.com/a/test123\n".to_string(),
-        ))
+        Ok(Some(format!("To authenticate, visit: {MOCK_AUTH_URL}\n")))
     }
 
     /// Accept session channel open requests.
@@ -716,7 +720,7 @@ mod tests {
             .expect("kbd-int start");
         match first {
             KeyboardInteractiveAuthResponse::InfoRequest { ref instructions, ref prompts, .. } => {
-                assert!(instructions.contains("https://login.tailscale.com/"));
+                assert!(instructions.contains(MOCK_AUTH_URL));
                 assert_eq!(prompts.len(), 1);
                 assert!(prompts[0].prompt.contains("https://"));
             }
