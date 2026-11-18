@@ -78,9 +78,14 @@ export class Dropdown {
     return this._visible;
   }
 
-  /** Update results (e.g. when user types more) */
-  updateResults(results: SuggestionResult[]) {
+  /**
+   * Update results (e.g. when user types more). Pass the text the results were
+   * matched against so the row highlight grows with the typed name — without
+   * it the prefix stays frozen at whatever was typed when the dropdown opened.
+   */
+  updateResults(results: SuggestionResult[], prefix?: string) {
     this.items = results;
+    if (prefix !== undefined) this.currentPrefix = prefix;
     if (results.length === 0) {
       this.hide();
       return;
@@ -345,12 +350,15 @@ export class Dropdown {
   }
 
   private highlightPrefix(name: string, prefix: string): string {
-    if (!prefix) return escHtml(name);
+    // The highlight follows the command word, not the whole line, so it grows
+    // with each typed character and stays put once arguments follow a space.
+    const typed = prefix.split(/\s+/)[0] ?? "";
+    if (!typed) return escHtml(name);
     const lower = name.toLowerCase();
-    const lowerPrefix = prefix.toLowerCase();
+    const lowerPrefix = typed.toLowerCase();
     if (lower.startsWith(lowerPrefix)) {
-      const matched = name.substring(0, prefix.length);
-      const rest = name.substring(prefix.length);
+      const matched = name.substring(0, typed.length);
+      const rest = name.substring(typed.length);
       return `<span class="prefix-match">${escHtml(matched)}</span>${escHtml(rest)}`;
     }
     return escHtml(name);

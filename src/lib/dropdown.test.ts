@@ -191,6 +191,33 @@ describe("Dropdown — row rendering", () => {
     expect(suffix?.textContent).toBe("");
   });
 
+  it("grows the name highlight as more characters are typed", () => {
+    const { dropdown, container } = makeDropdown();
+    const ssh = makeResult(makeCommand("ssh"));
+    const sort = makeResult(makeCommand("sort"));
+
+    dropdown.show([ssh, sort], "s");
+    const rows = () => container.querySelectorAll(".suggestion-item");
+
+    expect(rows()[0].querySelector(".prefix-match")?.textContent).toBe("s");
+
+    // Typing the second character must move the highlight, not freeze it at
+    // the text the dropdown opened with.
+    dropdown.updateResults([ssh, sort], "so");
+
+    expect(rows()[0].querySelector(".prefix-match")).toBeNull();
+    expect(rows()[1].querySelector(".prefix-match")?.textContent).toBe("so");
+  });
+
+  it("keeps the whole name highlighted once a space follows it", () => {
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(makeCommand("ss"))], "ss");
+    dropdown.updateResults([makeResult(makeCommand("ss"))], "ss ");
+
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("ss");
+  });
+
   it("skips the typed-text highlight on prefix-command rows", () => {
     const prefixRow = makeResult(makeCommand("systemctl restart"), { prefix: "sudo" });
     const plainRow = makeResult(makeCommand("system status"));
