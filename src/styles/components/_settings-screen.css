@@ -59,15 +59,16 @@
 
 /* Only a real page change animates the pill. settings-screen.ts adds
    .nav-switched to the rail for the render that follows setItem(); the ~20
-   other renders on this screen (saves, loads, toggles) must not replay it. */
+   other renders on this screen (saves, loads, toggles) must not replay it.
+   Colour only: render() focuses the new active button, and a transform here
+   would drag its focus ring across the rail while the ring paints. */
 .settings-nav.nav-switched .settings-nav-item.active {
-  animation: settings-pill-settle 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: settings-pill-settle 160ms ease;
 }
 
 @keyframes settings-pill-settle {
   from {
     background-color: transparent;
-    transform: scale(0.97);
   }
 }
 
@@ -748,5 +749,6 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }

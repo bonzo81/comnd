@@ -526,5 +526,8 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    /* Drops the 120ms visibility delay on the section body too, so a collapse
+       lands at once instead of leaving a clipped list mounted. */
+    transition-delay: 0s !important;
   }
 }

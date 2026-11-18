@@ -25,7 +25,7 @@ tint themes, suggestion contrast.
   (spec 11) lands.
 - Reduced-motion handling: the app's animated cues — the terminal frame's
   focus tint and the nav panel / settings rail motion (tint, section reveal,
-  row actions, pill settle) — all drop under `prefers-reduced-motion: reduce`
+  row actions, pill fade) — all drop under `prefers-reduced-motion: reduce`
   (spec 03 §Motion), so this mode never depends on motion. The terminal tint's
   states stay distinguishable as static colours.
 

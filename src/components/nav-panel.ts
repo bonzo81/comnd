@@ -358,7 +358,15 @@ export class NavPanel {
     else this.openSections.delete(section);
     const sec = this.container.querySelector<HTMLElement>(`.nav-section[data-section="${section}"]`);
     if (!sec) return;
-    sec.querySelector<HTMLElement>(".nav-section-items")?.classList.toggle("open", open);
+    const body = sec.querySelector<HTMLElement>(".nav-section-items");
+    if (body) {
+      body.classList.toggle("open", open);
+      // A closed section stays visible for its 120ms collapse, so take it out
+      // of the tab order here rather than waiting for `visibility: hidden`.
+      // Opening clears it first: ArrowRight focuses the first row in this tick.
+      if (open) body.removeAttribute("inert");
+      else body.setAttribute("inert", "");
+    }
     const header = sec.querySelector<HTMLElement>(".nav-section-header");
     if (header) header.setAttribute("aria-expanded", String(open));
     this.applyRovingTabindex();
@@ -539,7 +547,7 @@ export class NavPanel {
           <span class="nav-section-icon">${icon}</span>
           <span class="nav-section-label">${label}</span>
         </button>
-        <div class="nav-section-items${open ? " open" : ""}">
+        <div class="nav-section-items${open ? " open" : ""}"${open ? "" : " inert"}>
           ${itemsHtml}
         </div>
       </div>
@@ -1286,8 +1294,11 @@ export class NavPanel {
       });
       el.addEventListener("click", () => {
         if (this.dragMoved) return;
+        // Re-clicking the selected host must not replay the settle fade: the
+        // row is rebuilt either way, and the fade starts from transparent, so
+        // an unchanged selection would read as the highlight blinking off.
+        this.settlingHostId = this.selectedHostId === id ? null : id;
         this.selectedHostId = id;
-        this.settlingHostId = id;
         this.cb.onSelectHost(id);
         this.render();
       });
