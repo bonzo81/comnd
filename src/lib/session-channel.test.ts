@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { SessionChannel, type SessionEvent, type SessionTransport } from "./session-channel";
+import { SessionChannel, SSH_EVENT_NAMES, type SessionEvent, type SessionTransport } from "./session-channel";
 
 class InMemoryTransport implements SessionTransport {
   connectedWith: number | null = null;
@@ -14,6 +14,9 @@ class InMemoryTransport implements SessionTransport {
   connectError: Error | null = null;
   /** Set to make disconnect() reject, as the real IPC does on an unknown session. */
   disconnectError: Error | null = null;
+  /** 0-based listen() call that should reject, as a failed subscription does. */
+  listenErrorAt: number | null = null;
+  private listenCalls = 0;
   private handlers = new Map<string, ((p: unknown) => void)[]>();
 
   async connect(_hostId: string, _opts: { cols: number; rows: number }, sessionId: number): Promise<void> {
@@ -27,6 +30,8 @@ class InMemoryTransport implements SessionTransport {
   }
 
   async listen(name: string, handler: (payload: unknown) => void): Promise<UnlistenFn> {
+    const call = this.listenCalls++;
+    if (this.listenErrorAt === call) throw new Error("listen failed");
     const arr = this.handlers.get(name) ?? [];
     arr.push(handler);
     this.handlers.set(name, arr);
@@ -34,6 +39,16 @@ class InMemoryTransport implements SessionTransport {
       const a = this.handlers.get(name);
       if (a) this.handlers.set(name, a.filter((h) => h !== handler));
     };
+  }
+
+  handlerCount(name: string): number {
+    return this.handlers.get(name)?.length ?? 0;
+  }
+
+  totalHandlers(): number {
+    let total = 0;
+    for (const arr of this.handlers.values()) total += arr.length;
+    return total;
   }
 
   emit(name: string, payload: unknown): void {
@@ -244,5 +259,47 @@ describe("SessionChannel", () => {
     expect(events.filter((e) => e.type === "auth-url")).toEqual([
       { type: "auth-url", url: "https://idp.example/device" },
     ]);
+  });
+
+  it("registers the same nine names as the handler table", () => {
+    const { channel } = mk();
+    const handlers = (
+      channel as unknown as { handlers(sid: number): Record<string, unknown> }
+    ).handlers(0);
+
+    expect(Object.keys(handlers)).toHaveLength(9);
+    expect([...SSH_EVENT_NAMES].sort()).toEqual(Object.keys(handlers).sort());
+  });
+
+  it("rejects every registered event when the payload carries another session's id", async () => {
+    const { transport, channel, events } = mk();
+    await channel.connect("h1", { cols: 80, rows: 24 });
+
+    for (const name of SSH_EVENT_NAMES) {
+      expect(transport.handlerCount(name)).toBe(1);
+    }
+    const stale = (channel.sessionId ?? 0) + 1;
+    for (const name of SSH_EVENT_NAMES) {
+      transport.emit(name, { session_id: stale });
+    }
+
+    expect(events).toEqual([]);
+    expect(channel.state).toBe("connecting");
+  });
+
+  it("fails to error and leaves no listeners when a listener registration rejects", async () => {
+    const { transport, channel, events } = mk();
+    transport.listenErrorAt = 3;
+
+    await expect(channel.connect("h1", { cols: 80, rows: 24 })).rejects.toThrow("listen failed");
+    expect(channel.state).toBe("error");
+    expect(transport.totalHandlers()).toBe(0);
+
+    const sid = channel.sessionId;
+    for (const name of SSH_EVENT_NAMES) {
+      transport.emit(name, { session_id: sid });
+    }
+    expect(events).toEqual([]);
+    expect(channel.state).toBe("error");
   });
 });
