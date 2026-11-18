@@ -159,6 +159,10 @@ export class SettingsScreen {
   /** Set just before a nav-driven re-render; render() focuses the active
    *  icon-nav item afterwards so keyboard users keep their place. */
   private pendingNavFocus = false;
+  /** Set when setItem() actually changes the page, consumed by the next
+   *  render(). Drives the rail's pill settle so it plays on a page switch and
+   *  never on the many other renders this screen does (saves, toggles, loads). */
+  private navChanged = false;
   /** Called when a NetBox action changes the merged host tree (sync, enable
    *  toggle, device toggle) so the nav panel can re-fetch. */
   onTreeChanged: () => void = () => {};
@@ -166,6 +170,7 @@ export class SettingsScreen {
   setItem(id: string) {
     // Auth re-fetches on every show (refresh-on-mount); other items no-op.
     if (this.itemId === id && id !== "auth" && id !== "netbox") return;
+    this.navChanged = this.itemId !== id;
     this.itemId = id;
     // Only the load for the *current* item may re-render. An auth/netbox
     // load resolving after the user switched pages would rebuild the DOM
@@ -256,7 +261,7 @@ export class SettingsScreen {
       : this.renderPlaceholder(label);
     this.container.innerHTML = `
       <div class="settings-screen">
-        <nav class="settings-nav" aria-label="Settings sections">
+        <nav class="settings-nav${this.navChanged ? " nav-switched" : ""}" aria-label="Settings sections">
           ${SETTINGS_NAV.map((item) => {
             const active = item.id === this.itemId;
             return `
@@ -276,6 +281,8 @@ export class SettingsScreen {
         </div>
       </div>
     `;
+    // Consumed by the rail markup above for this pass only.
+    this.navChanged = false;
     this.bindEvents();
     this.bindNavEvents();
     if (this.pendingNavFocus) {

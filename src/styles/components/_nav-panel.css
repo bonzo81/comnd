@@ -24,8 +24,14 @@
   overflow: hidden;
   min-height: 0;
   max-height: 0;
+  opacity: 0;
   visibility: hidden;
-  transition: max-height 260ms ease, visibility 0s linear 260ms;
+  /* The closed state sits 2px high so opening reads as the list dropping into
+     place behind its fade. Only the open/close transition is affected — a
+     freshly rendered open section starts at rest and never replays this. */
+  transform: translateY(-2px);
+  transition: max-height 120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 80ms ease,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 120ms;
   padding: var(--space-0-5) 0 var(--space-2);
 }
 
@@ -38,8 +44,20 @@
      ceiling to animate against. If a user genuinely exceeds this, switch
      to a post-transition `max-height: none` via an `animationend` class. */
   max-height: 100000px;
+  opacity: 1;
   visibility: visible;
-  transition: max-height 260ms ease;
+  transform: translateY(0);
+  transition: max-height 120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 80ms ease,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ArrowRight expands a section and focuses its first row in the same tick, so
+   the reveal would fade the focus ring in along with the list and leave
+   keyboard focus briefly invisible. Skip the reveal while focus is inside the
+   list; the header is a sibling, so opening by click or Enter still animates,
+   and collapsing moves focus back to the header, which restores it. */
+.nav-section-items.open:focus-within {
+  transition: none;
 }
 
 .nav-section-header {
@@ -58,6 +76,7 @@
   letter-spacing: 0.5px;
   cursor: pointer;
   text-align: left;
+  transition: background-color 140ms ease, color 120ms ease;
 }
 
 .nav-section-header:hover {
@@ -97,11 +116,26 @@
   text-align: left;
   height: 32px;
   box-sizing: border-box;
+  transition: background-color 140ms ease, color 120ms ease;
 }
 
 .nav-item:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
+}
+
+/* Keyboard focus gets the same resting surface as hover, so the focus ring
+   never floats on bare background. The ring itself stays instant — a focus
+   indicator that fades in is a focus indicator that arrives late. */
+.nav-item:focus-visible:not(.nav-selected),
+.nav-host-row:focus-within:not(.nav-selected) {
+  background: var(--color-surface-hover);
+}
+
+/* Selected rows already own their tint; a hover surface inside one would
+   read as dimming the selection. */
+.nav-host-row.nav-selected > .nav-item:focus-visible {
+  background: none;
 }
 
 /* Bare items (not inside a flex row) must span the full column width —
@@ -119,6 +153,19 @@
   color: var(--color-text-primary);
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
+}
+
+/* View switches toggle .nav-selected on live DOM, so the tint crossfades
+   (see the .nav-item transition). A host click rebuilds the list instead, and
+   a new element has nothing to transition from — .nav-settle fades it in. */
+.nav-host-row.nav-selected.nav-settle {
+  animation: nav-select-settle 160ms ease;
+}
+
+@keyframes nav-select-settle {
+  from {
+    background-color: transparent;
+  }
 }
 
 .nav-item-label {
@@ -185,13 +232,17 @@
   display: flex;
   gap: var(--space-0-5);
   opacity: 0;
-  transition: opacity 0.12s ease;
+  /* Parked 2px right so the actions slide out from under the row label as
+     they fade in, rather than popping into an occupied slot. */
+  transform: translateX(2px);
+  transition: opacity 120ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
 }
 
 .nav-group-row:hover .nav-row-actions,
 .nav-group-row:focus-within .nav-row-actions {
   opacity: 1;
+  transform: translateX(0);
 }
 
 .nav-row-btn {
@@ -460,4 +511,23 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   word-break: break-all; /* long hostnames wrap instead of overflowing */
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────
+   Nav motion is feedback, not decoration, so it is safe to drop entirely:
+   every state change still lands, just without the interpolation. Zeroing
+   the duration (not `animation: none`) also keeps the collapse/expand
+   keyframes settling on their final state. */
+@media (prefers-reduced-motion: reduce) {
+  .app-nav,
+  .app-nav *,
+  .app-nav *::before,
+  .app-nav *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    /* Drops the 120ms visibility delay on the section body too, so a collapse
+       lands at once instead of leaving a clipped list mounted. */
+    transition-delay: 0s !important;
+  }
 }

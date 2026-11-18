@@ -68,6 +68,9 @@ export class NavPanel {
   private groups: { id: string; name: string; icon: string | null; color: string | null; parent_id: string | null; sort_order: number }[] = [];
   private hosts: Host[] = [];
   private selectedHostId: string | null = null;
+  /** Set for the single render that follows a host click: the row is new DOM,
+   *  so it can only fade its selection in (CSS .nav-settle), not transition. */
+  private settlingHostId: string | null = null;
   private searchQuery = "";
   /**
    * THE active sub-item, app-wide. Exactly one sub-item is highlighted:
@@ -355,7 +358,15 @@ export class NavPanel {
     else this.openSections.delete(section);
     const sec = this.container.querySelector<HTMLElement>(`.nav-section[data-section="${section}"]`);
     if (!sec) return;
-    sec.querySelector<HTMLElement>(".nav-section-items")?.classList.toggle("open", open);
+    const body = sec.querySelector<HTMLElement>(".nav-section-items");
+    if (body) {
+      body.classList.toggle("open", open);
+      // A closed section stays visible for its 120ms collapse, so take it out
+      // of the tab order here rather than waiting for `visibility: hidden`.
+      // Opening clears it first: ArrowRight focuses the first row in this tick.
+      if (open) body.removeAttribute("inert");
+      else body.setAttribute("inert", "");
+    }
     const header = sec.querySelector<HTMLElement>(".nav-section-header");
     if (header) header.setAttribute("aria-expanded", String(open));
     this.applyRovingTabindex();
@@ -500,6 +511,8 @@ export class NavPanel {
       </div>
       ${this.contextMenu ? this.renderContextMenu() : ""}
     `;
+    // Consumed by renderHostRow for this pass only.
+    this.settlingHostId = null;
     this.bindEvents();
     this.applyRovingTabindex();
     // Context menu ARIA + keyboard navigation (arrows/Enter/Escape)
@@ -534,7 +547,7 @@ export class NavPanel {
           <span class="nav-section-icon">${icon}</span>
           <span class="nav-section-label">${label}</span>
         </button>
-        <div class="nav-section-items${open ? " open" : ""}">
+        <div class="nav-section-items${open ? " open" : ""}"${open ? "" : " inert"}>
           ${itemsHtml}
         </div>
       </div>
@@ -675,13 +688,14 @@ export class NavPanel {
     `;
     }
     const selected = this.selectedHostId === host.id;
+    const settle = this.settlingHostId === host.id ? " nav-settle" : "";
     const active = this.cb.getActiveSessions().has(host.id);
     // Reuse the content-area dot classes so the nav and the content panel
     // show the same green state for an active session.
     const dotClass = active ? "nav-host-dot dot-ok" : "nav-host-dot";
     const dotTitle = active ? "Session active" : (host.last_connected ? "Previously connected" : "Never connected");
     return `
-      <div class="nav-host-row ${selected ? "nav-selected" : ""}" data-host-id="${host.id}">
+      <div class="nav-host-row ${selected ? "nav-selected" : ""}${settle}" data-host-id="${host.id}">
         <button class="nav-item nav-sub" data-host-id="${host.id}" draggable="true" style="padding-left:${indent}px">
           <span class="nav-toggle"></span>
           <span class="${dotClass}" title="${escHtml(dotTitle)}"></span>
@@ -1280,6 +1294,10 @@ export class NavPanel {
       });
       el.addEventListener("click", () => {
         if (this.dragMoved) return;
+        // Re-clicking the selected host must not replay the settle fade: the
+        // row is rebuilt either way, and the fade starts from transparent, so
+        // an unchanged selection would read as the highlight blinking off.
+        this.settlingHostId = this.selectedHostId === id ? null : id;
         this.selectedHostId = id;
         this.cb.onSelectHost(id);
         this.render();

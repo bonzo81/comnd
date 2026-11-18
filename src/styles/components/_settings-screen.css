@@ -37,12 +37,18 @@
   font-size: var(--font-size-base);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 120ms ease, background-color 140ms ease;
 }
 
 .settings-nav-item:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
+}
+
+/* Keyboard focus shares the hover surface so the ring sits on a tinted pill
+   rather than bare background. The ring itself stays instant. */
+.settings-nav-item:focus-visible:not(.active) {
+  background: var(--color-surface-hover);
 }
 
 /* Active page — filled pill, mirrors the nav panel's active sub-item */
@@ -51,10 +57,30 @@
   color: var(--color-accent);
 }
 
+/* Only a real page change animates the pill. settings-screen.ts adds
+   .nav-switched to the rail for the render that follows setItem(); the ~20
+   other renders on this screen (saves, loads, toggles) must not replay it.
+   Colour only: render() focuses the new active button, and a transform here
+   would drag its focus ring across the rail while the ring paints. */
+.settings-nav.nav-switched .settings-nav-item.active {
+  animation: settings-pill-settle 160ms ease;
+}
+
+@keyframes settings-pill-settle {
+  from {
+    background-color: transparent;
+  }
+}
+
 .settings-nav-item svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-nav-item:hover svg {
+  transform: translateX(2px);
 }
 
 .settings-nav-label {
@@ -709,4 +735,20 @@
   width: 12px;
   height: 12px;
   color: var(--color-text-secondary);
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────
+   The rail's motion is feedback only; every state change still lands, just
+   without the interpolation. Zeroing the duration keeps the pill settle
+   keyframes on their final state instead of skipping them. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-screen,
+  .settings-screen *,
+  .settings-screen *::before,
+  .settings-screen *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
 }
