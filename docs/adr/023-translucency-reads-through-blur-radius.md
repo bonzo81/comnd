@@ -55,8 +55,8 @@ panel tone; it moved it here by nothing.
 - **Raise alpha back to opaque and drop the frost** — cheapest, but loses the intent (the terminal
   staying present behind the list) and the panel becomes a flat slab over output.
 - **Small blur radius at a moderate alpha** — keeps the intent and produces a measurable, perceptible
-  texture (sd 6.1 at 6px) while the rows stay legible: peak backdrop luminance behind the rows is
-  ≈70, so primary text still clears 8:1.
+  texture (sd 8.9 at 4px, 6.1 at 6px) while the rows stay legible: peak backdrop luminance behind
+  the rows is ≈75, so primary text still clears 8:1.
 - **Make the fill lighter than the backdrop** — a tonal step the eye can see, but it changes the
   panel's colour identity in all six themes and pushes the surface role toward the text colour.
   Rejected for this pass; it is the option to reach for if a *tone* change is ever wanted.
@@ -65,8 +65,10 @@ panel tone; it moved it here by nothing.
 ## Decision
 
 The dropdown is `color-mix(in srgb, var(--color-surface-elevated) 50%, transparent)` with
-`backdrop-filter: blur(6px)`. The alpha is set for the ghosting, the radius is set for the structure;
-neither alone works. The rationale and the table above are repeated in the comment above the rule so
+`backdrop-filter: blur(4px)`. The alpha is set for the ghosting, the radius is set for the structure;
+neither alone works. The radius started at 6px and was taken one step down on review: 6px read as
+haze laid over the terminal, where 4px keeps the line shapes as bands distinguishable from a fog.
+The rationale and the table above are repeated in the comment above the rule so
 the next person to "make it more translucent" starts from the measurement.
 
 **Not established.** The figures come from a probe page loading the real `src/styles/main.css` in
@@ -80,7 +82,7 @@ cost also differs.
 - What gets easier: "the panel does not look translucent" now has a first diagnostic — compare the
   composited tone at two alphas, then compare the spread at two radii — instead of an alpha sweep.
 - What gets harder: transparency here is now a two-variable decision, and a future theme whose
-  `--color-surface-elevated` sits far from its terminal background will make the same 50%/6px look
+  `--color-surface-elevated` sits far from its terminal background will make the same 50%/4px look
   more transparent than it does today. Each theme is a separate check.
 - What this rules out: treating alpha as the translucency dial on a surface whose backdrop averages
   to its own luminance, and large blur radii (≥12px) for overlays whose backdrop is line-structured

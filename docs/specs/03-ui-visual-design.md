@@ -194,15 +194,15 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
 * Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief)
 * Selected item has highlighted background (accent tint)
 * Category shown as muted text right-aligned in each row (e.g. `networking`)
-* Surface is translucent (`color-mix` of `--color-surface-elevated` at 50%) with a 6px backdrop
+* Surface is translucent (`color-mix` of `--color-surface-elevated` at 50%) with a 4px backdrop
   blur, so the terminal stays faintly present behind the list instead of the panel reading as a
   hole cut in the window. Alpha alone cannot carry this effect here: the blurred dark terminal
   averages to the same luminance as `--color-surface-elevated` (both ≈43), so the composite tone
   measures 43.3 at 100%, 70%, 50% and 35% alike and only the texture behind the fill differs. The
   blur radius is what makes the frost legible — with the fill at 50%, the luminance spread in the
   panel measures 8.9 / 6.1 / 5.2 / 2.7 for a 4 / 6 / 8 / 20px radius against 0.1 for an opaque box —
-  so 6px is used: line shapes ghost through as soft bands without competing with the command
-  names. With dense output behind it the rows measured a 70-luminance peak behind them, so primary
+  so 4px is used: line shapes ghost through as soft bands without turning into readable output.
+  With dense output behind it the rows measured a 75-luminance peak behind them, so primary
   text still clears 8:1. The side panel stays opaque, because translucency there would read as an
   overlay (ADR-003). The full measurement, and why the alpha cannot be the dial here, is
   [ADR-023](../adr/023-translucency-reads-through-blur-radius.md)
