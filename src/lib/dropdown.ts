@@ -11,7 +11,7 @@
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
 import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { escHtml } from "./format";
-import { renderToken, isChoice as isChoiceTok } from "./tokens";
+import { renderToken, isChoice as isChoiceTok, isLit } from "./tokens";
 import { moveListItem } from "./listbox-nav";
 
 export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
@@ -330,9 +330,13 @@ export class Dropdown {
     const toks = item.command.tokens;
     if (!toks || toks.length === 0) return "";
     const currentIdx = tm.currentTokenIndex;
+    // The row's title already spells the command name, so a hint that starts at
+    // the name token repeats it ("scp scp [-r | -p …]"). That doubled length is
+    // what then squeezed the title out of the row, so start after the name.
+    const start = currentIdx === 0 && isLit(toks[0]) ? 1 : currentIdx;
     // Render from the current token onward.
     const parts: string[] = [];
-    for (let i = currentIdx; i < toks.length; i++) {
+    for (let i = start; i < toks.length; i++) {
       const t = toks[i];
       const isCurrent = i === currentIdx;
       parts.push(renderToken(t, { current: isCurrent, litWordIdx: tm.litWordIndex }));

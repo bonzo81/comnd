@@ -169,6 +169,13 @@
 
 .suggestion-name {
   flex: 1;
+  /* The row's subject, so it holds its natural width. `flex: 1` is
+     `flex-basis: 0`, and `overflow: hidden` drops the automatic minimum size,
+     so a wide syntax suffix took the whole row and shrank the title to nothing:
+     the scp row measured 0px for its name, ssh 0px and sort 4px, which is why
+     the longest rows lost their title and read as a small syntax blurb. Flooring
+     it at its content makes the suffix ellipsize instead. */
+  min-width: max-content;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

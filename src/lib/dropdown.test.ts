@@ -161,6 +161,36 @@ describe("Dropdown — row rendering", () => {
     expect(suffix?.querySelector(".token-var")).not.toBeNull();
   });
 
+  it("does not repeat the command name in the suffix while the name is current", () => {
+    const tokens: CommandToken[] = [
+      { lit: "scp" },
+      { choice: ["-r", "-p", "-C", "-q", "-O", "-3"] },
+      { lit: "-P" },
+      { var: "port", type: "free" },
+    ];
+    const command = makeCommand("scp", { tokens });
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "s");
+
+    const row = container.querySelector(".suggestion-item")!;
+    expect(row.querySelector(".suggestion-name")?.textContent).toBe("scp");
+    const suffix = row.querySelector(".token-suffix");
+    expect(suffix?.textContent).toBe("[-r | -p | -C | -q | -O | -3] -P <port>");
+    expect(suffix?.textContent).not.toContain("scp");
+  });
+
+  it("renders no suffix when the command name is the only token", () => {
+    const tokens: CommandToken[] = [{ lit: "uptime" }];
+    const command = makeCommand("uptime", { tokens });
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "u");
+
+    const suffix = container.querySelector(".suggestion-item .token-suffix");
+    expect(suffix?.textContent).toBe("");
+  });
+
   it("skips the typed-text highlight on prefix-command rows", () => {
     const prefixRow = makeResult(makeCommand("systemctl restart"), { prefix: "sudo" });
     const plainRow = makeResult(makeCommand("system status"));
