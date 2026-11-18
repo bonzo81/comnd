@@ -102,3 +102,34 @@ describe("GhostText — positioning", () => {
     expect(parseFloat(el.style.left)).toBe(before);
   });
 });
+
+describe("GhostText — arrival settle", () => {
+  // showPayload runs on every keystroke while a suggestion is showing, so an
+  // unguarded entrance class would replay the fade under each character.
+  it("marks the hidden→shown edge but not an update while already showing", () => {
+    const { ghost, el, badge } = makeGhost(3);
+
+    ghost.showPayload({ kind: "text", text: "faces" }, 2);
+    expect(el.classList.contains("ghost-text--enter")).toBe(true);
+    expect(badge.classList.contains("match-count-badge--enter")).toBe(true);
+
+    // Pretend the 120ms fade has run: the class is still on the element.
+    el.classList.remove("ghost-text--enter");
+    badge.classList.remove("match-count-badge--enter");
+    ghost.showPayload({ kind: "text", text: "faceset" }, 1);
+    expect(el.classList.contains("ghost-text--enter")).toBe(false);
+    expect(badge.classList.contains("match-count-badge--enter")).toBe(false);
+  });
+
+  it("clears the class on hide so a later appearance animates again", () => {
+    const { ghost, el, badge } = makeGhost(3);
+
+    ghost.showPayload({ kind: "text", text: "faces" }, 2);
+    ghost.hide();
+    expect(el.classList.contains("ghost-text--enter")).toBe(false);
+    expect(badge.classList.contains("match-count-badge--enter")).toBe(false);
+
+    ghost.showPayload({ kind: "text", text: "faces" }, 2);
+    expect(el.classList.contains("ghost-text--enter")).toBe(true);
+  });
+});

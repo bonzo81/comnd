@@ -100,7 +100,8 @@ Reading Comfort (spec 12) is the dyslexia-support preset: persisted toggle in
 the status bar (`aria-pressed`) + Settings pane, stamps typography defaults,
 individual sliders underneath, OFF reverts typography only. It is a
 presentation-layer feature — verify it works with `prefers-reduced-motion`
-users too (the preset adds no animation of its own; the app's navigation
+users too (the preset adds no animation of its own; the app's navigation,
+suggestion (ghost text, match-count badge, dropdown) and side-panel content
 motion is disabled under that query — see spec 03 § Motion). The status bar
 toggle button joins the ARIA inventory above. Navigation motion never
 delays keyboard focus: a section revealed with ArrowRight skips its reveal

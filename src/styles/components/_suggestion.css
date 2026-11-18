@@ -41,6 +41,38 @@
   display: none;
 }
 
+/* ─── Suggestion motion ─────────────────────────────────────────────────────
+   One thesis covers the ghost text, the dropdown and the side panel: the grid
+   never animates, the ink on it settles. Anything that decides layout — which
+   cell the ghost starts in, whether the dropdown takes space, how wide the
+   panel is — lands in a single frame, so nothing under the typed character
+   ever moves and no frame is spent reflowing a terminal.
+
+   Arrivals settle, departures are instant. A surface appearing interpolates
+   over 120–140ms on the app's decelerating curve; a surface disappearing gets
+   one frame, because a suggestion that lingers after the input stopped
+   matching misreports what the remote is about to receive.
+
+   The classes are set by ghost-text.ts / dropdown.ts / terminal-view.ts on the
+   transition from hidden to shown and cleared on hide, never baked into
+   generated markup: the dropdown rebuilds its whole innerHTML on every
+   keystroke, and a keyframe that ships with the markup replays on each one.
+   See docs/specs/03-ui-visual-design.md § Motion. */
+.ghost-text.ghost-text--enter,
+.match-count-badge.match-count-badge--enter {
+  animation: suggestion-settle 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* From a quarter opacity rather than from 0: the ghost has to be readable in
+   the same frame the keystroke echoes, or the prediction reads as lag. No `to`
+   keyframe — the animation lands on whatever opacity the element already
+   carries, so the variable-placeholder variant keeps its own token. */
+@keyframes suggestion-settle {
+  from {
+    opacity: 0.25;
+  }
+}
+
 /* ─── Suggestion Dropdown ──────────────────────────────────────────── */
 .suggestion-dropdown {
   position: absolute;
@@ -56,6 +88,20 @@
   z-index: 20;
   box-shadow: var(--shadow-lg);
   display: none;
+}
+
+/* Rises 4px off the prompt line it is completing. The transform is on the box,
+   not the rows: rows are rebuilt on every keystroke, so any transition on a
+   row's tint would pulse with the typing instead of settling once. */
+.suggestion-dropdown.suggestion-dropdown--enter {
+  animation: suggestion-rise 130ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes suggestion-rise {
+  from {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
 }
 
 /* Reading Comfort: cap visible choices at 5 (COGA ≤5, spec 12 §Preset values). */
@@ -171,3 +217,15 @@
   color: var(--color-text-secondary);
   background: linear-gradient(transparent, var(--color-suggestion-fade));
 }
+
+/* Collapse the duration rather than replacing the animation with none, so the
+   keyframes still land on their final state and nothing is left mid-settle. */
+@media (prefers-reduced-motion: reduce) {
+  .ghost-text--enter,
+  .match-count-badge--enter,
+  .suggestion-dropdown--enter {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+

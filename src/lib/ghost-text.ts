@@ -51,6 +51,7 @@ export class GhostText {
       this.hide();
       return;
     }
+    const appearing = !this.visible;
     this.currentPayload = payload;
     this.currentRemainder = text;
     this.el.textContent = text;
@@ -60,6 +61,11 @@ export class GhostText {
     else if (payload.kind === "literal") this.el.classList.add("ghost-text--literal");
     this.visible = true;
     this.el.style.display = "inline";
+
+    // Settle on appearance only. showPayload runs on every keystroke while a
+    // suggestion is showing, so an unguarded class would replay the fade under
+    // each character; hide() clears it so the next real appearance can animate.
+    if (appearing) this.el.classList.add("ghost-text--enter");
 
     // Position at cursor
     this.positionAtCursor();
@@ -76,8 +82,10 @@ export class GhostText {
 
     // Match count badge
     if (extraMatchCount > 0) {
+      const badgeAppearing = this.badgeEl.style.display !== "inline";
       this.badgeEl.textContent = `(+${extraMatchCount})`;
       this.badgeEl.style.display = "inline";
+      if (badgeAppearing) this.badgeEl.classList.add("match-count-badge--enter");
     } else {
       this.badgeEl.style.display = "none";
     }
@@ -89,8 +97,14 @@ export class GhostText {
     this.currentPayload = null;
     this.currentRemainder = "";
     this.el.style.display = "none";
-    this.el.classList.remove("ghost-text--variable", "ghost-text--choice", "ghost-text--literal");
+    this.el.classList.remove(
+      "ghost-text--variable",
+      "ghost-text--choice",
+      "ghost-text--literal",
+      "ghost-text--enter",
+    );
     this.badgeEl.style.display = "none";
+    this.badgeEl.classList.remove("match-count-badge--enter");
     if (this.cursorHidden) {
       this.terminal.write("\x1b[?25h");
       this.cursorHidden = false;

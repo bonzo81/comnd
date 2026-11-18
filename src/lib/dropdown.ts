@@ -47,6 +47,7 @@ export class Dropdown {
 
   /** Show the dropdown with results */
   show(results: SuggestionResult[], prefix: string) {
+    const opening = !this._visible;
     this.items = results;
     this.currentPrefix = prefix;
     this.choiceMode = this.deriveChoiceMode(results);
@@ -58,6 +59,10 @@ export class Dropdown {
     this.el.style.display = "block";
     if (this.choiceMode) this.renderChoice();
     else this.render();
+    // Rise in on the closed→open edge only; updateResults() re-renders while
+    // open and must stay still. hide() clears the class, so a later open
+    // animates again without a forced reflow.
+    if (opening) this.el.classList.add("suggestion-dropdown--enter");
   }
 
   /** Hide the dropdown */
@@ -65,6 +70,7 @@ export class Dropdown {
     this._visible = false;
     this.choiceMode = null;
     this.el.style.display = "none";
+    this.el.classList.remove("suggestion-dropdown--enter");
   }
 
   /** Is the dropdown currently visible? */

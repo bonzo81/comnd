@@ -1286,8 +1286,12 @@ export class TerminalView {
     sidebar.classList.toggle("hidden", !this.sidePanelOpen);
     this.$(".tv-resizer")?.classList.toggle("hidden", !this.sidePanelOpen);
     this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(this.sidePanelOpen));
-    // Refit terminal after sidebar transition
-    if (this.sidePanelOpen && this.sidePanelMode === "replay") void this.showReplayPanel();
+    // Opening is one of the two deliberate changes of the panel's subject; the
+    // width itself lands in this frame, so only the content settles.
+    if (this.sidePanelOpen) {
+      if (this.sidePanelMode === "replay") void this.showReplayPanel();
+      else this.settleSidebarContent();
+    }
     setTimeout(() => {
       this.fitAddon?.fit();
       this.ghostText?.reposition();
@@ -1423,6 +1427,23 @@ export class TerminalView {
 
   // ─── Sidebar content ─────────────────────────────────────────────
 
+  /**
+   * Settle the panel's content after it changes subject. The class has to leave
+   * the element for one style recalc before it comes back, or the animation
+   * will not restart on a second tab switch; reading `offsetWidth` forces that
+   * recalc. Called only from the panel's deliberate transitions — open, tab
+   * switch, replay reload — never from updateSidebarDetail or
+   * updateSidebarPlaceholder, which run on the keystroke path where the pane is
+   * a live mirror of the prompt and any motion next to the echo reads as lag.
+   */
+  private settleSidebarContent() {
+    const content = this.$(".sb-content");
+    if (!content) return;
+    content.classList.remove("sb-content--enter");
+    void content.offsetWidth;
+    content.classList.add("sb-content--enter");
+  }
+
   private updateSidebarDetail(command: Command) {
     const content = this.$(".sb-content");
     if (!content || !this.sidePanelOpen) return;
@@ -1468,6 +1489,7 @@ export class TerminalView {
     if (!content) return;
     if (mode === "kb") {
       content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
+      this.settleSidebarContent();
     } else {
       void this.showReplayPanel();
     }
@@ -1480,6 +1502,7 @@ export class TerminalView {
       this.replayItems = await replayList();
     } catch (e) {
       content.innerHTML = `<p class="sb-placeholder">Failed to load Command Replay: ${e}</p>`;
+      this.settleSidebarContent();
       return;
     }
     this.renderReplayPanel();
@@ -1522,6 +1545,7 @@ export class TerminalView {
         if (cmd) this.playReplay(cmd);
       });
     });
+    this.settleSidebarContent();
   }
 
   /** Render a template, highlighting {{variables}} as chips. */

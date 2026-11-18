@@ -503,3 +503,26 @@ describe("Dropdown — choice mode", () => {
     expect(dropdown.isVisible()).toBe(false);
   });
 });
+
+describe("Dropdown — arrival settle", () => {
+  // updateResults() re-renders on every keystroke while the dropdown is open,
+  // so the entrance belongs to the closed→open edge only.
+  it("marks the open edge, not a results update, and re-arms after hiding", () => {
+    const { dropdown, container } = makeDropdown();
+    const el = container.querySelector(".suggestion-dropdown") as HTMLElement;
+
+    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
+
+    el.classList.remove("suggestion-dropdown--enter");
+    dropdown.updateResults([
+      makeResult(makeCommand("show")),
+      makeResult(makeCommand("shutdown")),
+    ]);
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(false);
+
+    dropdown.hide();
+    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
+  });
+});

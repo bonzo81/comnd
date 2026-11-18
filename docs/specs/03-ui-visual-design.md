@@ -253,8 +253,24 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 ## Motion
 
 * Transitions 100–300ms, color/opacity only — never layout-shifting scale on container elements (small scale on buttons OK). The navigation below is the one documented exception: its reveal runs 80–120ms, because it answers a keypress and a longer fade reads as lag, and it eases `max-height`/`translate` because the disclosure's height is the thing being revealed.
-* Ghost text and suggestion visibility are instant — no fades in the keystroke path.
-* Sidebar width, chrome tint, progress bar, toast entrance, the terminal frame's focus tint and the navigation are the animated transitions.
+* **Arrivals settle, departures are instant.** Ghost text, the match-count badge, the suggestion dropdown
+  and the side panel's content arrive over 120–140ms on `cubic-bezier(0.16, 1, 0.3, 1)` and disappear in
+  the frame they stop matching. A surface that lingers after the input stopped matching misreports what
+  the remote will receive, and one that pops in mid-sentence reads as a stutter.
+  * The settle belongs to the hidden→shown edge only. `showPayload()` runs on every keystroke while the
+    ghost is visible and `updateResults()` re-renders the open dropdown, so a component adds its entrance
+    class when the surface opens and clears it on hide. It is never baked into generated markup, where
+    each `innerHTML` rebuild would replay it under the next character.
+  * Ghost text glyphs never move — only opacity interpolates — because the overlay has to land on the
+    terminal cell grid. The dropdown rises 4px and the panel's content settles 6px in from the terminal
+    side.
+* Chrome tint, progress bar, toast entrance, the terminal frame's focus tint and the navigation are the
+  animated transitions. **The side panel's width is not one of them** — it lands in a single frame,
+  because the arrow-key resizer calls `applyWidth()` then `fitAddon.fit()` in the same tick, so FitAddon
+  would measure the pre-transition width and the grid would settle on the wrong column count. What
+  settles in the panel is its content (140ms), when the panel opens or its tab changes; a resize does
+  not settle it, since nothing is arriving. Animating the pane itself would show the old terminal
+  through it and read as an overlay, which ADR-003 forbids.
 * **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the toolbar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). Focus also draws the app's shared focus ring: `--focus-ring-width` at `--focus-ring-offset`, transparent at rest and colour-animated, so the ring appears outside the frame with a clear gap. It sits outside rather than inset because an inset outline at `outline-offset: -1px` paints *over* the border instead of adding to it — measured on the light theme as one device pixel of `#88898a` at rest and one of `#166534` focused, with no ink added. That reads on the dark themes, whose border is a faint 1.8:1 hairline, but not on the light ones, where the border is already a strong 3.3:1 line and is the only thing separating the pane (`#F8FAFC`) from the page (`#E2E8F0`, 1.13:1). Outside, focus goes from no ink beyond the frame to a 2px ring plus a 2px gap in every theme — same light-theme column, three device pixels of `#166534`, three of surface, then the border, against one pixel of `#88898a` at rest. Width and offset are constant, the wrap's 8px margin leaves room for the ring, and no layout moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colour and extent.
 * The navigation animates too, because the nav is where the user's place in the app is decided:
   * nav row hover, keyboard focus and selection tint cross-fade (140–160ms), so switching views hands the highlight from one row to the next instead of blinking it;
