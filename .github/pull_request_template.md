@@ -10,6 +10,10 @@ Closes #
 
 - [ ] `npm run build`
 - [ ] `npm run test`
+- [ ] `npm run lint:css` — CSS token standard (ADR 018); required when touching stylesheets
+      or a `var(--token)` read
+- [ ] `npm run lint:eol` — `.editorconfig` rules on committed content; run `git add` first,
+      the check reads the index rather than the working tree
 - [ ] `cargo check --all-targets` (in `src-tauri/`)
 - [ ] `cargo test` (in `src-tauri/`)
 - [ ] `cargo test --release --lib` (in `src-tauri/`) — required when adding or changing a

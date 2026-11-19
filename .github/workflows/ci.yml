@@ -39,6 +39,13 @@ jobs:
       - name: css token gate (stylelint + token checker)
         run: npm run lint:css
 
+      # .editorconfig is editor-only, so nothing re-checks what it asks for.
+      # scripts/check-eol.mjs reads the git index rather than the working tree:
+      # a Windows checkout is CRLF under core.autocrlf, and the committed bytes
+      # are what the rule is about. That also makes the step OS-independent.
+      - name: editorconfig gate (final newline, trailing whitespace, LF)
+        run: npm run lint:eol
+
       - name: typecheck + build (tsc, vite)
         run: npm run build
 
