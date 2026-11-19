@@ -26,15 +26,23 @@
 .modal-panel h2,
 .modal-panel h3 {
   margin-bottom: var(--space-4);
-  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-title);
 }
+
+/* A dialog has one title; a section inside it is a subtitle, one step down in
+   size and weight rather than a second 16px heading. */
+.modal-panel h2 { font-size: var(--font-size-xl); }
+.modal-panel h3 { font-size: var(--font-size-lg); }
 
 .modal-panel-sm { width: 480px; }
 .modal-panel-wide { width: 640px; }
 
 .modal-intro {
   color: var(--color-text-secondary);
-  line-height: 1.5;
+  max-width: var(--prose-max-width);
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
   margin-bottom: var(--space-4);
 }
 
@@ -194,7 +202,7 @@ select.form-input {
 .delete-confirm p {
   color: var(--color-text-secondary);
   margin-bottom: var(--space-2);
-  line-height: 1.5;
+  line-height: var(--font-leading-body);
 }
 
 .delete-confirm strong {
@@ -236,6 +244,8 @@ select.form-input {
 
 .shortcuts-modal h2 {
   font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-title);
   margin-bottom: var(--space-4);
 }
 
@@ -253,10 +263,11 @@ select.form-input {
 .shortcuts-section {
   grid-column: 1 / -1;
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-solid);
   color: var(--color-text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--font-tracking-label);
   padding-top: var(--space-3);
   margin-top: var(--space-1);
   border-top: 1px solid var(--color-border);
@@ -272,7 +283,8 @@ select.form-input {
   display: inline-block;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-solid);
   padding: 1px var(--space-1-5);
   background: var(--color-surface-primary);
   border: 1px solid var(--color-border);

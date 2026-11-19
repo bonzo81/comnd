@@ -16,6 +16,8 @@
 }
 .rsm-title {
   font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-title);
   margin: 0;
   margin-right: auto;
 }

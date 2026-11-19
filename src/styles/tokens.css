@@ -97,6 +97,36 @@
   --font-size-3xl: calc(22px * var(--text-scale));
   --font-size-4xl: calc(36px * var(--text-scale));
 
+  /* Type roles — the other three axes of a role, so a role is tuned in one
+     place instead of per component. Sizes stay in --font-size-* above.
+
+     Weights: Inter ships 400/500/600 (main.ts) and JetBrains Mono ships
+     400/500/600/700. A 700 on a UI surface is therefore synthesised, which
+     smears 10–12px text, so semibold is the strongest UI weight and bold
+     belongs to the mono face that actually has the cut.
+
+     Leading rises with the measure and with light-on-dark thinning: the
+     dense 13px base carries 1.5, metadata 1.45, titles 1.3, display 1.15.
+     Body leading matches --prose-line-height's default on purpose, so long-
+     form prose is never tighter than the chrome around it; Reading Comfort
+     widens prose alone to 1.6.
+
+     Tracking is for the uppercase micro-label only (positive, so 10–11px
+     capitals do not clot) and for mono display, where 16px letterspacing
+     reads loose. Everything else sits at none. */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-leading-display: 1.15;
+  --font-leading-title: 1.3;
+  --font-leading-body: 1.5;
+  --font-leading-meta: 1.45;
+  --font-leading-solid: 1;
+  --font-tracking-label: 0.06em;
+  --font-tracking-display: -0.01em;
+  --font-tracking-none: 0;
+
   /* Reading Comfort derived tokens — defaults are the mode-off values; the
      [data-reading-comfort="on"] block below bumps them. Terminal output is
      never touched by these (grid constraint). */
@@ -104,7 +134,10 @@
   --ghost-variable-opacity: 0.45;
   --prose-word-spacing: normal;
   --prose-line-height: 1.5;
-  --prose-max-width: none;
+  /* The default measure is a reading width, not `none`: an uncapped paragraph
+     in a 1200px window runs to ~150ch. Reading Comfort narrows it further, to
+     68ch, rather than introducing a cap that was never there. */
+  --prose-max-width: 72ch;
 
   /* Overlays & tints (theme-aware) */
   --color-overlay-backdrop: rgba(0, 0, 0, 0.6);

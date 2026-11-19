@@ -29,6 +29,37 @@ export type SessionEvent =
   | { type: "auth-interactive" }
   | { type: "auth-round"; prompts: { prompt: string; echo: boolean }[] };
 
+/** Domain payload of every `ssh-*` Tauri event, without the session id the
+ *  guard reads first. The Rust emitters in `src-tauri/src/` are the other half
+ *  of this contract. */
+interface SshEventPayloads {
+  "ssh-output": { data: string };
+  "ssh-connected": { reason: string };
+  "ssh-disconnected": { reason: string };
+  "ssh-error": { reason: string };
+  "ssh-tofu": { reason: string };
+  "ssh-tofu-pending": { host_key: string; fingerprint: string; key_type: string };
+  "ssh-auth-url": { url: string };
+  "ssh-auth-interactive": Record<string, never>;
+  "ssh-auth-round": { prompts: { prompt: string; echo: boolean }[] };
+}
+
+export type SshEventName = keyof SshEventPayloads;
+
+/** The registered event set as data. Exported so a test can prove it and the
+ *  handler table have not drifted apart; not a public API for other modules. */
+export const SSH_EVENT_NAMES = [
+  "ssh-output",
+  "ssh-connected",
+  "ssh-disconnected",
+  "ssh-error",
+  "ssh-tofu",
+  "ssh-tofu-pending",
+  "ssh-auth-url",
+  "ssh-auth-interactive",
+  "ssh-auth-round",
+] as const satisfies readonly SshEventName[];
+
 /** Abstraction over the SSH IPC + event stream. Prod = Tauri; tests = in-memory. */
 export interface SessionTransport {
   connect(hostId: string, opts: { cols: number; rows: number }, sessionId: number): Promise<void>;
@@ -101,11 +132,11 @@ export class SessionChannel {
     const sid = sessionId ?? mintSessionId();
     this._sessionId = sid;
 
-    await this.registerListeners(sid);
-
     try {
+      await this.registerListeners(sid);
       await this.transport.connect(hostId, opts, sid);
     } catch (err) {
+      this.unlistenAll();
       this._state = "error";
       throw err;
     }
@@ -146,31 +177,21 @@ export class SessionChannel {
     return bytes;
   }
 
-  private async registerListeners(sid: number): Promise<void> {
-    this.unlisteners.push(
-      await this.transport.listen("ssh-output", (raw) => {
-        const p = raw as { data: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+  /** Normalised handlers, one per registered event. The stale-session guard is
+   *  applied once in {@link registerListeners}, not per handler. */
+  private handlers(sid: number): { [K in SshEventName]: (p: SshEventPayloads[K]) => void } {
+    return {
+      "ssh-output": (p) => {
         const bytes = this.base64ToBytes(p.data);
         this.emit({ type: "output", data: bytes, phase: this._state === "connected" ? "connected" : "connecting" });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-connected", (raw) => {
-        const p = raw as { reason: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-connected": () => {
         this.cleanDisconnect = false;
         this.connectedAtLeastOnce = true;
         this._state = "connected";
         this.emit({ type: "connected" });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-disconnected", (raw) => {
-        const p = raw as { reason: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-disconnected": (p) => {
         // User-initiated — the view drives teardown itself.
         if (this.cleanDisconnect) return;
         if (!this.connectedAtLeastOnce) {
@@ -181,56 +202,38 @@ export class SessionChannel {
         const wasConnected = this._state === "connected";
         this._state = "disconnected";
         this.emit({ type: "disconnected", reason: p.reason, wasConnected });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-error", (raw) => {
-        const p = raw as { reason: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-error": (p) => {
         this._state = "error";
         this.emit({ type: "error", reason: p.reason });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-tofu", (raw) => {
-        const p = raw as { reason: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-tofu": (p) => {
         this.emit({ type: "tofu", reason: p.reason });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-tofu-pending", (raw) => {
-        const p = raw as { host_key: string; fingerprint: string; key_type: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-tofu-pending": (p) => {
         this.emit({ type: "tofu-pending", hostKey: p.host_key, fingerprint: p.fingerprint, keyType: p.key_type });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-auth-url", (raw) => {
-        const p = raw as { url: string; session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-auth-url": (p) => {
         this.emit({ type: "auth-url", url: p.url });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-auth-interactive", (raw) => {
-        const p = raw as { session_id: number };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-auth-interactive": () => {
         this.emit({ type: "auth-interactive" });
-      }),
-    );
-
-    this.unlisteners.push(
-      await this.transport.listen("ssh-auth-round", (raw) => {
-        const p = raw as { session_id: number; prompts: { prompt: string; echo: boolean }[] };
-        if (!shouldAcceptEvent(p.session_id, sid)) return;
+      },
+      "ssh-auth-round": (p) => {
         this.emit({ type: "auth-round", prompts: p.prompts });
-      }),
-    );
+      },
+    };
+  }
+
+  private async registerListeners(sid: number): Promise<void> {
+    const handlers = this.handlers(sid);
+    for (const name of SSH_EVENT_NAMES) {
+      this.unlisteners.push(
+        await this.transport.listen(name, (raw) => {
+          if (!shouldAcceptEvent((raw as { session_id: number }).session_id, sid)) return;
+          (handlers[name] as (p: unknown) => void)(raw);
+        }),
+      );
+    }
   }
 }

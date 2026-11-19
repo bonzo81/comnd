@@ -64,7 +64,12 @@ choice):
 | Suggestion dropdown rows | ~8 | 5 max (COGA ≤5 visible choices) | fixed bump |
 | Prose word spacing | normal | 0.1em | fixed bump |
 | Prose line height | 1.5 | 1.6 | fixed bump |
-| Prose max width | none | 68ch (help panel + KB descriptions; never the terminal) | fixed bump |
+| Prose max width | 72ch | 68ch | fixed bump |
+
+Reading Comfort always narrows the measure further: the base UI caps prose at
+a 72ch line so ordinary descriptions stay readable, and the mode tightens
+that to 68ch. Neither value applies to the terminal, whose measure is the
+window width.
 
 Terminal line height stays conservative (1.4, not prose's 1.6): rows get too
 airy at terminal densities and cell height feeds ghost-text positioning.

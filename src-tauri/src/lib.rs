@@ -252,6 +252,15 @@ async fn test_smoke_auth_urls() -> Result<Vec<String>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The mock host's login URL fixture (debug only). The smoke driver reads it
+/// here instead of repeating the literal, so the mock and its assertion share
+/// one definition (issue #107).
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_mock_auth_url() -> Result<String, String> {
+    Ok(test_server::MOCK_AUTH_URL.to_string())
+}
+
 /// Every PTY size the mock host has been asked for, oldest first.
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -661,6 +670,8 @@ pub fn run() {
                 test_smoke_open_url_calls,
                 #[cfg(debug_assertions)]
                 test_smoke_auth_urls,
+                #[cfg(debug_assertions)]
+                test_smoke_mock_auth_url,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
                 #[cfg(debug_assertions)]

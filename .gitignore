@@ -27,8 +27,7 @@ docs/*.pdf
 .opencode/
 .omo/
 .serena/
-.impeccable/hook.cache.json
-.impeccable/config.local.json
+.impeccable/
 
 # Headroom
 .headroom/
