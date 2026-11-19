@@ -191,7 +191,9 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
 
 * Anchored bottom-left of the terminal pane — never obscures the current input line
 * Maximum 8 visible items, scroll indicator if more
-* Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief)
+* Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief). The
+  highlight grows with each character typed, carries into multi-word names, and holds the whole
+  name once the line moves on to arguments
 * Selected item has highlighted background (accent tint)
 * Category shown as muted text right-aligned in each row (e.g. `networking`)
 * Surface is translucent (`color-mix` of `--color-surface-elevated` at 50%) with a 4px backdrop

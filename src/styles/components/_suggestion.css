@@ -171,14 +171,17 @@
 }
 
 .suggestion-name {
-  flex: 1;
-  /* The row's subject, so it holds its natural width. `flex: 1` is
-     `flex-basis: 0`, and `overflow: hidden` drops the automatic minimum size,
-     so a wide syntax suffix took the whole row and shrank the title to nothing:
-     the scp row measured 0px for its name, ssh 0px and sort 4px, which is why
-     the longest rows lost their title and read as a small syntax blurb. Flooring
-     it at its content makes the suffix ellipsize instead. */
-  min-width: max-content;
+  flex: 1 1 auto;
+  /* The row's subject, so it holds its natural width and the syntax suffix
+     yields first. `flex: 1` is `flex-basis: 0`, which started the name at zero
+     width, so a wide suffix took the whole row: the scp row measured 0px for
+     its name, ssh 0px and sort 4px, which is why the longest rows lost their
+     title and read as a small syntax blurb. An auto basis keeps the content
+     width. The zero floor lets the name ellipsize once the suffix is empty and
+     the name alone outgrows the dropdown's 500px cap, which a max-content floor
+     blocked: that row measured 476px of name with its category pushed 69px past
+     the panel and clipped away. */
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -205,7 +208,10 @@
   margin-left: var(--space-2);
   margin-right: var(--space-2);
   white-space: nowrap;
-  flex-shrink: 1;
+  /* Yields before the name does. Flexbox shares a deficit by shrink factor, so
+     a large factor empties the suffix first and only then does the name give up
+     characters — the name keeps priority over the hint without a hard floor. */
+  flex-shrink: 1000;
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.7;
