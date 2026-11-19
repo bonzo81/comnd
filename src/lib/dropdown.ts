@@ -350,18 +350,23 @@ export class Dropdown {
   }
 
   private highlightPrefix(name: string, prefix: string): string {
-    // The highlight follows the command word, not the whole line, so it grows
-    // with each typed character and stays put once arguments follow a space.
-    const typed = prefix.split(/\s+/)[0] ?? "";
-    if (!typed) return escHtml(name);
+    // The highlight covers however much of the name the typed line still
+    // agrees with, so it grows with each character — including inside a
+    // multi-word name ("show in" highlights "show in" of "show interfaces")
+    // — and holds the whole name once the line moves on to arguments.
+    const typed = prefix.trimEnd().toLowerCase();
     const lower = name.toLowerCase();
-    const lowerPrefix = typed.toLowerCase();
-    if (lower.startsWith(lowerPrefix)) {
-      const matched = name.substring(0, typed.length);
-      const rest = name.substring(typed.length);
-      return `<span class="prefix-match">${escHtml(matched)}</span>${escHtml(rest)}`;
+    let matched = 0;
+    while (matched < typed.length && matched < lower.length && typed[matched] === lower[matched]) {
+      matched++;
     }
-    return escHtml(name);
+    // Only a row that still agrees with everything typed so far is highlighted:
+    // either the name continues the typed text, or the text has run past the
+    // full name into its arguments.
+    if (matched === 0 || (matched !== typed.length && matched !== lower.length)) {
+      return escHtml(name);
+    }
+    return `<span class="prefix-match">${escHtml(name.substring(0, matched))}</span>${escHtml(name.substring(matched))}`;
   }
 }
 

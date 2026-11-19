@@ -218,6 +218,28 @@ describe("Dropdown — row rendering", () => {
     expect(container.querySelector(".prefix-match")?.textContent).toBe("ss");
   });
 
+  it("keeps growing the highlight inside a multi-word command name", () => {
+    const { dropdown, container } = makeDropdown();
+    const show = makeResult(makeCommand("show interfaces"));
+
+    dropdown.show([show], "show");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show");
+
+    dropdown.updateResults([show], "show in");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show in");
+
+    dropdown.updateResults([show], "show int");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show int");
+  });
+
+  it("stops the highlight at the name boundary when arguments follow", () => {
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(makeCommand("show interfaces"))], "show interfaces status");
+
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show interfaces");
+  });
+
   it("skips the typed-text highlight on prefix-command rows", () => {
     const prefixRow = makeResult(makeCommand("systemctl restart"), { prefix: "sudo" });
     const plainRow = makeResult(makeCommand("system status"));
