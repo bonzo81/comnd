@@ -46,5 +46,6 @@
   color: var(--color-text-secondary);
   max-width: var(--prose-max-width);
   margin: 0 auto var(--space-4);
-  line-height: var(--font-leading-body);
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
 }
