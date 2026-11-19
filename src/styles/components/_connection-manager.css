@@ -37,11 +37,15 @@
 
 .cm-empty-state h2 {
   font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-display);
   margin-bottom: var(--space-3);
 }
 
 .cm-empty-state p {
   color: var(--color-text-secondary);
-  margin-bottom: var(--space-4);
-  line-height: 1.6;
+  max-width: var(--prose-max-width);
+  margin: 0 auto var(--space-4);
+  line-height: var(--prose-line-height);
+  word-spacing: var(--prose-word-spacing);
 }

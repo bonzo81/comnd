@@ -24,7 +24,9 @@
 .tv-overlay-title {
   font-family: var(--font-mono);
   font-size: var(--font-size-xl);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-title);
+  letter-spacing: var(--font-tracking-display);
   color: var(--color-text-primary);
   margin-bottom: var(--space-6);
 }
@@ -59,7 +61,7 @@
   font-size: var(--font-size-base);
   color: var(--color-error);
   margin-bottom: var(--space-4);
-  line-height: 1.5;
+  line-height: var(--font-leading-body);
   word-break: break-word;
 }
 
@@ -91,7 +93,7 @@
   white-space: pre-wrap;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  line-height: 1.5;
+  line-height: var(--font-leading-body);
   color: var(--color-text-secondary);
   word-break: break-all;
 }
@@ -201,7 +203,7 @@
 
 .toast-message {
   flex: 1;
-  line-height: 1.4;
+  line-height: var(--font-leading-meta);
 }
 
 .toast-close {
@@ -212,7 +214,7 @@
   cursor: pointer;
   font-size: var(--font-size-xl);
   padding: 0;
-  line-height: 1;
+  line-height: var(--font-leading-solid);
 }
 
 .toast-close:hover {

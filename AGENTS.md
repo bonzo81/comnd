@@ -69,7 +69,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 ### CSS
 
 - CSS custom properties for all colors (defined in `:root` in `src/styles/tokens.css`)
-- Tokens only — no raw px font sizes, colors, or shadows in component CSS; use `--font-size-*`, `--color-*`, `--shadow-*`, `--radius-*`
+- Tokens only — no raw px font sizes, font weights, line heights, letter spacings, colors, or shadows in component CSS; use `--font-size-*`, `--font-weight-*`, `--font-leading-*`, `--font-tracking-*`, `--color-*`, `--shadow-*`, `--radius-*`
 - One input class: `.form-input` (+ `.form-input-sm` size modifier). Do not hand-roll new input/select styles; compose with layout-only classes
 - No `var()` fallbacks for tokens — tokens are always defined
 - No inline `style="..."` in TS markup except dynamic values (positions, indents); everything else gets a class
@@ -77,7 +77,7 @@ Implementation plans live in `docs/plans/`. Read the plan document for a feature
 - Multiple app themes (dark, light, solarized) — tokens in `tokens.css`, component styles in `src/styles/components/`
 - JetBrains Mono for terminal and code; Inter for UI text (via `@fontsource`)
 
-The token standard is `docs/adr/018-css-token-naming-standard.md`; `npm run lint:css` enforces it in the `frontend` job. Namespaces are `--color-*`, `--space-*`, `--font-size-*`, `--radius-*`, `--shadow-*`, `--focus-ring-*`, `--ghost-*`, `--prose-*`, plus `--local-*` for a value scoped to one component. Colour roles include `--color-fg-on-danger` (text on a danger fill), `--color-scrollbar-thumb(-hover)` and `--color-focus-ring`. A component must not reach for a primitive as a role, and `--local-*` must never hold a colour.
+The token standard is `docs/adr/018-css-token-naming-standard.md`; `npm run lint:css` enforces it in the `frontend` job. Namespaces are `--color-*`, `--space-*`, `--font-size-*`, `--font-weight-*`, `--font-leading-*`, `--font-tracking-*`, `--radius-*`, `--shadow-*`, `--focus-ring-*`, `--ghost-*`, `--prose-*`, plus `--local-*` for a value scoped to one component. Colour roles include `--color-fg-on-danger` (text on a danger fill), `--color-scrollbar-thumb(-hover)` and `--color-focus-ring`. A component must not reach for a primitive as a role, and `--local-*` must never hold a colour. Only the Inter weights that `@fontsource` loads (400/500/600) are available — a `700` in the UI would be synthesised bold, so use `--font-weight-semibold`; JetBrains Mono does ship 700 and is the one face allowed to use `--font-weight-bold`.
 
 ## Knowledge Base
 
