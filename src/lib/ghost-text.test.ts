@@ -30,14 +30,30 @@ function makeGhost(cursorX = 3) {
   screen.getBoundingClientRect = () => rect;
   container.getBoundingClientRect = () => rect;
 
+  // One entry per terminal column: a wide character is one entry plus an empty
+  // one for its second cell, and a full row is padded out to `cols`.
+  type Row = { cells: string[]; isWrapped?: boolean };
+  const makeRow = (cells: string[], isWrapped: boolean) => ({
+    isWrapped,
+    translateToString(trimRight = false, startCol = 0, endCol = cells.length) {
+      const text = cells.slice(startCol, endCol).join("");
+      return trimRight ? text.replace(/\s+$/, "") : text;
+    },
+  });
+
   const buffer = {
     cursorX,
     cursorY: 2,
-    /** Text the screen shows on the cursor row, as xterm would report it. */
+    baseY: 0,
+    /** Text the screen shows on the cursor row, one cell per character. */
     line: "",
+    /** Rows by absolute buffer index, for scrollback and soft wraps. */
+    rows: new Map<number, Row>(),
     getLine(row: number) {
-      if (row !== buffer.cursorY) return undefined;
-      return { translateToString: () => buffer.line };
+      const custom = buffer.rows.get(row);
+      if (custom) return makeRow(custom.cells, custom.isWrapped ?? false);
+      if (row === buffer.baseY + buffer.cursorY) return makeRow([...buffer.line], false);
+      return undefined;
     },
   };
   const parsedListeners: Array<() => void> = [];
@@ -228,6 +244,114 @@ describe("GhostText — echo anchor", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reads the cursor row past scrollback, not the row at that viewport offset", () => {
+    const { ghost, buffer } = makeGhost(4);
+    buffer.baseY = 5;
+    // Once the screen has scrolled, the cursor sits five rows into scrollback.
+    // Row 2 is what a viewport-relative read lands on, and it holds unrelated
+    // scrollback — reading it defers every prediction to the fallback.
+    buffer.rows.set(2, { cells: [..."garbage"] });
+    buffer.line = "sudo";
+
+    ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+
+    expect(ghost.isShowing()).toBe(true);
+  });
+
+  it("bounds the checked prefix by cells, not string characters", () => {
+    const { ghost, buffer } = makeGhost(6);
+    // `界$ hi` on a ten-column row: the wide glyph takes two cells, so the
+    // cursor sits at cell 6 while the prefix is only five characters long.
+    buffer.rows.set(2, { cells: ["界", "", "$", " ", "h", "i", " ", " ", " ", " "] });
+
+    ghost.showPayload({ kind: "text", text: "story" }, 0, "hi");
+
+    expect(ghost.isShowing()).toBe(true);
+  });
+
+  it("matches input that wrapped onto the next row", () => {
+    const { ghost, buffer } = makeGhost(9);
+    buffer.cursorY = 3;
+    buffer.rows.set(2, { cells: [..."cat /var/l"] });
+    buffer.rows.set(3, { cells: [..."og/syslog "], isWrapped: true });
+
+    ghost.showPayload({ kind: "text", text: " x" }, 0, "cat /var/log/syslog");
+
+    expect(ghost.isShowing()).toBe(true);
+  });
+
+  it("holds the painted position while the echo is only part way in", () => {
+    const { ghost, buffer, el, cellWidth, parseOutput } = makeGhost(3);
+    buffer.line = "his";
+    ghost.showPayload({ kind: "text", text: "tory" }, 0);
+
+    // `to` typed, but only the `t` has been echoed. The glyphs on screen are
+    // anchored after `his`; moving them to the new cursor would draw them past
+    // the part of the input that has landed, reading as the word twice over.
+    buffer.line = "hist";
+    buffer.cursorX = 4;
+    ghost.showPayload({ kind: "text", text: "ry" }, 0, "histo");
+    const anchored = parseFloat(el.style.left);
+    parseOutput();
+
+    expect(parseFloat(el.style.left)).toBe(anchored);
+    expect(el.textContent).toBe("tory");
+
+    buffer.line = "histo";
+    buffer.cursorX = 5;
+    parseOutput();
+
+    expect(el.textContent).toBe("ry");
+    expect(parseFloat(el.style.left) - anchored).toBe(2 * cellWidth);
+  });
+
+  it("keeps the first deadline when predictions keep arriving", () => {
+    vi.useFakeTimers();
+    try {
+      const { ghost, buffer, el } = makeGhost(3);
+      buffer.line = "sud";
+      ghost.showPayload({ kind: "text", text: "o" }, 0, "sudo");
+
+      // A host that never echoes defers on every keystroke. Restarting the
+      // clock each time would hide the ghost for as long as the typing lasts.
+      vi.advanceTimersByTime(300);
+      ghost.showPayload({ kind: "text", text: "o " }, 0, "sudo ");
+      vi.advanceTimersByTime(200);
+
+      expect(ghost.isShowing()).toBe(true);
+      expect(el.textContent).toBe("o ");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not restore a remainder that word acceptance advanced", () => {
+    const { ghost, buffer, el, parseOutput } = makeGhost(7);
+    buffer.line = "show in";
+    ghost.showPayload({ kind: "text", text: "faces brief" }, 0);
+
+    // `inter` typed but not yet echoed: this paint is pending.
+    ghost.showPayload({ kind: "text", text: "faces brief" }, 0, "show inter");
+    // Alt+Right sends `faces ` and advances the remainder to `brief`.
+    expect(ghost.acceptNextWord()).toBe("faces ");
+
+    buffer.line = "show inter";
+    buffer.cursorX = 10;
+    parseOutput();
+
+    // The echo of `show inter` landed. The pending paint must carry what Tab
+    // sends next, not the fragment Tab has already sent.
+    expect(el.textContent).toBe("faces brief");
+    expect(ghost.getCurrentRemainder()).toBe("brief");
+
+    buffer.line = "show interfaces ";
+    buffer.cursorX = 16;
+    parseOutput();
+
+    expect(el.textContent).toBe("brief");
+    expect(ghost.getCurrentRemainder()).toBe("brief");
   });
 });
 
