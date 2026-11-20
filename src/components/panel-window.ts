@@ -41,7 +41,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     <div class="panel-window">
       <header class="pw-head" data-tauri-drag-region="deep">
         <h1 class="pw-title">Panel</h1>
-        <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="Control+Shift+B">Dock</button>
+        <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="Control+Shift+B">${icons.dock}<span>Dock</span></button>
         <button type="button" class="btn-text pw-close" id="panel-close" aria-label="Close panel" title="Close panel" aria-keyshortcuts="Escape">${icons.x}</button>
       </header>
       <div class="sb-toggle" role="tablist" aria-label="Panel content">

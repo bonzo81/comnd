@@ -111,6 +111,20 @@ back is still the first control the keyboard reaches. `core:window:allow-start-d
 the one added permission: `core:window:default` already grants `internal_toggle_maximize`,
 which is what a double-click on the header needs.
 
+## Follow-up after review: both controls carry a word and an icon
+
+Manual review found the two halves of the same action labelled inconsistently — the docked
+panel's Undock control was icon-only while the undocked window's Dock control was word-only.
+Both now read word + icon: `icons.undock` plus "Undock" in the tab strip, and a new
+`icons.dock` plus "Dock" in the header. The `dock` glyph is an arrow entering a frame rather
+than a mirrored `undock`, because a mirrored arrow still reads as "leave" pointed the wrong
+way. `.panel-window .pw-dock` centres the pair with the same `--space-1` gap `.sb-undock-btn`
+uses and matches its `--font-size-sm`, so the two homes look like one control. The labelled
+Undock button is `flex: 0 0 auto` against `flex: 1` tabs with `min-width: 0`, so the strip
+holds at the 320px default width and degrades by wrapping the tab labels, never by
+overflowing. Close stays icon-only: it is not the pair, and two words and two glyphs in a
+narrow frameless header would crowd the drag region.
+
 ## Verification
 
 Recorded on Windows 11, Node 24.14.0, cargo 1.93.1, `msedgedriver.exe` matching

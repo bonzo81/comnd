@@ -636,7 +636,7 @@ export class TerminalView {
                 title="Undock side panel into its own window"
                 aria-label="Undock side panel"
                 aria-keyshortcuts="Control+Shift+B"
-              >${icons.undock}</button>
+              >${icons.undock}<span>Undock</span></button>
             </div>
             <div class="sb-content">
               <p class="sb-placeholder">Select a suggestion to see command details</p>
