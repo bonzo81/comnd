@@ -23,6 +23,7 @@ mod replay;
 mod secrets;
 mod platform;
 mod state;
+mod panel;
 
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
@@ -574,6 +575,9 @@ pub fn run() {
                 netbox_mock: Mutex::new(None),
             });
 
+            // The undocked panel window must not outlive the main window.
+            panel::attach_main_window_cleanup(app.handle());
+
             Ok(())
         })
         .invoke_handler({
@@ -652,6 +656,15 @@ pub fn run() {
                 replay::replay_list,
                 replay::replay_save,
                 replay::replay_delete,
+                panel::panel_get_state,
+                panel::panel_set_undocked,
+                panel::panel_set_docked_width,
+                panel::panel_open,
+                panel::panel_close,
+                #[cfg(debug_assertions)]
+                panel::test_panel_windows,
+                #[cfg(debug_assertions)]
+                panel::test_panel_set_geometry,
                 #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]

@@ -1,0 +1,48 @@
+/* ─── Undocked panel window (docs/plans/066-plan-side-panel-undock.md) ─── */
+
+/* The panel window reuses the app document, so the shell layout it inherits
+   (title bar gutter, outer padding) is undone here rather than forked into a
+   second stylesheet: this window has no title bar, and its content is the
+   panel. */
+[data-comnd-window="panel"] #app {
+  gap: 0;
+  padding: 0;
+}
+
+.panel-window {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface-secondary);
+}
+
+.pw-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pw-title {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-tracking-label);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+/* The tab strip and content are the docked panel's own classes, so the two
+   homes cannot drift; only the chrome around them differs. */
+.panel-window .sb-toggle {
+  padding-top: 0;
+}
+
+.panel-window .sb-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}

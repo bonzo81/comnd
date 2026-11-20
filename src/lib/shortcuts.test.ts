@@ -477,7 +477,7 @@ describe("initShortcuts", () => {
 
 describe("SHORTCUT_DEFS", () => {
   it("defaults match the spec table and are unique per id", () => {
-    expect(SHORTCUT_DEFS.length).toBe(12);
+    expect(SHORTCUT_DEFS.length).toBe(13);
     const ids = new Set(SHORTCUT_DEFS.map((d) => d.id));
     expect(ids.size).toBe(SHORTCUT_DEFS.length);
     for (const def of SHORTCUT_DEFS) {
@@ -489,5 +489,13 @@ describe("SHORTCUT_DEFS", () => {
   it("new-connection and disconnect resolve to their spec-table defaults", () => {
     expect(resolvedCombo("new-connection")).toBe("Mod+N");
     expect(resolvedCombo("disconnect")).toBe("Mod+Shift+Q");
+  });
+
+  it("the side panel toggle is terminal-scoped and never Ctrl+W", () => {
+    const def = SHORTCUT_DEFS.find((d) => d.id === "toggle-side-panel");
+    expect(def).toBeDefined();
+    expect(def!.scope).toBe("terminal");
+    expect(resolvedCombo("toggle-side-panel")).toBe("Mod+Shift+B");
+    expect(reservedComboReason("Mod+Shift+B")).toBeNull();
   });
 });

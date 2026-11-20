@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for Comnd",
-  "windows": ["main"],
+  "windows": ["main", "panel"],
   "permissions": [
     "core:default",
     "core:event:default",

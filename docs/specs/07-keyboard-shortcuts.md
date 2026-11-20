@@ -15,6 +15,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `↑` / `↓` | Navigate dropdown (if open) / pass through to remote (if closed) | Terminal |
 | `Enter`  | Send command to remote (always); closes dropdown if open | Terminal |
 | `Ctrl+Shift+F` | Search terminal scrollback | Terminal |
+| `Ctrl+Shift+B` | Open side panel → undock it into its own window → dock it back | Terminal |
 | `Ctrl+Shift+W` | Close active tab (with confirm) | Terminal |
 | `Ctrl+Shift+Q` | Disconnect active session (with confirm) | Terminal |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom terminal font in / out / reset | Terminal |
@@ -50,6 +51,12 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | Shortcut | Action |
 |----------|--------|
 | `↑` / `↓` | Scroll content (when panel is focused) |
+| `Ctrl+Shift+B` | Open / undock / dock the panel — see below |
+| `Escape` | In the undocked panel window: close it (the panel stays undocked for the next open) |
+
+`Ctrl+Shift+B` is the whole panel lifecycle from the keyboard, cycled rather than toggled so undocking is reachable without a mouse: closed → open docked → undocked in its own window → docked again. It works from both windows, so the same chord brings an undocked panel home. The mouse equivalents are the Dock control in the undocked window's header and the Undock control in the docked panel's tab strip; the `.tv-panel-btn` toolbar button still only shows and hides the docked panel.
+
+The undocked window never opens itself at launch, even when the app was quit while undocked: the panel state is remembered, so the next open puts the panel straight back into its own window at the saved geometry.
 
 ## Escape Cascade
 

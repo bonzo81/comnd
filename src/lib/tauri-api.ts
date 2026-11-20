@@ -341,6 +341,8 @@ export interface AppConfig {
   session_log_dir: string | null;
   /** User shortcut overrides (docs/specs/11): action id -> canonical combo. */
   shortcuts?: Record<string, string>;
+  /** Side panel home and geometry (docs/plans/066). */
+  panel?: PanelConfig;
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
@@ -614,6 +616,55 @@ export async function replaySave(cmd: ReplayCommand): Promise<ReplayCommand> {
 
 export async function replayDelete(id: string): Promise<void> {
   return invoke<void>("replay_delete", { id });
+}
+
+// ─── Side panel (docs/plans/066-plan-side-panel-undock.md) ───────────
+
+/** Position and size of the undocked panel window, in physical pixels. */
+export interface PanelWindowGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PanelConfig {
+  /** The user's choice of home; never whether the panel is open. */
+  undocked: boolean;
+  docked_width: number;
+  window: PanelWindowGeometry | null;
+}
+
+export async function panelGetState(): Promise<PanelConfig> {
+  return invoke<PanelConfig>("panel_get_state");
+}
+
+export async function panelSetUndocked(undocked: boolean): Promise<void> {
+  return invoke<void>("panel_set_undocked", { undocked });
+}
+
+export async function panelSetDockedWidth(width: number): Promise<number> {
+  return invoke<number>("panel_set_docked_width", { width });
+}
+
+export async function panelOpen(): Promise<PanelWindowGeometry> {
+  return invoke<PanelWindowGeometry>("panel_open");
+}
+
+export async function panelClose(): Promise<void> {
+  return invoke<void>("panel_close");
+}
+
+/** Debug-only: every app window with its rectangle (smoke suite). */
+export async function testPanelWindows(): Promise<
+  { label: string; x: number; y: number; width: number; height: number; visible: boolean; focused: boolean }[]
+> {
+  return invoke("test_panel_windows");
+}
+
+/** Debug-only: place the panel window and persist the rectangle (smoke suite). */
+export async function testPanelSetGeometry(geometry: PanelWindowGeometry): Promise<void> {
+  return invoke<void>("test_panel_set_geometry", { ...geometry });
 }
 
 // ─── NetBox Host Source Commands (plan §8.2) ─────────────────────────

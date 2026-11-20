@@ -27,14 +27,29 @@ import {
   replayList,
 } from "../lib/tauri-api";
 import { ReplaySaveDialog } from "./replay-save-dialog";
-import { substitute, renderReplayTemplate } from "../lib/replay";
+import { substitute } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
 import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
 import { GhostText } from "../lib/ghost-text";
-import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
+import {
+  DOCKED_WIDTH_MAX,
+  DOCKED_WIDTH_MIN,
+  closeSidePanel,
+  getSidePanelState,
+  setSidePanelDockedWidth,
+  setSidePanelError,
+  setSidePanelMode,
+  setSidePanelSnapshot,
+  setPanelUndocked,
+  subscribeSidePanel,
+  toggleSidePanel,
+  type SidePanelSnapshot,
+  type SidePanelState,
+} from "../lib/side-panel";
+import { renderSidePanel, type SidePanelHandlers } from "../lib/side-panel-render";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { StreamingTextDecoder } from "../lib/stream-decoder";
@@ -150,9 +165,15 @@ export class TerminalView {
   private onDisconnectCb: () => void;
   private onSessionDiedCb: () => void;
   private onRequestCloseCb: () => void;
-  private sidePanelOpen = false;
-  private sidePanelMode: "kb" | "replay" = "kb";
   private replayItems: ReplayCommand[] = [];
+  /** True only for the tab whose session owns the app-wide panel (ADR-013):
+   *  every tab stays mounted, so exactly one may publish panel content. */
+  private panelActive = false;
+  private panelUnsubscribe: (() => void) | null = null;
+  private panelHandlers: SidePanelHandlers | null = null;
+  private panelLayoutKey = "";
+  private panelSettleKey = "";
+  private renderedPanelSnapshot: SidePanelSnapshot | null = null;
   private sidebarResizing = false;
   private sidebarResizeRaf = 0;
   private host: Host | null = null;
@@ -174,7 +195,6 @@ export class TerminalView {
   private controller: SuggestionController;
   private ghostText: GhostText | null = null;
   private dropdown: Dropdown | null = null;
-  private sidebarContent: SidebarContent | null = null;
   private platformIndex: PlatformIndex | null = null;
   private currentMode = "";
   private outputBuffer: string[] = [];
@@ -239,8 +259,8 @@ export class TerminalView {
         placeholder: () => this.updateSidebarPlaceholder(),
       },
       ui: {
-        isSidebarOpen: () => this.sidePanelOpen,
-        dismissSidebar: () => this.toggleSidebar(),
+        isSidebarOpen: () => getSidePanelState().open,
+        dismissSidebar: () => closeSidePanel(),
         toggleSuggestions: () => setSuggestionsEnabled(!getSuggestionsEnabled()),
       },
       // Registry-resolved Ctrl+Space byte (plan 058 phase 4): a rebind to
@@ -368,6 +388,14 @@ export class TerminalView {
         return false;
       }
 
+      // Side-panel toggle (terminal scope, default Ctrl+Shift+B) — the byte is
+      // swallowed here and the action runs from the app's window listener, so
+      // exactly one owner reacts and the remote never sees the keystroke. The
+      // app handles it because the panel is app-wide (ADR-013).
+      if (e.type === "keydown" && matches(e, "terminal") === "toggle-side-panel") {
+        return false;
+      }
+
       return true; // let all other keys through
     });
 
@@ -420,7 +448,7 @@ export class TerminalView {
     if (!selection) return;
     this.terminal?.clearSelection();
     new ReplaySaveDialog(selection, this.host?.platform ?? "linux-bash", () => {
-      if (this.sidePanelMode === "replay" && this.sidePanelOpen) void this.showReplayPanel();
+      if (getSidePanelState().open && getSidePanelState().mode === "replay") void this.showReplayPanel();
     }).open();
   }
 
@@ -602,6 +630,13 @@ export class TerminalView {
             <div class="sb-toggle" role="tablist" aria-label="Panel content">
               <button class="sb-toggle-btn sb-toggle-kb active" role="tab" aria-selected="true">Knowledge Base</button>
               <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false">Command Replay</button>
+              <button
+                class="sb-undock-btn"
+                id="panel-undock"
+                title="Undock side panel into its own window"
+                aria-label="Undock side panel"
+                aria-keyshortcuts="Control+Shift+B"
+              >${icons.undock}</button>
             </div>
             <div class="sb-content">
               <p class="sb-placeholder">Select a suggestion to see command details</p>
@@ -700,10 +735,24 @@ export class TerminalView {
 
     // Panel toggle
     this.$(".tv-panel-btn")!.addEventListener("click", () => {
-      this.toggleSidebar();
+      toggleSidePanel();
+    });
+    // Undock from the docked home; Mod+Shift+B reaches the same place by key.
+    this.$("#panel-undock")?.addEventListener("click", () => {
+      void setPanelUndocked(true);
     });
     this.initSidebarResize();
     this.initSidebarToggle();
+    // The panel is app-wide (ADR-013) and lives in lib/side-panel.ts; this view
+    // paints its state into the docked home and, while it is the active tab,
+    // keeps the subject in step with the prompt.
+    this.panelHandlers = {
+      play: (command) => this.playReplay(command),
+      add: () => this.openReplaySaveDialog(),
+      runExample: (command) => this.runExampleCommand(command),
+    };
+    this.panelUnsubscribe = subscribeSidePanel((state) => this.applyPanelState(state));
+    this.applyPanelState(getSidePanelState());
 
     // Scrollback search (toolbar button + Ctrl+Shift+F)
     const searchBtn = this.$(".tv-search-btn")!;
@@ -945,7 +994,6 @@ export class TerminalView {
           this.dropdown = new Dropdown(termContainer, (cmd, payload) => {
             this.controller.acceptFromDropdown(cmd, payload);
           });
-          this.sidebarContent = new SidebarContent();
           // Output highlighter — per-host profile ("auto" → use platform)
           const hlProfile = this.host?.highlight_profile;
           const hlPlatform = hlProfile && hlProfile !== "auto"
@@ -1280,19 +1328,73 @@ export class TerminalView {
     await this.connect(this.host);
   }
 
-  private toggleSidebar() {
-    this.sidePanelOpen = !this.sidePanelOpen;
-    const sidebar = this.$(".tv-sidebar")!;
-    sidebar.classList.toggle("hidden", !this.sidePanelOpen);
-    this.$(".tv-resizer")?.classList.toggle("hidden", !this.sidePanelOpen);
-    this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(this.sidePanelOpen));
-    // Opening is one of the two deliberate changes of the panel's subject; the
-    // width itself lands in this frame, so only the content settles.
-    if (this.sidePanelOpen) {
-      if (this.sidePanelMode === "replay") void this.showReplayPanel();
-      else this.settleSidebarContent();
+  // ─── Side panel layout (ADR-003, plan 066) ────────────────────────
+
+  /**
+   * Paint the app-wide panel state into this view's docked home.
+   *
+   * Closed, or undocked into its own window, the sidebar and its resizer stay
+   * hidden so the terminal takes the full width — that is what undocking is
+   * for. `refitForPanel` then turns the extra columns into a PTY resize through
+   * fit() → terminal.onResize → ssh_resize, the one path ADR-003 allows.
+   */
+  private applyPanelState(state: SidePanelState): void {
+    const docked = state.open && !state.undocked;
+    const sidebar = this.$(".tv-sidebar");
+    const content = this.$(".sb-content");
+
+    sidebar?.classList.toggle("hidden", !docked);
+    this.$(".tv-resizer")?.classList.toggle("hidden", !docked);
+    if (sidebar) sidebar.style.width = docked ? `${this.clampDockedWidth(state.dockedWidth)}px` : "";
+    this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(state.open));
+
+    for (const mode of ["kb", "replay"] as const) {
+      const btn = this.$(`.sb-toggle-${mode}`);
+      btn?.classList.toggle("active", state.mode === mode);
+      btn?.setAttribute("aria-selected", String(state.mode === mode));
     }
-    setTimeout(() => {
+
+    if (!docked) {
+      this.renderedPanelSnapshot = null;
+    } else if (this.panelActive && content && this.panelHandlers &&
+               state.snapshot !== this.renderedPanelSnapshot) {
+      this.renderedPanelSnapshot = state.snapshot;
+      renderSidePanel(content, state.snapshot, this.panelHandlers);
+    }
+
+    // A new subject (open, tab switch, mode change) settles the pane; the
+    // keystroke path never does — see settleSidebarContent.
+    const settleKey = `${docked}|${state.mode}|${this.panelActive}`;
+    if (docked && settleKey !== this.panelSettleKey) this.settleSidebarContent();
+    this.panelSettleKey = settleKey;
+
+    // Only a change of occupied width needs a refit: a drag already fits on
+    // every pointer frame, and a snapshot change never moves the pane.
+    const layoutKey = docked ? `open|${state.dockedWidth}` : "closed";
+    if (layoutKey !== this.panelLayoutKey) {
+      this.panelLayoutKey = layoutKey;
+      this.refitForPanel();
+    }
+  }
+
+  /**
+   * Keep the saved width inside this window's cap without writing the clamped
+   * value back: docking again in a wider window restores the saved width.
+   */
+  private clampDockedWidth(width: number): number {
+    const clamped = Math.max(DOCKED_WIDTH_MIN, Math.min(DOCKED_WIDTH_MAX, Math.round(width)));
+    const mainWidth = this.$(".tv-main")?.clientWidth ?? 0;
+    // A hidden tab reports 0 — clamping against it would collapse the pane.
+    if (mainWidth <= 0) return clamped;
+    return Math.min(Math.max(DOCKED_WIDTH_MIN, Math.floor(mainWidth * 0.6)), clamped);
+  }
+
+  /** Refit after the pane's width changes; its CSS transition settles later. */
+  private refitForPanel(): void {
+    if (this.sidebarResizing) return; // the drag loop owns fit() while it runs
+    this.fitAddon?.fit();
+    this.ghostText?.reposition();
+    window.setTimeout(() => {
       this.fitAddon?.fit();
       this.ghostText?.reposition();
     }, 250);
@@ -1303,14 +1405,13 @@ export class TerminalView {
     const sidebar = this.$(".tv-sidebar");
     if (!resizer || !sidebar) return;
 
-    const clampWidth = (width: number) => {
-      const main = this.$(".tv-main");
-      const max = Math.max(240, Math.floor((main?.clientWidth ?? width) * 0.6));
-      return Math.min(max, Math.max(240, width));
-    };
+    const clampWidth = (width: number) => this.clampDockedWidth(width);
 
     const applyWidth = (width: number) => {
-      sidebar.style.width = `${Math.round(clampWidth(width))}px`;
+      const px = clampWidth(width);
+      sidebar.style.width = `${px}px`;
+      // Persist through the panel state, debounced — a drag is not 40 writes.
+      setSidePanelDockedWidth(px);
     };
 
     resizer.addEventListener("pointerdown", (e: PointerEvent) => {
@@ -1445,29 +1546,19 @@ export class TerminalView {
   }
 
   private updateSidebarDetail(command: Command) {
-    const content = this.$(".sb-content");
-    if (!content || !this.sidePanelOpen) return;
-    if (this.sidePanelMode === "replay") return; // replay panel owns the content
-    if (!this.sidebarContent) this.sidebarContent = new SidebarContent();
-    content.innerHTML = this.sidebarContent.render(command, this.platformIndex?.reference_url ?? null);
-    // Wire clickable examples
-    content.querySelectorAll(".example-item").forEach((el) => {
-      el.addEventListener("click", () => {
-        const cmd = (el as HTMLElement).dataset.command;
-        if (cmd && this.channel.state === "connected") {
-          this.sendData(cmd + "\r");
-          this.terminal?.focus();
-        }
-      });
+    if (!this.panelActive) return;
+    if (getSidePanelState().mode !== "kb") return; // the replay panel owns the content
+    setSidePanelSnapshot({
+      kind: "detail",
+      command,
+      referenceUrl: this.platformIndex?.reference_url ?? null,
     });
-    wireExampleCopy(content);
   }
 
   private updateSidebarPlaceholder() {
-    const content = this.$(".sb-content");
-    if (!content || !this.sidePanelOpen) return;
-    if (this.sidePanelMode === "replay") return;
-    content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
+    if (!this.panelActive) return;
+    if (getSidePanelState().mode !== "kb") return;
+    setSidePanelSnapshot({ kind: "placeholder", text: "Start typing to see suggestions" });
   }
 
   // ─── Command Replay panel (docs/specs/09-command-replay.md) ────────────
@@ -1475,82 +1566,78 @@ export class TerminalView {
   private initSidebarToggle() {
     const kbBtn = this.$(".sb-toggle-kb");
     const replayBtn = this.$(".sb-toggle-replay");
-    kbBtn?.addEventListener("click", () => this.setSidePanelMode("kb"));
-    replayBtn?.addEventListener("click", () => this.setSidePanelMode("replay"));
+    kbBtn?.addEventListener("click", () => this.setPanelMode("kb"));
+    replayBtn?.addEventListener("click", () => this.setPanelMode("replay"));
   }
 
-  private setSidePanelMode(mode: "kb" | "replay") {
-    this.sidePanelMode = mode;
-    this.$(".sb-toggle-kb")?.classList.toggle("active", mode === "kb");
-    this.$(".sb-toggle-replay")?.classList.toggle("active", mode === "replay");
-    this.$(".sb-toggle-kb")?.setAttribute("aria-selected", String(mode === "kb"));
-    this.$(".sb-toggle-replay")?.setAttribute("aria-selected", String(mode === "replay"));
-    const content = this.$(".sb-content");
-    if (!content) return;
-    if (mode === "kb") {
-      content.innerHTML = `<p class="sb-placeholder">Start typing to see suggestions</p>`;
-      this.settleSidebarContent();
-    } else {
-      void this.showReplayPanel();
-    }
+  private setPanelMode(mode: "kb" | "replay") {
+    setSidePanelMode(mode);
+    if (mode === "kb") this.updateSidebarPlaceholder();
+    else void this.showReplayPanel();
   }
 
-  private async showReplayPanel() {
-    const content = this.$(".sb-content");
-    if (!content || !this.sidePanelOpen) return;
+  /** Load the replay list into the panel for this session's platform. */
+  private async showReplayPanel(): Promise<void> {
+    if (!this.panelActive || !getSidePanelState().open) return;
+    const platform = this.host?.platform ?? "";
     try {
       this.replayItems = await replayList();
     } catch (e) {
-      content.innerHTML = `<p class="sb-placeholder">Failed to load Command Replay: ${e}</p>`;
-      this.settleSidebarContent();
+      setSidePanelError(`Failed to load Command Replay: ${e}`);
       return;
     }
-    this.renderReplayPanel();
+    setSidePanelSnapshot({ kind: "replay", items: this.replayItems, platform });
   }
 
-  private renderReplayPanel() {
-    const content = this.$(".sb-content");
-    if (!content) return;
-    const platform = this.host?.platform ?? "";
-    const items = this.replayItems.filter((c) => c.platform === platform);
-    const shown = items.length > 0 ? items : this.replayItems;
-    const list = shown
-      .map(
-        (c) => `
-        <div class="replay-item" data-id="${c.id}">
-          <code class="replay-cmd">${this.renderReplayTemplate(c.command)}</code>
-          <div class="replay-actions">
-            <button class="btn-text replay-play" data-id="${c.id}" title="Play into terminal" aria-label="Play command into terminal">▶ Play</button>
-          </div>
-        </div>`,
-      )
-      .join("");
-    content.innerHTML = `
-      <div class="replay-panel">
-        <div class="replay-panel-head">
-          ${items.length === 0 && this.replayItems.length > 0 ? `<p class="sb-placeholder">No commands for this platform — showing all</p>` : ""}
-          <button class="btn-text replay-add" title="Add command manually">+ Add command</button>
-        </div>
-        ${this.replayItems.length === 0
-          ? `<p class="sb-placeholder">No saved commands yet. Select text in the terminal, right-click → <strong>Add to Command Replay</strong>.</p>`
-          : `<div class="replay-list">${list}</div>`}
-      </div>
-    `;
-    content.querySelector(".replay-add")?.addEventListener("click", () => {
-      new ReplaySaveDialog("", platform, () => void this.showReplayPanel()).open();
-    });
-    content.querySelectorAll<HTMLButtonElement>(".replay-play").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const cmd = this.replayItems.find((c) => c.id === btn.dataset.id);
-        if (cmd) this.playReplay(cmd);
-      });
-    });
-    this.settleSidebarContent();
+  private openReplaySaveDialog(): void {
+    new ReplaySaveDialog("", this.host?.platform ?? "linux-bash", () => {
+      if (getSidePanelState().open && getSidePanelState().mode === "replay") {
+        void this.showReplayPanel();
+      }
+    }).open();
   }
 
-  /** Render a template, highlighting {{variables}} as chips. */
-  private renderReplayTemplate(command: string): string {
-    return renderReplayTemplate(command);
+  // ─── Panel commands from the undocked window (plan 066) ────────────
+  // The undocked window carries only action ids across IPC; these resolve
+  // them against the active session, which is the tab the docked panel
+  // would be showing (ADR-013).
+
+  /** Send a KB detail example to the remote device. */
+  runExampleCommand(command: string): void {
+    if (this.channel.state !== "connected") return;
+    this.sendData(command + "\r");
+    this.terminal?.focus();
+  }
+
+  /** Play a saved command by id. */
+  playReplayById(id: string): void {
+    const cmd = this.replayItems.find((c) => c.id === id);
+    if (cmd) this.playReplay(cmd);
+  }
+
+  /** Open the replay save dialog with no prefilled command. */
+  openReplaySave(): void {
+    this.openReplaySaveDialog();
+  }
+
+  /** Reload the replay list (App, after a tab takes over the panel). */
+  refreshReplayPanel(): Promise<void> {
+    return this.showReplayPanel();
+  }
+
+  /**
+   * The active tab owns the app-wide panel: only it publishes content, so the
+   * panel's subject follows the tab the way ADR-013 requires.
+   */
+  setPanelActive(active: boolean): void {
+    if (this.panelActive === active) return;
+    this.panelActive = active;
+    if (!active) return;
+    this.applyPanelState(getSidePanelState());
+    const state = getSidePanelState();
+    if (!state.open) return;
+    if (state.mode === "replay") void this.showReplayPanel();
+    else this.updateSidebarPlaceholder();
   }
 
   private esc(s: string): string {
@@ -1794,7 +1881,10 @@ export class TerminalView {
     this.dropdown?.destroy();
     this.dropdown = null;
     this.outputHighlighter = null;
-    this.sidebarContent = null;
+    this.panelUnsubscribe?.();
+    this.panelUnsubscribe = null;
+    this.panelHandlers = null;
+    this.renderedPanelSnapshot = null;
     this.platformIndex = null;
     if (this.sidebarResizeRaf) {
       cancelAnimationFrame(this.sidebarResizeRaf);

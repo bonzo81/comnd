@@ -21,6 +21,7 @@ import { getAppConfig } from "./tauri-api";
 export type ShortcutAction =
   | "open-settings"
   | "toggle-kb"
+  | "toggle-side-panel" // terminal scope
   | "close-session-tab"
   | "font-zoom-in"
   | "font-zoom-out"
@@ -71,6 +72,7 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "focus-search", label: "Focus global search", defaultKey: "/", scope: "global", section: "navigation", bareKeyOnly: true },
   // View
   { id: "toggle-kb", label: "Toggle Knowledge Base", defaultKey: "Mod+Shift+K", scope: "global", section: "view" },
+  { id: "toggle-side-panel", label: "Open / undock / dock side panel", defaultKey: "Mod+Shift+B", scope: "terminal", section: "view" },
   { id: "shortcuts-modal", label: "Toggle shortcuts help", defaultKey: "?", scope: "global", section: "view", bareKeyOnly: true },
   { id: "font-zoom-in", label: "Zoom terminal font in", defaultKey: "Mod+=", scope: "global", section: "view" },
   { id: "font-zoom-out", label: "Zoom terminal font out", defaultKey: "Mod+-", scope: "global", section: "view" },

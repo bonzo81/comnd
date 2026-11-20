@@ -66,6 +66,49 @@ pub struct AppConfig {
     /// e.g. "toggle-kb" -> "Mod+Shift+K".
     #[serde(default)]
     pub shortcuts: std::collections::HashMap<String, String>,
+    /// Side panel home and geometry (docs/plans/066). Never records whether the
+    /// panel is open — the panel always starts closed.
+    #[serde(default)]
+    pub panel: PanelConfig,
+}
+
+/// Side panel persisted state. See `crate::panel` for the window that uses it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PanelConfig {
+    /// Where the panel lives when opened: docked in the main window (`false`) or
+    /// in its own window (`true`). This is the user's choice, not the open state,
+    /// so relaunching with the panel closed never opens a window.
+    #[serde(default)]
+    pub undocked: bool,
+    /// Width of the docked panel, in CSS px. Clamped on read so a hand-edited
+    /// file cannot make the docked panel swallow the terminal.
+    #[serde(default = "default_panel_docked_width")]
+    pub docked_width: u32,
+    /// Rectangle of the undocked window in physical pixels. `None` means the
+    /// window has never been shown, so it opens centred on the primary monitor.
+    #[serde(default)]
+    pub window: Option<PanelWindowGeometry>,
+}
+
+impl Default for PanelConfig {
+    fn default() -> Self {
+        PanelConfig {
+            undocked: false,
+            docked_width: default_panel_docked_width(),
+            window: None,
+        }
+    }
+}
+
+/// Position and size of the undocked panel window, in physical pixels — the same
+/// units `outer_position()` and `inner_size()` report, so the saved rectangle
+/// round-trips through `set_position` + `set_size` without a DPI conversion.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PanelWindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Default for AppConfig {
@@ -87,8 +130,13 @@ impl Default for AppConfig {
             providers: Default::default(),
             host_sources: Default::default(),
             shortcuts: Default::default(),
+            panel: PanelConfig::default(),
         }
     }
+}
+
+fn default_panel_docked_width() -> u32 {
+    320
 }
 
 fn default_llm_api_format() -> String {
@@ -326,9 +374,13 @@ impl ConfigStore {
         self.apply_and_persist(|config| config.shortcuts = overrides)
     }
 
+    /// Replace the side panel state and persist (docs/plans/066).
+    pub fn set_panel(&mut self, panel: PanelConfig) -> Result<(), String> {
+        self.apply_and_persist(|config| config.panel = panel)
+    }
+
     /// Update session logging enabled/disabled and persist.
-    pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {
-        self.apply_and_persist(|config| config.session_logging = enabled)
+    pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {        self.apply_and_persist(|config| config.session_logging = enabled)
     }
 
     /// Update session log timestamps enabled/disabled and persist.

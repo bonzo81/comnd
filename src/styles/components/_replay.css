@@ -82,6 +82,27 @@
   color: var(--color-text-primary);
   border-bottom-color: var(--color-accent);
 }
+/* Undock control, pinned to the end of the panel's tab strip. */
+.sb-undock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  padding: var(--space-1-5) var(--space-2);
+  cursor: pointer;
+}
+.sb-undock-btn:hover {
+  color: var(--color-text-primary);
+}
+.sb-undock-btn svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
 
 /* Replay list in side panel */
 .replay-panel {
