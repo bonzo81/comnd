@@ -478,9 +478,29 @@ async function installSmokeHelpers(browser) {
       overlaps(scope) {
         const root = document.querySelector(scope);
         if (!root) return [`${scope} is missing`];
+        // A control that runs past an ancestor's edge is painted only up to
+        // that edge. The nav rows are as wide as their text and scroll inside
+        // .app-nav, so their raw boxes pass under the panel's resizer handle
+        // legitimately; comparing raw rects would call that an overlap the user
+        // can never see.
+        const seenRect = (el) => {
+          let rect = el.getBoundingClientRect();
+          for (let parent = el.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+            const box = parent.getBoundingClientRect();
+            const left = Math.max(rect.left, box.left);
+            const top = Math.max(rect.top, box.top);
+            const right = Math.min(rect.right, box.right);
+            const bottom = Math.min(rect.bottom, box.bottom);
+            rect = { left, top, right, bottom, width: right - left, height: bottom - top };
+            if (rect.width <= 0 || rect.height <= 0) return rect;
+          }
+          return rect;
+        };
         const boxes = [...root.querySelectorAll(INTERACTIVE)]
           .filter(shown)
-          .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+          .map((el) => ({ el, rect: seenRect(el) }))
           .filter(({ rect }) => rect.width > 2 && rect.height > 2);
         const out = [];
         for (let i = 0; i < boxes.length; i += 1) {
@@ -2713,6 +2733,15 @@ async function main() {
       name: "themes-and-text-scale",
       async run(browser, dataDir) {
         await installSmokeHelpers(browser);
+        // A folder label long enough that the 240px panel cannot hold it at the
+        // Reading Comfort maximum: the case issue #100 (finding F-3) reports.
+        const folder = await invoke(browser, "save_host_group", {
+          id: null,
+          name: "Regional core switches",
+          parentId: null,
+          color: null,
+          icon: null,
+        });
         await createHost(browser, { display_name: "Theme host" });
         await browser.refresh();
         // Safe: single awaited waits, never acted on or re-queried.
@@ -2738,6 +2767,8 @@ async function main() {
               theme: document.documentElement.dataset.theme,
               bg: root.getPropertyValue("--color-surface-primary").trim(),
               navBackground: nav ? getComputedStyle(nav).backgroundColor : "",
+              scrollbarThumb: root.getPropertyValue("--color-scrollbar-thumb").trim(),
+              scrollbarColor: nav ? getComputedStyle(nav).scrollbarColor : "",
             };
           });
         };
@@ -2769,6 +2800,28 @@ async function main() {
           `Theme: the nav panel must repaint for each theme, saw `
           + `${JSON.stringify([...navBackgrounds])}`,
         );
+        // The nav scrolls on both axes, so its horizontal bar has to be legible
+        // against every theme too. The thumb colour is a token, and base.css
+        // paints both axes from it.
+        const scrollbarThumbs = new Set(Object.values(applied).map((entry) => entry.scrollbarThumb));
+        assert.equal(
+          scrollbarThumbs.size,
+          3,
+          `Theme: the scrollbar thumb must be theme-specific, saw `
+          + `${JSON.stringify([...scrollbarThumbs])}`,
+        );
+        // Engines that paint scrollbar-color report the resolved token here;
+        // the WebKit-only engines report "auto" and are painted by
+        // ::-webkit-scrollbar-thumb instead, which is the same token.
+        const themedScrollbars = new Set(Object.values(applied).map((entry) => entry.scrollbarColor));
+        if (themedScrollbars.size > 1) {
+          assert.equal(
+            themedScrollbars.size,
+            3,
+            `Theme: the nav scrollbars must repaint for each theme, saw `
+            + `${JSON.stringify([...themedScrollbars])}`,
+          );
+        }
         await applyTheme("dark");
 
         // Reading Comfort, then enlarged UI text, both measured rather than
@@ -2807,6 +2860,54 @@ async function main() {
           "Enlarged text: controls are clipped at the 1.5x UI scale");
         assert.deepEqual(await browser.execute(() => window.__comndSmoke.overlaps("body")), [],
           "Enlarged text: controls overlap at the 1.5x UI scale");
+
+        // Issue #100 / F-3: at the maximum scale a folder name must read in
+        // full. Rows size to their own text and .app-nav scrolls, so no label
+        // is allowed to fall back to its ellipsis.
+        const navText = await browser.execute((groupId) => {
+          const panel = document.querySelector(".app-nav");
+          const labels = [...document.querySelectorAll(".app-nav .nav-item-label")]
+            .filter((el) => el.getClientRects().length > 0);
+          const group = document.querySelector(`.nav-group-row[data-group-id="${groupId}"] .nav-item-label`);
+          const toggle = document.querySelector(".nav-group-row .nav-toggle");
+          const toggleBox = toggle?.getBoundingClientRect();
+          const panelBox = panel?.getBoundingClientRect();
+          return {
+            truncated: labels
+              .filter((el) => el.scrollWidth > el.clientWidth + 1)
+              .map((el) => el.textContent.trim()),
+            groupText: group ? group.textContent.trim() : "",
+            groupFits: group ? group.scrollWidth <= group.clientWidth + 1 : false,
+            overflowX: panel ? getComputedStyle(panel).overflowX : "",
+            // Scrolled to the start, which is where the panel opens: the
+            // expand/collapse chevron leads the row and must stay on screen.
+            chevronVisible: !!toggleBox && !!panelBox
+              && toggleBox.width > 4
+              && toggleBox.left >= panelBox.left - 1
+              && toggleBox.right <= panelBox.right + 1,
+          };
+        }, folder.id);
+        assert.deepEqual(
+          navText.truncated,
+          [],
+          "Enlarged text: nav labels are still truncated at the 1.5x UI scale "
+          + `(${JSON.stringify(navText.truncated)})`,
+        );
+        assert(
+          navText.groupText.length >= 12 && navText.groupFits,
+          `Enlarged text: the folder label "${navText.groupText}" `
+          + `(${navText.groupText.length} characters) does not render in full`,
+        );
+        assert.equal(
+          navText.overflowX,
+          "auto",
+          `Enlarged text: the nav panel cannot scroll to a wider name `
+          + `(overflow-x is ${navText.overflowX})`,
+        );
+        assert(
+          navText.chevronVisible,
+          "Enlarged text: the expand/collapse chevron is outside the nav panel",
+        );
       },
     },
     {
@@ -2880,13 +2981,27 @@ async function main() {
           if (!label || !row) return null;
           const a = label.getBoundingClientRect();
           const b = row.getBoundingClientRect();
-          return { left: a.left, right: a.right, rowLeft: b.left, rowRight: b.right, text: label.textContent };
+          return {
+            left: a.left,
+            right: a.right,
+            rowLeft: b.left,
+            rowRight: b.right,
+            text: label.textContent,
+            truncated: label.scrollWidth > label.clientWidth + 1,
+          };
         }, hosts[0].id);
         assert(labelBox, "Small window: the long-named host is not rendered in the nav panel");
         assert(
           labelBox.left >= labelBox.rowLeft - 1 && labelBox.right <= labelBox.rowRight + 1,
           `Small window: the long host name overflows its row `
           + `(${labelBox.left}-${labelBox.right} inside ${labelBox.rowLeft}-${labelBox.rowRight})`,
+        );
+        // Issue #100 acceptance criterion 2: a long host name is fully visible;
+        // the nav scrolls to it rather than ellipsising it (ADR 024).
+        assert(
+          labelBox.text.length >= 24 && !labelBox.truncated,
+          `Small window: the ${labelBox.text.length}-character host name is truncated `
+          + `(${labelBox.text})`,
         );
 
         // A dialog taller than the window must scroll, not clip its controls.
@@ -2982,6 +3097,57 @@ async function main() {
         await browser.waitUntil(
           async () => browser.execute(() => !document.querySelector(".modal-panel")),
           { timeout: WAIT_MS, interval: 100, timeoutMsg: "Dialog overflow: Escape did not close the dialog" },
+        );
+
+        // The nav panel is resizable (ADR 024) and keyboard-first: the splitter
+        // has to answer the arrow keys and hold its documented 180px floor.
+        const splitter = () => browser.execute(() => {
+          const handle = document.querySelector(".nav-resizer");
+          const nav = document.querySelector(".app-nav");
+          return {
+            present: !!handle,
+            now: handle ? Number(handle.getAttribute("aria-valuenow")) : null,
+            min: handle ? Number(handle.getAttribute("aria-valuemin")) : null,
+            role: handle ? handle.getAttribute("role") : null,
+            orientation: handle ? handle.getAttribute("aria-orientation") : null,
+            focused: handle === document.activeElement,
+            width: nav ? nav.getBoundingClientRect().width : 0,
+          };
+        });
+        const splitterStart = await splitter();
+        assert(splitterStart.present, "Nav resize: the nav panel has no resize handle");
+        assert.equal(splitterStart.role, "separator",
+          "Nav resize: the resize handle is not exposed as a separator");
+        assert.equal(splitterStart.orientation, "vertical",
+          "Nav resize: the resize handle does not say which axis it resizes");
+        await browser.execute(() => document.querySelector(".nav-resizer").focus());
+        await browser.keys("\uE014");
+        await browser.waitUntil(
+          async () => {
+            const state = await splitter();
+            return state.focused && state.now > splitterStart.now;
+          },
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: `Nav resize: ArrowRight did not widen the nav panel from ${splitterStart.now}px`,
+          },
+        );
+        await browser.keys("\uE011");
+        await browser.waitUntil(
+          async () => (await splitter()).now === 180,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Nav resize: Home did not move the nav panel to its 180px floor",
+          },
+        );
+        const splitterMin = await splitter();
+        assert.equal(splitterMin.min, 180,
+          `Nav resize: the handle advertises a ${splitterMin.min}px floor, not 180px`);
+        assert(
+          Math.abs(splitterMin.width - 180) <= 2,
+          `Nav resize: the nav panel did not follow its handle to the floor (${Math.round(splitterMin.width)}px)`,
         );
       },
     },

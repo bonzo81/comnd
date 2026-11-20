@@ -217,6 +217,7 @@ class App {
     const navContainer = document.createElement("div");
     navContainer.className = "app-nav";
     this.bodyRow.insertBefore(navContainer, this.contentCol);
+    this.initNavResize(navContainer);
     this.navPanel = new NavPanel(navContainer, {
       onSelectHost: (hostId) => {
         this.showView("connections");
@@ -263,6 +264,109 @@ class App {
     this.renderStatusBar();
     // P1.4 — check for updates on startup (silent; indicator shows only if one exists).
     void checkForUpdatesNow();
+  }
+
+  /**
+   * Drag the boundary between the nav panel and the content column.
+   *
+   * The width is session state, exactly like the terminal sidebar's: nothing
+   * is persisted, and the clamp is re-applied on a window resize so a narrow
+   * window never squeezes the content column out. The nav carries the full
+   * folder and host names (ADR 024), so a wide tree is readable by growing the
+   * panel instead of wrapping rows.
+   */
+  private initNavResize(nav: HTMLElement) {
+    const resizer = document.createElement("div");
+    resizer.className = "nav-resizer";
+    resizer.tabIndex = 0;
+    resizer.setAttribute("role", "separator");
+    resizer.setAttribute("aria-orientation", "vertical");
+    resizer.setAttribute("aria-label", "Resize navigation panel");
+    this.bodyRow.insertBefore(resizer, this.contentCol);
+
+    const MIN_WIDTH = 180;
+    const MAX_WIDTH = 420;
+
+    // 40% of the body leaves the content column the larger share at every
+    // window width, including the 1200px default and the 1280px smoke viewport.
+    const maxWidth = () => Math.max(
+      MIN_WIDTH,
+      Math.min(MAX_WIDTH, Math.floor(this.bodyRow.clientWidth * 0.4)),
+    );
+
+    // The terminal, the ghost text and the nav tooltip already re-place
+    // themselves from the window resize event, so announce the layout change
+    // once per frame rather than reaching into each of them.
+    let frame = 0;
+    const settle = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        window.dispatchEvent(new Event("resize"));
+      });
+    };
+
+    const currentWidth = () => nav.getBoundingClientRect().width;
+
+    const applyWidth = (width: number) => {
+      const max = maxWidth();
+      const next = Math.round(Math.min(max, Math.max(MIN_WIDTH, width)));
+      nav.style.width = `${next}px`;
+      resizer.setAttribute("aria-valuemin", String(MIN_WIDTH));
+      resizer.setAttribute("aria-valuemax", String(max));
+      resizer.setAttribute("aria-valuenow", String(next));
+      settle();
+    };
+
+    resizer.setAttribute("aria-valuemin", String(MIN_WIDTH));
+    resizer.setAttribute("aria-valuemax", String(maxWidth()));
+    resizer.setAttribute("aria-valuenow", String(Math.round(currentWidth())));
+
+    resizer.addEventListener("pointerdown", (e: PointerEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = currentWidth();
+      resizer.setPointerCapture(e.pointerId);
+      resizer.classList.add("active");
+      document.body.classList.add("nav-resizing");
+
+      // The panel is on the left, so moving the boundary right widens it — the
+      // opposite sign to the terminal sidebar's drag.
+      const onMove = (ev: PointerEvent) => {
+        applyWidth(startWidth + (ev.clientX - startX));
+      };
+
+      const stop = (ev: PointerEvent) => {
+        if (resizer.hasPointerCapture(ev.pointerId)) resizer.releasePointerCapture(ev.pointerId);
+        resizer.classList.remove("active");
+        document.body.classList.remove("nav-resizing");
+        resizer.removeEventListener("pointermove", onMove);
+        resizer.removeEventListener("pointerup", stop);
+        resizer.removeEventListener("pointercancel", stop);
+      };
+
+      resizer.addEventListener("pointermove", onMove);
+      resizer.addEventListener("pointerup", stop);
+      resizer.addEventListener("pointercancel", stop);
+    });
+
+    resizer.addEventListener("keydown", (e: KeyboardEvent) => {
+      const step = e.shiftKey ? 48 : 16;
+      if (e.key === "ArrowRight") applyWidth(currentWidth() + step);
+      else if (e.key === "ArrowLeft") applyWidth(currentWidth() - step);
+      else if (e.key === "Home") applyWidth(MIN_WIDTH);
+      else if (e.key === "End") applyWidth(Number.MAX_SAFE_INTEGER);
+      else return;
+      e.preventDefault();
+    });
+
+    window.addEventListener("resize", () => {
+      const max = maxWidth();
+      // Only take the width back when the window shrank past the clamp; a
+      // plain resize must not undo a width the user chose.
+      if (currentWidth() > max) applyWidth(max);
+      else resizer.setAttribute("aria-valuemax", String(max));
+    });
   }
 
   private async syncLogLevel() {
