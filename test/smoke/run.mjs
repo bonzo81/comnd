@@ -401,6 +401,19 @@ async function installSmokeHelpers(browser) {
       ));
     };
 
+    // A position: fixed box escapes ordinary ancestor clipping: only an
+    // ancestor that establishes its containing block can clip it. The nav's
+    // context menu is position: fixed but rendered inside .app-nav, which now
+    // scrolls horizontally (ADR 024), so its items must not be measured
+    // against the panel's edge.
+    const fixedContainingBlock = (style) =>
+      style.transform !== "none"
+      || style.filter !== "none"
+      || (style.backdropFilter || "none") !== "none"
+      || style.perspective !== "none"
+      || /\b(paint|layout|strict|content)\b/.test(style.contain)
+      || /transform|filter|perspective/.test(style.willChange);
+
     window.__comndSmoke = {
       describe,
       nameOf,
@@ -455,9 +468,10 @@ async function installSmokeHelpers(browser) {
           if (!shown(el)) continue;
           const rect = el.getBoundingClientRect();
           if (rect.width < 2 || rect.height < 2) continue;
-          let parent = el.parentElement;
-          while (parent && parent !== document.documentElement) {
+          const fixed = getComputedStyle(el).position === "fixed";
+          for (let parent = el.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
             const style = getComputedStyle(parent);
+            if (fixed && !fixedContainingBlock(style)) continue;
             const clipX = style.overflowX === "hidden" || style.overflowX === "clip";
             const clipY = style.overflowY === "hidden" || style.overflowY === "clip";
             if (clipX || clipY) {
@@ -469,7 +483,6 @@ async function installSmokeHelpers(browser) {
                 break;
               }
             }
-            parent = parent.parentElement;
           }
         }
         return [...new Set(out)];
@@ -485,8 +498,10 @@ async function installSmokeHelpers(browser) {
         // can never see.
         const seenRect = (el) => {
           let rect = el.getBoundingClientRect();
+          const fixed = getComputedStyle(el).position === "fixed";
           for (let parent = el.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
             const style = getComputedStyle(parent);
+            if (fixed && !fixedContainingBlock(style)) continue;
             if (style.overflowX === "visible" && style.overflowY === "visible") continue;
             const box = parent.getBoundingClientRect();
             const left = Math.max(rect.left, box.left);
@@ -2769,6 +2784,8 @@ async function main() {
               navBackground: nav ? getComputedStyle(nav).backgroundColor : "",
               scrollbarThumb: root.getPropertyValue("--color-scrollbar-thumb").trim(),
               scrollbarColor: nav ? getComputedStyle(nav).scrollbarColor : "",
+              // Decided by the engine, not by the values under test.
+              supportsScrollbarColor: CSS.supports("scrollbar-color", "auto"),
             };
           });
         };
@@ -2814,7 +2831,7 @@ async function main() {
         // the WebKit-only engines report "auto" and are painted by
         // ::-webkit-scrollbar-thumb instead, which is the same token.
         const themedScrollbars = new Set(Object.values(applied).map((entry) => entry.scrollbarColor));
-        if (themedScrollbars.size > 1) {
+        if (applied.dark.supportsScrollbarColor) {
           assert.equal(
             themedScrollbars.size,
             3,
@@ -3108,6 +3125,7 @@ async function main() {
             present: !!handle,
             now: handle ? Number(handle.getAttribute("aria-valuenow")) : null,
             min: handle ? Number(handle.getAttribute("aria-valuemin")) : null,
+            max: handle ? Number(handle.getAttribute("aria-valuemax")) : null,
             role: handle ? handle.getAttribute("role") : null,
             orientation: handle ? handle.getAttribute("aria-orientation") : null,
             focused: handle === document.activeElement,
@@ -3133,6 +3151,16 @@ async function main() {
             timeoutMsg: `Nav resize: ArrowRight did not widen the nav panel from ${splitterStart.now}px`,
           },
         );
+        const splitterRight = await splitter();
+        await browser.keys("\uE012");
+        await browser.waitUntil(
+          async () => (await splitter()).now === splitterStart.now,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: `Nav resize: ArrowLeft did not narrow the nav panel back from ${splitterRight.now}px`,
+          },
+        );
         await browser.keys("\uE011");
         await browser.waitUntil(
           async () => (await splitter()).now === 180,
@@ -3148,6 +3176,21 @@ async function main() {
         assert(
           Math.abs(splitterMin.width - 180) <= 2,
           `Nav resize: the nav panel did not follow its handle to the floor (${Math.round(splitterMin.width)}px)`,
+        );
+        await browser.keys("\uE010");
+        await browser.waitUntil(
+          async () => (await splitter()).now === splitterMin.max,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: `Nav resize: End did not move the nav panel to its ${splitterMin.max}px ceiling`,
+          },
+        );
+        const splitterMax = await splitter();
+        assert(
+          Math.abs(splitterMax.width - splitterMax.now) <= 2,
+          `Nav resize: the nav panel did not follow its handle to the ceiling `
+          + `(${Math.round(splitterMax.width)}px, handle says ${splitterMax.now}px)`,
         );
       },
     },

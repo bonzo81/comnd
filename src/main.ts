@@ -294,9 +294,9 @@ class App {
       Math.min(MAX_WIDTH, Math.floor(this.bodyRow.clientWidth * 0.4)),
     );
 
-    // The terminal, the ghost text and the nav tooltip already re-place
-    // themselves from the window resize event, so announce the layout change
-    // once per frame rather than reaching into each of them.
+    // The terminal refits and re-anchors its ghost text from the window resize
+    // event, so announce the layout change once per frame rather than
+    // reaching into it from here.
     let frame = 0;
     const settle = () => {
       if (frame) return;
