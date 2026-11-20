@@ -120,6 +120,11 @@ future theme edit forever. Instead:
   max-height, prose max-width) use one attribute:
   `document.documentElement.dataset.readingComfort = "on"`. This is for the
   non-slider bumps only — it is not a theme layer.
+- Any layout that wraps a fixed-size box around scaled text has to follow the
+  token instead. The nav row takes a `height` derived from `--font-size-base`
+  (a `min-height` floor would beat the `max-height` the collapse animation
+  drives) and the nav panel scrolls horizontally rather than ellipsising at the
+  1.5 maximum — see ADR 024.
 
 ## Terminal themes
 

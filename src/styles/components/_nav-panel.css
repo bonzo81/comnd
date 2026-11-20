@@ -6,13 +6,50 @@
   border-radius: var(--radius-lg);
   background: var(--color-surface-primary);
   overflow-y: auto;
-  overflow-x: hidden;
+  /* Reading Comfort scales the labels but not the panel, so a long folder or
+     host name is revealed by scrolling this box rather than by truncating it
+     (ADR 024). Both axes theme their scrollbar from base.css. */
+  overflow-x: auto;
 }
 
+/* The rows size to their own text so nothing truncates, then the panel takes
+   the widest of them and falls back to the column width for a narrow tree.
+   overflow-x above turns that extra width into a scroll instead of a clip. */
 .nav-panel {
   display: flex;
   flex-direction: column;
   padding: var(--space-2) 0;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Drag the nav/content boundary to give the panel more room. It is the same
+   recipe as .tv-resizer: nothing painted at rest, so it reads as empty gutter.
+   The negative margins cancel one .app-body gap, leaving the 8px between the
+   panel and the content column exactly as it was without the handle. */
+.nav-resizer {
+  flex: 0 0 auto;
+  width: var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  cursor: col-resize;
+  background: transparent;
+}
+
+.nav-resizer:hover,
+.nav-resizer.active {
+  background: var(--color-accent);
+  opacity: 0.35;
+}
+
+.nav-resizer:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+body.nav-resizing,
+body.nav-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .nav-section {
@@ -115,7 +152,17 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   text-align: left;
-  height: 32px;
+  /* 32px is the rest height at the default scale; at Reading Comfort's 1.5 the
+     label's line box is taller, so the row grows to hold it instead of clipping
+     it. Height, not min-height: both row animations zero max-height, which a
+     min-height floor would win against and freeze the collapse at 32px. The
+     second term is the label's line box plus the vertical padding, with 2px of
+     slack so a fractional scale cannot shave the last pixel of a descender. */
+  height: max(
+    var(--space-8),
+    calc(var(--font-size-base) + 2 * var(--space-2) + var(--space-0-5))
+  );
+  line-height: var(--font-leading-solid);
   box-sizing: border-box;
   transition: background-color 140ms ease, color 120ms ease;
 }
@@ -142,8 +189,8 @@
 /* Bare items (not inside a flex row) must span the full column width —
    <button> shrinks to fit content, unlike the row-wrapped items whose
    flex:1 stretches them to the same width. width:100% + horizontal margin
-   would overflow the container (clipped by .app-nav overflow-x:hidden),
-   so subtract the margins via calc. */
+   would run past the panel by the margins and leave that sliver as scrollable
+   dead space, so subtract the margins via calc. */
 .nav-section-items > .nav-item,
 .nav-action-wrap > .nav-item {
   width: calc(100% - 2 * var(--space-2));

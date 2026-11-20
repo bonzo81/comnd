@@ -100,6 +100,9 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 * **Sidebar min width:** 240px (collapses if dragged smaller)
 * **Sidebar resizable:** yes — drag the divider between terminal and sidebar
 * **Sidebar mode:** push (resizes the terminal, does NOT overlay it)
+* **Nav panel default width:** 240px
+* **Nav panel resizable:** yes — 180–420px, further capped at 40% of the body row so the content column keeps the larger share; drag the divider or focus it and use ←/→ (Shift: 48px step), Home/End for the limits
+* **Nav panel overflow:** folder and host names render in full and the panel scrolls horizontally instead of truncating; rows grow with `--text-scale`, both scrollbars follow the theme (ADR 024)
 * **Dropdown max height:** 8 visible items, scroll indicator if more
 * **Dropdown item height:** 32px
 * **Radii:** 2px / 4px / 6px / 8px (`--radius-2xs/sm/md/lg`), `--radius-pill` for fully rounded

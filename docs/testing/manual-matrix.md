@@ -116,7 +116,7 @@ The committed baseline is dark only. The other themes are checked here.
 
 | ID | Check | Expected | Platforms |
 |---|---|---|---|
-| M-28 | Reading Comfort text scale at 1.5 (maximum) on every screen | No horizontal scrolling, no control pushed off-screen, no clipped essential label | Windows, Linux |
+| M-28 | Reading Comfort text scale at 1.5 (maximum) on every screen | No horizontal scrolling outside the nav panel (which scrolls by design — ADR 024), no control pushed off-screen, no clipped essential label | Windows, Linux |
 | M-29 | Terminal font size at its maximum (`Ctrl+=` repeatedly) with the side panel open and closed | Terminal refits, suggestion dropdown and ghost text stay aligned to the prompt | Windows, Linux |
 | M-30 | OS-level display scaling combined with the in-app maximum | Still usable; note anything that degrades | Windows, Linux |
 
@@ -158,6 +158,17 @@ At `--text-scale: 1.5` in a 1280×800 window, the folder label "Core network"
 gets 98px of box and needs 125px at 19.5px, so it ellipsises. It does not
 truncate at the 1.15 preset. Found while running M-28.
 
+Resolved by ADR 024 (#100). The cause was a fixed 240px panel and a fixed 32px
+row around text that scales, so both now follow their content: the row takes a
+`height` that grows with `--font-size-base`, the panel takes its widest row and
+`.app-nav` scrolls horizontally instead of ellipsising, and the panel is
+resizable (180–420px, drag or ←/→/Home/End on the splitter) so a wide tree can
+keep its names on screen. Both scrollbars are painted from
+`--color-scrollbar-thumb`, so the horizontal bar follows the theme. M-28 should
+now be re-run with a 12+-character folder name at the maximum preset:
+`npm run smoke` asserts the same conditions, but the review row exists to
+confirm them by eye.
+
 ## Pass log
 
 One row per pass. Record the reviewer, the date, the build, the platforms
@@ -167,6 +178,7 @@ could not do. **Never record a platform you did not run on.**
 | Date | Reviewer | Build | Platforms exercised | Rows covered | Result | Notes |
 |---|---|---|---|---|---|---|
 | 2026-11-02 | AI agent, scripted pass through the smoke harness (no human screen-reader session) | `3f37b71` + the #57 working tree | Windows 11 Pro 10.0.26300, WebView2 156.0.4314.58, DPR 1.5, 1280×800 | M-21 (scripted), M-22 (app-theme × terminal-theme pairing by inspection of computed styles), M-23, M-24, M-25, M-26 (preset and maximum only), M-28 | Failures recorded as F-1 to F-3; everything else as expected | Screen-reader rows M-1 to M-8 **not run** — no NVDA or Orca session available. Native-dialog rows M-9 to M-14 **not run** — the driver cannot drive OS surfaces. Keyboard rows M-15 to M-20 **not run** as manual checks; `Ctrl+W` pass-through and the reserved-key rejections are asserted by `npm run smoke`. Linux was **not exercised** for any row. |
+| 2026-11-21 | AI agent, scripted pass through the smoke harness (no human screen-reader session) | `275a081` + the #100 working tree | Windows 11 Pro 10.0.26300, WebView2 156.0.4314.58, DPR 1.5, 1280×800 | M-28 (scripted: three themes at the default scale, then the maximum 1.5x scale in the dark theme) | F-3 fixed; no new finding | The nav panel now scrolls horizontally and resizes instead of truncating (ADR 024). In the dark theme at 1.5x, `npm run smoke` asserts that no visible nav label ellipsises, that a 22-character folder name renders in full, and that the chevron stays inside the panel; in `small-window-long-names` it asserts the same for a 52-character host name in an 800×600 window. Still at the default scale, the splitter answers ←/→/Home/End between its 180px floor and its `aria-valuemax` ceiling, and the nav's horizontal scrollbar is measured as theme-specific. Not covered: the splitter by eye in each theme, and the themes at 1.5x — only `dark` is set at the maximum scale. Linux was **not exercised**. |
 
 No human visual review of the theme permutations has been recorded. M-21 and
 M-22 were exercised by measurement (layout geometry, computed colours,

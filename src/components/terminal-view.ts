@@ -751,9 +751,13 @@ export class TerminalView {
       this.onRequestCloseCb();
     });
 
-    // Window resize → fit terminal → resize PTY
+    // Window resize → fit terminal → resize PTY. The nav splitter and the
+    // terminal sidebar resize the terminal without scrolling it, so a
+    // visible ghost suggestion has to be re-anchored to the cursor: fit()
+    // moves the cursor's cell but fires no scroll event.
     this.resizeHandler = () => {
       this.fitAddon?.fit();
+      this.ghostText?.reposition();
     };
     window.addEventListener("resize", this.resizeHandler);
 
