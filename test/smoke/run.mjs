@@ -121,6 +121,12 @@ const sshSuite = {
   },
 };
 
+// How long the mock holds an echoed keystroke back, in ms. A real device
+// answers over a network, so its echo lands after the 40 ms suggestion
+// debounce; the in-process mock answers far faster and would hide any bug that
+// depends on the echo arriving second.
+const ECHO_DELAY_MS = 300;
+
 async function terminalText(browser) {
   return browser.execute(() => {
     const terminal = window.__comndTerminal;
@@ -1230,9 +1236,9 @@ async function acceptHostKeyIfNeeded(browser) {
 async function createAndConnect(
   browser,
   dataDir,
-  { rejectAuth = false, muteOutput = false, interactiveAuth = false } = {},
+  { rejectAuth = false, muteOutput = false, interactiveAuth = false, echoDelayMs = 0 } = {},
 ) {
-  const port = await invoke(browser, "test_smoke_server", { rejectAuth, muteOutput });
+  const port = await invoke(browser, "test_smoke_server", { rejectAuth, muteOutput, echoDelayMs });
   const host = await invoke(browser, "save_host", {
     host: {
       id: "",
@@ -1333,8 +1339,8 @@ async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
   }
 }
 
-async function launchAndConnect(browser, dataDir) {
-  const host = await createAndConnect(browser, dataDir);
+async function launchAndConnect(browser, dataDir, opts = {}) {
+  const host = await createAndConnect(browser, dataDir, opts);
   await waitForConnection(browser);
   const statusHost = await browser.execute(() =>
     document.querySelector(".tv-sb-host")?.textContent?.trim() ?? "",
@@ -1501,6 +1507,27 @@ async function measureGhost(browser) {
   });
 }
 
+/**
+ * Assert the visible ghost's left edge sits on the echoed cursor. The snapshot
+ * supplies the cursor column the paint was made for; measuring the ghost again
+ * here reads the same render, and the tolerance is half a cell because the
+ * placement formula is exact to well under a pixel while the regression being
+ * guarded is a whole cell wide.
+ */
+async function assertGhostAnchored(browser, snapshot, label) {
+  const measured = await measureGhost(browser);
+  assert(measured, `Ghost follows echo: the ghost is not visible after the ${label} echo landed`);
+  assert(
+    Math.abs(measured.left - measured.expectedLeft) < measured.cellWidth / 2,
+    `Ghost follows echo: after the ${label} echo the ghost sits ${(measured.left
+      - measured.expectedLeft)
+      / measured.cellWidth} cells from the cursor `
+      + `(left ${measured.left}, expected ${measured.expectedLeft}, `
+      + `cursorX ${measured.cursorX}, snapshot cursorX ${snapshot.cursorX}, `
+      + `line "${snapshot.text}")`,
+  );
+}
+
 async function commandRoundTrip(browser, dataDir) {
   await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
@@ -1556,6 +1583,109 @@ async function main() {
   }
 
   const tests = [
+    {
+      // The remote echoes every keystroke, so between a keystroke and its echo
+      // the screen cursor still sits where the typing used to end. Painting the
+      // next prediction there puts its glyphs in the cells the echo is about to
+      // write, and the parse then steps the overlay sideways — a blink on every
+      // keystroke once the round trip is slower than the query debounce. The
+      // ghost must keep the glyphs it already has, which are the tail of the
+      // same prediction and so cover the same cells, until the parse catches the
+      // screen up. The in-process mock answers sub-millisecond and hides that
+      // ordering, hence the injected echo delay.
+      name: "ghost-follows-echo",
+      async run(browser, dataDir) {
+        await launchAndConnect(browser, dataDir, { echoDelayMs: ECHO_DELAY_MS });
+        await enableSuggestions(browser);
+
+        // The ghost and the cursor line in one execute, so the pair cannot come
+        // from two different renders. A hidden ghost still holds its last text,
+        // so visibility decides what counts as showing, not the text alone.
+        const snapshot = () => browser.execute(() => {
+          const ghost = document.querySelector(".ghost-text");
+          const term = window.__comndTerminal;
+          if (!term) return { ghost: "", text: "", cursorX: 0 };
+          const showing = ghost !== null
+            && getComputedStyle(ghost).display !== "none"
+            && ghost.getClientRects().length > 0;
+          const buffer = term.buffer.active;
+          return {
+            ghost: showing ? ghost.textContent ?? "" : "",
+            text: buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "",
+            cursorX: buffer.cursorX,
+          };
+        });
+
+        // Poll until the ghost text changes, which is the moment the deferred
+        // paint fires; the returned snapshot then names the line it fired on.
+        const untilGhostLeaves = async (text) => {
+          let state = await snapshot();
+          const deadline = Date.now() + 5_000;
+          while (state.ghost === text && Date.now() < deadline) {
+            await pause(10);
+            state = await snapshot();
+          }
+          return state;
+        };
+
+        // Steady state: every echo for "his" has landed and the 300 ms
+        // output-settle window has expired, so the pipeline is idle and the
+        // ghost "tory" is painted at the cursor.
+        await sendKeys(browser, "his");
+        await pause(1200);
+        let steady = await snapshot();
+        const steadyDeadline = Date.now() + 5_000;
+        while (!(steady.ghost === "tory" && steady.text.endsWith("his"))
+          && Date.now() < steadyDeadline) {
+          await pause(20);
+          steady = await snapshot();
+        }
+        assert(
+          steady.ghost === "tory" && steady.text.endsWith("his"),
+          `Ghost follows echo: expected the ghost "tory" beside "his" to start from `
+            + `(line "${steady.text}", ghost ${JSON.stringify(steady.ghost)})`,
+        );
+
+        // An insertion whose echo has not landed. The remainder shortens from
+        // "tory" to "ory", and drawing that at the un-echoed cursor would put
+        // the "o" where the "t" belongs. The glyphs must stay put until the line
+        // reads "hist", and only then move one cell right.
+        await sendKeys(browser, "t");
+        const inserted = await untilGhostLeaves("tory");
+        assert.equal(
+          inserted.ghost,
+          "ory",
+          `Ghost follows echo: the insertion ghost changed to ${JSON.stringify(inserted.ghost)} `
+            + `before its echo landed (line "${inserted.text}", cursorX ${inserted.cursorX})`,
+        );
+        assert(
+          inserted.text.endsWith("hist"),
+          `Ghost follows echo: the ghost repainted against a stale cursor — the line `
+            + `still reads "${inserted.text}" at cursorX ${inserted.cursorX} while the `
+            + `ghost already says ${JSON.stringify(inserted.ghost)}`,
+        );
+        await assertGhostAnchored(browser, inserted, "insertion");
+
+        // A deletion whose echo has not landed. The remainder grows back to
+        // "tory", and drawing it now would put its glyphs in the cell the erase
+        // is about to clear. Same contract in the other direction.
+        await sendKeys(browser, "\uE003");
+        const erased = await untilGhostLeaves("ory");
+        assert.equal(
+          erased.ghost,
+          "tory",
+          `Ghost follows echo: the deletion ghost changed to ${JSON.stringify(erased.ghost)} `
+            + `before its echo landed (line "${erased.text}", cursorX ${erased.cursorX})`,
+        );
+        assert(
+          erased.text.endsWith("his"),
+          `Ghost follows echo: the ghost repainted against a stale cursor — the line `
+            + `still reads "${erased.text}" at cursorX ${erased.cursorX} while the `
+            + `ghost already says ${JSON.stringify(erased.ghost)}`,
+        );
+        await assertGhostAnchored(browser, erased, "deletion");
+      },
+    },
     {
       name: "launch-and-connect",
       run: launchAndConnect,

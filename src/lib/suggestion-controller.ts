@@ -544,7 +544,7 @@ export class SuggestionController {
   private applyTopMatch(top: SuggestionResult, input: string, extraMatchCount: number) {
     const payload = this.ghostPayloadForTop(top, input);
     if (payload) {
-      this.deps.ghost()?.showPayload(payload, extraMatchCount);
+      this.deps.ghost()?.showPayload(payload, extraMatchCount, input);
     } else {
       this.deps.ghost()?.hide();
     }
@@ -593,7 +593,9 @@ export class SuggestionController {
     // different option, so Tab would send something the preview never showed.
     const payload = dd?.getSelectedPayload();
     if (payload) {
-      this.deps.ghost()?.showPayload(payload, 0);
+      // The preview is deferred like the top match: this choice remainder has
+      // no correct cell until the echo of the keystroke that produced it lands.
+      this.deps.ghost()?.showPayload(payload, 0, this.shadowBuffer.content);
       return;
     }
     this.applyTopMatch(selected, this.shadowBuffer.content, 0);

@@ -286,10 +286,17 @@ Cancel button available at all stages. On failure, error overlay with retry butt
     ghost is visible and `updateResults()` re-renders the open dropdown, so a component adds its entrance
     class when the surface opens and clears it on hide. It is never baked into generated markup, where
     each `innerHTML` rebuild would replay it under the next character.
-  * Ghost text glyphs never move *while typing* — only opacity interpolates, because the overlay has to
-    land on the terminal cell grid. Its entrance additionally rises 3px and lands exactly on the cell, and
-    the dropdown rises 8px up to the prompt line. The panel's content settles 10px in from the terminal
-    side.
+  * Ghost text never *interpolates* its position — only opacity does, because the overlay has to land on
+    the terminal cell grid. The glyphs re-anchor in a single frame when parsed output moves the buffer
+    cursor (a keystroke's echo can arrive after the ghost was placed, and an echoed backspace would
+    otherwise leave the completion a cell past the text); a snap is a placement, not motion. While that
+    echo is still in flight the ghost keeps the glyphs it already has rather than repainting them
+    against a stale cursor — the next prediction is the tail of the same word, so those glyphs cover the
+    same cells and the screen does not blink on every keystroke. The repaint waits for the parse that
+    catches the screen up, and paints anyway after 500 ms so a host that echoes late, or not at all,
+    still gets a suggestion. Its entrance
+    additionally rises 3px and lands exactly on the cell, and the dropdown rises 8px up to the prompt
+    line. The panel's content settles 10px in from the terminal side.
 * Chrome tint, progress bar, toast entrance, the terminal frame's focus tint and the navigation are the
   animated transitions. **The side panel's width is not one of them** — it lands in a single frame,
   because the arrow-key resizer calls `applyWidth()` then `fitAddon.fit()` in the same tick, so FitAddon

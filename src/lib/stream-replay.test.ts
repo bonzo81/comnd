@@ -563,10 +563,14 @@ const FIXTURES: ReadonlyArray<Fixture> = [LINUX_BASH, CISCO_IOSXE, CISCO_NXOS, F
 function terminalStub(): Terminal {
   return {
     write: vi.fn(),
-    buffer: { active: { cursorX: 0, cursorY: 0 } },
+    buffer: {
+      // No screen content in this stub, so the ghost never waits for an echo.
+      active: { cursorX: 0, cursorY: 0, getLine: () => undefined },
+    },
     rows: 10,
     cols: 80,
     options: {},
+    onWriteParsed: () => ({ dispose: () => {} }),
   } as unknown as Terminal;
 }
 

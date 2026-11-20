@@ -80,6 +80,9 @@ struct MockHandler {
     pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     /// Mutation-test mode: accept input but suppress all shell responses.
     mute_output: bool,
+    /// Artificial delay before every shell response is sent, so a test can
+    /// hold the echo behind the frontend's suggestion debounce.
+    echo_delay_ms: u64,
 }
 
 impl Drop for MockHandler {
@@ -289,6 +292,7 @@ struct MockServer {
     closed: Option<Arc<AtomicBool>>,
     pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     mute_output: bool,
+    echo_delay_ms: u64,
 }
 
 impl server::Server for MockServer {
@@ -302,6 +306,7 @@ impl server::Server for MockServer {
             closed: self.closed.clone(),
             pty_sizes: self.pty_sizes.clone(),
             mute_output: self.mute_output,
+            echo_delay_ms: self.echo_delay_ms,
         }
     }
 }
@@ -537,6 +542,9 @@ impl server::Handler for MockHandler {
             self.state.disconnect_requested = false;
             session.close(channel)?;
         } else if !out.is_empty() && !self.mute_output {
+            if self.echo_delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(self.echo_delay_ms)).await;
+            }
             session.data(channel, out)?;
         }
         if self.state.burst_requested {
@@ -604,6 +612,7 @@ pub async fn start_info_round_mock_server(expected: &str) -> (u16, tokio::task::
 pub async fn start_smoke_mock_server(
     reject_auth: bool,
     mute_output: bool,
+    echo_delay_ms: u64,
 ) -> (
     u16,
     tokio::task::JoinHandle<()>,
@@ -627,6 +636,7 @@ pub async fn start_smoke_mock_server(
         Some(closed.clone()),
         Some(pty_sizes.clone()),
         mute_output,
+        echo_delay_ms,
     )
     .await;
     (port, handle, received, closed, pty_sizes)
@@ -634,7 +644,7 @@ pub async fn start_smoke_mock_server(
 
 /// Persona-driven server bootstrap shared by both public constructors.
 async fn start_mock_server_with(kbd_int: KbdIntPersona) -> (u16, tokio::task::JoinHandle<()>) {
-    start_mock_server_inner(kbd_int, None, None, None, false).await
+    start_mock_server_inner(kbd_int, None, None, None, false, 0).await
 }
 
 async fn start_mock_server_inner(
@@ -643,6 +653,7 @@ async fn start_mock_server_inner(
     closed: Option<Arc<AtomicBool>>,
     pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
     mute_output: bool,
+    echo_delay_ms: u64,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
     let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519)
@@ -671,6 +682,7 @@ async fn start_mock_server_inner(
             closed,
             pty_sizes,
             mute_output,
+            echo_delay_ms,
         };
         let running = server.run_on_socket(config, &socket);
         running.await.expect("Mock server encountered an error");
@@ -933,6 +945,7 @@ mod tests {
             closed: None,
             pty_sizes: None,
             mute_output: false,
+            echo_delay_ms: 0,
         };
         let e = MockHandler::ESC;
 
@@ -970,6 +983,7 @@ mod tests {
             closed: None,
             pty_sizes: None,
             mute_output: false,
+            echo_delay_ms: 0,
         };
 
         let mut out = Vec::new();

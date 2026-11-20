@@ -209,10 +209,12 @@ async fn test_mock_server(state: tauri::State<'_, AppState>) -> Result<u16, Stri
 async fn test_smoke_server(
     reject_auth: bool,
     mute_output: bool,
+    echo_delay_ms: Option<u64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<u16, String> {
     let (port, handle, received, closed, pty_sizes) =
-        test_server::start_smoke_mock_server(reject_auth, mute_output).await;
+        test_server::start_smoke_mock_server(reject_auth, mute_output, echo_delay_ms.unwrap_or(0))
+            .await;
     let mut mgr = state.ssh.lock().await;
     if let Some(previous) = mgr.take_test_server_handle() {
         previous.abort();
