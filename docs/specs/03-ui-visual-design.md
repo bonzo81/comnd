@@ -200,9 +200,23 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
 
 * Anchored bottom-left of the terminal pane — never obscures the current input line
 * Maximum 8 visible items, scroll indicator if more
-* Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief)
+* Each item: matched prefix shown in **bold** accent (e.g. **show ip** interface brief). The
+  highlight grows with each character typed, carries into multi-word names, and holds the whole
+  name once the line moves on to arguments
 * Selected item has highlighted background (accent tint)
 * Category shown as muted text right-aligned in each row (e.g. `networking`)
+* Surface is translucent (`color-mix` of `--color-surface-elevated` at 50%) with a 4px backdrop
+  blur, so the terminal stays faintly present behind the list instead of the panel reading as a
+  hole cut in the window. Alpha alone cannot carry this effect here: the blurred dark terminal
+  averages to the same luminance as `--color-surface-elevated` (both ≈43), so the composite tone
+  measures 43.3 at 100%, 70%, 50% and 35% alike and only the texture behind the fill differs. The
+  blur radius is what makes the frost legible — with the fill at 50%, the luminance spread in the
+  panel measures 8.9 / 6.1 / 5.2 / 2.7 for a 4 / 6 / 8 / 20px radius against 0.1 for an opaque box —
+  so 4px is used: line shapes ghost through as soft bands without turning into readable output.
+  With dense output behind it the rows measured a 75-luminance peak behind them, so primary
+  text still clears 8:1. The side panel stays opaque, because translucency there would read as an
+  overlay (ADR-003). The full measurement, and why the alpha cannot be the dial here, is
+  [ADR-023](../adr/023-translucency-reads-through-blur-radius.md)
 * Dismissed on `Escape`, typing a non-matching character, or clicking outside
 
 ## Connecting State
@@ -262,8 +276,27 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 ## Motion
 
 * Transitions 100–300ms, color/opacity only — never layout-shifting scale on container elements (small scale on buttons OK). The navigation below is the one documented exception: its reveal runs 80–120ms, because it answers a keypress and a longer fade reads as lag, and it eases `max-height`/`translate` because the disclosure's height is the thing being revealed.
-* Ghost text and suggestion visibility are instant — no fades in the keystroke path.
-* Sidebar width, chrome tint, progress bar, toast entrance, the terminal frame's focus tint and the navigation are the animated transitions.
+* **Arrivals settle, departures are instant.** Ghost text, the match-count badge, the suggestion dropdown
+  and the side panel's content arrive over 180–220ms on `cubic-bezier(0.22, 1, 0.36, 1)` and disappear in
+  the frame they stop matching. A surface that lingers after the input stopped matching misreports what
+  the remote will receive, and one that pops in mid-sentence reads as a stutter. Arrivals take the middle
+  of the band rather than its floor: a decelerating curve is three-quarters home in its first third, so
+  the 120ms first pass was over before the eye read it as motion.
+  * The settle belongs to the hidden→shown edge only. `showPayload()` runs on every keystroke while the
+    ghost is visible and `updateResults()` re-renders the open dropdown, so a component adds its entrance
+    class when the surface opens and clears it on hide. It is never baked into generated markup, where
+    each `innerHTML` rebuild would replay it under the next character.
+  * Ghost text glyphs never move *while typing* — only opacity interpolates, because the overlay has to
+    land on the terminal cell grid. Its entrance additionally rises 3px and lands exactly on the cell, and
+    the dropdown rises 8px up to the prompt line. The panel's content settles 10px in from the terminal
+    side.
+* Chrome tint, progress bar, toast entrance, the terminal frame's focus tint and the navigation are the
+  animated transitions. **The side panel's width is not one of them** — it lands in a single frame,
+  because the arrow-key resizer calls `applyWidth()` then `fitAddon.fit()` in the same tick, so FitAddon
+  would measure the pre-transition width and the grid would settle on the wrong column count. What
+  settles in the panel is its content (220ms), when the panel opens or its tab changes; a resize does
+  not settle it, since nothing is arriving. Animating the pane itself would show the old terminal
+  through it and read as an overlay, which ADR-003 forbids.
 * **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the toolbar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). Focus also draws the app's shared focus ring: `--focus-ring-width` at `--focus-ring-offset`, transparent at rest and colour-animated, so the ring appears outside the frame with a clear gap. It sits outside rather than inset because an inset outline at `outline-offset: -1px` paints *over* the border instead of adding to it — measured on the light theme as one device pixel of `#88898a` at rest and one of `#166534` focused, with no ink added. That reads on the dark themes, whose border is a faint 1.8:1 hairline, but not on the light ones, where the border is already a strong 3.3:1 line and is the only thing separating the pane (`#F8FAFC`) from the page (`#E2E8F0`, 1.13:1). Outside, focus goes from no ink beyond the frame to a 2px ring plus a 2px gap in every theme — same light-theme column, three device pixels of `#166534`, three of surface, then the border, against one pixel of `#88898a` at rest. Width and offset are constant, the wrap's 8px margin leaves room for the ring, and no layout moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colour and extent.
 * The navigation animates too, because the nav is where the user's place in the app is decided:
   * nav row hover, keyboard focus and selection tint cross-fade (140–160ms), so switching views hands the highlight from one row to the next instead of blinking it;

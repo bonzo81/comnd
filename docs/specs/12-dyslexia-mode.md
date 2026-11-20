@@ -24,10 +24,12 @@ tint themes, suggestion contrast.
 - New global shortcuts: the toggle is a button until the shortcut registry
   (spec 11) lands.
 - Reduced-motion handling: the app's animated cues — the terminal frame's
-  focus tint and the nav panel / settings rail motion (tint, section reveal,
-  row actions, pill fade) — all drop under `prefers-reduced-motion: reduce`
-  (spec 03 §Motion), so this mode never depends on motion. The terminal tint's
-  states stay distinguishable as static colours.
+  focus tint, the nav panel / settings rail motion (tint, section reveal, row
+  actions, pill fade), and the arrivals of the suggestion surfaces and the
+  terminal side panel's content — all drop under `prefers-reduced-motion:
+  reduce` (spec 03 §Motion), so this mode never depends on motion. The terminal
+  tint's states stay distinguishable as static colours, and the suggestions
+  still appear, just without the settle.
 
 ## Mode semantics
 

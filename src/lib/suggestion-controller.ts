@@ -521,7 +521,7 @@ export class SuggestionController {
     if (this.suggestionsEnabled) {
       const dd = this.deps.dropdown();
       if (dd?.isVisible()) {
-        dd.updateResults(results);
+        dd.updateResults(results, text);
         // New results can change the selected row (and choice mode), so the
         // preview has to follow the selection, not just the top match.
         this.syncDropdownToGhostText();

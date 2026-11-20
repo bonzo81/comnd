@@ -216,7 +216,13 @@
   background: var(--color-surface-secondary);
   padding: var(--space-6);
   overflow-y: auto;
-  transition: width 0.2s ease;
+  /* No width transition, deliberately. The grid is the app's reading position,
+     so a width that glides reflows and rewraps it on every frame of the glide.
+     It is also wrong for the keyboard resizer, which sets the width and calls
+     fitAddon.fit() in the same tick: FitAddon measures the *pre-transition*
+     width, so the fit would land on the old column count and stay there while
+     the pane glided to a different one. Every width change — open, close, drag,
+     arrow key — lands in one frame; the content settles instead (below). */
 }
 
 .tv-sidebar.hidden {
@@ -245,14 +251,45 @@
   outline-offset: -1px;
 }
 
-.tv-sidebar.resizing {
-  transition: none;
-}
-
 body.tv-resizing,
 body.tv-resizing * {
   cursor: col-resize !important;
   user-select: none !important;
+}
+
+/* The panel's content arrives from the terminal edge. The frame, its
+   background and the reflow that made the 320px of room all land in one frame:
+   fading the panel itself would show the old terminal through it for the
+   duration and read as an overlay, which this panel is not (ADR-003), and a
+   width transition would clip columns until the 250ms refit snaps them back.
+   So only the content interpolates — 10px from the right (the terminal side)
+   under a faint-to-full opacity, over 220ms on the app's decelerating curve.
+   Long enough to read as arrival: at 120ms a decelerating curve is already
+   three-quarters home, which is why the first pass looked instant.
+
+   Set by terminal-view.ts on the two deliberate changes of subject, opening
+   the panel and switching tabs. It is deliberately absent from
+   updateSidebarDetail/updateSidebarPlaceholder: those run on the keystroke
+   path, where the pane is a live mirror of the prompt and any motion next to
+   the echo reads as lag. */
+.sb-content.sb-content--enter {
+  animation: sb-content-settle 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes sb-content-settle {
+  from {
+    opacity: 0.15;
+    transform: translateX(-10px);
+  }
+}
+
+/* Collapse the duration rather than replacing the animation with none, so the
+   keyframes still land on their final state. */
+@media (prefers-reduced-motion: reduce) {
+  .sb-content--enter {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 .sb-placeholder {

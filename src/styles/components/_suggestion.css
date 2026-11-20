@@ -41,12 +41,70 @@
   display: none;
 }
 
+/* ─── Suggestion motion ─────────────────────────────────────────────────────
+   One thesis covers the ghost text, the dropdown and the side panel: the grid
+   never animates, the ink on it settles. Anything that decides layout — which
+   cell the ghost starts in, whether the dropdown takes space, how wide the
+   panel is — lands in a single frame, so nothing under the typed character
+   ever moves and no frame is spent reflowing a terminal.
+
+   Arrivals settle, departures are instant. A surface appearing interpolates
+   over 180–220ms on the app's decelerating curve; a surface disappearing gets
+   one frame, because a suggestion that lingers after the input stopped
+   matching misreports what the remote is about to receive.
+
+   The durations sit in the middle of the app's 100–300ms band, not at the
+   bottom: a decelerating curve is ~75% complete in its first third, so a
+   shorter animation is over before the eye registers it as motion at all.
+
+   The classes are set by ghost-text.ts / dropdown.ts / terminal-view.ts on the
+   transition from hidden to shown and cleared on hide, never baked into
+   generated markup: the dropdown rebuilds its whole innerHTML on every
+   keystroke, and a keyframe that ships with the markup replays on each one.
+   See docs/specs/03-ui-visual-design.md § Motion. */
+.ghost-text.ghost-text--enter,
+.match-count-badge.match-count-badge--enter {
+  animation: suggestion-settle 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* From a tenth opacity rather than 0: the ghost has to be legible in the same
+   frame the keystroke echoes, or the prediction reads as lag. The 3px rise
+   ends exactly on the cell — a one-shot entrance may leave the grid, a
+   position change that animates during typing may not.
+
+   No `to` keyframe: the animation lands on whatever opacity the element
+   already carries, so the variable-placeholder variant keeps its own token. */
+@keyframes suggestion-settle {
+  from {
+    opacity: 0.1;
+    transform: translateY(3px);
+  }
+}
+
 /* ─── Suggestion Dropdown ──────────────────────────────────────────── */
 .suggestion-dropdown {
   position: absolute;
   bottom: var(--space-8);
   left: var(--space-2);
-  background: var(--color-surface-elevated);
+  /* Frosted, so the terminal stays present behind the list rather than the box
+     reading as a hole cut in the window.
+
+     Alpha alone cannot show this. Measured over dense terminal output, the
+     composited panel tone is ~43.3 at 100%, 70%, 50% and 35% alike: the blurred
+     dark terminal averages to the same luminance as --color-surface-elevated
+     (#1E293B is 43.3), so every alpha lands on the same slab. Only the texture
+     behind the fill changes, and blur(20px) flattened that to a ±1.5 luminance
+     spread against a flat 0.1 for an opaque box — invisible. The blur radius,
+     not the alpha, is what makes the frost legible: at 50% the spread behind
+     the rows measures 8.9 / 6.1 / 5.2 / 2.7 for blur 4 / 6 / 8 / 20px. 4px is
+     the shallowest radius measured: the line shapes stay soft bands rather
+     than turning into legible output, and the peak backdrop luminance behind
+     the rows is 75, so primary text still clears 8:1. 6px read as haze over
+     the terminal, so the radius was taken one step down. Derived from the
+     elevated role rather than a new token, so every theme inherits it. See
+     docs/adr/023-translucency-reads-through-blur-radius.md. */
+  background: color-mix(in srgb, var(--color-surface-elevated) 50%, transparent);
+  backdrop-filter: blur(4px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   min-width: 320px;
@@ -56,6 +114,20 @@
   z-index: 20;
   box-shadow: var(--shadow-lg);
   display: none;
+}
+
+/* Rises 8px up to the prompt line it is completing. The transform is on the
+   box, not the rows: rows are rebuilt on every keystroke, so any transition on
+   a row's tint would pulse with the typing instead of settling once. */
+.suggestion-dropdown.suggestion-dropdown--enter {
+  animation: suggestion-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes suggestion-rise {
+  from {
+    opacity: 0.15;
+    transform: translateY(8px);
+  }
 }
 
 /* Reading Comfort: cap visible choices at 5 (COGA ≤5, spec 12 §Preset values). */
@@ -99,7 +171,17 @@
 }
 
 .suggestion-name {
-  flex: 1;
+  flex: 1 1 auto;
+  /* The row's subject, so it holds its natural width and the syntax suffix
+     yields first. `flex: 1` is `flex-basis: 0`, which started the name at zero
+     width, so a wide suffix took the whole row: the scp row measured 0px for
+     its name, ssh 0px and sort 4px, which is why the longest rows lost their
+     title and read as a small syntax blurb. An auto basis keeps the content
+     width. The zero floor lets the name ellipsize once the suffix is empty and
+     the name alone outgrows the dropdown's 500px cap, which a max-content floor
+     blocked: that row measured 476px of name with its category pushed 69px past
+     the panel and clipped away. */
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -126,7 +208,10 @@
   margin-left: var(--space-2);
   margin-right: var(--space-2);
   white-space: nowrap;
-  flex-shrink: 1;
+  /* Yields before the name does. Flexbox shares a deficit by shrink factor, so
+     a large factor empties the suffix first and only then does the name give up
+     characters — the name keeps priority over the hint without a hard floor. */
+  flex-shrink: 1000;
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.7;
@@ -171,3 +256,15 @@
   color: var(--color-text-secondary);
   background: linear-gradient(transparent, var(--color-suggestion-fade));
 }
+
+/* Collapse the duration rather than replacing the animation with none, so the
+   keyframes still land on their final state and nothing is left mid-settle. */
+@media (prefers-reduced-motion: reduce) {
+  .ghost-text--enter,
+  .match-count-badge--enter,
+  .suggestion-dropdown--enter {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+

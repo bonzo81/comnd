@@ -161,6 +161,85 @@ describe("Dropdown — row rendering", () => {
     expect(suffix?.querySelector(".token-var")).not.toBeNull();
   });
 
+  it("does not repeat the command name in the suffix while the name is current", () => {
+    const tokens: CommandToken[] = [
+      { lit: "scp" },
+      { choice: ["-r", "-p", "-C", "-q", "-O", "-3"] },
+      { lit: "-P" },
+      { var: "port", type: "free" },
+    ];
+    const command = makeCommand("scp", { tokens });
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "s");
+
+    const row = container.querySelector(".suggestion-item")!;
+    expect(row.querySelector(".suggestion-name")?.textContent).toBe("scp");
+    const suffix = row.querySelector(".token-suffix");
+    expect(suffix?.textContent).toBe("[-r | -p | -C | -q | -O | -3] -P <port>");
+    expect(suffix?.textContent).not.toContain("scp");
+  });
+
+  it("renders no suffix when the command name is the only token", () => {
+    const tokens: CommandToken[] = [{ lit: "uptime" }];
+    const command = makeCommand("uptime", { tokens });
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "u");
+
+    const suffix = container.querySelector(".suggestion-item .token-suffix");
+    expect(suffix?.textContent).toBe("");
+  });
+
+  it("grows the name highlight as more characters are typed", () => {
+    const { dropdown, container } = makeDropdown();
+    const ssh = makeResult(makeCommand("ssh"));
+    const sort = makeResult(makeCommand("sort"));
+
+    dropdown.show([ssh, sort], "s");
+    const rows = () => container.querySelectorAll(".suggestion-item");
+
+    expect(rows()[0].querySelector(".prefix-match")?.textContent).toBe("s");
+
+    // Typing the second character must move the highlight, not freeze it at
+    // the text the dropdown opened with.
+    dropdown.updateResults([ssh, sort], "so");
+
+    expect(rows()[0].querySelector(".prefix-match")).toBeNull();
+    expect(rows()[1].querySelector(".prefix-match")?.textContent).toBe("so");
+  });
+
+  it("keeps the whole name highlighted once a space follows it", () => {
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(makeCommand("ss"))], "ss");
+    dropdown.updateResults([makeResult(makeCommand("ss"))], "ss ");
+
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("ss");
+  });
+
+  it("keeps growing the highlight inside a multi-word command name", () => {
+    const { dropdown, container } = makeDropdown();
+    const show = makeResult(makeCommand("show interfaces"));
+
+    dropdown.show([show], "show");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show");
+
+    dropdown.updateResults([show], "show in");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show in");
+
+    dropdown.updateResults([show], "show int");
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show int");
+  });
+
+  it("stops the highlight at the name boundary when arguments follow", () => {
+    const { dropdown, container } = makeDropdown();
+
+    dropdown.show([makeResult(makeCommand("show interfaces"))], "show interfaces status");
+
+    expect(container.querySelector(".prefix-match")?.textContent).toBe("show interfaces");
+  });
+
   it("skips the typed-text highlight on prefix-command rows", () => {
     const prefixRow = makeResult(makeCommand("systemctl restart"), { prefix: "sudo" });
     const plainRow = makeResult(makeCommand("system status"));
@@ -501,5 +580,28 @@ describe("Dropdown — choice mode", () => {
     dropdown.updateResults([]);
 
     expect(dropdown.isVisible()).toBe(false);
+  });
+});
+
+describe("Dropdown — arrival settle", () => {
+  // updateResults() re-renders on every keystroke while the dropdown is open,
+  // so the entrance belongs to the closed→open edge only.
+  it("marks the open edge, not a results update, and re-arms after hiding", () => {
+    const { dropdown, container } = makeDropdown();
+    const el = container.querySelector(".suggestion-dropdown") as HTMLElement;
+
+    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
+
+    el.classList.remove("suggestion-dropdown--enter");
+    dropdown.updateResults([
+      makeResult(makeCommand("show")),
+      makeResult(makeCommand("shutdown")),
+    ]);
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(false);
+
+    dropdown.hide();
+    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
   });
 });

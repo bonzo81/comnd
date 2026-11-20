@@ -11,7 +11,7 @@
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
 import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
 import { escHtml } from "./format";
-import { renderToken, isChoice as isChoiceTok } from "./tokens";
+import { renderToken, isChoice as isChoiceTok, isLit } from "./tokens";
 import { moveListItem } from "./listbox-nav";
 
 export type AcceptFn = (command: Command, payload: GhostPayload | null) => void;
@@ -47,6 +47,7 @@ export class Dropdown {
 
   /** Show the dropdown with results */
   show(results: SuggestionResult[], prefix: string) {
+    const opening = !this._visible;
     this.items = results;
     this.currentPrefix = prefix;
     this.choiceMode = this.deriveChoiceMode(results);
@@ -58,6 +59,10 @@ export class Dropdown {
     this.el.style.display = "block";
     if (this.choiceMode) this.renderChoice();
     else this.render();
+    // Rise in on the closed→open edge only; updateResults() re-renders while
+    // open and must stay still. hide() clears the class, so a later open
+    // animates again without a forced reflow.
+    if (opening) this.el.classList.add("suggestion-dropdown--enter");
   }
 
   /** Hide the dropdown */
@@ -65,6 +70,7 @@ export class Dropdown {
     this._visible = false;
     this.choiceMode = null;
     this.el.style.display = "none";
+    this.el.classList.remove("suggestion-dropdown--enter");
   }
 
   /** Is the dropdown currently visible? */
@@ -72,9 +78,14 @@ export class Dropdown {
     return this._visible;
   }
 
-  /** Update results (e.g. when user types more) */
-  updateResults(results: SuggestionResult[]) {
+  /**
+   * Update results (e.g. when user types more). Pass the text the results were
+   * matched against so the row highlight grows with the typed name — without
+   * it the prefix stays frozen at whatever was typed when the dropdown opened.
+   */
+  updateResults(results: SuggestionResult[], prefix?: string) {
     this.items = results;
+    if (prefix !== undefined) this.currentPrefix = prefix;
     if (results.length === 0) {
       this.hide();
       return;
@@ -324,9 +335,13 @@ export class Dropdown {
     const toks = item.command.tokens;
     if (!toks || toks.length === 0) return "";
     const currentIdx = tm.currentTokenIndex;
+    // The row's title already spells the command name, so a hint that starts at
+    // the name token repeats it ("scp scp [-r | -p …]"). That doubled length is
+    // what then squeezed the title out of the row, so start after the name.
+    const start = currentIdx === 0 && isLit(toks[0]) ? 1 : currentIdx;
     // Render from the current token onward.
     const parts: string[] = [];
-    for (let i = currentIdx; i < toks.length; i++) {
+    for (let i = start; i < toks.length; i++) {
       const t = toks[i];
       const isCurrent = i === currentIdx;
       parts.push(renderToken(t, { current: isCurrent, litWordIdx: tm.litWordIndex }));
@@ -335,15 +350,23 @@ export class Dropdown {
   }
 
   private highlightPrefix(name: string, prefix: string): string {
-    if (!prefix) return escHtml(name);
+    // The highlight covers however much of the name the typed line still
+    // agrees with, so it grows with each character — including inside a
+    // multi-word name ("show in" highlights "show in" of "show interfaces")
+    // — and holds the whole name once the line moves on to arguments.
+    const typed = prefix.trimEnd().toLowerCase();
     const lower = name.toLowerCase();
-    const lowerPrefix = prefix.toLowerCase();
-    if (lower.startsWith(lowerPrefix)) {
-      const matched = name.substring(0, prefix.length);
-      const rest = name.substring(prefix.length);
-      return `<span class="prefix-match">${escHtml(matched)}</span>${escHtml(rest)}`;
+    let matched = 0;
+    while (matched < typed.length && matched < lower.length && typed[matched] === lower[matched]) {
+      matched++;
     }
-    return escHtml(name);
+    // Only a row that still agrees with everything typed so far is highlighted:
+    // either the name continues the typed text, or the text has run past the
+    // full name into its arguments.
+    if (matched === 0 || (matched !== typed.length && matched !== lower.length)) {
+      return escHtml(name);
+    }
+    return `<span class="prefix-match">${escHtml(name.substring(0, matched))}</span>${escHtml(name.substring(matched))}`;
   }
 }
 
