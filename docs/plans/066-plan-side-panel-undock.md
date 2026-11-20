@@ -68,8 +68,9 @@ single atomic replace.
   hidden, so the terminal lays out at full window width and the existing
   `fit()` → `ssh_resize` path gives the PTY the new column count. Docking restores the panel
   at its saved width through the same path. No second resize mechanism exists.
-- `src/components/panel-window.ts` — the undocked window's own UI: header with a Dock
-  control, the same tab strip, the shared `.sb-content` renderer. `Escape` closes it.
+- `src/components/panel-window.ts` — the undocked window's own UI: a frameless header that
+  is the window's drag region, with Dock and Close controls, the same tab strip, the shared
+  `.sb-content` renderer. `Escape` closes it.
 - `src/lib/shortcuts.ts`, `src/main.ts` — `Ctrl+Shift+B` (`Mod+Shift+B`) is bound to
   `toggle-side-panel` and calls `cycleSidePanel()`, in both windows, so the keyboard alone
   can open, undock and dock. `Ctrl+W` is untouched.
@@ -82,18 +83,33 @@ Tokens only (ADR-018); `npm run lint:css` passes.
 ## Known gaps handed over by the spec, and the answers chosen
 
 1. **Where the Dock control lives, and which shortcut triggers dock/undock.** The undocked
-   window keeps native decorations and puts Dock first in its header tab order; the docked
-   panel gains an Undock control in its own tab strip rather than a second toolbar button.
+   window puts Dock first in its header tab order and Close second; the docked panel gains
+   an Undock control in its own tab strip rather than a second toolbar button.
    `Ctrl+Shift+B` cycles closed → docked → undocked → docked instead of toggling, because a
    toggle would have no route from docked to undocked. Hiding the docked panel stays on
    `.tv-panel-btn` and `Escape`.
 2. **Does `Escape` close the undocked window?** Yes. It destroys the window and leaves the
-   panel undocked for the next open, which matches what the window's own close button does.
+   panel undocked for the next open, which matches what the header's Close control does.
    `Escape` in the main window still closes the docked panel.
 3. **Config shape and key names.** `panel.undocked`, `panel.docked_width`,
    `panel.window.{x,y,width,height}`, as above. `window: null` means "never undocked", which
    the first undock replaces with a centred default scaled by the primary monitor's
    `scale_factor()`.
+
+## Follow-up after review: the window is frameless
+
+The first cut kept native decorations. Manual review asked for them gone, matching the main
+window, which `tauri.conf.json` already opens with `decorations: false`. The window is now
+created with `.decorations(false)` and keeps `shadow` at its default, so the DWM frame still
+supplies the all-edge resize borders and the drop shadow; `.resizable(true)` is unchanged, so
+the saved geometry stays user-adjustable. With no title bar to move the window by, `.pw-head`
+carries `data-tauri-drag-region="deep"` and `user-select: none`, which makes the header a
+title bar while leaving the Dock and Close buttons clickable — Tauri's drag script refuses to
+start a drag from an interactive element. Close reuses the `close` bridge action that `Escape`
+already sends, so no new IPC surface exists, and it sits *after* Dock in tab order so the way
+back is still the first control the keyboard reaches. `core:window:allow-start-dragging` is
+the one added permission: `core:window:default` already grants `internal_toggle_maximize`,
+which is what a double-click on the header needs.
 
 ## Verification
 

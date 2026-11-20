@@ -23,6 +23,9 @@
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
+  /* This header is the frameless window's drag region, so it has to behave
+     like a title bar rather than select its own label while being dragged. */
+  user-select: none;
 }
 
 .pw-title {
@@ -32,6 +35,21 @@
   letter-spacing: var(--font-tracking-label);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
+}
+
+/* Close stands beside Dock rather than replacing it: Dock brings the panel's
+   content and its saved width back into the app, Close only takes the window
+   away. Icon-only, so flex centring replaces the baseline offset on its glyph. */
+.panel-window .pw-close {
+  display: flex;
+  align-items: center;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.panel-window .pw-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-error);
 }
 
 /* The tab strip and content are the docked panel's own classes, so the two

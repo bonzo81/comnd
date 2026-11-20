@@ -378,11 +378,15 @@ pub async fn panel_open(app: AppHandle) -> Result<PanelWindowGeometry, String> {
     // builder's position/size means logical pixels, which at 150% scale would
     // land the restored window in the wrong place. Showing only after the
     // geometry is applied also avoids a one-frame flash at the default position.
+    // Frameless, like the main window: the header the panel already draws is
+    // its drag region. Decorations stay off but `shadow` keeps its default, so
+    // the DWM frame still supplies the resize borders and the drop shadow.
     let window = WebviewWindowBuilder::new(&app, PANEL_LABEL, WebviewUrl::App("index.html".into()))
         .title("Comnd Panel")
         .inner_size(DEFAULT_WINDOW_WIDTH as f64, DEFAULT_WINDOW_HEIGHT as f64)
         .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         .resizable(true)
+        .decorations(false)
         .visible(false)
         .build()
         .map_err(|e| format!("Failed to create the panel window: {}", e))?;
@@ -395,6 +399,18 @@ pub async fn panel_open(app: AppHandle) -> Result<PanelWindowGeometry, String> {
         .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
+    // A window that has never been shown is still measured against the default
+    // captioned frame, so the `set_size` above leaves the client area too tall on
+    // Windows — 43 px at 150% scale here, the difference between the captioned
+    // and undecorated frame heights. Showing settles the frame; re-applying the
+    // saved rectangle then lands exactly, and is skipped when the first call was
+    // already right.
+    let restored = window.inner_size().map(|s| (s.width, s.height)).ok();
+    if restored != Some((saved.width, saved.height)) {
+        window
+            .set_size(PhysicalSize::new(saved.width, saved.height))
+            .map_err(|e| e.to_string())?;
+    }
 
     let geometry = PanelWindowGeometry { x, y, width: saved.width, height: saved.height };
     attach_geometry_tracking(&app, &window, geometry);

@@ -7,11 +7,13 @@
  * dialogs. Nothing about the SSH session lives here — no keystrokes, no
  * suggestion path, no PTY (ADR-002, ADR-003).
  *
- * The window carries native decorations, so moving, resizing and closing it are
- * the OS's job. Its own content adds one thing the docked panel does not need: a
- * Dock control, because a window with no way back is a trap.
+ * The window is frameless, matching the main window, so its content supplies
+ * the window controls: the header is the drag region and carries Dock, because a
+ * window with no way back is a trap, and Close, because Escape is not a hint
+ * anyone can see.
  */
 
+import { icons } from "../lib/icons";
 import { matches } from "../lib/shortcuts";
 import { renderSidePanel } from "../lib/side-panel-render";
 import type { SidePanelAction, SidePanelState } from "../lib/side-panel";
@@ -37,9 +39,10 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
 
   root.innerHTML = `
     <div class="panel-window">
-      <header class="pw-head">
+      <header class="pw-head" data-tauri-drag-region="deep">
         <h1 class="pw-title">Panel</h1>
         <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="Control+Shift+B">Dock</button>
+        <button type="button" class="btn-text pw-close" id="panel-close" aria-label="Close panel" title="Close panel" aria-keyshortcuts="Escape">${icons.x}</button>
       </header>
       <div class="sb-toggle" role="tablist" aria-label="Panel content">
         <button class="sb-toggle-btn sb-toggle-kb" role="tab" aria-selected="true">Knowledge Base</button>
@@ -72,10 +75,12 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   };
 
   const onDock = () => bridge.send({ type: "dock" });
+  const onClose = () => bridge.send({ type: "close" });
   const onKb = () => bridge.send({ type: "mode", mode: "kb" });
   const onReplay = () => bridge.send({ type: "mode", mode: "replay" });
 
   root.querySelector(".pw-dock")!.addEventListener("click", onDock);
+  root.querySelector(".pw-close")!.addEventListener("click", onClose);
   kbTab.addEventListener("click", onKb);
   replayTab.addEventListener("click", onReplay);
 
@@ -101,6 +106,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     document.removeEventListener("keydown", onKeyDown);
     unsubscribe();
     root.querySelector(".pw-dock")!.removeEventListener("click", onDock);
+    root.querySelector(".pw-close")!.removeEventListener("click", onClose);
     kbTab.removeEventListener("click", onKb);
     replayTab.removeEventListener("click", onReplay);
     delete document.documentElement.dataset.comndWindow;

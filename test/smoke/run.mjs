@@ -1032,9 +1032,24 @@ async function panelWindows(browser) {
   return invoke(browser, "test_panel_windows");
 }
 
-/** The one panel window, asserted single and visible. */
+/**
+ * The one panel window, asserted single and visible.
+ *
+ * The WebDriver handle list shows a window as soon as it is *created*, while
+ * `panel_open` builds it hidden and shows it only once its geometry is applied,
+ * so the panel can still be invisible when this is first asked. Poll rather than
+ * read once — the same race would otherwise fail a whole run at random.
+ */
 async function singlePanelWindow(browser, behavior) {
-  const windows = await panelWindows(browser);
+  const deadline = Date.now() + WAIT_MS;
+  let windows = await panelWindows(browser);
+  for (;;) {
+    const panels = windows.filter((entry) => entry.label === "panel");
+    if (panels.length === 1 && panels[0].visible) return panels[0];
+    if (Date.now() > deadline) break;
+    await pause(100);
+    windows = await panelWindows(browser);
+  }
   const labels = windows.map((entry) => entry.label).join(", ");
   const panels = windows.filter((entry) => entry.label === "panel");
   assert.equal(

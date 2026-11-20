@@ -104,6 +104,27 @@ describe("undocked panel window", () => {
     expect(b.send).toHaveBeenCalledWith({ type: "dock" });
   });
 
+  it("makes the frameless window draggable from its header", () => {
+    const { root } = mount();
+    // The window has no decorations, so this attribute is the only way to move it.
+    expect(root.querySelector(".pw-head")!.getAttribute("data-tauri-drag-region")).toBe("deep");
+  });
+
+  it("offers a close control after Dock that closes the window without docking", () => {
+    const { root, b } = mount();
+    const controls = [...root.querySelectorAll<HTMLButtonElement>(".pw-head button")].map((el) => el.id);
+    // Dock stays first: Tab from the header reaches the way back before the exit.
+    expect(controls).toEqual(["panel-dock", "panel-close"]);
+
+    const close = root.querySelector<HTMLButtonElement>("#panel-close")!;
+    expect(close.querySelector("svg")).not.toBeNull();
+    expect(close.getAttribute("aria-label")).toBe("Close panel");
+    expect(close.getAttribute("aria-keyshortcuts")).toBe("Escape");
+    close.click();
+    expect(b.send).toHaveBeenCalledWith({ type: "close" });
+    expect(b.send).not.toHaveBeenCalledWith({ type: "dock" });
+  });
+
   it("renders the published snapshot and the tab state", () => {
     const { root, b } = mount();
     b.push(state({ mode: "replay", snapshot: { kind: "replay", items: [], platform: "linux-bash" } }));
@@ -194,9 +215,14 @@ describe("undocked panel window", () => {
   });
 
   it("stops listening after teardown", () => {
-    mount();
+    const { root, b } = mount();
     mounted.pop()!();
     key("Escape");
+    // The controls are still in the detached DOM, so a leaked listener shows up
+    // here as a message sent by a window that no longer exists.
+    root.querySelector<HTMLButtonElement>("#panel-dock")!.click();
+    root.querySelector<HTMLButtonElement>("#panel-close")!.click();
     expect(document.documentElement.dataset.comndWindow).toBeUndefined();
+    expect(b.send).not.toHaveBeenCalled();
   });
 });
