@@ -243,7 +243,8 @@ fn device_tab_device() -> serde_json::Value {
         "status": { "value": "active", "label": "Active" },
         "device_type": {
             "id": 1,
-            "display": "Cisco C9300-48P",
+            // NetBox's DeviceType.__str__ returns the model only.
+            "display": "C9300-48P",
             "model": "C9300-48P",
             "slug": "c9300-48p",
             "manufacturer": { "id": 1, "name": "Cisco", "slug": "cisco" }

@@ -45,13 +45,14 @@ function handlers(over: Partial<SidePanelHandlers> = {}): SidePanelHandlers {
 
 async function selectNetbox(hostId = "netbox:201") {
   const h = createHarness();
+  const owner = {};
   h.ipc.mockImpl("netbox_get_device_summary", () => summary());
-  setSidePanelNetboxHost(hostId);
+  setSidePanelNetboxHost(hostId, owner);
   setSidePanelMode("netbox");
   await vi.waitFor(() =>
     expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
   );
-  return h;
+  return { h, owner };
 }
 
 function renderCurrent() {
@@ -66,7 +67,7 @@ describe("NetBox side-panel tab", () => {
     const h = createHarness();
     h.ipc.mockImpl("netbox_get_device_summary", () => summary());
 
-    setSidePanelNetboxHost("netbox:201");
+    setSidePanelNetboxHost("netbox:201", {});
     expect(getSidePanelState().netboxHostId).toBe("netbox:201");
     expect(h.ipc.calls("netbox_get_device_summary")).toHaveLength(0);
 
@@ -78,7 +79,7 @@ describe("NetBox side-panel tab", () => {
 
   it("does not offer the tab for a user host", () => {
     const h = createHarness();
-    setSidePanelNetboxHost("0d5f7c2a-3b6e-4f10-9a8c-2b4c6d8e0f12");
+    setSidePanelNetboxHost("0d5f7c2a-3b6e-4f10-9a8c-2b4c6d8e0f12", {});
     expect(getSidePanelState().netboxHostId).toBeNull();
     setSidePanelMode("netbox");
     expect(getSidePanelState().mode).toBe("kb");
@@ -124,7 +125,7 @@ describe("NetBox side-panel tab", () => {
         ],
       }),
     );
-    setSidePanelNetboxHost("netbox:201");
+    setSidePanelNetboxHost("netbox:201", {});
     setSidePanelMode("netbox");
     await vi.waitFor(() =>
       expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
@@ -149,7 +150,7 @@ describe("NetBox side-panel tab", () => {
       return summary({ name: calls === 1 ? "first-device" : "second-device" });
     });
 
-    setSidePanelNetboxHost("netbox:201");
+    setSidePanelNetboxHost("netbox:201", {});
     setSidePanelMode("netbox");
     await vi.waitFor(() =>
       expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
@@ -183,15 +184,15 @@ describe("NetBox side-panel tab", () => {
   });
 
   it("drops the tab and falls back to KB when the active host is a user host", async () => {
-    await selectNetbox();
+    const { owner } = await selectNetbox();
     expect(getSidePanelState().mode).toBe("netbox");
 
-    // Hand-off order: the outgoing tab clears its id first, then the incoming
-    // user host has the final word.
-    clearSidePanelNetboxHost("netbox:201");
+    // Hand-off order: the outgoing view clears its subject first, then the
+    // incoming user host has the final word.
+    clearSidePanelNetboxHost(owner);
     expect(getSidePanelState().netboxHostId).toBeNull();
     expect(getSidePanelState().mode).toBe("netbox");
-    setSidePanelNetboxHost(null);
+    setSidePanelNetboxHost(null, {});
     expect(getSidePanelState().netboxHostId).toBeNull();
     expect(getSidePanelState().mode).toBe("kb");
     expect(getSidePanelState().snapshot).toMatchObject({ kind: "placeholder" });
@@ -205,16 +206,18 @@ describe("NetBox side-panel tab", () => {
         name: args.hostId === "netbox:201" ? "first-device" : "second-device",
       }),
     );
+    const first = {};
+    const second = {};
     // The hand-off only fetches while the panel is showing the tab.
     openSidePanel();
-    setSidePanelNetboxHost("netbox:201");
+    setSidePanelNetboxHost("netbox:201", first);
     setSidePanelMode("netbox");
     await vi.waitFor(() =>
       expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
     );
 
-    clearSidePanelNetboxHost("netbox:201");
-    setSidePanelNetboxHost("netbox:202");
+    clearSidePanelNetboxHost(first);
+    setSidePanelNetboxHost("netbox:202", second);
     await vi.waitFor(() => {
       const snapshot = getSidePanelState().snapshot;
       expect(snapshot.kind).toBe("netbox");
@@ -225,6 +228,32 @@ describe("NetBox side-panel tab", () => {
       }
     });
     expect(getSidePanelState().mode).toBe("netbox");
+    expect(h.ipc.calls("netbox_get_device_summary")).toHaveLength(2);
+  });
+
+  it("keeps the subject when duplicate sessions share one NetBox host id", async () => {
+    const h = createHarness();
+    h.ipc.mockImpl("netbox_get_device_summary", () => summary());
+    const outgoing = {};
+    const incoming = {};
+
+    openSidePanel();
+    setSidePanelNetboxHost("netbox:201", outgoing);
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    // Activation order: the incoming duplicate session publishes the same id
+    // first, then the outgoing one clears. Ownership, not the id, decides.
+    setSidePanelNetboxHost("netbox:201", incoming);
+    clearSidePanelNetboxHost(outgoing);
+
+    expect(getSidePanelState().netboxHostId).toBe("netbox:201");
+    expect(getSidePanelState().mode).toBe("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
     expect(h.ipc.calls("netbox_get_device_summary")).toHaveLength(2);
   });
 });

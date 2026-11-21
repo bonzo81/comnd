@@ -120,6 +120,12 @@ const actionListeners = new Set<(action: SidePanelAction) => void>();
 let widthTimer: ReturnType<typeof setTimeout> | null = null;
 /** Invalidates a NetBox fetch whose subject changed (host or tab switch). */
 let netboxSeq = 0;
+/**
+ * View that published the NetBox subject. The host id is not enough: two
+ * duplicate sessions can share one id, so the outgoing view's clear must not
+ * remove the incoming view's subject.
+ */
+let publishedNetboxOwner: object | null = null;
 /** Serialises the lifecycle steps; see `applyPanelLifecycle`. */
 let lifecycle: Promise<void> = Promise.resolve();
 /** Bumped by every lifecycle request, so a completion can tell whether it still
@@ -414,12 +420,23 @@ export function retrySidePanelNetbox(): void {
  * Publish the active tab's host. A NetBox host makes the tab available in both
  * homes; a user host or no active tab hides it and falls back to KB when it was
  * showing. No fetch happens unless the panel is already open on NetBox.
+ *
+ * `owner` is the calling terminal view. Ownership, not the host id alone,
+ * decides whether a later clear may remove the subject, because duplicate
+ * sessions can share one NetBox host id.
  */
-export function setSidePanelNetboxHost(hostId: string | null): void {
+export function setSidePanelNetboxHost(
+  hostId: string | null,
+  owner: object | null,
+): void {
   // Only the `netbox:<id>` form can publish a NetBox tab; a user host id is
   // normalised away even if a caller passes one by mistake.
   const netboxHostId = hostId && isNetboxHostId(hostId) ? hostId : null;
-  if (state.netboxHostId === netboxHostId) {
+  const netboxOwner = netboxHostId ? owner : null;
+  if (
+    state.netboxHostId === netboxHostId &&
+    publishedNetboxOwner === netboxOwner
+  ) {
     // The host hand-off clears the id first and the incoming tab publishes
     // after it. If the incoming tab is a user host (or there is none), this is
     // the final word: a NetBox mode with no host must fall back to KB.
@@ -432,7 +449,8 @@ export function setSidePanelNetboxHost(hostId: string | null): void {
     }
     return;
   }
-  // A fetch still in flight belongs to the previous host.
+  publishedNetboxOwner = netboxOwner;
+  // A fetch still in flight belongs to the previous host/owner.
   netboxSeq++;
   if (!netboxHostId) {
     if (state.mode !== "netbox") {
@@ -456,14 +474,16 @@ export function setSidePanelNetboxHost(hostId: string | null): void {
 }
 
 /**
- * The tab that just gave up the app-wide panel clears the host only when it is
- * still the published one, so activation order cannot clear the incoming tab's
- * host. The mode is left alone: the incoming tab's `setSidePanelNetboxHost`
- * either restores a NetBox subject (the mode survives a NetBox → NetBox tab
- * switch) or is a user host, which then falls back to KB.
+ * The view that just gave up the app-wide panel clears the host only when it is
+ * still the published owner, so activation order cannot clear the incoming
+ * view's subject — including when both sessions share one NetBox host id. The
+ * mode is left alone: the incoming view's `setSidePanelNetboxHost` either
+ * restores a NetBox subject (the mode survives a NetBox → NetBox switch) or is
+ * a user host, which then falls back to KB.
  */
-export function clearSidePanelNetboxHost(hostId: string): void {
-  if (!hostId || state.netboxHostId !== hostId) return;
+export function clearSidePanelNetboxHost(owner: object): void {
+  if (publishedNetboxOwner !== owner) return;
+  publishedNetboxOwner = null;
   netboxSeq++;
   setState({ netboxHostId: null });
 }
@@ -534,5 +554,6 @@ export function __resetSidePanel(): void {
   persistedHome = false;
   requestedHome = null;
   netboxSeq = 0;
+  publishedNetboxOwner = null;
   state = initialState();
 }

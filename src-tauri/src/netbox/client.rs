@@ -126,8 +126,8 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
 
 /// Top-level fields for the device-detail request. Nested serializers default
 /// to their brief shape, so this keeps the payload to the facts the tab shows.
-const SUMMARY_DEVICE_FIELDS: &str =
-    "id,name,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
+/// `display` is requested because it is the fallback for an unnamed device.
+const SUMMARY_DEVICE_FIELDS: &str = "id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
 /// Top-level fields for the IP request. `assigned_object` is brief (interface
 /// plus brief device), which is all the grouping needs.
 const SUMMARY_IP_FIELDS: &str =
@@ -172,6 +172,29 @@ fn summary_primary_ip(v: &serde_json::Value) -> Option<String> {
     ["primary_ip4", "primary_ip6"].iter().find_map(|key| {
         summary_text(v.get(*key)?.get("address"))
     })
+}
+
+/// Compose `manufacturer.name` and `model`. NetBox's `DeviceType.__str__`
+/// returns the model only, so `display` cannot carry the manufacturer; it is
+/// kept as the fallback when the brief response omits the pair.
+fn summary_device_type(v: &serde_json::Value) -> Option<String> {
+    let kind = v.get("device_type")?;
+    let manufacturer = kind.get("manufacturer").and_then(|manufacturer| {
+        summary_text(manufacturer.get("name")).or_else(|| summary_text(manufacturer.get("display")))
+    });
+    let model = summary_text(kind.get("model"));
+    match (manufacturer, model) {
+        (Some(manufacturer), Some(model)) => {
+            if model.to_lowercase().contains(&manufacturer.to_lowercase()) {
+                Some(model)
+            } else {
+                Some(format!("{} {}", manufacturer, model))
+            }
+        }
+        (_, Some(model)) => Some(model),
+        (Some(manufacturer), None) => Some(manufacturer),
+        (None, None) => summary_text(kind.get("display")),
+    }
 }
 
 /// Group the device's addresses by interface. Only `dcim.interface` owners are
@@ -253,11 +276,7 @@ fn parse_summary_device(
         name,
         status,
         status_label,
-        device_type: device
-            .get("device_type")
-            .and_then(|kind| {
-                summary_text(kind.get("display")).or_else(|| summary_text(kind.get("model")))
-            }),
+        device_type: summary_device_type(device),
         site: summary_nested_name(device, "site"),
         location: summary_nested_name(device, "location"),
         rack: summary_nested_name(device, "rack"),
@@ -527,11 +546,38 @@ impl NetBoxClient {
         )
         .map_err(|e| format!("Failed to build request URL: {}", e))?;
         log::info!("NetBox fetch_device_summary addresses -> {}", addresses_url);
-        let body = self.get_json(&addresses_url).await?;
+        let body = self
+            .get_json_for(
+                &addresses_url,
+                Some("reading IP addresses requires IPAM > IP address read access"),
+            )
+            .await?;
         let results = body
             .get("results")
             .and_then(|results| results.as_array())
             .ok_or_else(|| "Unexpected NetBox response shape (missing results)".to_string())?;
+
+        // `limit=0` disables pagination only when the server's MAX_PAGE_SIZE is
+        // 0/unset. Accepting a capped page would silently drop addresses, so
+        // fail with the prerequisite instead; the fixed two-GET contract stays.
+        let total = body
+            .get("count")
+            .and_then(|count| count.as_u64())
+            .unwrap_or(results.len() as u64);
+        let has_next = body
+            .get("next")
+            .and_then(|next| next.as_str())
+            .map(|next| !next.is_empty())
+            .unwrap_or(false);
+        if has_next || total > results.len() as u64 {
+            return Err(format!(
+                "NetBox returned {} of {} interface addresses in one page. The device summary \
+                 needs them all in one request; raise NetBox's API MAX_PAGE_SIZE or reduce this \
+                 device's address count.",
+                results.len(),
+                total
+            ));
+        }
 
         let mut summary = parse_summary_device(&device, netbox_id);
         summary.interfaces = summary_interfaces(results, netbox_id);
@@ -643,6 +689,17 @@ impl NetBoxClient {
 
     /// GET a URL with auth, map errors, parse the JSON body.
     async fn get_json(&self, url: &reqwest::Url) -> Result<serde_json::Value, String> {
+        self.get_json_for(url, None).await
+    }
+
+    /// `permission_hint` names the endpoint a 403 denies. Without it the shared
+    /// device-list wording is used, which would wrongly point at DCIM Device
+    /// when a different endpoint was the one refused.
+    async fn get_json_for(
+        &self,
+        url: &reqwest::Url,
+        permission_hint: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
         let response = self
             .http
             .get(url, &self.auth_header(), None)
@@ -661,7 +718,12 @@ impl NetBoxClient {
                 .map(|s| s.to_string());
             let body = response.text().await.unwrap_or_default();
             log::warn!("NetBox GET {} non-2xx (HTTP {})", url, status);
-            return Err(map_status_error(status, &body, retry_after.as_deref()));
+            return Err(map_status_error_for(
+                status,
+                &body,
+                retry_after.as_deref(),
+                permission_hint,
+            ));
         }
 
         response
@@ -687,10 +749,24 @@ impl NetBoxClient {
 
 /// Friendly mapping for HTTP status codes (plan §4).
 fn map_status_error(status: reqwest::StatusCode, body: &str, retry_after: Option<&str>) -> String {
+    map_status_error_for(status, body, retry_after, None)
+}
+
+fn map_status_error_for(
+    status: reqwest::StatusCode,
+    body: &str,
+    retry_after: Option<&str>,
+    permission_hint: Option<&str>,
+) -> String {
     match status.as_u16() {
         401 => "Invalid or expired NetBox API token".to_string(),
-        403 => "NetBox token lacks permission to list devices (DCIM > Device needs read access)"
-            .to_string(),
+        403 => match permission_hint {
+            Some(hint) => format!("NetBox token lacks permission for this request — {}", hint),
+            None => {
+                "NetBox token lacks permission to list devices (DCIM > Device needs read access)"
+                    .to_string()
+            }
+        },
         429 => match retry_after {
             Some(ra) => format!("Rate limited by NetBox — retry after {}s", ra),
             None => "Rate limited by NetBox — wait a moment and try again".to_string(),
@@ -1088,7 +1164,8 @@ mod tests {
             "status": { "value": "active", "label": "Active" },
             "device_type": {
                 "id": 3,
-                "display": "Cisco C9300-48P",
+                // NetBox's DeviceType.__str__ returns the model only.
+                "display": "C9300-48P",
                 "model": "C9300-48P",
                 "manufacturer": { "id": 1, "name": "Cisco", "slug": "cisco" }
             },
@@ -1165,6 +1242,15 @@ mod tests {
         assert_eq!(summary.primary_ip.as_deref(), Some("10.0.0.1/24"));
         assert_eq!(summary.interfaces.len(), 1);
         server.abort();
+    }
+
+    #[test]
+    fn test_parse_summary_device_uses_display_when_name_is_null() {
+        let mut device = summary_device_json(201);
+        device["name"] = serde_json::Value::Null;
+        device["display"] = "display-only-device".into();
+        let summary = parse_summary_device(&device, 201);
+        assert_eq!(summary.name, "display-only-device");
     }
 
     #[tokio::test]
@@ -1273,8 +1359,11 @@ mod tests {
         assert_eq!(many.interfaces.len(), 48);
 
         // The one-device path uses both endpoints with the query the plan pins.
+        // `display` is requested for the unnamed-device fallback.
         assert!(one_requests.iter().any(|path| {
-            path.starts_with("/api/dcim/devices/1/") && path.contains("fields=")
+            path.starts_with("/api/dcim/devices/1/")
+                && path.contains("fields=")
+                && path.contains("display")
         }));
         assert!(one_requests.iter().any(|path| {
             path.starts_with("/api/ipam/ip-addresses/")
@@ -1300,6 +1389,45 @@ mod tests {
         let client = NetBoxClient::new(&base, "t", false).unwrap();
         let error = client.fetch_device_summary(1).await.unwrap_err();
         assert!(error.contains("lacks permission"), "{}", error);
+        // The denied request is the IP-address one; pointing at DCIM Device
+        // would send the user to a permission the first request already used.
+        assert!(error.contains("IP address"), "{}", error);
+        assert!(!error.contains("DCIM > Device"), "{}", error);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_device_summary_rejects_capped_address_page() {
+        // NetBox's `limit=0` is capped by MAX_PAGE_SIZE (1000 by default). A
+        // capped page must fail loudly instead of dropping addresses.
+        let (base, server) = start_mock(|_| {
+            Arc::new(|_, path, _| {
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else {
+                    (
+                        200,
+                        serde_json::json!({
+                            "count": 3,
+                            "next": "http://netbox/api/ipam/ip-addresses/?limit=1000&offset=1000",
+                            "previous": null,
+                            "results": [
+                                summary_ip_json(1, "10.0.0.1/24", 11, "Gi1/0/1", 1, None),
+                                summary_ip_json(2, "10.0.0.2/24", 11, "Gi1/0/1", 1, None)
+                            ]
+                        })
+                        .to_string(),
+                        vec![],
+                    )
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let error = client.fetch_device_summary(1).await.unwrap_err();
+        assert!(error.contains("2 of 3"), "{}", error);
+        assert!(error.contains("MAX_PAGE_SIZE"), "{}", error);
         server.abort();
     }
 

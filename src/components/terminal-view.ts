@@ -1691,9 +1691,10 @@ export class TerminalView {
     if (!active) {
       // Any load still in flight belongs to the tab that just gave the panel up.
       this.replayLoadSeq++;
-      // Cleared only when this host is still the published one, so activation
-      // order cannot wipe the incoming tab's NetBox subject.
-      clearSidePanelNetboxHost(this.host?.id ?? "");
+      // Cleared only when this view is still the published owner, so activation
+      // order cannot wipe the incoming tab's NetBox subject — even when two
+      // duplicate sessions share the same NetBox host id.
+      clearSidePanelNetboxHost(this);
       return;
     }
     this.publishNetboxHost();
@@ -1708,7 +1709,7 @@ export class TerminalView {
   private publishNetboxHost(): void {
     if (!this.panelActive) return;
     const host = this.host;
-    setSidePanelNetboxHost(host && isNetboxHost(host) ? host.id : null);
+    setSidePanelNetboxHost(host && isNetboxHost(host) ? host.id : null, this);
   }
 
   private esc(s: string): string {
@@ -1960,7 +1961,7 @@ export class TerminalView {
     this.panelUnsubscribe = null;
     this.panelHandlers = null;
     this.renderedPanelSnapshot = null;
-    if (this.panelActive) clearSidePanelNetboxHost(this.host?.id ?? "");
+    if (this.panelActive) clearSidePanelNetboxHost(this);
     this.panelActive = false;
     this.platformIndex = null;
     if (this.sidebarResizeRaf) {

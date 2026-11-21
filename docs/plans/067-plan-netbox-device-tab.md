@@ -38,9 +38,10 @@ This plan is adjusted around that seam rather than adding a terminal-view-only t
 
 1. **The NetBox tab belongs to the shared state, not to one home.** `SidePanelState` gains
    `netboxHostId: string | null`. The terminal view that currently owns the app-wide panel
-   (`panelActive`, ADR-013) publishes its host there; the losing view clears it only when it
-   is still the published id, so activation order cannot clear the incoming host. Both homes
-   show the tab from the same field, so the tab works docked and undocked.
+   (`panelActive`, ADR-013) publishes its host there. Ownership is tracked by the view object,
+   not by the host id: two duplicate sessions can share `netbox:<id>`, so the losing view
+   clears the subject only when it is still the published owner. Both homes show the tab from
+   the same field, so the tab works docked and undocked.
 2. **The fetch lives in `side-panel.ts`.** It is the module both homes act through, so a
    `mode: netbox` action from the undocked window and a click in the docked strip reach the
    same fresh fetch. `SidePanelSnapshot` gains a `netbox` variant carrying
@@ -122,7 +123,7 @@ Facts that drive the query plan:
 
 | # | Request | Parameters | Serializer shape used | GETs |
 |---|---|---|---|---|
-| 1 | `GET /api/dcim/devices/{netbox_id}/` | `fields=id,name,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6` | Top-level restricted; `device_type`, `site`, `location`, `rack`, `primary_ip4/6` nested brief | 1 |
+| 1 | `GET /api/dcim/devices/{netbox_id}/` | `fields=id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6` | Top-level restricted; `device_type`, `site`, `location`, `rack`, `primary_ip4/6` nested brief | 1 |
 | 2 | `GET /api/ipam/ip-addresses/` | `device_id={netbox_id}`, `fields=id,address,vrf,status,assigned_object,assigned_object_type,assigned_object_id`, `limit=0` | Top-level restricted; `assigned_object` nested brief (interface, then brief device) | 1 |
 
 **Expected GET count per device: exactly 2**, independent of whether the device has 1 or 48
@@ -134,9 +135,9 @@ and returns the error; no partial summary is rendered.
 
 | UI fact | Source |
 |---|---|
-| Name | Device `name`, falling back to `display`, then `device-<id>` |
+| Name | Device `name`, falling back to `display` (requested in `fields=`), then `device-<id>` |
 | Status | Device `status.label` (fallback `status.value`) |
-| Device type | Device `device_type.manufacturer.name` + `device_type.model`, falling back to `device_type.display` |
+| Device type | Device `device_type.manufacturer.name` composed with `device_type.model`; `display` is only a fallback because NetBox's `DeviceType.__str__` returns the model alone |
 | Site | Device `site.name` (fallback `display`) |
 | Location | Device `location.name` (fallback `display`) |
 | Rack | Device `rack.name` (fallback `display`) |
@@ -198,9 +199,11 @@ skipped defensively; the `device_id` filter should make that case unreachable.
    the existing tab content rendering (KB detail, Replay list) is untouched. The separate
    Undock control keeps #179's word+icon decision.
 4. **Behaviour when a device has very many IPs or VLANs:** resolved for phase 1 addresses.
-   The panel renders every returned address; the side panel already scrolls vertically
-   (`overflow-y: auto`), so no address is truncated and no count-dependent request is made.
-   VLAN volume remains a phase 2 question.
+   The panel renders every address in the one page and scrolls vertically
+   (`overflow-y: auto`). NetBox's `limit=0` is still capped by the server's `MAX_PAGE_SIZE`
+   (1000 by default), so a response with a non-null `next` or `count > results.len()` is
+   rejected with an actionable error rather than silently truncating the list; the fixed
+   two-GET contract is kept. VLAN volume remains a phase 2 question.
 
 ## Files touched
 
@@ -258,17 +261,30 @@ skipped defensively; the `device_id` filter should make that case unreachable.
   single named expected failure, with `mutation activation: focus applied`.
 - **Existing suites:** `npm run smoke:netbox` and the full `npm run smoke` must stay green.
 
+## Review fixes (CodeRabbit and Copilot)
+
+- Device detail asks for `display`, so an unnamed device still has its fallback.
+- Device type is composed from `manufacturer.name` + `model`; NetBox's `DeviceType.__str__`
+  returns the model only, so relying on `display` dropped the manufacturer.
+- A 403 on the IP-address request names IPAM read access instead of pointing at DCIM Device.
+- A capped address page (`next` set, or `count > results.len()`) is rejected with an
+  actionable error instead of presenting a truncated summary.
+- The panel's NetBox subject is owned by the publishing view, so a duplicate session
+  switching order cannot clear the incoming view's tab.
+
 ## Verification (this branch)
 
 - `npm run build` — exit 0 (`tsc` + Vite).
-- `npm run test` — exit 0, 54 files, 1002 tests.
-- `npm run test:coverage` — exit 0; `src/lib` 87.64% lines (floor 78%), `src/components`
+- `npm run test` — exit 0, 54 files, 1004 tests.
+- `npm run test:coverage` — exit 0; `src/lib` 87.65% lines (floor 78%), `src/components`
   38.21% lines (floor 29%).
 - `npm run lint:css` — exit 0, 82 tokens across 124 files.
 - `cargo check --all-targets` (in `src-tauri/`) — exit 0.
-- `cargo test` (in `src-tauri/`) — exit 0, 279 lib tests + 3 log-redaction tests.
+- `cargo test` (in `src-tauri/`) — exit 0, 281 lib tests + 3 log-redaction tests.
+- `cargo test --release --lib` (in `src-tauri/`) — exit 0, 279 tests.
 - `npm run smoke` — exit 0, all 24 scenarios passed (including `keyboard-focus`,
   `terminal-sidebar-layout`, `panel-undock-dock`).
+- `npm run smoke:mutation` — exit 0; expected `ssh_send` failure (11 bytes dropped).
 - `npm run smoke -- --mutation=focus` — exit 0; exactly one expected failure:
   `Keyboard focus: panel tabs: … has no visible focus indicator … mutation activation: focus
   applied`.
@@ -285,8 +301,13 @@ manifest changed.
   new API-version assumption. An instance too old to honour it would return larger objects
   but the same two requests; the parser reads only the fields it needs.
 - `limit=0` on a device with a very large number of addresses trades pagination for one large
-  response. That is deliberate: it keeps the GET count fixed as the spec requires. The
-  rendering scrolls; the known-gap note above covers phase 2's truncation question.
+  response. That is deliberate: it keeps the GET count fixed as the spec requires. NetBox
+  still caps that response at `MAX_PAGE_SIZE` (1000 by default); the client detects the cap
+  (`next` set or `count > results.len()`) and returns an actionable error instead of a
+  partial list. A server with `MAX_PAGE_SIZE` raised or unset returns everything.
+- Two open sessions can share one NetBox host id (duplicate sessions). The panel's NetBox
+  subject is owned by the publishing view, so an outgoing duplicate cannot clear the incoming
+  one's tab; a test drives that activation order explicitly.
 - Virtual chassis: `device_id` includes sibling members' interfaces. The parser filters on the
   brief `assigned_object.device.id`, so the tab never shows another member's interfaces under
   this device.
