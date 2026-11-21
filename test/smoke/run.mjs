@@ -1313,6 +1313,21 @@ async function resizeWindow(browser, width, height) {
   } else {
     await browser.setWindowSize(width, height);
   }
+  // The resize reaches the page asynchronously, and a loaded xvfb runner can lag
+  // it by seconds. Callers assert the new size immediately afterwards, so wait
+  // for the page to report it rather than reading the old size and flaking.
+  const deadline = Date.now() + WAIT_MS;
+  let size = { width: 0, height: 0 };
+  for (;;) {
+    size = await browser.execute(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    if (size.width <= width + 40 && size.height <= height + 40) return;
+    if (Date.now() > deadline) break;
+    await pause(100);
+  }
+  throw new Error(
+    `resizeWindow: the window never reached ${width}x${height} `
+      + `(it reports ${size.width}x${size.height})`,
+  );
 }
 
 const setField = (browser, selector, value) => browser.execute(
