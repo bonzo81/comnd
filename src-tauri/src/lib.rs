@@ -667,6 +667,8 @@ pub fn run() {
                 #[cfg(debug_assertions)]
                 panel::test_panel_set_geometry,
                 #[cfg(debug_assertions)]
+                panel::test_panel_race_close,
+                #[cfg(debug_assertions)]
                 test_mock_server,
                 #[cfg(debug_assertions)]
                 test_smoke_server,

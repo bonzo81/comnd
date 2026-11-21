@@ -284,6 +284,22 @@ impl GeometrySaver {
     }
 }
 
+/// The live rectangle, or `None` when the window is already going away.
+///
+/// The close path must never fall back to `default_geometry`: a destroyed window
+/// fails both queries, and substituting the default would overwrite the user's
+/// saved rectangle with a centred one.
+fn live_geometry(window: &WebviewWindow) -> Option<PanelWindowGeometry> {
+    let position = window.outer_position().ok()?;
+    let size = window.inner_size().ok()?;
+    Some(PanelWindowGeometry {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
 /// The geometry writer for the live panel window, plus the lock that serialises
 /// closes. Registered while the window exists so every destruction path can stop
 /// the writer before saving the final rectangle — including the programmatic
@@ -291,12 +307,13 @@ impl GeometrySaver {
 #[derive(Default)]
 pub struct PanelGeometryWriter {
     saver: Mutex<Option<Arc<GeometrySaver>>>,
-    /// Serialises the whole close path, not only the write: two closes running at
-    /// once would read the rectangle from the same window, and the second would
-    /// read it after the first destroyed it — its failed `outer_position` /
-    /// `inner_size` calls fall back to the default geometry, which would then be
-    /// saved over the real one.
+    /// Serialises the whole close path, not only the write.
     closing: Mutex<()>,
+    /// Set once a close has claimed the window. `destroy()` reaches the event
+    /// loop asynchronously, so `get_webview_window` keeps reporting the label for
+    /// a moment afterwards; without this claim a second close would read a dying
+    /// window and (before `live_geometry`) save the default rectangle.
+    closed: AtomicBool,
 }
 
 impl PanelGeometryWriter {
@@ -306,15 +323,28 @@ impl PanelGeometryWriter {
             Err(poisoned) => poisoned.into_inner(),
         };
         *slot = Some(saver);
+        // A new window has been built, so it may be closed again.
+        self.closed.store(false, Ordering::SeqCst);
     }
 
-    /// Enter the close path. Hold the returned guard until the final rectangle is
-    /// written and the window destroyed.
-    fn closing(&self) -> MutexGuard<'_, ()> {
-        match self.closing.lock() {
+    /// Enter the close path, or `None` when a close already claimed the window.
+    /// Hold the returned guard until the final rectangle is written and the
+    /// window destroyed.
+    fn begin_close(&self) -> Option<MutexGuard<'_, ()>> {
+        let guard = match self.closing.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
+        };
+        if self.closed.load(Ordering::SeqCst) {
+            return None;
         }
+        Some(guard)
+    }
+
+    /// Claim the window for this close, before the destroy can reach the event
+    /// loop. Idempotent.
+    fn mark_closed(&self) {
+        self.closed.store(true, Ordering::SeqCst);
     }
 
     /// Stop the writer, waiting out a write already in flight. The saver is kept
@@ -402,21 +432,29 @@ fn attach_geometry_tracking(app: &AppHandle, window: &WebviewWindow, initial: Pa
 /// written yet.
 fn close_panel_window(app: &AppHandle) -> Result<(), String> {
     let writer = app.state::<PanelGeometryWriter>();
-    // Take the guard *before* looking the window up. Two closes can otherwise
-    // both keep a handle from before the first destroyed it, and a stale handle
-    // fails `outer_position` / `inner_size` — `current_geometry` would then fall
-    // back to the default rectangle and save that over the user's geometry.
-    let _closing = writer.closing();
-    let Some(window) = app.get_webview_window(PANEL_LABEL) else {
+    // Claim the window before anything else. Two closes must not both keep a
+    // handle: `destroy()` reaches the event loop asynchronously, so the label
+    // stays listed for a moment and the second close would read a dying window.
+    let Some(_closing) = writer.begin_close() else {
         return Ok(());
     };
-    let geometry = current_geometry(&window, default_geometry(app));
+    let Some(window) = app.get_webview_window(PANEL_LABEL) else {
+        writer.mark_closed();
+        return Ok(());
+    };
+    let Some(geometry) = live_geometry(&window) else {
+        // Already being destroyed: there is nothing to record, and the default
+        // fallback must never overwrite the user's rectangle.
+        writer.mark_closed();
+        return Ok(());
+    };
     // Stop the worker *before* writing: waiting out a write already in flight
     // means it cannot land after this rectangle and undo it.
     writer.stop();
     if let Err(e) = persist_geometry(app, geometry) {
         log::warn!("Failed to save panel window geometry before closing: {}", e);
     }
+    writer.mark_closed();
     window.destroy().map_err(|e| e.to_string())
 }
 
@@ -584,6 +622,26 @@ pub async fn test_panel_set_geometry(
         .map_err(|e| e.to_string())
 }
 
+/// Close the panel window twice at the same time, as two UI paths can, and
+/// report the rectangle the close paths saved.
+///
+/// Debug only. The smoke suite uses it to prove the outcome a stale window handle
+/// used to produce: the second close would read the destroyed window, fall back
+/// to the default rectangle and save that over the user's geometry.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelWindowGeometry, String> {
+    let first = app.clone();
+    let second = app.clone();
+    let a = std::thread::spawn(move || close_panel_window(&first));
+    let b = std::thread::spawn(move || close_panel_window(&second));
+    a.join().map_err(|_| "the first close panicked".to_string())??;
+    b.join().map_err(|_| "the second close panicked".to_string())??;
+    read_panel_config(&app)
+        .window
+        .ok_or_else(|| "the close paths saved no geometry".to_string())
+}
+
 /// Destroy the panel window when the main window goes away, so quitting the app
 /// with the panel undocked cannot leave an orphan window keeping the process
 /// alive.
@@ -680,23 +738,62 @@ mod tests {
     #[test]
     fn close_paths_are_serialised() {
         let writer = Arc::new(PanelGeometryWriter::default());
-        let held = writer.closing();
+        let held = writer
+            .begin_close()
+            .expect("the first close must claim the window");
         let (tx, rx) = std::sync::mpsc::channel();
         let second = {
             let writer = Arc::clone(&writer);
             std::thread::spawn(move || {
-                let _guard = writer.closing();
-                tx.send(()).unwrap();
+                let guard = writer.begin_close();
+                tx.send(guard.is_some()).unwrap();
             })
         };
         assert!(
             rx.recv_timeout(Duration::from_millis(150)).is_err(),
             "a second close entered the path while the first was still running"
         );
+        // The real close marks the window before it drops the guard.
+        writer.mark_closed();
         drop(held);
-        rx.recv_timeout(Duration::from_secs(10))
+        let ran = rx
+            .recv_timeout(Duration::from_secs(10))
             .expect("the second close never ran after the first released");
+        assert!(!ran, "the second close claimed a window the first had closed");
         second.join().unwrap();
+    }
+
+    #[test]
+    fn a_claimed_window_is_not_closed_twice() {
+        // `destroy()` reaches the event loop asynchronously, so the label stays
+        // listed for a moment: the claim is what stops the second close reading a
+        // dying window and saving the default rectangle.
+        let writer = PanelGeometryWriter::default();
+        let first = writer
+            .begin_close()
+            .expect("the first close must claim the window");
+        drop(first);
+        writer.mark_closed();
+        assert!(
+            writer.begin_close().is_none(),
+            "a claimed window was handed to a second close"
+        );
+    }
+
+    #[test]
+    fn a_rebuilt_window_can_be_closed_again() {
+        let writer = PanelGeometryWriter::default();
+        writer.mark_closed();
+        assert!(writer.begin_close().is_none());
+
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let saver = saver_into(Arc::clone(&written));
+        writer.install(Arc::clone(&saver));
+        assert!(
+            writer.begin_close().is_some(),
+            "a rebuilt window must be closeable"
+        );
+        saver.stop();
     }
 
     #[test]
