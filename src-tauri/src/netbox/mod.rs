@@ -207,6 +207,56 @@ pub fn host_id(netbox_id: u64) -> String {
     format!("netbox:{}", netbox_id)
 }
 
+// ─── Device summary (side-panel tab, issue #177 phase 1) ────────────
+
+/// One address on an interface, as shown in the NetBox side-panel tab.
+/// `address` keeps NetBox's CIDR suffix. `vrf` is the VRF name when the
+/// address belongs to one, so duplicate addresses in different VRFs stay
+/// distinguishable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummaryAddress {
+    pub address: String,
+    #[serde(default)]
+    pub vrf: Option<String>,
+}
+
+/// Interface addresses grouped under the interface that owns them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummaryInterface {
+    pub id: u64,
+    pub name: String,
+    pub addresses: Vec<DeviceSummaryAddress>,
+}
+
+/// Live NetBox summary for one device (issue #177 phase 1): identity and
+/// status, device type, geography, rack/U position and interface addresses.
+/// Built per fetch and never cached; VLANs, prefixes and connected devices are
+/// phase 2 and are deliberately absent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummary {
+    pub netbox_id: u64,
+    pub name: String,
+    /// Choice value (`active`) and human label (`Active`).
+    pub status: String,
+    pub status_label: String,
+    #[serde(default)]
+    pub device_type: Option<String>,
+    #[serde(default)]
+    pub site: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub rack: Option<String>,
+    #[serde(default)]
+    pub position: Option<f64>,
+    #[serde(default)]
+    pub face: Option<String>,
+    #[serde(default)]
+    pub primary_ip: Option<String>,
+    #[serde(default)]
+    pub interfaces: Vec<DeviceSummaryInterface>,
+}
+
 /// Sanitize a device name for display: drop control chars, trim, cap at the
 /// same 128-char limit `validate_host` enforces, never empty.
 fn sanitize_name(name: &str, netbox_id: u64) -> String {

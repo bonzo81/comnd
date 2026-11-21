@@ -37,11 +37,14 @@ import { GhostText } from "../lib/ghost-text";
 import {
   DOCKED_WIDTH_MAX,
   DOCKED_WIDTH_MIN,
+  clearSidePanelNetboxHost,
   closeSidePanel,
   getSidePanelState,
+  retrySidePanelNetbox,
   setSidePanelDockedWidth,
   setSidePanelError,
   setSidePanelMode,
+  setSidePanelNetboxHost,
   setSidePanelSnapshot,
   setPanelUndocked,
   subscribeSidePanel,
@@ -49,6 +52,7 @@ import {
   type SidePanelSnapshot,
   type SidePanelState,
 } from "../lib/side-panel";
+import { isNetboxHost } from "../lib/netbox-host";
 import { renderSidePanel, type SidePanelHandlers } from "../lib/side-panel-render";
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
@@ -632,8 +636,9 @@ export class TerminalView {
           ></div>
           <div class="tv-sidebar hidden" id="tv-sidebar">
             <div class="sb-toggle" role="tablist" aria-label="Panel content">
-              <button class="sb-toggle-btn sb-toggle-kb active" role="tab" aria-selected="true">Knowledge Base</button>
-              <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false">Command Replay</button>
+              <button class="sb-toggle-btn sb-toggle-kb active" role="tab" aria-selected="true" aria-label="Knowledge Base" title="Knowledge Base">${icons.book}</button>
+              <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false" aria-label="Command Replay" title="Command Replay">${icons.clock}</button>
+              <button class="sb-toggle-btn sb-toggle-netbox" role="tab" aria-selected="false" aria-label="NetBox device details" title="NetBox device details" hidden>${icons.netbox}</button>
               <button
                 class="sb-undock-btn"
                 id="panel-undock"
@@ -764,6 +769,7 @@ export class TerminalView {
       play: (command) => this.playReplay(command),
       add: () => this.openReplaySaveDialog(),
       runExample: (command) => this.runExampleCommand(command),
+      retryNetbox: () => retrySidePanelNetbox(),
     };
     this.panelUnsubscribe = subscribeSidePanel((state) => this.applyPanelState(state));
     this.applyPanelState(getSidePanelState());
@@ -848,6 +854,9 @@ export class TerminalView {
     }
 
     this.host = host;
+    // The app-wide panel follows the active tab (ADR-013); publish this host so
+    // the NetBox tab appears only for a NetBox-sourced device.
+    this.publishNetboxHost();
     log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
     this.connectCancelled = false;
     this.authInteractive = false;
@@ -1366,11 +1375,13 @@ export class TerminalView {
     if (sidebar) sidebar.style.width = docked ? `${this.clampDockedWidth(state.dockedWidth)}px` : "";
     this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(state.open));
 
-    for (const mode of ["kb", "replay"] as const) {
+    for (const mode of ["kb", "replay", "netbox"] as const) {
       const btn = this.$(`.sb-toggle-${mode}`);
       btn?.classList.toggle("active", state.mode === mode);
       btn?.setAttribute("aria-selected", String(state.mode === mode));
     }
+    const netboxTab = this.$<HTMLButtonElement>(".sb-toggle-netbox");
+    if (netboxTab) netboxTab.hidden = state.netboxHostId === null;
 
     if (!docked) {
       this.renderedPanelSnapshot = null;
@@ -1595,8 +1606,12 @@ export class TerminalView {
   private initSidebarToggle() {
     const kbBtn = this.$(".sb-toggle-kb");
     const replayBtn = this.$(".sb-toggle-replay");
+    const netboxBtn = this.$(".sb-toggle-netbox");
     kbBtn?.addEventListener("click", () => this.setPanelMode("kb"));
     replayBtn?.addEventListener("click", () => this.setPanelMode("replay"));
+    // The NetBox fetch belongs to the shared panel state, so both homes reach
+    // the same fresh two-GET load. Selecting the active tab again refetches.
+    netboxBtn?.addEventListener("click", () => setSidePanelMode("netbox"));
   }
 
   private setPanelMode(mode: "kb" | "replay") {
@@ -1676,13 +1691,24 @@ export class TerminalView {
     if (!active) {
       // Any load still in flight belongs to the tab that just gave the panel up.
       this.replayLoadSeq++;
+      // Cleared only when this host is still the published one, so activation
+      // order cannot wipe the incoming tab's NetBox subject.
+      clearSidePanelNetboxHost(this.host?.id ?? "");
       return;
     }
+    this.publishNetboxHost();
     this.applyPanelState(getSidePanelState());
     const state = getSidePanelState();
     if (!state.open) return;
     if (state.mode === "replay") void this.showReplayPanel();
     else this.updateSidebarPlaceholder();
+  }
+
+  /** Publish this view's host as the panel subject while it owns the panel. */
+  private publishNetboxHost(): void {
+    if (!this.panelActive) return;
+    const host = this.host;
+    setSidePanelNetboxHost(host && isNetboxHost(host) ? host.id : null);
   }
 
   private esc(s: string): string {
@@ -1934,6 +1960,8 @@ export class TerminalView {
     this.panelUnsubscribe = null;
     this.panelHandlers = null;
     this.renderedPanelSnapshot = null;
+    if (this.panelActive) clearSidePanelNetboxHost(this.host?.id ?? "");
+    this.panelActive = false;
     this.platformIndex = null;
     if (this.sidebarResizeRaf) {
       cancelAnimationFrame(this.sidebarResizeRaf);

@@ -17,29 +17,46 @@
  * once per key.
  */
 
-import type { Command, PanelConfig, ReplayCommand } from "./tauri-api";
+import type {
+  Command,
+  NetBoxDeviceSummary,
+  PanelConfig,
+  ReplayCommand,
+} from "./tauri-api";
 import {
+  netboxGetDeviceSummary,
   panelClose,
   panelGetState,
   panelOpen,
   panelSetDockedWidth,
   panelSetUndocked,
 } from "./tauri-api";
+import { isNetboxHostId } from "./netbox-host";
 
-export type SidePanelMode = "kb" | "replay";
+export type SidePanelMode = "kb" | "replay" | "netbox";
 
 /** What the panel is currently about. Raw command data, never markup, so both
  *  homes run the same renderer over the same value and cannot drift. */
 export type SidePanelSnapshot =
   | { kind: "detail"; command: Command; referenceUrl: string | null }
   | { kind: "placeholder"; text: string }
-  | { kind: "replay"; items: ReplayCommand[]; platform: string };
+  | { kind: "replay"; items: ReplayCommand[]; platform: string }
+  | { kind: "netbox"; hostId: string; phase: "loading" }
+  | { kind: "netbox"; hostId: string; phase: "ready"; summary: NetBoxDeviceSummary }
+  | { kind: "netbox"; hostId: string; phase: "error"; message: string };
 
 export interface SidePanelState {
   open: boolean;
   undocked: boolean;
   dockedWidth: number;
   mode: SidePanelMode;
+  /**
+   * `netbox:<id>` of the active tab's host when that host came from NetBox,
+   * else null. Both homes show the NetBox tab from this one field; a user host
+   * therefore never has the tab. Published to the undocked window with the
+   * rest of the state.
+   */
+  netboxHostId: string | null;
   snapshot: SidePanelSnapshot;
 }
 
@@ -52,6 +69,7 @@ export type SidePanelAction =
   | { type: "dock" }
   | { type: "close" }
   | { type: "mode"; mode: SidePanelMode }
+  | { type: "retry-netbox" }
   | { type: "play"; id: string }
   | { type: "add" }
   | { type: "run"; command: string };
@@ -63,6 +81,8 @@ export interface SidePanelDeps {
   setDockedWidth: (width: number) => Promise<number>;
   openWindow: () => Promise<unknown>;
   closeWindow: () => Promise<void>;
+  /** One live NetBox device summary, fetched fresh from the backend. */
+  loadNetbox: (hostId: string) => Promise<NetBoxDeviceSummary>;
   /** Mirror the state into the undocked window. Called only when it is both
    *  open and undocked, so no IPC happens for the docked home. */
   publish: (state: SidePanelState) => void;
@@ -84,6 +104,7 @@ const defaultDeps: SidePanelDeps = {
   setDockedWidth: panelSetDockedWidth,
   openWindow: panelOpen,
   closeWindow: panelClose,
+  loadNetbox: netboxGetDeviceSummary,
   publish: () => {},
 };
 
@@ -97,6 +118,8 @@ let state: SidePanelState = initialState();
 const listeners = new Set<(state: SidePanelState) => void>();
 const actionListeners = new Set<(action: SidePanelAction) => void>();
 let widthTimer: ReturnType<typeof setTimeout> | null = null;
+/** Invalidates a NetBox fetch whose subject changed (host or tab switch). */
+let netboxSeq = 0;
 /** Serialises the lifecycle steps; see `applyPanelLifecycle`. */
 let lifecycle: Promise<void> = Promise.resolve();
 /** Bumped by every lifecycle request, so a completion can tell whether it still
@@ -119,6 +142,7 @@ function initialState(): SidePanelState {
     undocked: false,
     dockedWidth: DEFAULT_DOCKED_WIDTH,
     mode: "kb",
+    netboxHostId: null,
     snapshot: { kind: "placeholder", text: PLACEHOLDER_SELECT },
   };
 }
@@ -277,6 +301,9 @@ function applyPanelLifecycle(): Promise<void> {
 export function openSidePanel(): void {
   if (state.open) return;
   state = { ...state, open: true };
+  // Reopening a panel whose subject is the live NetBox tab reveals a fresh
+  // snapshot; nothing is fetched while the panel is closed.
+  if (state.mode === "netbox" && state.netboxHostId) void refreshNetbox();
   void applyPanelLifecycle();
 }
 
@@ -315,7 +342,23 @@ export function setPanelUndocked(undocked: boolean): Promise<void> {
 }
 
 export function setSidePanelMode(mode: SidePanelMode): void {
+  if (mode === "netbox") {
+    if (!state.netboxHostId) return;
+    // Selecting the tab again is a new selection and must fetch fresh.
+    if (state.mode === "netbox") {
+      void refreshNetbox();
+      return;
+    }
+    setState({
+      mode,
+      snapshot: { kind: "netbox", hostId: state.netboxHostId, phase: "loading" },
+    });
+    void refreshNetbox();
+    return;
+  }
   if (state.mode === mode) return;
+  // Leaving NetBox invalidates a fetch that has not landed yet.
+  if (state.mode === "netbox") netboxSeq++;
   // Switching back to the KB tab shows the idle hint again; the terminal view
   // refills it from the live prompt on the next idle detection.
   const snapshot: SidePanelSnapshot =
@@ -330,6 +373,99 @@ export function setSidePanelError(text: string): void {
 
 export function setSidePanelSnapshot(snapshot: SidePanelSnapshot): void {
   setState({ snapshot });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Fetch the active NetBox host's summary. Every call replaces the pane with a
+ * loading snapshot first, so a failure can never leave the previous device's
+ * values on screen, and each selection costs exactly the backend's two GETs.
+ * A response for a superseded host, tab or selection is dropped.
+ */
+async function refreshNetbox(): Promise<void> {
+  const hostId = state.netboxHostId;
+  if (!hostId) return;
+  const seq = ++netboxSeq;
+  setSidePanelSnapshot({ kind: "netbox", hostId, phase: "loading" });
+  try {
+    const summary = await deps.loadNetbox(hostId);
+    if (seq !== netboxSeq || state.netboxHostId !== hostId || state.mode !== "netbox") return;
+    setSidePanelSnapshot({ kind: "netbox", hostId, phase: "ready", summary });
+  } catch (error) {
+    if (seq !== netboxSeq || state.netboxHostId !== hostId || state.mode !== "netbox") return;
+    setSidePanelSnapshot({
+      kind: "netbox",
+      hostId,
+      phase: "error",
+      message: `Failed to load NetBox device details: ${errorMessage(error)}`,
+    });
+  }
+}
+
+/** Retry from the docked home; both homes share this one fetch. */
+export function retrySidePanelNetbox(): void {
+  void refreshNetbox();
+}
+
+/**
+ * Publish the active tab's host. A NetBox host makes the tab available in both
+ * homes; a user host or no active tab hides it and falls back to KB when it was
+ * showing. No fetch happens unless the panel is already open on NetBox.
+ */
+export function setSidePanelNetboxHost(hostId: string | null): void {
+  // Only the `netbox:<id>` form can publish a NetBox tab; a user host id is
+  // normalised away even if a caller passes one by mistake.
+  const netboxHostId = hostId && isNetboxHostId(hostId) ? hostId : null;
+  if (state.netboxHostId === netboxHostId) {
+    // The host hand-off clears the id first and the incoming tab publishes
+    // after it. If the incoming tab is a user host (or there is none), this is
+    // the final word: a NetBox mode with no host must fall back to KB.
+    if (netboxHostId === null && state.mode === "netbox") {
+      netboxSeq++;
+      setState({
+        mode: "kb",
+        snapshot: { kind: "placeholder", text: PLACEHOLDER_TYPING },
+      });
+    }
+    return;
+  }
+  // A fetch still in flight belongs to the previous host.
+  netboxSeq++;
+  if (!netboxHostId) {
+    if (state.mode !== "netbox") {
+      setState({ netboxHostId: null });
+      return;
+    }
+    setState({
+      netboxHostId: null,
+      mode: "kb",
+      snapshot: { kind: "placeholder", text: PLACEHOLDER_TYPING },
+    });
+    return;
+  }
+  const showingNetbox = state.mode === "netbox";
+  const patch: Partial<SidePanelState> = { netboxHostId };
+  if (showingNetbox) {
+    patch.snapshot = { kind: "netbox", hostId: netboxHostId, phase: "loading" };
+  }
+  setState(patch);
+  if (showingNetbox && state.open) void refreshNetbox();
+}
+
+/**
+ * The tab that just gave up the app-wide panel clears the host only when it is
+ * still the published one, so activation order cannot clear the incoming tab's
+ * host. The mode is left alone: the incoming tab's `setSidePanelNetboxHost`
+ * either restores a NetBox subject (the mode survives a NetBox → NetBox tab
+ * switch) or is a user host, which then falls back to KB.
+ */
+export function clearSidePanelNetboxHost(hostId: string): void {
+  if (!hostId || state.netboxHostId !== hostId) return;
+  netboxSeq++;
+  setState({ netboxHostId: null });
 }
 
 /** Width chosen by dragging or with the arrow keys on the docked resizer. */
@@ -370,6 +506,9 @@ export function applySidePanelAction(action: SidePanelAction): void {
     case "mode":
       setSidePanelMode(action.mode);
       return;
+    case "retry-netbox":
+      void refreshNetbox();
+      return;
     case "play":
     case "add":
     case "run":
@@ -394,5 +533,6 @@ export function __resetSidePanel(): void {
   windowOpen = false;
   persistedHome = false;
   requestedHome = null;
+  netboxSeq = 0;
   state = initialState();
 }

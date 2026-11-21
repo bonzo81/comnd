@@ -2,11 +2,15 @@
 //! guard. Every request the app makes to a NetBox instance goes through
 //! `ReadOnlyHttp` below.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::{NetBoxChoice, NetBoxFilters, NetBoxGeo, NetBoxGeoNode};
+use super::{
+    DeviceSummary, DeviceSummaryAddress, DeviceSummaryInterface, NetBoxChoice, NetBoxFilters,
+    NetBoxGeo, NetBoxGeoNode,
+};
 
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
 
@@ -116,6 +120,156 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
         .as_str()
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+// ─── Device summary parsing (issue #177 phase 1) ─────────────────────
+
+/// Top-level fields for the device-detail request. Nested serializers default
+/// to their brief shape, so this keeps the payload to the facts the tab shows.
+const SUMMARY_DEVICE_FIELDS: &str =
+    "id,name,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
+/// Top-level fields for the IP request. `assigned_object` is brief (interface
+/// plus brief device), which is all the grouping needs.
+const SUMMARY_IP_FIELDS: &str =
+    "id,address,vrf,status,assigned_object,assigned_object_type,assigned_object_id";
+
+/// Trimmed, non-empty string from a JSON value.
+fn summary_text(v: Option<&serde_json::Value>) -> Option<String> {
+    v.and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `name` (fallback `display`) from a nullable nested object.
+fn summary_nested_name(v: &serde_json::Value, field: &str) -> Option<String> {
+    let obj = v.get(field)?;
+    summary_text(obj.get("name")).or_else(|| summary_text(obj.get("display")))
+}
+
+/// Device `status` is a choice object (`{"value": "active", "label": "Active"}`)
+/// in every supported NetBox version; a bare string is tolerated for old data.
+fn summary_status(v: &serde_json::Value) -> (String, String) {
+    let Some(status) = v.get("status") else {
+        return (String::new(), String::new());
+    };
+    let value = summary_text(status.get("value"))
+        .or_else(|| summary_text(Some(status)))
+        .unwrap_or_default();
+    let label = summary_text(status.get("label")).unwrap_or_else(|| value.clone());
+    (value, label)
+}
+
+/// Rack face is a choice object; tolerate a bare string.
+fn summary_face(v: &serde_json::Value) -> Option<String> {
+    let face = v.get("face")?;
+    summary_text(face.get("value")).or_else(|| summary_text(Some(face)))
+}
+
+/// Primary IPv4 first, then IPv6. The CIDR suffix is kept: it is useful in the
+/// panel even though the SSH host address strips it.
+fn summary_primary_ip(v: &serde_json::Value) -> Option<String> {
+    ["primary_ip4", "primary_ip6"].iter().find_map(|key| {
+        summary_text(v.get(*key)?.get("address"))
+    })
+}
+
+/// Group the device's addresses by interface. Only `dcim.interface` owners are
+/// considered, and only interfaces whose owner device is the requested one:
+/// NetBox's `device_id` filter includes virtual-chassis siblings.
+fn summary_interfaces(
+    results: &[serde_json::Value],
+    device_id: u64,
+) -> Vec<DeviceSummaryInterface> {
+    let mut by_id: HashMap<u64, DeviceSummaryInterface> = HashMap::new();
+    for ip in results {
+        if summary_text(ip.get("assigned_object_type")).as_deref() != Some("dcim.interface") {
+            continue;
+        }
+        let Some(owner) = ip.get("assigned_object").filter(|obj| !obj.is_null()) else {
+            continue;
+        };
+        if let Some(owner_id) = owner
+            .get("device")
+            .and_then(|device| device.get("id"))
+            .and_then(|id| id.as_u64())
+        {
+            if owner_id != device_id {
+                continue;
+            }
+        }
+        let interface_id = owner
+            .get("id")
+            .and_then(|id| id.as_u64())
+            .or_else(|| ip.get("assigned_object_id").and_then(|id| id.as_u64()));
+        let Some(interface_id) = interface_id else {
+            continue;
+        };
+        let Some(address) = summary_text(ip.get("address")) else {
+            continue;
+        };
+        let name = summary_text(owner.get("name"))
+            .or_else(|| summary_text(owner.get("display")))
+            .unwrap_or_else(|| format!("interface-{}", interface_id));
+        let vrf = ip.get("vrf").and_then(|v| {
+            summary_text(v.get("name")).or_else(|| summary_text(v.get("display")))
+        });
+        by_id
+            .entry(interface_id)
+            .or_insert_with(|| DeviceSummaryInterface {
+                id: interface_id,
+                name,
+                addresses: Vec::new(),
+            })
+            .addresses
+            .push(DeviceSummaryAddress { address, vrf });
+    }
+
+    let mut interfaces: Vec<DeviceSummaryInterface> = by_id.into_values().collect();
+    for interface in &mut interfaces {
+        interface.addresses.sort_by(|a, b| a.address.cmp(&b.address));
+    }
+    interfaces.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.id.cmp(&b.id))
+    });
+    interfaces
+}
+
+/// Build the summary from the device-detail response. Addresses are filled in
+/// by the caller from the separate IP request.
+fn parse_summary_device(
+    device: &serde_json::Value,
+    netbox_id: u64,
+) -> DeviceSummary {
+    let name = summary_text(device.get("name"))
+        .or_else(|| summary_text(device.get("display")))
+        .unwrap_or_else(|| format!("device-{}", netbox_id));
+    let (status, status_label) = summary_status(device);
+    DeviceSummary {
+        netbox_id,
+        name,
+        status,
+        status_label,
+        device_type: device
+            .get("device_type")
+            .and_then(|kind| {
+                summary_text(kind.get("display")).or_else(|| summary_text(kind.get("model")))
+            }),
+        site: summary_nested_name(device, "site"),
+        location: summary_nested_name(device, "location"),
+        rack: summary_nested_name(device, "rack"),
+        position: device.get("position").and_then(|position| {
+            position
+                .as_f64()
+                .or_else(|| position.as_str().and_then(|text| text.parse().ok()))
+        }),
+        face: summary_face(device),
+        primary_ip: summary_primary_ip(device),
+        interfaces: Vec::new(),
+    }
 }
 
 
@@ -341,6 +495,51 @@ impl NetBoxClient {
             result.no_primary_ip
         );
         Ok(result)
+    }
+
+    /// Fetch the live summary for one device (issue #177 phase 1).
+    ///
+    /// Exactly two GETs, independent of interface/address count:
+    /// 1. the device detail with `fields=` limited to the facts the tab shows
+    ///    (nested serializers default to their brief shape);
+    /// 2. every IP assigned to the device's interfaces, `limit=0` so there is
+    ///    no pagination loop and the request count stays fixed.
+    ///
+    /// The sync cache is never consulted. Any failure returns the mapped error;
+    /// no partial summary leaves this function.
+    pub async fn fetch_device_summary(&self, netbox_id: u64) -> Result<DeviceSummary, String> {
+        let device_url = reqwest::Url::parse_with_params(
+            &format!("{}/api/dcim/devices/{}/", self.base_url, netbox_id),
+            [("fields", SUMMARY_DEVICE_FIELDS)],
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        log::info!("NetBox fetch_device_summary device -> {}", device_url);
+        let device = self.get_json(&device_url).await?;
+
+        let id = netbox_id.to_string();
+        let addresses_url = reqwest::Url::parse_with_params(
+            &format!("{}/api/ipam/ip-addresses/", self.base_url),
+            [
+                ("device_id", id.as_str()),
+                ("fields", SUMMARY_IP_FIELDS),
+                ("limit", "0"),
+            ],
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        log::info!("NetBox fetch_device_summary addresses -> {}", addresses_url);
+        let body = self.get_json(&addresses_url).await?;
+        let results = body
+            .get("results")
+            .and_then(|results| results.as_array())
+            .ok_or_else(|| "Unexpected NetBox response shape (missing results)".to_string())?;
+
+        let mut summary = parse_summary_device(&device, netbox_id);
+        summary.interfaces = summary_interfaces(results, netbox_id);
+        log::info!(
+            "NetBox fetch_device_summary done — {} interface(s)",
+            summary.interfaces.len()
+        );
+        Ok(summary)
     }
 
     /// Fetch all site choices (slug + name) for the filter dropdown.
@@ -875,6 +1074,232 @@ mod tests {
         assert_eq!(geo.sites[0].region_slug.as_deref(), Some("uk"));
         assert_eq!(geo.locations[1].parent_slug.as_deref(), Some("floor-1"));
         assert_eq!(geo.locations[1].site_slug.as_deref(), Some("dc1"));
+        server.abort();
+    }
+
+    // ─── Device summary (issue #177 phase 1) ───────────────────────
+
+    fn summary_device_json(id: u64) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "url": format!("http://netbox/api/dcim/devices/{}/", id),
+            "display": format!("device-{}", id),
+            "name": format!("device-{}", id),
+            "status": { "value": "active", "label": "Active" },
+            "device_type": {
+                "id": 3,
+                "display": "Cisco C9300-48P",
+                "model": "C9300-48P",
+                "manufacturer": { "id": 1, "name": "Cisco", "slug": "cisco" }
+            },
+            "site": { "id": 7, "name": "DC1 London", "display": "DC1 London", "slug": "dc1" },
+            "location": { "id": 9, "name": "Rack row 1", "display": "Rack row 1", "slug": "rack-row-1" },
+            "rack": { "id": 4, "name": "rack-1", "display": "rack-1", "slug": "rack-1" },
+            "position": "12.5",
+            "face": { "value": "front", "label": "Front" },
+            "primary_ip4": { "id": 21, "family": 4, "address": "10.0.0.1/24" },
+            "primary_ip6": null
+        })
+    }
+
+    fn summary_ip_json(
+        id: u64,
+        address: &str,
+        interface_id: u64,
+        interface_name: &str,
+        owner_id: u64,
+        vrf: Option<&str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "address": address,
+            "assigned_object_type": "dcim.interface",
+            "assigned_object_id": interface_id,
+            "assigned_object": {
+                "id": interface_id,
+                "url": format!("http://netbox/api/dcim/interfaces/{}/", interface_id),
+                "display": interface_name,
+                "device": { "id": owner_id, "display": format!("device-{}", owner_id) },
+                "name": interface_name
+            },
+            "vrf": vrf.map(|name| serde_json::json!({ "id": 1, "name": name, "rd": "65000:1" })),
+            "status": { "value": "active", "label": "Active" }
+        })
+    }
+
+    #[tokio::test]
+    async fn test_fetch_device_summary_parses_fields() {
+        let (base, server) = start_mock(|_| {
+            Arc::new(|_, path, _| {
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else {
+                    page(
+                        None,
+                        vec![summary_ip_json(
+                            1,
+                            "10.0.0.1/24",
+                            11,
+                            "GigabitEthernet1/0/1",
+                            1,
+                            None,
+                        )],
+                    )
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let summary = client.fetch_device_summary(1).await.unwrap();
+        assert_eq!(summary.netbox_id, 1);
+        assert_eq!(summary.name, "device-1");
+        assert_eq!(summary.status, "active");
+        assert_eq!(summary.status_label, "Active");
+        assert_eq!(summary.device_type.as_deref(), Some("Cisco C9300-48P"));
+        assert_eq!(summary.site.as_deref(), Some("DC1 London"));
+        assert_eq!(summary.location.as_deref(), Some("Rack row 1"));
+        assert_eq!(summary.rack.as_deref(), Some("rack-1"));
+        assert_eq!(summary.position, Some(12.5));
+        assert_eq!(summary.face.as_deref(), Some("front"));
+        assert_eq!(summary.primary_ip.as_deref(), Some("10.0.0.1/24"));
+        assert_eq!(summary.interfaces.len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_device_summary_groups_addresses_by_interface() {
+        let results = vec![
+            summary_ip_json(
+                3,
+                "2001:db8::10/64",
+                12,
+                "TenGigabitEthernet1/1/1",
+                1,
+                Some("blue"),
+            ),
+            summary_ip_json(1, "10.0.0.11/24", 11, "GigabitEthernet1/0/1", 1, None),
+            summary_ip_json(2, "10.0.0.10/24", 11, "GigabitEthernet1/0/1", 1, None),
+            // A virtual-chassis sibling's interface: the device_id filter can
+            // return it, but the tab must not show it under this device.
+            summary_ip_json(4, "192.0.2.1/24", 21, "GigabitEthernet2/0/1", 999, None),
+            // Defensive: an unassigned address never belongs in the tab.
+            serde_json::json!({
+                "id": 5,
+                "address": "198.51.100.1/24",
+                "assigned_object_type": "dcim.interface",
+                "assigned_object": null
+            }),
+        ];
+        let (base, server) = start_mock(move |_| {
+            let results = results.clone();
+            Arc::new(move |_, path, _| {
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else {
+                    page(None, results.clone())
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let summary = client.fetch_device_summary(1).await.unwrap();
+        assert_eq!(summary.interfaces.len(), 2);
+        assert_eq!(summary.interfaces[0].name, "GigabitEthernet1/0/1");
+        let first: Vec<&str> = summary.interfaces[0]
+            .addresses
+            .iter()
+            .map(|address| address.address.as_str())
+            .collect();
+        assert_eq!(first, vec!["10.0.0.10/24", "10.0.0.11/24"]);
+        assert_eq!(summary.interfaces[1].name, "TenGigabitEthernet1/1/1");
+        assert_eq!(summary.interfaces[1].addresses.len(), 1);
+        assert_eq!(
+            summary.interfaces[1].addresses[0].vrf.as_deref(),
+            Some("blue")
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_device_summary_request_count_is_fixed() {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorder = seen.clone();
+        let (base, server) = start_mock(move |_| {
+            let recorder = recorder.clone();
+            Arc::new(move |_, path, _| {
+                recorder.lock().unwrap().push(path.to_string());
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else if path.starts_with("/api/dcim/devices/2/") {
+                    (200, summary_device_json(2).to_string(), vec![])
+                } else if path.starts_with("/api/ipam/ip-addresses/") {
+                    let (owner, count): (u64, u64) = if path.contains("device_id=1") {
+                        (1, 1)
+                    } else {
+                        (2, 48)
+                    };
+                    let results = (0..count)
+                        .map(|index| {
+                            summary_ip_json(
+                                100 + index,
+                                &format!("10.1.{}.{}/24", index / 254, index % 254 + 1),
+                                1000 + index,
+                                &format!("GigabitEthernet1/0/{}", index + 1),
+                                owner,
+                                None,
+                            )
+                        })
+                        .collect();
+                    page(None, results)
+                } else {
+                    (404, "{}".into(), vec![])
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let one = client.fetch_device_summary(1).await.unwrap();
+        let one_requests = seen.lock().unwrap().clone();
+        seen.lock().unwrap().clear();
+        let many = client.fetch_device_summary(2).await.unwrap();
+        let many_requests = seen.lock().unwrap().clone();
+
+        assert_eq!(one_requests.len(), 2, "{:?}", one_requests);
+        assert_eq!(many_requests.len(), 2, "{:?}", many_requests);
+        assert_eq!(one.interfaces.len(), 1);
+        assert_eq!(many.interfaces.len(), 48);
+
+        // The one-device path uses both endpoints with the query the plan pins.
+        assert!(one_requests.iter().any(|path| {
+            path.starts_with("/api/dcim/devices/1/") && path.contains("fields=")
+        }));
+        assert!(one_requests.iter().any(|path| {
+            path.starts_with("/api/ipam/ip-addresses/")
+                && path.contains("device_id=1")
+                && path.contains("limit=0")
+        }));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_device_summary_second_request_error_returns_err() {
+        let (base, server) = start_mock(|_| {
+            Arc::new(|_, path, _| {
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else {
+                    (403, r#"{"detail":"Forbidden"}"#.into(), vec![])
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let error = client.fetch_device_summary(1).await.unwrap_err();
+        assert!(error.contains("lacks permission"), "{}", error);
         server.abort();
     }
 

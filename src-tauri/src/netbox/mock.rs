@@ -229,6 +229,97 @@ fn refresh_page2() -> Vec<serde_json::Value> {
     ]
 }
 
+/// `device-tab` scenario: one device the SSH smoke suite can actually connect
+/// to (loopback primary IP, Linux platform), with the detail fields the side
+/// panel shows. Kept out of the `ok`/`refresh` fixtures so their counts and
+/// addresses stay unchanged.
+fn device_tab_device() -> serde_json::Value {
+    serde_json::json!({
+        "id": 201,
+        "url": "http://netbox.invalid/api/dcim/devices/201/",
+        "display": "tab-device",
+        "name": "tab-device",
+        "description": "Loopback fixture for the NetBox device tab",
+        "status": { "value": "active", "label": "Active" },
+        "device_type": {
+            "id": 1,
+            "display": "Cisco C9300-48P",
+            "model": "C9300-48P",
+            "slug": "c9300-48p",
+            "manufacturer": { "id": 1, "name": "Cisco", "slug": "cisco" }
+        },
+        "site": { "id": 1, "name": "DC1 London", "slug": "dc1", "display": "DC1 London" },
+        "location": { "id": 1, "name": "Rack 1", "slug": "rack-1", "display": "Rack 1" },
+        "rack": { "id": 1, "name": "rack-1", "slug": "rack-1", "display": "rack-1" },
+        "position": 12.5,
+        "face": { "value": "front", "label": "Front" },
+        "platform": { "id": 1, "name": "ubuntu", "slug": "ubuntu" },
+        "primary_ip4": { "id": 1, "family": 4, "address": "127.0.0.1/32" },
+        "primary_ip6": null,
+        "tags": []
+    })
+}
+
+fn device_tab_devices() -> Vec<serde_json::Value> {
+    vec![device_tab_device()]
+}
+
+/// One address with the brief nested interface and device a `fields=` request
+/// returns. Ids 201 and 202 exercise the client's virtual-chassis filter.
+fn device_tab_ip(
+    id: u64,
+    address: &str,
+    interface_id: u64,
+    interface_name: &str,
+    owner_id: u64,
+    vrf: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "address": address,
+        "assigned_object_type": "dcim.interface",
+        "assigned_object_id": interface_id,
+        "assigned_object": {
+            "id": interface_id,
+            "url": format!("http://netbox.invalid/api/dcim/interfaces/{}/", interface_id),
+            "display": interface_name,
+            "device": { "id": owner_id, "display": format!("device-{}", owner_id) },
+            "name": interface_name
+        },
+        "vrf": vrf.map(|name| serde_json::json!({ "id": 1, "name": name, "rd": "65000:1" })),
+        "status": { "value": "active", "label": "Active" }
+    })
+}
+
+/// Two interfaces holding three own addresses, plus a sibling interface from
+/// the virtual chassis that must not surface under this device.
+fn device_tab_ips() -> Vec<serde_json::Value> {
+    vec![
+        device_tab_ip(301, "10.0.0.11/24", 11, "GigabitEthernet1/0/1", 201, None),
+        device_tab_ip(302, "10.0.0.10/24", 11, "GigabitEthernet1/0/1", 201, None),
+        device_tab_ip(
+            303,
+            "2001:db8::10/64",
+            12,
+            "TenGigabitEthernet1/1/1",
+            201,
+            Some("blue"),
+        ),
+        device_tab_ip(304, "192.0.2.1/24", 21, "GigabitEthernet2/0/1", 202, None),
+    ]
+}
+
+/// Device id from a detail path (`/api/dcim/devices/201/?fields=...`), never
+/// from the list path (`/api/dcim/devices/?limit=100`).
+fn device_detail_id(path: &str) -> Option<u64> {
+    let rest = path.strip_prefix("/api/dcim/devices/")?;
+    let id = rest.split(['/', '?']).next()?;
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    id.parse().ok()
+}
+
 fn region_nodes() -> Vec<serde_json::Value> {
     vec![serde_json::json!({
         "id": 1, "name": "EMEA", "slug": "emea", "parent": null,
@@ -307,9 +398,10 @@ fn error_response(scenario: &str) -> Option<(u16, String, Vec<(String, String)>)
 /// Scenarios the app-level suite can drive. `ok` is the initial state;
 /// switching keeps the base URL stable so a refresh reuses the same
 /// configured instance.
-pub(crate) const SCENARIOS: [&str; 7] = [
+pub(crate) const SCENARIOS: [&str; 8] = [
     "ok",
     "refresh",
+    "device-tab",
     "unauthorized",
     "forbidden",
     "throttled",
@@ -419,7 +511,7 @@ fn respond(
             return (
                 200,
                 serde_json::json!({
-                    "count": DEVICE_COUNT,
+                    "count": if scenario == "device-tab" { 1 } else { DEVICE_COUNT },
                     "next": null,
                     "previous": null,
                     "results": []
@@ -428,7 +520,18 @@ fn respond(
                 vec![("API-Version".to_string(), "4.15.0".to_string())],
             );
         }
-        let (first, second) = if scenario == "refresh" {
+        // Detail retrieve (`/api/dcim/devices/201/?fields=...`) — the side-panel
+        // summary. Only the `device-tab` scenario has a device to serve.
+        if let Some(id) = device_detail_id(path) {
+            if scenario == "device-tab" && id == 201 {
+                return (200, device_tab_device().to_string(), vec![]);
+            }
+            return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
+        }
+        let device_tab = scenario == "device-tab";
+        let (first, second) = if device_tab {
+            (device_tab_devices(), vec![])
+        } else if scenario == "refresh" {
             (refresh_page1(), refresh_page2())
         } else {
             (devices_page1(), devices_page2())
@@ -441,11 +544,21 @@ fn respond(
             }
             return page(None, second);
         }
-        let next = format!(
-            "{}/api/dcim/devices/?limit=100&exclude=config_context&offset=100",
-            state.base
-        );
-        return page(Some(next), first);
+        let next = if device_tab {
+            None
+        } else {
+            Some(format!(
+                "{}/api/dcim/devices/?limit=100&exclude=config_context&offset=100",
+                state.base
+            ))
+        };
+        return page(next, first);
+    }
+    if path.starts_with("/api/ipam/ip-addresses/") {
+        if scenario == "device-tab" {
+            return page(None, device_tab_ips());
+        }
+        return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
     }
     if path.starts_with("/api/dcim/regions/") {
         return page(None, region_nodes());

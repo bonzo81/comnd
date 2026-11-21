@@ -1,0 +1,176 @@
+/* NetBox device tab (issue #177 phase 1). Tokens only, per ADR-018. */
+
+.nbd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.nbd-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nbd-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.nbd-name {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-leading-title);
+  overflow-wrap: anywhere;
+}
+
+.nbd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-leading-meta);
+  white-space: nowrap;
+}
+
+.nbd-status::before {
+  content: "";
+  width: var(--space-1-5);
+  height: var(--space-1-5);
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+}
+
+.nbd-status[data-status="active"]::before {
+  background: var(--color-success);
+}
+
+.nbd-status[data-status="planned"]::before,
+.nbd-status[data-status="staged"]::before,
+.nbd-status[data-status="inventory"]::before {
+  background: var(--color-warning);
+}
+
+.nbd-status[data-status="failed"]::before,
+.nbd-status[data-status="offline"]::before,
+.nbd-status[data-status="decommissioning"]::before {
+  background: var(--color-error);
+}
+
+.nbd-facts {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: 0;
+}
+
+.nbd-fact {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.nbd-fact dt {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-leading-meta);
+}
+
+.nbd-fact dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.nbd-section-label {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-tracking-label);
+  line-height: var(--font-leading-meta);
+  text-transform: uppercase;
+}
+
+.nbd-iface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-primary);
+}
+
+.nbd-iface-name {
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-addresses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nbd-address {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-vrf {
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-2xs);
+}
+
+.nbd-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+}
+
+.nbd-error-text {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-leading-body);
+  overflow-wrap: anywhere;
+}

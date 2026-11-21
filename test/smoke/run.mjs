@@ -1287,6 +1287,159 @@ async function createHost(browser, overrides = {}) {
   });
 }
 
+/**
+ * Start both in-process mocks and sync the one `device-tab` NetBox fixture,
+ * whose primary IP is loopback so the SSH mock can accept the connection. Its
+ * source defaults point at the SSH mock's ephemeral port and at the mock secret
+ * provider, so the materialized host is a real NetBox-sourced host that a user
+ * can open.
+ */
+async function installNetboxTabHost(browser) {
+  const baseUrl = await invoke(browser, "test_netbox_server");
+  const sshPort = await invoke(browser, "test_smoke_server", {
+    rejectAuth: false,
+    muteOutput: false,
+  });
+  await invoke(browser, "test_netbox_set_scenario", { scenario: "device-tab" });
+  await invoke(browser, "netbox_save_config", {
+    config: {
+      enabled: true,
+      show_empty_folders: false,
+      base_url: baseUrl,
+      filters: { status: null, sites: [], roles: [], tags: [] },
+      platform_policy: "skip",
+      platform_fallback: null,
+      platform_overrides: {},
+      default_username: "smoke",
+      default_port: sshPort,
+      default_credential: {
+        type: "secret_ref",
+        provider: "mock",
+        reference: "smoke",
+        label: "Smoke test secret",
+      },
+      allow_invalid_certs: false,
+    },
+    defaultPassword: null,
+  });
+  const report = await invoke(browser, "netbox_sync");
+  assert.equal(
+    report.fetched,
+    1,
+    `NetBox tab: expected one synced device, got ${JSON.stringify(report)}`,
+  );
+  await invoke(browser, "touch_host", { id: "netbox:201" });
+  return baseUrl;
+}
+
+async function connectNetboxTabHost(browser) {
+  const selector = `.hs-host-item[data-host-id="netbox:201"]`;
+  await actOn(browser, selector);
+  await actOn(browser, selector, { action: "dblclick" });
+  await acceptHostKeyIfNeeded(browser);
+  await waitForConnection(browser);
+}
+
+/**
+ * Open the docked panel, prove the icon-only strip is keyboard reachable, named
+ * and at the top right, then select the NetBox tab and assert the live summary.
+ * Runs first in `keyboard-focus`, so `--mutation=focus` fails on this assertion
+ * and proves it still catches a removed focus ring.
+ */
+async function assertNetboxDeviceTab(browser) {
+  await browser.execute(() => document.querySelector(".tv-panel-btn")?.focus());
+  await browser.keys("\uE007");
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const panel = document.querySelector("#tv-sidebar");
+      return !!panel && panel.getClientRects().length > 0 && !panel.classList.contains("hidden");
+    }),
+    { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox tab: the side panel did not open" },
+  );
+
+  const netboxTab = await browser.execute(() => {
+    const tab = document.querySelector(".sb-toggle-netbox");
+    return tab ? { hidden: tab.hidden, label: tab.getAttribute("aria-label") } : null;
+  });
+  assert(netboxTab && !netboxTab.hidden,
+    "NetBox tab: a NetBox-sourced host did not expose the tab");
+  assert.equal(netboxTab.label, "NetBox device details");
+
+  for (const selector of [".sb-toggle-kb", ".sb-toggle-replay", ".sb-toggle-netbox"]) {
+    await assertScriptFocusStop(browser, selector, "Keyboard focus: panel tabs");
+  }
+
+  const placement = await browser.execute(() => {
+    const strip = document.querySelector(".sb-toggle");
+    const content = document.querySelector(".sb-content");
+    if (!strip || !content) return null;
+    const s = strip.getBoundingClientRect();
+    const c = content.getBoundingClientRect();
+    const visible = [...strip.children].filter((element) => element.getClientRects().length > 0);
+    const last = visible[visible.length - 1];
+    if (!last) return null;
+    return {
+      contentRight: s.right - parseFloat(getComputedStyle(strip).paddingRight),
+      lastRight: last.getBoundingClientRect().right,
+      stripBottom: s.bottom,
+      contentTop: c.top,
+    };
+  });
+  assert(placement, "Keyboard focus: the panel tab strip was never rendered");
+  assert(
+    Math.abs(placement.lastRight - placement.contentRight) <= 1,
+    `Keyboard focus: the icon tabs are not right-aligned in the panel `
+      + `(last control ends at ${placement.lastRight}, strip content ends at ${placement.contentRight})`,
+  );
+  assert(
+    placement.stripBottom <= placement.contentTop + 1,
+    "Keyboard focus: the tab strip is not above the panel content",
+  );
+
+  await actOn(browser, ".sb-toggle-netbox");
+  await browser.waitUntil(
+    async () => browser.execute(() => {
+      const name = document.querySelector(".nbd-name")?.textContent ?? "";
+      return name === "tab-device" && document.querySelectorAll(".nbd-iface").length === 2;
+    }),
+    { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox tab: the device summary did not render" },
+  );
+
+  const details = await browser.execute(() => ({
+    text: document.querySelector(".sb-content")?.textContent ?? "",
+    status: document.querySelector(".nbd-status")?.textContent ?? "",
+    groups: [...document.querySelectorAll(".nbd-iface")].map((group) => ({
+      name: group.querySelector(".nbd-iface-name")?.textContent ?? "",
+      addresses: [...group.querySelectorAll(".nbd-address")].map((address) => ({
+        text: (address.firstChild?.textContent ?? "").trim(),
+        vrf: address.querySelector(".nbd-vrf")?.textContent ?? null,
+      })),
+    })),
+  }));
+  assert.equal(details.status, "Active");
+  for (const expected of ["Cisco C9300-48P", "DC1 London", "Rack 1", "rack-1 · U12.5 · front"]) {
+    assert(
+      details.text.includes(expected),
+      `NetBox tab: the summary is missing ${JSON.stringify(expected)}`,
+    );
+  }
+  assert.deepEqual(
+    details.groups.map((group) => group.name),
+    ["GigabitEthernet1/0/1", "TenGigabitEthernet1/1/1"],
+  );
+  assert.deepEqual(
+    details.groups[0].addresses.map((address) => address.text),
+    ["10.0.0.10/24", "10.0.0.11/24"],
+  );
+  assert.deepEqual(details.groups[1].addresses, [
+    { text: "2001:db8::10/64", vrf: "blue" },
+  ]);
+  assert(
+    !details.text.includes("192.0.2.1/24"),
+    "NetBox tab: a virtual-chassis sibling's address leaked into this device",
+  );
+}
+
 async function openSettings(browser) {
   await actOn(browser, "#title-bar-settings");
   // Poll: `$(".settings-nav-item")` matches eight rows, so strict mode fails.
@@ -2383,6 +2536,9 @@ async function main() {
       name: "keyboard-focus",
       async run(browser, dataDir) {
         await installSmokeHelpers(browser);
+        // Both mocks: the loopback NetBox device is connectable through the SSH
+        // mock, so this scenario can prove the real NetBox tab, not a stub.
+        await installNetboxTabHost(browser);
         const host = await createHost(browser, { display_name: "Keyboard focus host" });
         // The connections view lists recent sessions, so the host has to have
         // been used once to appear in it (as createAndConnect does).
@@ -2392,6 +2548,17 @@ async function main() {
         await (await browser.$(".hs-host-list")).waitForExist({ timeout: WAIT_MS });
         await (await browser.$(`.hs-host-item[data-host-id="${host.id}"]`))
           .waitForDisplayed({ timeout: WAIT_MS });
+        await installSmokeHelpers(browser);
+
+        // The NetBox tab first: `--mutation=focus` must fail on these tab
+        // assertions, and a failure here cannot be masked by a later check.
+        await connectNetboxTabHost(browser);
+        await assertNetboxDeviceTab(browser);
+
+        // Back to the connection manager for the rest of the walk. The live
+        // NetBox session stays with the backend until teardown.
+        await browser.refresh();
+        await (await browser.$(".hs-host-list")).waitForExist({ timeout: WAIT_MS });
         await installSmokeHelpers(browser);
 
         // Connection manager: every tab stop is named and draws a focus ring,
@@ -2914,11 +3081,12 @@ async function main() {
             + `.app-content)`,
         );
 
-        // Issue #176 review: at the 240px minimum width and the largest UI text
-        // scale the tab strip cannot hold two labels plus Undock on one row. It
-        // must wrap rather than let a word paint over its neighbour, and no label
-        // may be clipped. Measured from rendered rectangles, so it proves the
-        // outcome rather than restating the CSS.
+        // Issues #176/#177: the three tab buttons are icon-only, while the
+        // Undock control keeps its word. At the 240px minimum width and the
+        // largest UI text scale the strip must wrap rather than let a control
+        // paint over its neighbour, and nothing may be clipped. Measured from
+        // rendered rectangles, so it proves the outcome rather than restating
+        // the CSS.
         await browser.execute(() => {
           document.documentElement.style.setProperty("--text-scale", "1.5");
           document.querySelector("#tv-sidebar-resizer")?.focus();
@@ -2934,17 +3102,21 @@ async function main() {
           const sidebar = document.querySelector("#tv-sidebar");
           if (!sidebar) return null;
           const frame = sidebar.getBoundingClientRect();
-          const boxes = [...sidebar.querySelectorAll(".sb-toggle > *")].map((element) => {
-            const rect = element.getBoundingClientRect();
-            return {
-              name: element.id || element.textContent?.trim() || "?",
-              left: rect.left,
-              right: rect.right,
-              top: rect.top,
-              bottom: rect.bottom,
-              clipped: element.scrollWidth > element.clientWidth + 1,
-            };
-          });
+          // A hidden NetBox tab (user host) has no layout, so it is not a box
+          // the strip has to keep inside the panel.
+          const boxes = [...sidebar.querySelectorAll(".sb-toggle > *")]
+            .filter((element) => element.getClientRects().length > 0)
+            .map((element) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                name: element.id || element.textContent?.trim() || "?",
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+                clipped: element.scrollWidth > element.clientWidth + 1,
+              };
+            });
           return { frame: { left: frame.left, right: frame.right, width: frame.width }, boxes };
         });
         assert(strip, "Terminal sidebar layout: the tab strip was never rendered");
@@ -2955,7 +3127,7 @@ async function main() {
         );
         assert(
           strip.boxes.length >= 3,
-          `Terminal sidebar layout: expected two tabs and Undock, found ${strip.boxes.length} item(s)`,
+          `Terminal sidebar layout: expected the icon tabs and Undock, found ${strip.boxes.length} item(s)`,
         );
         for (const box of strip.boxes) {
           assert(

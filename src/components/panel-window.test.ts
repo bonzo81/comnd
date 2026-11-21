@@ -30,6 +30,7 @@ const state = (over: Partial<SidePanelState> = {}): SidePanelState => ({
   undocked: true,
   dockedWidth: 320,
   mode: "kb",
+  netboxHostId: null,
   snapshot: { kind: "placeholder", text: "Start typing to see suggestions" },
   ...over,
 });
@@ -162,6 +163,45 @@ describe("undocked panel window", () => {
     expect(b.send).toHaveBeenCalledWith({ type: "mode", mode: "replay" });
     root.querySelector<HTMLButtonElement>(".sb-toggle-kb")!.click();
     expect(b.send).toHaveBeenCalledWith({ type: "mode", mode: "kb" });
+  });
+
+  it("renders icon-only tabs, each with an accessible name", () => {
+    const { root } = mount();
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>(".sb-toggle-btn")];
+    expect(tabs.length).toBe(3);
+    for (const tab of tabs) {
+      expect(tab.textContent?.trim()).toBe("");
+      expect(tab.querySelector("svg")).not.toBeNull();
+      expect(tab.getAttribute("aria-label")).toBeTruthy();
+    }
+  });
+
+  it("shows the NetBox tab only for a NetBox-sourced active host", () => {
+    const { root, b } = mount();
+    const tab = root.querySelector<HTMLButtonElement>(".sb-toggle-netbox")!;
+    expect(tab.hidden).toBe(true);
+    expect(tab.getAttribute("aria-label")).toBe("NetBox device details");
+
+    b.push(state({ netboxHostId: "netbox:201" }));
+    expect(tab.hidden).toBe(false);
+    tab.click();
+    expect(b.send).toHaveBeenCalledWith({ type: "mode", mode: "netbox" });
+
+    b.push(state({ netboxHostId: null }));
+    expect(tab.hidden).toBe(true);
+  });
+
+  it("forwards a NetBox retry as an action", () => {
+    const { root, b } = mount();
+    b.push(
+      state({
+        mode: "netbox",
+        netboxHostId: "netbox:201",
+        snapshot: { kind: "netbox", hostId: "netbox:201", phase: "error", message: "boom" },
+      }),
+    );
+    root.querySelector<HTMLButtonElement>(".nbd-retry")!.click();
+    expect(b.send).toHaveBeenCalledWith({ type: "retry-netbox" });
   });
 
   it("closes the panel on Escape without docking it", () => {
