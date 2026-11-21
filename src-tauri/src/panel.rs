@@ -20,7 +20,7 @@
 use crate::config::{PanelConfig, PanelWindowGeometry};
 use crate::state::AppState;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
@@ -208,6 +208,11 @@ fn persist_docked_width(app: &AppHandle, width: u32) -> Result<(), String> {
 
 // ─── Window lifecycle ──────────────────────────────────────────────
 
+/// Where a collected rectangle is written. Boxed so the saver's ordering rules
+/// (stop, in-flight write, stale drop) are testable without a window or a config
+/// file.
+type PersistFn = Arc<dyn Fn(PanelWindowGeometry) + Send + Sync>;
+
 /// Debounced geometry writer. Dragging emits one move event per pixel; this
 /// coalesces them into at most one config write per `GEOMETRY_DEBOUNCE`, and the
 /// close path flushes the live rectangle synchronously so quitting straight after
@@ -222,13 +227,21 @@ struct GeometrySaver {
 
 impl GeometrySaver {
     fn start(app: &AppHandle) -> Self {
+        let worker_app = app.clone();
+        Self::with_persist(Arc::new(move |geometry| {
+            if let Err(e) = persist_geometry(&worker_app, geometry) {
+                log::warn!("Failed to save panel window geometry: {}", e);
+            }
+        }))
+    }
+
+    fn with_persist(persist: PersistFn) -> Self {
         let pending: Arc<Mutex<Option<PanelWindowGeometry>>> = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
         let writes: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
         let worker_pending = Arc::clone(&pending);
         let worker_stop = Arc::clone(&stop);
         let worker_writes = Arc::clone(&writes);
-        let worker_app = app.clone();
         std::thread::spawn(move || {
             while !worker_stop.load(Ordering::SeqCst) {
                 std::thread::sleep(GEOMETRY_DEBOUNCE);
@@ -247,9 +260,7 @@ impl GeometrySaver {
                 if worker_stop.load(Ordering::SeqCst) {
                     continue;
                 }
-                if let Err(e) = persist_geometry(&worker_app, geometry) {
-                    log::warn!("Failed to save panel window geometry: {}", e);
-                }
+                persist(geometry);
             }
         });
         GeometrySaver { pending, stop, writes }
@@ -262,7 +273,8 @@ impl GeometrySaver {
     }
 
     /// Stop the debounce thread and wait for a write it already started, so the
-    /// caller's own rectangle is the last one persisted.
+    /// caller's own rectangle is the last one persisted. Idempotent: a second
+    /// call waits on the same lock and returns once any write has finished.
     fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
         let _writing = match self.writes.lock() {
@@ -272,31 +284,49 @@ impl GeometrySaver {
     }
 }
 
-/// The geometry writer for the live panel window. Registered while the window
-/// exists so every destruction path can stop it before saving the final
-/// rectangle — including the programmatic `destroy()` calls that Tauri routes
-/// around `CloseRequested`.
+/// The geometry writer for the live panel window, plus the lock that serialises
+/// closes. Registered while the window exists so every destruction path can stop
+/// the writer before saving the final rectangle — including the programmatic
+/// `destroy()` calls that Tauri routes around `CloseRequested`.
 #[derive(Default)]
-pub struct PanelGeometryWriter(Mutex<Option<Arc<GeometrySaver>>>);
+pub struct PanelGeometryWriter {
+    saver: Mutex<Option<Arc<GeometrySaver>>>,
+    /// Serialises the whole close path, not only the write: two closes running at
+    /// once would read the rectangle from the same window, and the second would
+    /// read it after the first destroyed it — its failed `outer_position` /
+    /// `inner_size` calls fall back to the default geometry, which would then be
+    /// saved over the real one.
+    closing: Mutex<()>,
+}
 
 impl PanelGeometryWriter {
     fn install(&self, saver: Arc<GeometrySaver>) {
-        let mut slot = match self.0.lock() {
+        let mut slot = match self.saver.lock() {
             Ok(slot) => slot,
             Err(poisoned) => poisoned.into_inner(),
         };
         *slot = Some(saver);
     }
 
-    /// Stop the writer, waiting out a write already in flight. Idempotent: the
-    /// saver is taken, so a second call (close then `Destroyed`) does nothing.
+    /// Enter the close path. Hold the returned guard until the final rectangle is
+    /// written and the window destroyed.
+    fn closing(&self) -> MutexGuard<'_, ()> {
+        match self.closing.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Stop the writer, waiting out a write already in flight. The saver is kept
+    /// rather than taken, so a second close still waits on the same lock instead
+    /// of writing beside a write that is still in progress.
     fn stop(&self) {
         let saver = {
-            let mut slot = match self.0.lock() {
+            let slot = match self.saver.lock() {
                 Ok(slot) => slot,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            slot.take()
+            slot.clone()
         };
         if let Some(saver) = saver {
             saver.stop();
@@ -374,10 +404,16 @@ fn close_panel_window(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(PANEL_LABEL) else {
         return Ok(());
     };
+    let writer = app.state::<PanelGeometryWriter>();
+    // Serialise the whole close, including its final write. Two closes running at
+    // once would read the same window, and the later one would read it after it
+    // was destroyed — `current_geometry` then falls back to the default rectangle
+    // and would save that over the user's geometry.
+    let _closing = writer.closing();
     let geometry = current_geometry(&window, default_geometry(app));
     // Stop the worker *before* writing: waiting out a write already in flight
     // means it cannot land after this rectangle and undo it.
-    app.state::<PanelGeometryWriter>().stop();
+    writer.stop();
     if let Err(e) = persist_geometry(app, geometry) {
         log::warn!("Failed to save panel window geometry before closing: {}", e);
     }
@@ -573,6 +609,94 @@ mod tests {
 
     fn rect(x: i32, y: i32, width: u32, height: u32) -> MonitorRect {
         MonitorRect { x, y, width, height }
+    }
+
+    fn geometry(x: i32, y: i32, width: u32, height: u32) -> PanelWindowGeometry {
+        PanelWindowGeometry { x, y, width, height }
+    }
+
+    /// A saver whose writes land in `sink`, so the ordering rules can be driven
+    /// without a window or a config file.
+    fn saver_into(sink: Arc<Mutex<Vec<PanelWindowGeometry>>>) -> Arc<GeometrySaver> {
+        Arc::new(GeometrySaver::with_persist(Arc::new(move |geometry| {
+            sink.lock().unwrap().push(geometry);
+        })))
+    }
+
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {}",
+                what
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_rectangle_collected_before_stop_is_not_written_after_it() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let saver = saver_into(Arc::clone(&written));
+
+        // Hold the write lock so the worker has to queue behind it with the
+        // rectangle already collected.
+        let blocked = saver.writes.lock().unwrap();
+        saver.record(geometry(10, 20, 300, 400));
+        wait_until("the worker to collect the rectangle", || {
+            saver.pending.lock().unwrap().is_none()
+        });
+
+        let stopper = {
+            let saver = Arc::clone(&saver);
+            std::thread::spawn(move || saver.stop())
+        };
+        // stop() cannot return while a write holds the lock.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!stopper.is_finished(), "stop() returned with a write in flight");
+
+        drop(blocked);
+        stopper.join().unwrap();
+        assert!(
+            written.lock().unwrap().is_empty(),
+            "a rectangle collected before stop() was written afterwards"
+        );
+    }
+
+    #[test]
+    fn a_rectangle_recorded_after_stop_is_never_written() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let saver = saver_into(Arc::clone(&written));
+        saver.stop();
+        saver.record(geometry(1, 2, 3, 4));
+        std::thread::sleep(GEOMETRY_DEBOUNCE * 2);
+        assert!(
+            written.lock().unwrap().is_empty(),
+            "the worker kept writing after stop()"
+        );
+    }
+
+    #[test]
+    fn close_paths_are_serialised() {
+        let writer = Arc::new(PanelGeometryWriter::default());
+        let held = writer.closing();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let second = {
+            let writer = Arc::clone(&writer);
+            std::thread::spawn(move || {
+                let _guard = writer.closing();
+                tx.send(()).unwrap();
+            })
+        };
+        assert!(
+            rx.recv_timeout(Duration::from_millis(150)).is_err(),
+            "a second close entered the path while the first was still running"
+        );
+        drop(held);
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("the second close never ran after the first released");
+        second.join().unwrap();
     }
 
     #[test]
