@@ -334,7 +334,10 @@ describe("ariaKeyShortcuts", () => {
     const restore = MAC();
     expect(ariaKeyShortcuts("toggle-side-panel")).toBe("Meta+Shift+B");
     restore();
-    expect(ariaKeyShortcuts("toggle-side-panel")).toBe("Control+Shift+B");
+    // Without the stub this resolves whatever platform the suite runs on, so
+    // the assertion cannot hard-code one OS's modifier.
+    expect(ariaKeyShortcuts("toggle-side-panel"))
+      .toBe(platformMod() === "Cmd" ? "Meta+Shift+B" : "Control+Shift+B");
   });
 
   it("follows a saved override instead of the default", () => {
