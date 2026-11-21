@@ -2840,6 +2840,77 @@ async function main() {
             + `(frame ${clip.wrap}px, status bar ${clip.statusbar}px past the bottom of `
             + `.app-content)`,
         );
+
+        // Issue #176 review: at the 240px minimum width and the largest UI text
+        // scale the tab strip cannot hold two labels plus Undock on one row. It
+        // must wrap rather than let a word paint over its neighbour, and no label
+        // may be clipped. Measured from rendered rectangles, so it proves the
+        // outcome rather than restating the CSS.
+        await browser.execute(() => {
+          document.documentElement.style.setProperty("--text-scale", "1.5");
+          document.querySelector("#tv-sidebar-resizer")?.focus();
+        });
+        assert.equal(
+          await browser.execute(() => document.activeElement?.id ?? ""),
+          "tv-sidebar-resizer",
+          "Terminal sidebar layout: the resizer did not take keyboard focus",
+        );
+        await browser.keys(["\uE011"]); // Home: the resizer's own 240px stop
+        await pause(300);
+        const strip = await browser.execute(() => {
+          const sidebar = document.querySelector("#tv-sidebar");
+          if (!sidebar) return null;
+          const frame = sidebar.getBoundingClientRect();
+          const boxes = [...sidebar.querySelectorAll(".sb-toggle > *")].map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              name: element.id || element.textContent?.trim() || "?",
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              clipped: element.scrollWidth > element.clientWidth + 1,
+            };
+          });
+          return { frame: { left: frame.left, right: frame.right, width: frame.width }, boxes };
+        });
+        assert(strip, "Terminal sidebar layout: the tab strip was never rendered");
+        assert(
+          Math.abs(strip.frame.width - 240) <= 2,
+          `Terminal sidebar layout: Home did not take the panel to 240px `
+            + `(it is ${strip.frame.width}px)`,
+        );
+        assert(
+          strip.boxes.length >= 3,
+          `Terminal sidebar layout: expected two tabs and Undock, found ${strip.boxes.length} item(s)`,
+        );
+        for (const box of strip.boxes) {
+          assert(
+            !box.clipped,
+            `Terminal sidebar layout: "${box.name}" is clipped at 240px with `
+              + `the largest text scale`,
+          );
+          assert(
+            box.left >= strip.frame.left - 1 && box.right <= strip.frame.right + 1,
+            `Terminal sidebar layout: "${box.name}" escapes the panel at 240px `
+              + `(${box.left}-${box.right} against ${strip.frame.left}-${strip.frame.right})`,
+          );
+        }
+        for (let i = 0; i < strip.boxes.length; i += 1) {
+          for (let j = i + 1; j < strip.boxes.length; j += 1) {
+            const a = strip.boxes[i];
+            const b = strip.boxes[j];
+            const sharesRow = a.top < b.bottom - 1 && b.top < a.bottom - 1;
+            assert(
+              !sharesRow || a.right <= b.left + 1 || b.right <= a.left + 1,
+              `Terminal sidebar layout: "${a.name}" overlaps "${b.name}" at 240px `
+                + `with the largest text scale`,
+            );
+          }
+        }
+        await browser.execute(() => {
+          document.documentElement.style.removeProperty("--text-scale");
+        });
       },
     },
     {
