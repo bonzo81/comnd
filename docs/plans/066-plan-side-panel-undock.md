@@ -159,12 +159,13 @@ default rectangle can never be substituted for a real one. Tests:
 `close_paths_are_serialised`, `a_claimed_window_is_not_closed_twice`,
 `a_rebuilt_window_can_be_closed_again`, `a_rectangle_collected_before_stop_is_not_written_after_it`
 and `a_rectangle_recorded_after_stop_is_never_written`. The live-window half is exercised by
-`panel-undock-relaunch` through `test_panel_race_close`: the command arms a gate, nudges the
-window so the tracker has a pending write, waits for the worker to reach that write, starts both
-close paths, then releases the write — so the closes provably overlap an in-flight write. It
-reports the saved rectangle alongside the live one, and the scenario asserts all four fields
-match. Before the claim this failed exactly as the review predicted, saving `x = 1605` (the
-centred default) instead of the live `390`.
+`panel-undock-relaunch` through `test_panel_race_close`, and the sequence is made observable
+rather than hoped for: the command arms a gate, records rectangle A and waits for the worker to
+block inside writing it, moves the window to a distinct rectangle B, starts both close paths,
+waits for signals showing one is at `stop()` and the other queued on the close guard, then
+releases the write. The paused A is therefore a *stale* value that must lose: the scenario
+asserts the saved rectangle equals B and differs from A by more than 20px. Before the claim, the
+equivalent check saved `x = 1605` (the centred default) instead of the live `390`.
 
 **The frontend has one serialised lifecycle, and it announces only what it saved.** The write
 used to run outside the queue, so an undock write could land after a dock write and leave the
@@ -241,7 +242,7 @@ so the same one-line fix applies whenever a capability change is committed from 
 | A saved position on a missing monitor is clamped back on screen, size kept | `clamp_position` unit tests in `panel.rs`, including a rectangle outside every monitor |
 | Undock and dock work from the keyboard alone | every transition in `panel-undock-dock` is driven by `Ctrl+Shift+B` only, including docking from the panel window |
 | At most one panel window, and a repeat request reuses it | `panel-undock-dock` step 5 compares the WebDriver window handle before and after `panel_open`: destroying and rebuilding at the same width now fails even though the count and the width would still match |
-| Overlapping closes save the live rectangle, not a default | `panel-undock-relaunch` pauses an in-flight worker write (`test_panel_race_close` arms a gate, nudges the window, waits for the worker to reach the write), starts both closes, then releases it and asserts all four saved fields equal the live rectangle |
+| Overlapping closes save the live rectangle, not a default or a stale one | `panel-undock-relaunch` calls `test_panel_race_close`, which pauses the worker inside a write of rectangle A, moves the window to a distinct B, starts both closes, waits for signals that one reached `stop()` and the other is queued on the guard, then releases the write; the scenario asserts the saved rectangle equals B and differs from A |
 
 ### Smoke harness
 
