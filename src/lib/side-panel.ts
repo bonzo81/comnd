@@ -97,11 +97,17 @@ let state: SidePanelState = initialState();
 const listeners = new Set<(state: SidePanelState) => void>();
 const actionListeners = new Set<(action: SidePanelAction) => void>();
 let widthTimer: ReturnType<typeof setTimeout> | null = null;
-/** Serialises the native window effects; see `syncPanelWindow`. */
+/** Serialises the lifecycle steps; see `applyPanelLifecycle`. */
 let lifecycle: Promise<void> = Promise.resolve();
+/** Bumped by every lifecycle request, so a completion can tell whether it still
+ *  owns the state it is about to publish or roll back. */
+let lifecycleSeq = 0;
 /** Best-effort mirror of the window Rust owns. Rust's open/close are
  *  idempotent, so a wrong guess costs one no-op call, never a second window. */
 let windowOpen = false;
+/** The home actually written to the config, so a failed write knows what to
+ *  restore and a later step does not rewrite it. */
+let persistedHome = false;
 
 function initialState(): SidePanelState {
   return {
@@ -146,6 +152,7 @@ export async function initSidePanel(overrides: Partial<SidePanelDeps> = {}): Pro
   deps = { ...deps, ...overrides };
   try {
     const panel = await deps.getConfig();
+    persistedHome = panel.undocked;
     setState({ undocked: panel.undocked, dockedWidth: clampWidth(panel.docked_width) });
   } catch {
     // Unreadable config — the defaults stand and the panel stays docked.
@@ -174,48 +181,94 @@ export function cycleSidePanel(): void {
  * Bring the native window in line with the current home: exactly one window,
  * open exactly when the panel is open and undocked.
  *
- * Serialised, because two home changes can overlap — a pending undock that
- * resumes after a dock must not reopen the window it was told to close. Each
- * run reads the state when it runs rather than when it was queued, and re-checks
- * after creating the window in case a dock landed while that call was in flight.
+ * Only ever called from inside a lifecycle step, so two home changes cannot
+ * overlap. It reads the state when it runs and re-checks after creating the
+ * window, because a dock can land while that call is in flight.
  */
-function syncPanelWindow(): Promise<void> {
-  const step = async (): Promise<void> => {
-    const wanted = state.open && state.undocked;
-    if (wanted === windowOpen) return;
-    if (!wanted) {
-      await deps.closeWindow();
-      windowOpen = false;
-      return;
-    }
-    await deps.openWindow();
-    windowOpen = true;
-    if (!(state.open && state.undocked)) {
-      await deps.closeWindow();
-      windowOpen = false;
-    }
-  };
+async function syncPanelWindow(): Promise<void> {
+  const wanted = state.open && state.undocked;
+  if (wanted === windowOpen) return;
+  if (!wanted) {
+    await deps.closeWindow();
+    windowOpen = false;
+    return;
+  }
+  await deps.openWindow();
+  windowOpen = true;
+  if (!(state.open && state.undocked)) {
+    await deps.closeWindow();
+    windowOpen = false;
+  }
+}
+
+function enqueue(step: () => Promise<void>): Promise<void> {
   const next = lifecycle.then(step, step);
-  // A failure must not poison the queue: the next state change retries.
+  // A failure must not poison the queue: the next request retries.
   lifecycle = next.catch(() => {});
   return next;
 }
 
+/**
+ * Persist the requested home, then make the native window match it — one
+ * serialised step per request.
+ *
+ * The write and the window effect once ran outside the queue, so an undock write
+ * could land after a dock write and leave the saved home wrong for the next
+ * launch. Each step reads `state` when it runs rather than when it was queued,
+ * and the new home is published only once the config agrees with it, so a docked
+ * panel never appears beside a window that is still open.
+ */
+function applyPanelLifecycle(): Promise<void> {
+  const seq = ++lifecycleSeq;
+  return enqueue(async () => {
+    if (persistedHome !== state.undocked) {
+      const target = state.undocked;
+      try {
+        await deps.setUndocked(target);
+        persistedHome = target;
+        // A successful dock destroyed the window inside that same command, so
+        // the reconcile below must not ask for a second close.
+        if (!target) windowOpen = false;
+      } catch (error) {
+        if (seq === lifecycleSeq) {
+          // Rust kept the old home: show that, and leave the window alone.
+          state = { ...state, undocked: persistedHome };
+          setState({});
+          setSidePanelError(
+            `Failed to ${target ? "undock" : "dock"} the side panel: ${error}`,
+          );
+        }
+        return;
+      }
+    }
+    // Publish the new home / open state only now: the config and the native
+    // window are in step with it.
+    if (seq === lifecycleSeq) setState({});
+    try {
+      await syncPanelWindow();
+    } catch (error) {
+      if (seq !== lifecycleSeq) return;
+      // Nothing is showing, so the toggle has to stay usable: leaving `open`
+      // true with no window would make every later open return early.
+      if (!windowOpen && state.open && state.undocked) {
+        state = { ...state, open: false };
+        setState({});
+      }
+      setSidePanelError(`Failed to open the panel window: ${error}`);
+    }
+  });
+}
+
 export function openSidePanel(): void {
   if (state.open) return;
-  setState({ open: true });
-  void syncPanelWindow().catch((error) => {
-    // Nothing is showing, so the toggle has to stay usable: leaving `open` true
-    // with no window would make every later open return early.
-    if (!windowOpen && state.open && state.undocked) setState({ open: false });
-    setSidePanelError(`Failed to open the panel window: ${error}`);
-  });
+  state = { ...state, open: true };
+  void applyPanelLifecycle();
 }
 
 export function closeSidePanel(): void {
   if (!state.open) return;
-  setState({ open: false });
-  void syncPanelWindow().catch(() => {});
+  state = { ...state, open: false };
+  void applyPanelLifecycle();
 }
 
 /**
@@ -226,7 +279,9 @@ export function closeSidePanel(): void {
 export function handlePanelWindowClosed(): void {
   windowOpen = false;
   if (!state.open) return;
-  setState({ open: false });
+  state = { ...state, open: false };
+  lifecycleSeq++;
+  setState({});
 }
 
 /**
@@ -235,29 +290,13 @@ export function handlePanelWindowClosed(): void {
  * restores the docked width. Repeated calls in the same direction are no-ops,
  * which is what keeps a second panel window from ever existing.
  *
- * A failed preference write rolls the home back: Rust keeps the old one and only
- * destroys the window after a successful dock write, so the optimistic value
- * would otherwise claim a home the app does not actually have.
+ * The home is only announced once the write succeeds; a failed one leaves the
+ * panel where it was and reports the failure in the pane.
  */
-export async function setPanelUndocked(undocked: boolean): Promise<void> {
-  if (state.undocked === undocked) return;
-  const previous = state.undocked;
-  setState({ undocked });
-  try {
-    await deps.setUndocked(undocked);
-  } catch (error) {
-    setState({ undocked: previous });
-    setSidePanelError(`Failed to ${undocked ? "undock" : "dock"} the side panel: ${error}`);
-    return;
-  }
-  // A successful dock destroyed the window inside that same command, so the
-  // reconcile below must not ask for a second close.
-  if (!undocked) windowOpen = false;
-  try {
-    await syncPanelWindow();
-  } catch (error) {
-    setSidePanelError(`Failed to ${undocked ? "undock" : "dock"} the side panel: ${error}`);
-  }
+export function setPanelUndocked(undocked: boolean): Promise<void> {
+  if (state.undocked === undocked) return Promise.resolve();
+  state = { ...state, undocked };
+  return applyPanelLifecycle();
 }
 
 export function setSidePanelMode(mode: SidePanelMode): void {
@@ -336,6 +375,8 @@ export function __resetSidePanel(): void {
   listeners.clear();
   actionListeners.clear();
   lifecycle = Promise.resolve();
+  lifecycleSeq = 0;
   windowOpen = false;
+  persistedHome = false;
   state = initialState();
 }

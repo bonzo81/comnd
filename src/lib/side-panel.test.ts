@@ -100,13 +100,13 @@ describe("side panel state", () => {
     expect(h.openWindow).not.toHaveBeenCalled();
 
     cycleSidePanel();
-    await Promise.resolve();
+    await flush();
     expect(getSidePanelState().undocked).toBe(true);
     expect(h.setUndocked).toHaveBeenCalledWith(true);
     expect(h.openWindow).toHaveBeenCalledTimes(1);
 
     cycleSidePanel();
-    await Promise.resolve();
+    await flush();
     expect(getSidePanelState().undocked).toBe(false);
     expect(getSidePanelState().open).toBe(true);
     expect(h.setUndocked).toHaveBeenCalledWith(false);
@@ -318,6 +318,95 @@ describe("side panel state", () => {
     expect(h.closeWindow).toHaveBeenCalledTimes(1);
   });
 
+  it("does not let a stale open failure clear a newer open", async () => {
+    const h = harness({ undocked: true });
+    let rejectFirst: ((error: unknown) => void) | null = null;
+    h.openWindow.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+    );
+    await initSidePanel();
+    openSidePanel();
+    await flush();
+    expect(rejectFirst).not.toBeNull();
+
+    // Close and reopen while the first window creation is still pending.
+    closeSidePanel();
+    openSidePanel();
+    rejectFirst!(new Error("boom"));
+    await flush();
+
+    // The newer open owns the state, so the older failure must not clear it or
+    // report itself over the panel.
+    expect(getSidePanelState().open).toBe(true);
+    expect(h.openWindow).toHaveBeenCalledTimes(2);
+    const snapshot = getSidePanelState().snapshot;
+    expect(snapshot.kind === "placeholder" ? snapshot.text : "").not.toMatch(/Failed/);
+  });
+
+  it("announces the docked home only after the write succeeds", async () => {
+    const h = harness();
+    await initSidePanel();
+    openSidePanel();
+    await setPanelUndocked(true);
+
+    const seen: boolean[] = [];
+    subscribeSidePanel((s) => seen.push(s.undocked));
+    let finish: (() => void) | null = null;
+    h.setUndocked.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+
+    const docking = setPanelUndocked(false);
+    await flush();
+    // Rust still has the window open, so the docked panel must not appear yet.
+    expect(seen).toEqual([]);
+    expect(h.closeWindow).not.toHaveBeenCalled();
+
+    finish!();
+    await docking;
+    await flush();
+    expect(seen[seen.length - 1]).toBe(false);
+    // Docking destroyed the window inside the write; no second close.
+    expect(h.closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("writes the home in the order the user asked for it", async () => {
+    const h = harness();
+    await initSidePanel();
+    openSidePanel();
+    await setPanelUndocked(true);
+
+    const order: boolean[] = [];
+    const finishers: (() => void)[] = [];
+    h.setUndocked.mockImplementation((undocked: boolean) => {
+      order.push(undocked);
+      return new Promise<void>((resolve) => {
+        finishers.push(resolve);
+      });
+    });
+
+    const docking = setPanelUndocked(false);
+    await flush();
+    const undocking = setPanelUndocked(true);
+    await flush();
+    // The second write waits for the first: the saved home cannot be left
+    // undocked by an earlier write landing late.
+    expect(order).toEqual([false]);
+
+    finishers[0]();
+    await flush();
+    expect(order).toEqual([false, true]);
+    finishers[1]();
+    await docking;
+    await undocking;
+    await flush();
+    expect(getSidePanelState().undocked).toBe(true);
+  });
+
   it("forwards replay actions to the terminal view but handles dock itself", async () => {
     const h = harness();
     await initSidePanel();
@@ -331,11 +420,12 @@ describe("side panel state", () => {
     expect(forwarded).toEqual(["play", "add"]);
 
     applySidePanelAction({ type: "dock" });
+    // The write and the window effect are queued, so they run over a few ticks.
+    await flush();
     // Rust destroys the window as part of docking, so the frontend must not
     // ask for a second close.
     expect(h.setUndocked).toHaveBeenCalledWith(false);
     expect(h.closeWindow).not.toHaveBeenCalled();
-    await Promise.resolve();
     expect(getSidePanelState().undocked).toBe(false);
     expect(getSidePanelState().open).toBe(true);
   });
