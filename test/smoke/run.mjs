@@ -1150,6 +1150,24 @@ function panelUndockRelaunchScenario() {
         assert.equal(config.undocked, true,
           "Panel relaunch: the undocked home was not written to the config");
         saved = config.window;
+
+        // Two closes racing with the debounce worker still holding a rectangle.
+        // The second must find no window: a stale handle would read a destroyed
+        // window, fall back to the default rectangle and save that instead.
+        const raced = await invoke(browser, "test_panel_race_close");
+        for (const key of ["x", "y", "width", "height"]) {
+          assert(
+            Math.abs(raced[key] - placed[key]) <= 2,
+            `Panel relaunch: a racing close saved ${key} ${raced[key]}, `
+              + `expected the live ${placed[key]}`,
+          );
+        }
+        await waitForNoWindow(browser, "panel",
+          "Panel relaunch: the racing close left the panel window open");
+        await waitForWindowCount(browser, 1,
+          "Panel relaunch: the racing close left an extra window behind");
+        // Assert the relaunch against what the close paths actually left behind.
+        saved = (await invoke(browser, "panel_get_state")).window;
       },
       async (browser, dataDir) => {
         assert(saved, "Panel relaunch: the first launch never recorded the panel geometry");
