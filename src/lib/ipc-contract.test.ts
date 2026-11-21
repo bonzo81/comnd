@@ -304,9 +304,32 @@ const cases: WrapperCase[] = [
     args: { netboxId: 5, overlay, password: null },
   },
   { name: "netboxGetStatus", cmd: "netbox_get_status", run: () => api.netboxGetStatus() },
+  // Side panel (docs/plans/066)
+  { name: "panelGetState", cmd: "panel_get_state", run: () => api.panelGetState() },
+  {
+    name: "panelSetUndocked",
+    cmd: "panel_set_undocked",
+    run: () => api.panelSetUndocked(true),
+    args: { undocked: true },
+  },
+  {
+    name: "panelSetDockedWidth",
+    cmd: "panel_set_docked_width",
+    run: () => api.panelSetDockedWidth(320),
+    args: { width: 320 },
+  },
+  { name: "panelOpen", cmd: "panel_open", run: () => api.panelOpen() },
+  { name: "panelClose", cmd: "panel_close", run: () => api.panelClose() },
   // Debug-build helpers
   { name: "testStartMockServer", cmd: "test_mock_server", run: () => api.testStartMockServer() },
   { name: "testStopMockServer", cmd: "test_stop_mock_server", run: () => api.testStopMockServer() },
+  { name: "testPanelWindows", cmd: "test_panel_windows", run: () => api.testPanelWindows() },
+  {
+    name: "testPanelSetGeometry",
+    cmd: "test_panel_set_geometry",
+    run: () => api.testPanelSetGeometry({ x: 10, y: 20, width: 420, height: 640 }),
+    args: { x: 10, y: 20, width: 420, height: 640 },
+  },
 ];
 
 const SENTINEL = { ok: "sentinel" };

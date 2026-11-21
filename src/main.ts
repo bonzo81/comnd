@@ -9,7 +9,7 @@ import { ReplayScreen } from "./components/replay-screen";
 import { Host, getLogLevel, getLogStatus } from "./lib/tauri-api";
 import { showToast } from "./lib/toast";
 import { log, LogLevel, LogTag, setLogLevel } from "./lib/logger";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { importJob } from "./lib/import-status";
 import { icons } from "./lib/icons";
 import {
@@ -30,11 +30,16 @@ import { getAppTheme, setAppTheme } from "./lib/theme";
 import {
   isReadingComfortEnabled, enable as rcEnable, disable as rcDisable,
   update as rcUpdate, resetToPreset as rcReset, getReadingComfortState, RC_PRESET,
+  applyReadingComfort,
 } from "./lib/reading-comfort";
 import { startApp } from "./lib/app-startup";
+import {
+  applySidePanelAction, closeSidePanel, cycleSidePanel, flushSidePanelWidth,
+  getSidePanelState, handlePanelWindowClosed, initSidePanel, type SidePanelAction,
+} from "./lib/side-panel";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
-  formatCombo, initShortcuts, matches, resolvedCombo,
+  formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
   SECTION_TITLES, SHORTCUT_DEFS, SHORTCUT_SECTIONS,
 } from "./lib/shortcuts";
 import { setToggleState } from "./lib/a11y";
@@ -144,7 +149,17 @@ class App {
     // help modal re-renders so the grid never shows stale combos.
     window.addEventListener("comnd:shortcuts", () => {
       if (this.showShortcuts) this.renderShortcutsModal();
+      // The undocked window keeps its own registry: hand it the new map so a
+      // rebound panel shortcut still docks from there, and refresh the
+      // advertised combination on both Dock controls.
+      void emitTo("panel", "comnd:shortcuts", getOverrides()).catch(() => {});
+      this.publishPanelPreferences();
     });
+
+    // Theme and Reading Comfort are per-document: the undocked panel would
+    // otherwise keep the scale it opened with until it was reopened.
+    window.addEventListener("comnd:theme", () => this.publishPanelPreferences());
+    window.addEventListener("comnd:reading-comfort", () => this.publishPanelPreferences());
 
     // Content column — holds the three view wrappers, sits right of nav panel
     this.contentCol = document.createElement("div");
@@ -260,6 +275,7 @@ class App {
     // defaults until then — no race (docs/plans/058 phase 1).
     void initShortcuts();
     this.registerGlobalShortcuts();
+    this.initSidePanelBridge();
     this.renderTitleBar();
     this.renderStatusBar();
     // P1.4 — check for updates on startup (silent; indicator shows only if one exists).
@@ -1046,6 +1062,12 @@ class App {
       if (entry) entry.wrapper.style.display = t.active ? "" : "none";
     }
 
+    // One app-wide panel follows the active tab (ADR-013) — every tab stays
+    // mounted, so exactly one view may publish the panel's content.
+    for (const t of this.tabs.values()) {
+      t.view.setPanelActive(t.sessionId === sessionId);
+    }
+
     // Fit terminal after showing
     requestAnimationFrame(() => {
       tab.view.fit();
@@ -1119,6 +1141,9 @@ class App {
     this.renderSessionTabBar();
     this.refreshStatusBar();
     this.hostScreen.refresh();
+    // The panel shows the active session; with no session left it has no
+    // subject, so its window goes too (docked or not).
+    if (this.tabs.size === 0) closeSidePanel();
   }
 
   // ─── Session Tab Bar ─────────────────────────────────────────────
@@ -1257,6 +1282,81 @@ class App {
     this.renderShortcutsModal();
   }
 
+  // ─── Side panel (docs/plans/066-plan-side-panel-undock.md) ─────────
+
+  /**
+   * The panel's state lives in `lib/side-panel.ts`; this window owns the IPC
+   * edges around it — publish state to the undocked window and route the
+   * actions it sends back to the active session.
+   */
+  private initSidePanelBridge(): void {
+    void initSidePanel({ publish: (state) => this.publishPanelState() }).then(() => {
+      // An undocked panel window may have been created while we booted.
+      this.publishPanelState();
+    });
+
+    void listen<SidePanelAction>("comnd:panel-action", (event) => {
+      this.onPanelAction(event.payload);
+    });
+
+    // The panel window's own close button (and Escape) end in Rust
+    // destroying the window, which then reports back to this one.
+    void listen("comnd:panel-closed", () => {
+      handlePanelWindowClosed();
+    });
+
+    // A panel window that just mounted asks for the current state.
+    void listen("comnd:panel-ready", () => {
+      this.publishPanelState();
+      this.publishPanelPreferences();
+    });
+  }
+
+  /** Send the panel state to the undocked window, if it exists. */
+  private publishPanelState(): void {
+    const state = getSidePanelState();
+    if (!state.open || !state.undocked) return;
+    void emitTo("panel", "comnd:panel-state", state).catch(() => {});
+  }
+
+  /** Mirror the per-document preferences the panel window applies itself. */
+  private publishPanelPreferences(): void {
+    const state = getSidePanelState();
+    if (!state.open || !state.undocked) return;
+    void emitTo("panel", "comnd:panel-prefs", {
+      theme: getAppTheme(),
+      readingComfort: getReadingComfortState(),
+    }).catch(() => {});
+  }
+
+  private activeView(): TerminalView | null {
+    if (this.activeTabId == null) return null;
+    return this.tabs.get(this.activeTabId)?.view ?? null;
+  }
+
+  /**
+   * An action from the undocked window. Session-bound actions go to the active
+   * tab — the session the docked panel would be showing (ADR-013).
+   */
+  private onPanelAction(action: SidePanelAction): void {
+    switch (action.type) {
+      case "play":
+        this.activeView()?.playReplayById(action.id);
+        return;
+      case "add":
+        this.activeView()?.openReplaySave();
+        return;
+      case "run":
+        this.activeView()?.runExampleCommand(action.command);
+        return;
+      default:
+        applySidePanelAction(action);
+        if (action.type === "mode" && action.mode === "replay") {
+          void this.activeView()?.refreshReplayPanel();
+        }
+    }
+  }
+
   private registerGlobalShortcuts() {
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       // Ctrl+W — MUST pass through to remote. Prevent browser/app close.
@@ -1267,6 +1367,19 @@ class App {
         if (this.currentView === "terminal") {
           e.preventDefault();
         }
+        return;
+      }
+
+      // Open / undock / dock the side panel — terminal scope, because the
+      // panel belongs to the active session (ADR-013). TerminalView's xterm
+      // handler swallows the byte for this combo, so the key never reaches the
+      // remote and this listener is its only owner.
+      if (
+        this.currentView === "terminal" && this.activeTabId &&
+        matches(e, "terminal") === "toggle-side-panel"
+      ) {
+        e.preventDefault();
+        cycleSidePanel();
         return;
       }
 
@@ -1365,11 +1478,55 @@ class App {
   }
 }
 
-if (import.meta.env.MODE === "smoke") {
-  void import("./lib/smoke-mutation")
-    .then((m) => m.applySmokeMutation())
-    .catch(() => {})
-    .finally(() => startApp(() => new App()));
-} else {
-  startApp(() => new App());
+/**
+ * The undocked panel is its own OS window and mounts the panel component only:
+ * no App, no terminal, no SSH. Everything it shows arrives from the main
+ * window over `comnd:panel-state`.
+ */
+async function bootstrap(): Promise<void> {
+  let label = "main";
+  try {
+    label = getCurrentWindow().label;
+  } catch {
+    // Not under Tauri (unit test) — treat it as the main window.
+  }
+
+  if (label === "panel") {
+    document.documentElement.dataset.comndWindow = "panel";
+    setAppTheme(getAppTheme());
+    applyReadingComfort();
+    // The panel window has its own registry (no App): without this its matcher
+    // keeps the default binding and a rebound Dock shortcut is dead here.
+    await initShortcuts();
+    const { mountPanelWindowInAppRoot } = await import("./components/panel-window");
+    const root = document.getElementById("app");
+    if (root) mountPanelWindowInAppRoot(root);
+    return;
+  }
+
+  document.documentElement.dataset.comndWindow = "main";
+  await holdCloseForPanelWidth();
+  if (import.meta.env.MODE === "smoke") {
+    void import("./lib/smoke-mutation")
+      .then((m) => m.applySmokeMutation())
+      .catch(() => {})
+      .finally(() => startApp(() => new App()));
+  } else {
+    startApp(() => new App());
+  }
 }
+
+/**
+ * A docked width dragged inside its 400 ms debounce would be lost when the app
+ * closes; the close handler awaits the write, so quitting mid-drag keeps the
+ * width the user chose.
+ */
+async function holdCloseForPanelWidth(): Promise<void> {
+  try {
+    await getCurrentWindow().onCloseRequested(() => flushSidePanelWidth());
+  } catch {
+    // Not under Tauri (unit test) — there is no close to hold.
+  }
+}
+
+void bootstrap();

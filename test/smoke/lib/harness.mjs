@@ -182,6 +182,128 @@ export async function actOn(browser, selector, { action = "click", index = 0, ti
   );
 }
 
+/** Open the app under an already-running driver, and wait until it has a page. */
+export async function openSession(port) {
+  const browser = await remote({
+    hostname: "127.0.0.1",
+    port,
+    path: "/",
+    logLevel: "error",
+    capabilities: {
+      "tauri:options": { application: appPath },
+    },
+  });
+  await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
+  // Safe: `body` is never replaced by a render, and the handle is used once.
+  await (await browser.$("body")).waitForExist({ timeout: 20_000 });
+  return browser;
+}
+
+// ─── Multi-window helpers (plan 066) ────────────────────────────────
+//
+// Windows are told apart by a marker the app sets on its own document, not by
+// title or URL: the panel window loads the same `index.html`, so both windows
+// report the same `document.title` and `location.href` to WebDriver, and
+// neither exposes the Tauri window label to the page.
+
+const WINDOW_MARKERS = { main: "main", panel: "panel" };
+
+async function windowMarker(browser) {
+  return browser.execute(() => document.documentElement.dataset.comndWindow ?? null);
+}
+
+/**
+ * Switch to the window whose document is marked `marker`.
+ *
+ * Returns the handle to restore. Polls, because a freshly created window is not
+ * scriptable until its document has loaded — `switchToWindow` on the handle of
+ * a half-built window fails rather than returning a blank document.
+ */
+export async function switchToWindow(browser, marker, timeoutMsg, timeout = WAIT_MS) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const previous = await browser.getWindowHandle();
+    let handles = [];
+    try {
+      handles = await browser.getWindowHandles();
+    } catch {
+      handles = [];
+    }
+    for (const handle of handles) {
+      try {
+        await browser.switchToWindow(handle);
+        if ((await windowMarker(browser)) === marker) return { handle, previous };
+      } catch {
+        // A window that is still loading rejects the switch; retry below.
+      }
+    }
+    if (handles.includes(previous)) await browser.switchToWindow(previous);
+    if (Date.now() >= until) throw new Error(timeoutMsg);
+    await pause(100);
+  }
+}
+
+/** Every handle, so a scenario can prove a second window does or does not exist. */
+export async function windowHandles(browser) {
+  return browser.getWindowHandles();
+}
+
+/** Poll until the app owns exactly `count` windows. */
+export async function waitForWindowCount(browser, count, timeoutMsg, timeout = WAIT_MS) {
+  let seen = -1;
+  try {
+    await browser.waitUntil(async () => {
+      seen = (await browser.getWindowHandles()).length;
+      return seen === count;
+    }, { timeout, interval: 100, timeoutMsg });
+  } catch {
+    throw new Error(`${timeoutMsg}: expected ${count} window(s), last saw ${seen}`);
+  }
+}
+
+/** Poll until no window is marked `marker` — the panel window is destroyed,
+ *  not hidden, so a docked panel has to leave the window list. */
+export async function waitForNoWindow(browser, marker, timeoutMsg, timeout = WAIT_MS) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    // The current window may be the very one the app just destroyed, in which
+    // case even reading the handle fails. Treat that as "no previous window".
+    const previous = await browser.getWindowHandle().catch(() => null);
+    let found = false;
+    for (const handle of await browser.getWindowHandles()) {
+      try {
+        await browser.switchToWindow(handle);
+        if ((await windowMarker(browser)) === marker) found = true;
+      } catch {
+        // A destroyed window stays listed for a moment, and a window that is
+        // still building has not rendered the panel either. Neither proves the
+        // panel is present, so fall through and re-read the list next poll.
+      }
+      if (found) break;
+    }
+    if (!found) {
+      const handles = await browser.getWindowHandles();
+      if (previous && handles.includes(previous)) await browser.switchToWindow(previous);
+      return;
+    }
+    if (Date.now() >= until) throw new Error(timeoutMsg);
+    await pause(100);
+  }
+}
+
+/** Run `fn` in `handle`, then go back to the window that was current. */
+export async function withWindow(browser, handle, fn) {
+  const previous = await browser.getWindowHandle();
+  await browser.switchToWindow(handle);
+  try {
+    return await fn();
+  } finally {
+    if (previous !== handle) await browser.switchToWindow(previous);
+  }
+}
+
+export { WINDOW_MARKERS };
+
 export async function startDriver(dataDir, extraEnv = {}) {
   const port = await freePort();
   const env = {
@@ -208,83 +330,70 @@ export async function startDriver(dataDir, extraEnv = {}) {
 }
 
 /**
- * Run one scenario in its own app process and its own data directory.
+ * Boot one app process and its WebDriver session against `dataDir`.
  *
- * `suite` supplies the per-suite parts: `env` merged into the app process
- * environment, and `teardown(browser)` run before the session is closed (the
- * default stops the SSH mock, which every SSH scenario starts).
+ * Split out of `runCase` because a scenario that spans a relaunch
+ * (`test.phases`) boots twice against the *same* data directory: the whole
+ * point is that the second launch reads what the first one persisted.
  */
-export async function runCase(test, suite = {}) {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
-  let driver;
+async function bootApp(dataDir, suite) {
+  const started = await startDriver(dataDir, suite.env);
   let browser;
-  let error;
+  try {
+    await waitForDriver(started.driver, started.port, started.driverLog);
+    browser = await openSession(started.port);
+  } catch (error) {
+    if (started.driver.exitCode === null) started.driver.kill();
+    throw error;
+  }
+  return { driver: started.driver, browser };
+}
+
+/** Tear down one boot: the suite's teardown, then the session, then the driver. */
+async function shutdownApp({ driver, browser }, teardown) {
   let cleanupError;
   let teardownError;
-  let appReady = false;
-
-  try {
-    const started = await startDriver(dataDir, suite.env);
-    driver = started.driver;
-    await waitForDriver(driver, started.port, started.driverLog);
-    browser = await remote({
-      hostname: "127.0.0.1",
-      port: started.port,
-      path: "/",
-      logLevel: "error",
-      capabilities: {
-        "tauri:options": { application: appPath },
-      },
-    });
-    await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
-    // Safe: `body` is never replaced by a render, and the handle is used once.
-    await (await browser.$("body")).waitForExist({ timeout: 20_000 });
-    appReady = true;
-    // A wedged WebDriver session otherwise blocks the whole job until its timeout.
-    await withTimeout(test.run(browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
-  } catch (caught) {
-    error = caught;
-    if (browser) {
-      const state = await withTimeout(browser.execute(() => ({
-        text: document.body.innerText,
-        terminal: !!document.querySelector(".tv-terminal"),
-        connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
-      })), 15_000, "failure state capture").catch(() => null);
-      if (state) {
-        error = new Error(
-          `${caught.message}\nVisible app text: ${state.text}\nTerminal mounted: ${state.terminal}; connected: ${state.connected}`,
-          { cause: caught },
-        );
-      }
-    }
-  } finally {
-    if (browser) {
-      try {
-        await withTimeout(teardown(browser), 15_000, "suite teardown");
-      } catch (caught) {
-        teardownError = caught;
-      }
-      try {
-        await withTimeout(browser.deleteSession(), 20_000, "session teardown");
-      } catch (caught) {
-        cleanupError ??= caught;
-      }
-    }
-    if (driver && driver.exitCode === null) {
-      driver.kill();
-      await Promise.race([
-        new Promise((resolve) => driver.once("exit", resolve)),
-        pause(5_000),
-      ]);
+  if (browser) {
+    try {
+      await withTimeout(teardown(browser), 15_000, "suite teardown");
+    } catch (caught) {
+      teardownError = caught;
     }
     try {
-      await rm(dataDir, { recursive: true, force: true });
+      await withTimeout(browser.deleteSession(), 20_000, "session teardown");
     } catch (caught) {
-      cleanupError ??= caught;
+      // Ending the session on a window the app has already destroyed is not a
+      // leak: the driver is killed below either way, and the data dir is removed.
+      if (!/no such window/i.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
   }
+  if (driver && driver.exitCode === null) {
+    driver.kill();
+    await Promise.race([
+      new Promise((resolve) => driver.once("exit", resolve)),
+      pause(5_000),
+    ]);
+  }
+  return { cleanupError, teardownError };
+}
 
+/** The failure report: what the user could see when the scenario broke. */
+async function describeFailure(browser, caught) {
+  if (!browser) return caught;
+  const state = await withTimeout(browser.execute(() => ({
+    text: document.body.innerText,
+    terminal: !!document.querySelector(".tv-terminal"),
+    connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+  })), 15_000, "failure state capture").catch(() => null);
+  if (!state) return caught;
+  return new Error(
+    `${caught.message}\nVisible app text: ${state.text}\nTerminal mounted: ${state.terminal}; connected: ${state.connected}`,
+    { cause: caught },
+  );
+}
+
+/** Shared pass/fail reporting for `runCase` and `runBoots`. */
+function reportCase(test, { error, cleanupError, teardownError, appReady, dataDir }) {
   // Before the app window is up the suite's debug command may not exist yet, so
   // a teardown failure there is not actionable. Afterwards it is: a scenario
   // that reports PASS must have stopped the mock it started.
@@ -308,12 +417,94 @@ export async function runCase(test, suite = {}) {
   return null;
 }
 
+/**
+ * Run one scenario in its own app process and its own data directory.
+ *
+ * `suite` supplies the per-suite parts: `env` merged into the app process
+ * environment, and `teardown(browser)` run before the session is closed (the
+ * default stops the SSH mock, which every SSH scenario starts).
+ */
+export async function runCase(test, suite = {}) {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
+  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  let app;
+  let error;
+  let appReady = false;
+  let cleanupError;
+  let teardownError;
+
+  try {
+    app = await bootApp(dataDir, suite);
+    appReady = true;
+    // A wedged WebDriver session otherwise blocks the whole job until its timeout.
+    await withTimeout(test.run(app.browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
+  } catch (caught) {
+    error = await describeFailure(app?.browser, caught);
+  } finally {
+    if (app) {
+      const shut = await shutdownApp(app, teardown);
+      cleanupError = shut.cleanupError;
+      teardownError = shut.teardownError;
+    }
+    try {
+      await rm(dataDir, { recursive: true, force: true });
+    } catch (caught) {
+      cleanupError ??= caught;
+    }
+  }
+
+  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir });
+}
+
+/**
+ * Run one scenario that spans a relaunch: every entry in `test.phases` gets its
+ * own app process and session, but all of them share one data directory. That is
+ * the only way to prove a persisted value survives a quit — an in-process reload
+ * keeps module state and the app's own config cache alive.
+ */
+export async function runBoots(test, suite = {}) {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
+  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  let error;
+  let appReady = false;
+  let cleanupError;
+  let teardownError;
+
+  try {
+    for (const [index, phase] of test.phases.entries()) {
+      const app = await bootApp(dataDir, suite);
+      appReady = true;
+      try {
+        await withTimeout(phase(app.browser, dataDir), SCENARIO_TIMEOUT_MS, `${test.name} boot ${index + 1}`);
+      } catch (caught) {
+        error = await describeFailure(app.browser, new Error(
+          `${test.name}: launch ${index + 1} of ${test.phases.length}: ${caught.message}`,
+          { cause: caught },
+        ));
+      } finally {
+        const shut = await shutdownApp(app, teardown);
+        cleanupError = shut.cleanupError ?? cleanupError;
+        teardownError = shut.teardownError ?? teardownError;
+      }
+      if (error) break;
+    }
+  } finally {
+    try {
+      await rm(dataDir, { recursive: true, force: true });
+    } catch (caught) {
+      cleanupError ??= caught;
+    }
+  }
+
+  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir });
+}
+
 /** Run every scenario, report pass/fail per scenario, and exit non-zero on failure. */
 export async function runSuite(tests, suite = {}) {
   let failures = 0;
   for (const test of tests) {
     try {
-      const expected = await runCase(test, suite);
+      const expected = test.phases ? await runBoots(test, suite) : await runCase(test, suite);
       console.log(`PASS ${test.name}${expected ? ` — ${expected}` : ""}`);
     } catch (error) {
       failures += 1;

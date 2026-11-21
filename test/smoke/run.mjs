@@ -10,7 +10,11 @@ import {
   runCase,
   runSuite,
   runUnderXvfb,
+  switchToWindow,
   waitFor,
+  waitForNoWindow,
+  waitForWindowCount,
+  windowHandles,
   WAIT_MS,
 } from "./lib/harness.mjs";
 
@@ -1053,6 +1057,199 @@ async function lastPtySizes(browser) {
   return Array.from(await invoke(browser, "test_smoke_pty_sizes"));
 }
 
+/**
+ * The app's own view of its windows, from Rust. A window handle list cannot say
+ * which window is which — the panel loads the same `index.html`, so both report
+ * the same title and URL — while this reports the label, the physical rectangle
+ * and visibility.
+ */
+async function panelWindows(browser) {
+  return invoke(browser, "test_panel_windows");
+}
+
+/**
+ * The one panel window, asserted single and visible.
+ *
+ * The WebDriver handle list shows a window as soon as it is *created*, while
+ * `panel_open` builds it hidden and shows it only once its geometry is applied,
+ * so the panel can still be invisible when this is first asked. Poll rather than
+ * read once — the same race would otherwise fail a whole run at random.
+ */
+async function singlePanelWindow(browser, behavior) {
+  const deadline = Date.now() + WAIT_MS;
+  let windows = await panelWindows(browser);
+  for (;;) {
+    const panels = windows.filter((entry) => entry.label === "panel");
+    if (panels.length === 1 && panels[0].visible) return panels[0];
+    if (Date.now() > deadline) break;
+    await pause(100);
+    windows = await panelWindows(browser);
+  }
+  const labels = windows.map((entry) => entry.label).join(", ");
+  const panels = windows.filter((entry) => entry.label === "panel");
+  assert.equal(
+    panels.length,
+    1,
+    `${behavior}: expected exactly one panel window, found ${panels.length} (windows: ${labels})`,
+  );
+  assert(
+    panels[0].visible,
+    `${behavior}: the panel window exists but is not visible (windows: ${labels})`,
+  );
+  return panels[0];
+}
+
+/**
+ * Ctrl+Shift+B, the panel's tri-state shortcut (open / undock / dock).
+ *
+ * The terminal and the panel window both bind it, so it reaches the right
+ * handler whichever of the two windows takes the chord. Focus goes to the
+ * terminal's helper textarea first when this window has one, so the keystroke
+ * travels the terminal's real key path rather than a synthetic event.
+ */
+async function panelShortcut(browser) {
+  await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
+  await browser.keys(["\uE009", "\uE008", "b", "\uE000"]);
+}
+
+/**
+ * Issue #176: quit while undocked, relaunch, and the panel must stay closed —
+ * no docked panel and no panel window — while one keyboard open puts it back in
+ * its own window at the geometry the user left it at.
+ *
+ * Two app processes against one data directory is the only honest proof: an
+ * in-process reload keeps the config cache and the window alive. The first
+ * launch reports what it persisted into `saved`, so the second asserts against
+ * the stored value, not against the rectangle the scenario asked for.
+ */
+function panelUndockRelaunchScenario() {
+  let saved = null;
+  return {
+    name: "panel-undock-relaunch",
+    phases: [
+      async (browser, dataDir) => {
+        await installSmokeHelpers(browser);
+        await launchAndConnect(browser, dataDir);
+
+        await panelShortcut(browser);
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !!panel && panel.getClientRects().length > 0
+            && !panel.classList.contains("hidden");
+        }, "Panel relaunch: the shortcut did not open the panel");
+        await panelShortcut(browser);
+        await waitForWindowCount(browser, 2,
+          "Panel relaunch: undocking did not put the panel in its own window");
+        await singlePanelWindow(browser, "Panel relaunch");
+
+        // Park the panel at a known on-screen rectangle, so the restored
+        // position is the user's rather than wherever the default landed.
+        const main = (await panelWindows(browser)).find((entry) => entry.label === "main");
+        assert(main, "Panel relaunch: the main window is missing from the window list");
+        const requested = { x: main.x + 48, y: main.y + 48, width: 560, height: 460 };
+        await invoke(browser, "test_panel_set_geometry", requested);
+        const placed = await singlePanelWindow(browser, "Panel relaunch (placed)");
+        for (const key of ["width", "height"]) {
+          assert(
+            Math.abs(placed[key] - requested[key]) <= 2,
+            `Panel relaunch: the panel window did not take the requested ${key} `
+              + `(${placed[key]}, expected ${requested[key]})`,
+          );
+        }
+        // `test_panel_set_geometry` only moves the window; the production
+        // Moved/Resized tracker is what saves. Waiting for the saved rectangle to
+        // match the live one is the assertion that a real drag would also
+        // survive, rather than the debug command writing the value itself.
+        const persisted = async () => {
+          const config = await invoke(browser, "panel_get_state");
+          return config.window;
+        };
+        let stored = null;
+        try {
+          await browser.waitUntil(async () => {
+            stored = await persisted();
+            return !!stored
+              && ["x", "y", "width", "height"]
+                .every((key) => Math.abs(stored[key] - placed[key]) <= 2);
+          }, {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Panel relaunch: the production geometry tracker never saved the live rectangle",
+          });
+        } catch (error) {
+          throw new Error(
+            `${error.message} (saved ${JSON.stringify(stored)}, live ${JSON.stringify(placed)})`,
+          );
+        }
+        const config = await invoke(browser, "panel_get_state");
+        assert.equal(config.undocked, true,
+          "Panel relaunch: the undocked home was not written to the config");
+        saved = config.window;
+
+        // Two closes racing while the debounce worker is paused inside a write.
+        // The command moves the window twice, so the paused write holds a stale
+        // rectangle: the close paths must save the live one, not that stale one.
+        const raced = await invoke(browser, "test_panel_race_close");
+        for (const key of ["x", "y", "width", "height"]) {
+          assert(
+            Math.abs(raced.saved[key] - raced.live[key]) <= 2,
+            `Panel relaunch: a racing close saved ${key} ${raced.saved[key]}, `
+              + `expected the live ${raced.live[key]}`,
+          );
+        }
+        assert(
+          Math.abs(raced.saved.x - raced.stale.x) > 20,
+          `Panel relaunch: the paused stale write won `
+            + `(saved x ${raced.saved.x}, stale x ${raced.stale.x})`,
+        );
+        await waitForNoWindow(browser, "panel",
+          "Panel relaunch: the racing close left the panel window open");
+        await waitForWindowCount(browser, 1,
+          "Panel relaunch: the racing close left an extra window behind");
+        // Assert the relaunch against what the close paths actually left behind.
+        saved = (await invoke(browser, "panel_get_state")).window;
+      },
+      async (browser, dataDir) => {
+        assert(saved, "Panel relaunch: the first launch never recorded the panel geometry");
+
+        // Launch two: the app was quit undocked, so nothing may open the panel.
+        const handles = await windowHandles(browser);
+        assert.equal(
+          handles.length,
+          1,
+          `Panel relaunch: launch opened ${handles.length} windows; the panel must never open itself`,
+        );
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !panel || panel.getClientRects().length === 0
+            || panel.classList.contains("hidden");
+        }, "Panel relaunch: the docked panel was open at launch");
+        const config = await invoke(browser, "panel_get_state");
+        assert.equal(config.undocked, true,
+          "Panel relaunch: the undocked home was lost across the relaunch");
+
+        await installSmokeHelpers(browser);
+        await launchAndConnect(browser, dataDir);
+        assert.equal((await windowHandles(browser)).length, 1,
+          "Panel relaunch: connecting opened a panel window");
+
+        // One keyboard open, and the panel is back undocked where it was left.
+        await panelShortcut(browser);
+        await waitForWindowCount(browser, 2,
+          "Panel relaunch: opening the panel did not restore its window");
+        const restored = await singlePanelWindow(browser, "Panel relaunch (restored)");
+        for (const key of ["x", "y", "width", "height"]) {
+          assert(
+            Math.abs(restored[key] - saved[key]) <= 2,
+            `Panel relaunch: the restored ${key} is ${restored[key]}, `
+              + `expected ${saved[key]} (the saved geometry)`,
+          );
+        }
+      },
+    ],
+  };
+}
+
 /** Proof that the app process handed the mutation to the frontend and it applied it. */
 async function categoryActivation(browser, category) {
   let reported = null;
@@ -1151,6 +1348,21 @@ async function resizeWindow(browser, width, height) {
   } else {
     await browser.setWindowSize(width, height);
   }
+  // The resize reaches the page asynchronously, and a loaded xvfb runner can lag
+  // it by seconds. Callers assert the new size immediately afterwards, so wait
+  // for the page to report it rather than reading the old size and flaking.
+  const deadline = Date.now() + WAIT_MS;
+  let size = { width: 0, height: 0 };
+  for (;;) {
+    size = await browser.execute(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    if (size.width <= width + 40 && size.height <= height + 40) return;
+    if (Date.now() > deadline) break;
+    await pause(100);
+  }
+  throw new Error(
+    `resizeWindow: the window never reached ${width}x${height} `
+      + `(it reports ${size.width}x${size.height})`,
+  );
 }
 
 const setField = (browser, selector, value) => browser.execute(
@@ -2701,8 +2913,314 @@ async function main() {
             + `(frame ${clip.wrap}px, status bar ${clip.statusbar}px past the bottom of `
             + `.app-content)`,
         );
+
+        // Issue #176 review: at the 240px minimum width and the largest UI text
+        // scale the tab strip cannot hold two labels plus Undock on one row. It
+        // must wrap rather than let a word paint over its neighbour, and no label
+        // may be clipped. Measured from rendered rectangles, so it proves the
+        // outcome rather than restating the CSS.
+        await browser.execute(() => {
+          document.documentElement.style.setProperty("--text-scale", "1.5");
+          document.querySelector("#tv-sidebar-resizer")?.focus();
+        });
+        assert.equal(
+          await browser.execute(() => document.activeElement?.id ?? ""),
+          "tv-sidebar-resizer",
+          "Terminal sidebar layout: the resizer did not take keyboard focus",
+        );
+        await browser.keys(["\uE011"]); // Home: the resizer's own 240px stop
+        await pause(300);
+        const strip = await browser.execute(() => {
+          const sidebar = document.querySelector("#tv-sidebar");
+          if (!sidebar) return null;
+          const frame = sidebar.getBoundingClientRect();
+          const boxes = [...sidebar.querySelectorAll(".sb-toggle > *")].map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              name: element.id || element.textContent?.trim() || "?",
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              clipped: element.scrollWidth > element.clientWidth + 1,
+            };
+          });
+          return { frame: { left: frame.left, right: frame.right, width: frame.width }, boxes };
+        });
+        assert(strip, "Terminal sidebar layout: the tab strip was never rendered");
+        assert(
+          Math.abs(strip.frame.width - 240) <= 2,
+          `Terminal sidebar layout: Home did not take the panel to 240px `
+            + `(it is ${strip.frame.width}px)`,
+        );
+        assert(
+          strip.boxes.length >= 3,
+          `Terminal sidebar layout: expected two tabs and Undock, found ${strip.boxes.length} item(s)`,
+        );
+        for (const box of strip.boxes) {
+          assert(
+            !box.clipped,
+            `Terminal sidebar layout: "${box.name}" is clipped at 240px with `
+              + `the largest text scale`,
+          );
+          assert(
+            box.left >= strip.frame.left - 1 && box.right <= strip.frame.right + 1,
+            `Terminal sidebar layout: "${box.name}" escapes the panel at 240px `
+              + `(${box.left}-${box.right} against ${strip.frame.left}-${strip.frame.right})`,
+          );
+        }
+        for (let i = 0; i < strip.boxes.length; i += 1) {
+          for (let j = i + 1; j < strip.boxes.length; j += 1) {
+            const a = strip.boxes[i];
+            const b = strip.boxes[j];
+            const sharesRow = a.top < b.bottom - 1 && b.top < a.bottom - 1;
+            assert(
+              !sharesRow || a.right <= b.left + 1 || b.right <= a.left + 1,
+              `Terminal sidebar layout: "${a.name}" overlaps "${b.name}" at 240px `
+                + `with the largest text scale`,
+            );
+          }
+        }
+        await browser.execute(() => {
+          document.documentElement.style.removeProperty("--text-scale");
+        });
       },
     },
+    {
+      // Issue #176, ADR-003: the panel can undock into its own OS window, and
+      // undocking is what gives the terminal the full width back. Driven only by
+      // Ctrl+Shift+B, so the keyboard path is the one proved here.
+      name: "panel-undock-dock",
+      async run(browser, dataDir) {
+        await installSmokeHelpers(browser);
+        await launchAndConnect(browser, dataDir);
+
+        const layout = () => browser.execute(() => {
+          const box = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            return { left: rect.left, right: rect.right, width: rect.width };
+          };
+          const panel = document.querySelector("#tv-sidebar");
+          return {
+            terminal: box(".tv-terminal"),
+            sidebar: box("#tv-sidebar"),
+            main: box(".tv-main"),
+            // The panel stays in the DOM when it is not docked, so visibility is
+            // a class/box question, not an existence question.
+            sidebarVisible: !!panel
+              && panel.getClientRects().length > 0
+              && !panel.classList.contains("hidden"),
+          };
+        });
+
+        const closed = await layout();
+        assert(closed.terminal && closed.terminal.width > 0,
+          "Panel undock: the terminal has no measurable width");
+        assert.equal(closed.sidebarVisible, false, "Panel undock: the panel should start closed");
+        const closedSizes = await lastPtySizes(browser);
+        assert(closedSizes.length > 0, "Panel undock: the mock host recorded no PTY size");
+        const closedCols = closedSizes[closedSizes.length - 1][0];
+
+        // 1. Closed → open, docked: still one window, and the terminal narrows.
+        await panelShortcut(browser);
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !!panel && panel.getClientRects().length > 0
+            && !panel.classList.contains("hidden");
+        }, "Panel undock: the shortcut did not open the panel");
+        assert.equal((await windowHandles(browser)).length, 1,
+          "Panel undock: opening the panel docked must not create a window");
+        // The view refits 250 ms after the layout change and resizes the PTY then.
+        await pause(800);
+        const docked = await layout();
+        assert(docked.sidebar && docked.sidebar.width > 0,
+          "Panel undock: the docked panel has no width");
+        assert(
+          docked.terminal.width < closed.terminal.width - 100,
+          `Panel undock: opening the docked panel did not narrow the terminal `
+            + `(${closed.terminal.width}px -> ${docked.terminal.width}px)`,
+        );
+        await browser.waitUntil(
+          async () => (await lastPtySizes(browser)).length > closedSizes.length,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Panel undock: opening the docked panel never resized the remote PTY",
+          },
+        );
+        const dockedSizes = await lastPtySizes(browser);
+        const dockedCols = dockedSizes[dockedSizes.length - 1][0];
+        assert(
+          dockedCols < closedCols,
+          `Panel undock: the PTY width did not follow the docked panel `
+            + `(${closedCols} cols -> ${dockedCols} cols)`,
+        );
+
+        // Widen the docked panel through the resizer's own keyboard path, so the
+        // redock assertion cannot pass by falling back to the 320px default. The
+        // write is debounced, so wait for the config to catch up: the saved value
+        // is what docking must restore.
+        await browser.execute(() => document.querySelector("#tv-sidebar-resizer")?.focus());
+        assert.equal(
+          await browser.execute(() => document.activeElement?.id ?? ""),
+          "tv-sidebar-resizer",
+          "Panel undock: the resizer did not take keyboard focus",
+        );
+        for (let i = 0; i < 3; i += 1) await browser.keys(["\uE008", "\uE012"]);
+        await pause(900);
+        const widened = (await layout()).sidebar.width;
+        assert(
+          widened > docked.sidebar.width + 20,
+          `Panel undock: the resizer did not widen the docked panel `
+            + `(${docked.sidebar.width}px -> ${widened}px)`,
+        );
+        const savedWidth = (await invoke(browser, "panel_get_state")).docked_width;
+        assert(
+          Math.abs(savedWidth - Math.round(widened)) <= 2,
+          `Panel undock: the widened width was not saved `
+            + `(config ${savedWidth}px, live ${widened}px)`,
+        );
+
+        // 2. Open → undocked: the panel leaves the row and the terminal takes
+        //    the full width back, through the same fit() → ssh_resize path.
+        await panelShortcut(browser);
+        await waitForWindowCount(browser, 2,
+          "Panel undock: undocking did not put the panel in its own window");
+        const panelInfo = await singlePanelWindow(browser, "Panel undock");
+        assert(panelInfo.width > 0 && panelInfo.height > 0,
+          `Panel undock: the panel window has no size `
+            + `(${panelInfo.width}x${panelInfo.height})`);
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !panel || panel.getClientRects().length === 0
+            || panel.classList.contains("hidden");
+        }, "Panel undock: the docked panel did not leave the terminal row");
+        await pause(800);
+        const undocked = await layout();
+        assert(
+          Math.abs(undocked.terminal.width - closed.terminal.width) <= 1,
+          `Panel undock: undocking did not give the terminal the full width `
+            + `(${undocked.terminal.width}px, closed was ${closed.terminal.width}px)`,
+        );
+        await browser.waitUntil(
+          async () => (await lastPtySizes(browser)).length > dockedSizes.length,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Panel undock: undocking never resized the remote PTY",
+          },
+        );
+        const undockedSizes = await lastPtySizes(browser);
+        const undockedCols = undockedSizes[undockedSizes.length - 1][0];
+        assert(
+          Math.abs(undockedCols - closedCols) <= 1,
+          `Panel undock: the PTY width did not widen back on undock `
+            + `(${dockedCols} cols docked, ${undockedCols} cols undocked, `
+            + `${closedCols} cols closed)`,
+        );
+
+        // 3. The panel's own window offers Dock and not Undock.
+        const panelTarget = await switchToWindow(browser, "panel",
+          "Panel undock: the undocked panel window never became scriptable");
+        await waitFor(browser, () => !!document.querySelector(".pw-title"),
+          "Panel undock: the panel window did not render its header");
+        assert.equal(
+          await browser.execute(() => document.querySelectorAll("#panel-dock").length),
+          1,
+          "Panel undock: the undocked panel window has no Dock control",
+        );
+        assert.equal(
+          await browser.execute(() => document.querySelectorAll("#panel-undock").length),
+          0,
+          "Panel undock: the undocked panel window offers Undock; dock is the only way back",
+        );
+
+        // 4. Dock by key from the panel window: one window again, the panel back
+        //    at the width it was docked at. Docking destroys the window the key
+        //    went to, so re-target the main handle before polling — a command
+        //    sent to a window that closed mid-command fails instead of returning.
+        await panelShortcut(browser).catch((caught) => {
+          if (!/no such window/i.test(String(caught?.message ?? caught))) throw caught;
+        });
+        await browser.switchToWindow(panelTarget.previous);
+        await waitForNoWindow(browser, "panel",
+          "Panel undock: docking from the panel window did not close it");
+        await waitForWindowCount(browser, 1,
+          "Panel undock: docking left an extra window behind");
+        await browser.switchToWindow(panelTarget.previous);
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !!panel && panel.getClientRects().length > 0
+            && !panel.classList.contains("hidden");
+        }, "Panel undock: docking did not bring the panel back into the terminal row");
+        await pause(800);
+        const redocked = await layout();
+        assert(
+          Math.abs(redocked.sidebar.width - savedWidth) <= 1,
+          `Panel undock: docking did not restore the saved width `
+            + `(${savedWidth}px saved, ${redocked.sidebar.width}px after redocking)`,
+        );
+        assert(
+          redocked.sidebar.left >= redocked.terminal.right - 1,
+          `Panel undock: the docked panel overlays the terminal instead of pushing it `
+            + `(sidebar left ${redocked.sidebar.left}, terminal right ${redocked.terminal.right})`,
+        );
+        assert(
+          redocked.terminal.width < undocked.terminal.width - 100,
+          `Panel undock: docking did not narrow the terminal again `
+            + `(${undocked.terminal.width}px -> ${redocked.terminal.width}px)`,
+        );
+        await browser.waitUntil(
+          async () => (await lastPtySizes(browser)).length > undockedSizes.length,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Panel undock: docking never resized the remote PTY back",
+          },
+        );
+        const redockedCols = (await lastPtySizes(browser)).slice(-1)[0][0];
+        assert(
+          redockedCols < undockedCols,
+          `Panel undock: the PTY width did not follow the docked panel again `
+            + `(${undockedCols} cols -> ${redockedCols} cols)`,
+        );
+
+        // 5. Undock again and ask for the window a second time: the same single
+        //    window comes back, never a copy. The WebDriver handle proves reuse —
+        //    destroying and rebuilding the window at the same width would satisfy
+        //    the count and the width on its own.
+        await panelShortcut(browser);
+        await waitForWindowCount(browser, 2,
+          "Panel undock: undocking a second time did not open exactly one window");
+        const firstTarget = await switchToWindow(browser, "panel",
+          "Panel undock: the second undock did not open a panel window");
+        const first = await singlePanelWindow(browser, "Panel undock (second undock)");
+        await browser.switchToWindow(firstTarget.previous);
+        await invoke(browser, "panel_open");
+        await pause(500);
+        await waitForWindowCount(browser, 2,
+          "Panel undock: requesting the panel window again created a second copy");
+        const second = await singlePanelWindow(browser, "Panel undock (reopened)");
+        assert.equal(second.width, first.width,
+          `Panel undock: the reused window changed width `
+            + `(${first.width}px -> ${second.width}px)`);
+        const again = await switchToWindow(browser, "panel",
+          "Panel undock: the requested panel window never became scriptable");
+        assert.equal(again.handle, firstTarget.handle,
+          "Panel undock: the panel window was destroyed and rebuilt instead of reused");
+        await browser.switchToWindow(again.previous);
+
+        // 6. Finish docked, so the app is left in its default home for teardown.
+        await panelShortcut(browser);
+        await waitForNoWindow(browser, "panel",
+          "Panel undock: the final dock did not close the panel window");
+        await waitForWindowCount(browser, 1,
+          "Panel undock: the final dock left an extra window behind");
+      },
+    },
+    panelUndockRelaunchScenario(),
     {
       name: "accessible-names-toasts",
       async run(browser, dataDir) {

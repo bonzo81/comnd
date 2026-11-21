@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for Comnd",
-  "windows": ["main"],
+  "windows": ["main", "panel"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -10,6 +10,7 @@
     "core:event:allow-emit",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
     "core:window:allow-close",
     "dialog:allow-save",
     "dialog:default",

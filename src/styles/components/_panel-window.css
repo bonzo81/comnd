@@ -1,0 +1,76 @@
+/* ─── Undocked panel window (docs/plans/066-plan-side-panel-undock.md) ─── */
+
+/* The panel window reuses the app document, so the shell layout it inherits
+   (title bar gutter, outer padding) is undone here rather than forked into a
+   second stylesheet: this window has no title bar, and its content is the
+   panel. */
+[data-comnd-window="panel"] #app {
+  gap: 0;
+  padding: 0;
+}
+
+.panel-window {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface-secondary);
+}
+
+.pw-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  /* This header is the frameless window's drag region, so it has to behave
+     like a title bar rather than select its own label while being dragged. */
+  user-select: none;
+}
+
+.pw-title {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-tracking-label);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+/* Dock carries its word and its icon, as the docked panel's Undock does, so the
+   two homes name the same action the same way. */
+.panel-window .pw-dock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* Close stands beside Dock rather than replacing it: Dock brings the panel's
+   content and its saved width back into the app, Close only takes the window
+   away. Icon-only, so flex centring replaces the baseline offset on its glyph. */
+.panel-window .pw-close {
+  display: flex;
+  align-items: center;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.panel-window .pw-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-error);
+}
+
+/* The tab strip and content are the docked panel's own classes, so the two
+   homes cannot drift; only the chrome around them differs. */
+.panel-window .sb-toggle {
+  padding-top: 0;
+}
+
+.panel-window .sb-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
