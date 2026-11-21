@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/bonzo81/comnd/compare/v0.6.1...v0.7.0) (2026-11-21)
+
+
+### Features
+
+* **panel:** undock the side panel into its own window ([#179](https://github.com/bonzo81/comnd/issues/179)) ([04774c1](https://github.com/bonzo81/comnd/commit/04774c147aafbb7755bdbe3f150340ce419fbf1f))
+* **suggestion:** settle suggestions, ghost text and panel content ([#173](https://github.com/bonzo81/comnd/issues/173)) ([708e9a7](https://github.com/bonzo81/comnd/commit/708e9a7064d359556cc1ce700c78d9cbe15f9a6b))
+* **terminal:** focus ring and inset on the terminal pane ([#163](https://github.com/bonzo81/comnd/issues/163)) ([c0147ba](https://github.com/bonzo81/comnd/commit/c0147baa2ab23f2abd62c1b19bf0b8b952d755c6))
+
+
+### Bug Fixes
+
+* **smoke:** single-source the mock auth URL fixture ([#170](https://github.com/bonzo81/comnd/issues/170)) ([802f3d9](https://github.com/bonzo81/comnd/commit/802f3d92b3f111d892bb77015afca71b19c7a00f))
+* **ui:** inherit theme accent on Reading Comfort sliders ([#169](https://github.com/bonzo81/comnd/issues/169)) ([7ba1297](https://github.com/bonzo81/comnd/commit/7ba1297fb8611a22b0bd5f7f500dd0401d83c675))
+
 ## [0.6.1](https://github.com/bonzo81/comnd/compare/v0.6.0...v0.6.1) (2026-11-15)
 
 
