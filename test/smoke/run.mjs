@@ -1151,10 +1151,9 @@ function panelUndockRelaunchScenario() {
           "Panel relaunch: the undocked home was not written to the config");
         saved = config.window;
 
-        // Two closes racing while the debounce worker holds a write: the close
-        // path pauses that write, then starts both closes, then releases it. The
-        // second must find the window claimed — a stale handle would read the
-        // destroyed window, fall back to the default rectangle and save that.
+        // Two closes racing while the debounce worker is paused inside a write.
+        // The command moves the window twice, so the paused write holds a stale
+        // rectangle: the close paths must save the live one, not that stale one.
         const raced = await invoke(browser, "test_panel_race_close");
         for (const key of ["x", "y", "width", "height"]) {
           assert(
@@ -1163,6 +1162,11 @@ function panelUndockRelaunchScenario() {
               + `expected the live ${raced.live[key]}`,
           );
         }
+        assert(
+          Math.abs(raced.saved.x - raced.stale.x) > 20,
+          `Panel relaunch: the paused stale write won `
+            + `(saved x ${raced.saved.x}, stale x ${raced.stale.x})`,
+        );
         await waitForNoWindow(browser, "panel",
           "Panel relaunch: the racing close left the panel window open");
         await waitForWindowCount(browser, 1,
