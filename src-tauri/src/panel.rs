@@ -19,7 +19,7 @@
 
 use crate::config::{PanelConfig, PanelWindowGeometry};
 use crate::state::AppState;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tauri::{
@@ -322,6 +322,12 @@ pub struct PanelGeometryWriter {
     /// suite can start both close paths while a write is genuinely in flight.
     #[cfg(debug_assertions)]
     gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Debug-only: closes blocked acquiring `closing`.
+    #[cfg(debug_assertions)]
+    waiting: AtomicUsize,
+    /// Debug-only: closes that reached `stop()` while holding the guard.
+    #[cfg(debug_assertions)]
+    at_stop: AtomicUsize,
 }
 
 impl PanelGeometryWriter {
@@ -339,10 +345,14 @@ impl PanelGeometryWriter {
     /// Hold the returned guard until the final rectangle is written and the
     /// window destroyed.
     fn begin_close(&self) -> Option<MutexGuard<'_, ()>> {
+        #[cfg(debug_assertions)]
+        self.waiting.fetch_add(1, Ordering::SeqCst);
         let guard = match self.closing.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
+        #[cfg(debug_assertions)]
+        self.waiting.fetch_sub(1, Ordering::SeqCst);
         if self.closed.load(Ordering::SeqCst) {
             return None;
         }
@@ -382,6 +392,23 @@ impl PanelGeometryWriter {
             Err(poisoned) => poisoned.into_inner(),
         };
         *slot = Some((started, release));
+        // Counters are per-race, so a second run proves its own sequence.
+        self.waiting.store(0, Ordering::SeqCst);
+        self.at_stop.store(0, Ordering::SeqCst);
+    }
+
+    /// Called by the close path once it holds the guard and is about to stop the
+    /// writer, i.e. the point where it blocks on an in-flight write.
+    fn debug_note_stop(&self) {
+        self.at_stop.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// (closes blocked on the guard, closes that reached `stop()`).
+    fn debug_close_state(&self) -> (usize, usize) {
+        (
+            self.waiting.load(Ordering::SeqCst),
+            self.at_stop.load(Ordering::SeqCst),
+        )
     }
 
     /// Drop an armed gate, unblocking a worker that is waiting on it.
@@ -498,6 +525,8 @@ fn close_panel_window(app: &AppHandle) -> Result<(), String> {
     };
     // Stop the worker *before* writing: waiting out a write already in flight
     // means it cannot land after this rectangle and undo it.
+    #[cfg(debug_assertions)]
+    writer.debug_note_stop();
     writer.stop();
     if let Err(e) = persist_geometry(app, geometry) {
         log::warn!("Failed to save panel window geometry before closing: {}", e);
@@ -670,23 +699,28 @@ pub async fn test_panel_set_geometry(
         .map_err(|e| e.to_string())
 }
 
-/// What `test_panel_race_close` observed: the rectangle the close paths saved and
-/// the window's real rectangle when the race started.
+/// What `test_panel_race_close` observed: the rectangle the close paths saved, the
+/// window's real rectangle when the race started, and the stale rectangle the
+/// worker was paused on.
 #[cfg(debug_assertions)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PanelCloseRaceReport {
     pub saved: PanelWindowGeometry,
     pub live: PanelWindowGeometry,
+    pub stale: PanelWindowGeometry,
 }
 
 /// Close the panel window twice at the same time while a worker write is held,
 /// then let the write finish, and report what the close paths saved.
 ///
-/// Debug only. This is the sequence a stale window handle used to corrupt: the
-/// second close would read the destroyed window, fall back to the default
-/// rectangle and save that over the user's geometry. Nudging the window first
-/// guarantees a pending write (the centred default is hundreds of pixels away,
-/// so a default write is unmistakable in the report).
+/// Debug only. The sequence is made observable rather than hoped for:
+///  * rectangle A is recorded and the worker is paused inside that write;
+///  * the window is then moved to a distinct rectangle B, so the paused write is
+///    a *stale* value that must not win;
+///  * both close paths start, and the test waits for signals showing one is at
+///    `stop()` (blocked on the paused write) and the other is queued on the
+///    close guard;
+///  * only then is the write released.
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceReport, String> {
@@ -694,20 +728,22 @@ pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceRepor
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
 
-    let live = {
-        let window = app
-            .get_webview_window(PANEL_LABEL)
-            .ok_or_else(|| "The panel window is not open".to_string())?;
-        let current = live_geometry(&window)
-            .ok_or_else(|| "The panel window has no readable geometry".to_string())?;
-        // Arm the gate before moving, so the move's write is the one held.
-        writer.debug_arm(started_tx, release_rx);
-        window
-            .set_position(PhysicalPosition::new(current.x + 2, current.y + 2))
-            .map_err(|e| e.to_string())?;
-        live_geometry(&window)
-            .ok_or_else(|| "The panel window lost its geometry".to_string())?
+    let window = app
+        .get_webview_window(PANEL_LABEL)
+        .ok_or_else(|| "The panel window is not open".to_string())?;
+    let start = live_geometry(&window)
+        .ok_or_else(|| "The panel window has no readable geometry".to_string())?;
+
+    // A: arm the gate, then move so the tracker records a rectangle to write.
+    writer.debug_arm(started_tx, release_rx);
+    let stale = PanelWindowGeometry {
+        x: start.x + 2,
+        y: start.y + 2,
+        ..start
     };
+    window
+        .set_position(PhysicalPosition::new(stale.x, stale.y))
+        .map_err(|e| e.to_string())?;
 
     // The tracker reaches the gate within one debounce interval; a miss means the
     // scenario can no longer prove anything, so fail rather than race nothing.
@@ -719,20 +755,64 @@ pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceRepor
         return Err("The geometry worker never reached the paused write".to_string());
     }
 
+    // B: a rectangle far enough from A that a stale write cannot pass for it.
+    let target = PanelWindowGeometry {
+        x: start.x + 40,
+        y: start.y + 40,
+        ..start
+    };
+    window
+        .set_position(PhysicalPosition::new(target.x, target.y))
+        .map_err(|e| e.to_string())?;
+    let mut live = None;
+    let settle = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < settle {
+        if let Some(current) = live_geometry(&window) {
+            if current.x == target.x && current.y == target.y {
+                live = Some(current);
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let Some(live) = live else {
+        let _ = release_tx.send(());
+        return Err("The panel window never moved to the second rectangle".to_string());
+    };
+
     let first = app.clone();
     let second = app.clone();
     let a = std::thread::spawn(move || close_panel_window(&first));
     let b = std::thread::spawn(move || close_panel_window(&second));
-    // Let both close paths reach the write the worker is holding.
-    std::thread::sleep(Duration::from_millis(100));
-    let _ = release_tx.send(());
 
+    // Wait for the sequence, not for a sleep: one close must have reached
+    // `stop()` (it blocks there, because the paused write holds the lock) and the
+    // other must be queued on the guard.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let (waiting, at_stop) = writer.debug_close_state();
+        if waiting >= 1 && at_stop >= 1 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = release_tx.send(());
+            let _ = a.join();
+            let _ = b.join();
+            return Err(format!(
+                "The close paths never overlapped the paused write (waiting {}, at stop {})",
+                waiting, at_stop
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let _ = release_tx.send(());
     a.join().map_err(|_| "The first close panicked".to_string())??;
     b.join().map_err(|_| "The second close panicked".to_string())??;
     let saved = read_panel_config(&app)
         .window
         .ok_or_else(|| "The close paths saved no geometry".to_string())?;
-    Ok(PanelCloseRaceReport { saved, live })
+    Ok(PanelCloseRaceReport { saved, live, stale })
 }
 
 /// Destroy the panel window when the main window goes away, so quitting the app
