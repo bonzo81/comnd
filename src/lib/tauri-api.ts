@@ -809,6 +809,42 @@ export async function netboxGetStatus(): Promise<NetBoxStatus> {
   return invoke<NetBoxStatus>("netbox_get_status");
 }
 
+/** One interface's address, as shown in the NetBox side-panel tab. */
+export interface NetBoxDeviceAddress {
+  address: string;
+  vrf: string | null;
+}
+
+export interface NetBoxDeviceInterface {
+  id: number;
+  name: string;
+  addresses: NetBoxDeviceAddress[];
+}
+
+/**
+ * Live NetBox summary for one device (issue #177 phase 1). Fetched fresh when
+ * the side panel's NetBox tab is selected; never read from the sync cache.
+ */
+export interface NetBoxDeviceSummary {
+  netbox_id: number;
+  name: string;
+  status: string;
+  status_label: string;
+  device_type: string | null;
+  site: string | null;
+  location: string | null;
+  rack: string | null;
+  position: number | null;
+  face: string | null;
+  primary_ip: string | null;
+  interfaces: NetBoxDeviceInterface[];
+}
+
+/** `hostId` is the `netbox:<id>` host id; the backend rejects any other form. */
+export async function netboxGetDeviceSummary(hostId: string): Promise<NetBoxDeviceSummary> {
+  return invoke<NetBoxDeviceSummary>("netbox_get_device_summary", { hostId });
+}
+
 // ─── Test Helpers (debug builds only) ───────────────────────────────
 
 export async function testStartMockServer(): Promise<number> {

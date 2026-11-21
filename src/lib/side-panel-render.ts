@@ -14,7 +14,11 @@ import { escHtml } from "./format";
 import { renderReplayTemplate } from "./replay";
 import { SidebarContent, wireExampleCopy } from "./sidebar-content";
 import type { SidePanelSnapshot } from "./side-panel";
-import type { ReplayCommand } from "./tauri-api";
+import type {
+  NetBoxDeviceInterface,
+  NetBoxDeviceSummary,
+  ReplayCommand,
+} from "./tauri-api";
 
 export interface SidePanelHandlers {
   /** Insert a saved replay command into the live session. */
@@ -23,6 +27,8 @@ export interface SidePanelHandlers {
   add: () => void;
   /** Send a command from the detail pane's example list to the remote. */
   runExample: (command: string) => void;
+  /** Fetch the NetBox summary again after a failed load. */
+  retryNetbox: () => void;
 }
 
 const sidebarContent = new SidebarContent();
@@ -61,6 +67,12 @@ export function renderSidePanel(
     return;
   }
 
+  if (snapshot.kind === "netbox") {
+    root.innerHTML = netboxMarkup(snapshot);
+    root.querySelector(".nbd-retry")?.addEventListener("click", () => handlers.retryNetbox());
+    return;
+  }
+
   root.innerHTML = `<p class="sb-placeholder">${escHtml(snapshot.text)}</p>`;
 }
 
@@ -69,6 +81,100 @@ export function renderSidePanel(
  * command when the host has none of its own, so a freshly connected device
  * never shows an empty pane next to a non-empty store.
  */
+type NetboxSnapshot = Extract<SidePanelSnapshot, { kind: "netbox" }>;
+
+/**
+ * The NetBox tab's pane: identity and status, the facts phase 1 covers, and
+ * interface addresses grouped by the interface that owns them. A loading
+ * snapshot replaces the values before every fetch, so the error state never
+ * sits below stale device facts.
+ */
+function netboxMarkup(snapshot: NetboxSnapshot): string {
+  if (snapshot.phase === "loading") {
+    return `
+      <div class="nbd nbd-loading" role="status" aria-live="polite">
+        <p class="sb-placeholder">Loading NetBox device details…</p>
+      </div>
+    `;
+  }
+
+  if (snapshot.phase === "error") {
+    return `
+      <div class="nbd nbd-error" role="alert">
+        <p class="nbd-error-text">${escHtml(snapshot.message)}</p>
+        <button type="button" class="btn-primary btn-small nbd-retry">Retry</button>
+      </div>
+    `;
+  }
+
+  const summary = snapshot.summary;
+  const facts: string[] = [];
+  if (summary.device_type) facts.push(netboxFact("Device type", summary.device_type));
+  if (summary.site) facts.push(netboxFact("Site", summary.site));
+  if (summary.location) facts.push(netboxFact("Location", summary.location));
+  const rack = rackText(summary);
+  if (rack) facts.push(netboxFact("Rack / U", rack));
+  if (summary.primary_ip) facts.push(netboxFact("Primary IP", summary.primary_ip));
+
+  const interfaces =
+    summary.interfaces.length > 0
+      ? summary.interfaces.map(interfaceMarkup).join("")
+      : `<p class="sb-placeholder">No interface addresses.</p>`;
+
+  return `
+    <div class="nbd">
+      <div class="nbd-band">
+        <div class="nbd-identity">
+          <h3 class="nbd-name">${escHtml(summary.name)}</h3>
+          ${summary.status_label
+            ? `<span class="nbd-status" data-status="${escHtml(summary.status)}">${escHtml(summary.status_label)}</span>`
+            : ""}
+        </div>
+      </div>
+      ${facts.length > 0 ? `<dl class="nbd-facts">${facts.join("")}</dl>` : ""}
+      <section class="nbd-section" aria-label="Interfaces">
+        <h4 class="nbd-section-label">Interfaces</h4>
+        ${interfaces}
+      </section>
+    </div>
+  `;
+}
+
+function netboxFact(key: string, value: string): string {
+  return `<div class="nbd-fact"><dt>${escHtml(key)}</dt><dd>${escHtml(value)}</dd></div>`;
+}
+
+/** "rack-1 · U12 · front"; a missing rack or position simply drops that part. */
+function rackText(summary: NetBoxDeviceSummary): string | null {
+  const parts: string[] = [];
+  if (summary.rack) parts.push(summary.rack);
+  if (summary.position != null) {
+    const position = Number.isInteger(summary.position)
+      ? String(summary.position)
+      : summary.position.toFixed(1);
+    parts.push(`U${position}`);
+  }
+  if (summary.face) parts.push(summary.face);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function interfaceMarkup(iface: NetBoxDeviceInterface): string {
+  const addresses = iface.addresses
+    .map(
+      (address) => `
+        <li class="nbd-address">${escHtml(address.address)}${address.vrf
+          ? `<span class="nbd-vrf">${escHtml(address.vrf)}</span>`
+          : ""}</li>`,
+    )
+    .join("");
+  return `
+    <div class="nbd-iface" data-interface-id="${iface.id}">
+      <div class="nbd-iface-name">${escHtml(iface.name)}</div>
+      <ul class="nbd-addresses">${addresses}</ul>
+    </div>
+  `;
+}
+
 function replayMarkup(items: ReplayCommand[], platform: string): string {
   const forPlatform = items.filter((c) => c.platform === platform);
   const shown = forPlatform.length > 0 ? forPlatform : items;

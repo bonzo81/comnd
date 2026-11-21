@@ -10,8 +10,8 @@ use crate::state::AppState;
 use super::client::NetBoxClient;
 use super::inventory::{self, NetBoxInventory};
 use super::{
-    host_id, DeviceOverlay, NetBoxChoice, NetBoxConfig, NetBoxDeviceEntry, SyncReport,
-    DEFAULT_PW_KEY, TOKEN_KEY,
+    host_id, DeviceOverlay, DeviceSummary, NetBoxChoice, NetBoxConfig, NetBoxDeviceEntry,
+    SyncReport, DEFAULT_PW_KEY, TOKEN_KEY,
 };
 
 // ─── Tauri Commands (plan §8.2) ─────────────────────────────────────
@@ -167,6 +167,28 @@ pub async fn netbox_get_tags(
 ) -> Result<Vec<NetBoxChoice>, String> {
     let client = build_netbox_client(&state)?;
     client.fetch_tags().await
+}
+
+/// Live device summary for the side-panel NetBox tab (issue #177 phase 1).
+///
+/// The NetBox id is resolved from the host id exactly the way `touch_host`
+/// does — `is_netbox_host_id` then the numeric suffix — so a user host id is
+/// rejected before any network call and no second scheme exists. Nothing is
+/// read from the sync cache: each call fetches both requests fresh.
+#[tauri::command]
+pub async fn netbox_get_device_summary(
+    host_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<DeviceSummary, String> {
+    if !super::is_netbox_host_id(&host_id) {
+        return Err("Not a NetBox-sourced host".to_string());
+    }
+    let netbox_id: u64 = host_id
+        .strip_prefix("netbox:")
+        .and_then(|rest| rest.parse().ok())
+        .ok_or_else(|| "Not a NetBox-sourced host".to_string())?;
+    let client = build_netbox_client(&state)?;
+    client.fetch_device_summary(netbox_id).await
 }
 
 #[tauri::command]
