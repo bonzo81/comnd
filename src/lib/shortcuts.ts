@@ -304,6 +304,26 @@ export function formatCombo(combo: string): string {
   return parts.join("+");
 }
 
+/** ARIA modifier spelling for a canonical combo: `aria-keyshortcuts` wants
+ *  "Control+Shift+B" / "Meta+Shift+B", never the canonical "Mod" token. The
+ *  effective binding is read, so a rebind and the macOS modifier both reach
+ *  the attribute. */
+export function ariaKeyShortcuts(id: ShortcutAction): string {
+  const p = parseComboString(resolvedCombo(id));
+  if (!p) return "";
+  const parts: string[] = [];
+  const push = (token: string) => {
+    if (!parts.includes(token)) parts.push(token);
+  };
+  if (p.mod) push(platformMod() === "Cmd" ? "Meta" : "Control");
+  if (p.ctrl) push("Control");
+  if (p.cmd) push("Meta");
+  if (p.shift) push("Shift");
+  if (p.alt) push("Alt");
+  parts.push(p.key);
+  return parts.join("+");
+}
+
 /** Control byte a single-Ctrl combo sends to the remote ("Ctrl+Space" →
  *  "\x00", "Ctrl+O" → "\x0F"; Shift collapses — Ctrl+Shift+O sends the
  *  same byte). "Mod" resolves to Ctrl on Windows/Linux and to nothing on

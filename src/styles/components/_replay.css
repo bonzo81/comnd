@@ -64,13 +64,19 @@
 /* Sidebar KB â‡„ Replay toggle */
 .sb-toggle {
   display: flex;
+  /* At the 240px minimum width and the largest text scale the two labels and
+     the Undock control cannot share one row, so the strip wraps instead of
+     letting a word paint over its neighbour. */
+  flex-wrap: wrap;
   gap: var(--space-0-5);
   padding: var(--space-2) var(--space-2) 0;
   border-bottom: 1px solid var(--color-border);
 }
 .sb-toggle-btn {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  /* Never narrower than its own words: with min-width 0 a tab shrank below
+     "Knowledge" and its label overlapped the next tab. */
+  min-width: max-content;
   background: none;
   border: none;
   color: var(--color-text-secondary);

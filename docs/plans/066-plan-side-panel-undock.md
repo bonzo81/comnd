@@ -120,10 +120,55 @@ Both now read word + icon: `icons.undock` plus "Undock" in the tab strip, and a 
 than a mirrored `undock`, because a mirrored arrow still reads as "leave" pointed the wrong
 way. `.panel-window .pw-dock` centres the pair with the same `--space-1` gap `.sb-undock-btn`
 uses and matches its `--font-size-sm`, so the two homes look like one control. The labelled
-Undock button is `flex: 0 0 auto` against `flex: 1` tabs with `min-width: 0`, so the strip
-holds at the 320px default width and degrades by wrapping the tab labels, never by
-overflowing. Close stays icon-only: it is not the pair, and two words and two glyphs in a
+Undock button is `flex: 0 0 auto` against `flex: 1 1 auto` tabs with `min-width: max-content`, so the strip
+holds at the 320px default width and degrades by wrapping onto extra rows, never by
+overflowing or letting a label overlap its neighbour. Close stays icon-only: it is not the pair, and two words and two glyphs in a
 narrow frameless header would crowd the drag region.
+
+## Follow-up after review: lifecycle and persistence hardening
+
+Review of the first cut found races the tests did not cover. Each fix below is exercised by a
+test that fails without it.
+
+**Config writes are field-level and single-guarded.** `ConfigStore::set_panel` replaced the
+whole `PanelConfig`, so the geometry worker could read `undocked = true`, a dock could persist
+`false`, and the worker's older snapshot would then restore `true`. `save_panel_geometry`,
+`save_panel_undocked` and `save_panel_docked_width` each change one field inside one
+`apply_and_persist`, and `panel.rs` reaches them through `with_config`, which holds the store
+lock across read, change and persist.
+
+**The geometry worker cannot undo the final rectangle.** The worker used to take a rectangle,
+sleep, and write it afterwards; a close that saved the live rectangle first could then be
+overwritten. Writes now take a `writes` lock that the close path also takes *after* setting
+`stop`, and a worker that finds `stop` set drops its stale value instead of persisting it. The
+same reasoning makes `panel_close`, docking and app shutdown all go through one
+`close_panel_window`: Tauri's `destroy()` bypasses `CloseRequested`, so that function reads the
+live rectangle and saves it before destroying, rather than trusting the debounce.
+
+**The frontend reconciles the window against the latest home.** `setPanelUndocked` used its
+captured argument, so an undock that resumed after a dock could open a window beside the
+restored sidebar. Native effects are now queued and each run reads the current state; an open
+that completes after the home moved closes the window it just created. A failed dock write
+rolls the home back and reports in the panel (Rust keeps the old home and only destroys the
+window after a successful write), and a failed open clears `open` so the toggle stays usable.
+
+**The panel window cannot miss its first snapshot.** `comnd:panel-ready` used to be emitted
+immediately after calling `listen()`; the reply could arrive before the listener resolved and
+the window stayed on "Waiting for the terminal…". `onState` now resolves once the subscription
+is live, and the request goes out after that.
+
+**Replay follows the tab that owns the panel.** Reopening a closed panel used to render the
+previous host's snapshot, because `setPanelActive` deliberately skips loading while the panel
+is shut. A closed → open transition now reloads for the active tab, and a load that finishes
+after its tab gave the panel up (or after the mode changed) no longer publishes its list or
+its error over the new owner.
+
+**Smaller gaps.** The docked width is flushed on the main window's close request
+(`onCloseRequested` awaits the write), theme and Reading Comfort changes are pushed to an open
+panel window, the panel window loads shortcut overrides and receives later ones, both Dock and
+Undock advertise the resolved binding in `aria-keyshortcuts` instead of a hard-coded
+`Control+Shift+B`, and the tab strip wraps rather than overlapping at 240px with the largest UI
+text scale.
 
 ## Verification
 
@@ -133,7 +178,7 @@ WebView2 157.0.4341.60 on `PATH`.
 | Gate | Result |
 |---|---|
 | `npm run build` | exit 0 |
-| `npm run test` | 52 files, 972 tests passed |
+| `npm run test` | 52 files, 983 tests passed |
 | `npm run lint:css` | exit 0 — 82 tokens, 120 files scanned |
 | `cargo check --all-targets` (`src-tauri/`) | exit 0 |
 | `cargo test` (`src-tauri/`) | 270 passed |
@@ -142,8 +187,8 @@ WebView2 157.0.4341.60 on `PATH`.
 | `npm run smoke:mutation` | exit 0, expected single failure reporting dropped `ssh_send` input |
 | `npm run smoke -- --mutation=terminal-sidebar-layout` | exit 0, expected single failure |
 | `npm run lint:eol` | exit 0 — 369 text files in the index |
-| `npm run test:coverage` (frontend floors) | exit 0 |
-| `npm run test:coverage:rust` (Rust floors) | exit 0 — stores 68.32% (floor 65%), command layer 40.94% (floor 35%); measured on Windows, where the numbers are indicative only |
+| `npm run test:coverage` (frontend floors) | exit 0 — `lib` 87.45% (floor 78%), `components` 38.03% (floor 29%) |
+| `npm run test:coverage:rust` (Rust floors) | exit 0 — stores 68.00% (floor 65%), command layer 40.87% (floor 35%); measured on Windows, where the numbers are indicative only |
 
 `npm run smoke` rebuilds the app, and `tauri build` regenerates
 `src-tauri/gen/schemas/capabilities.json` without a final newline, which
@@ -156,10 +201,11 @@ so the same one-line fix applies whenever a capability change is committed from 
 | Item | Evidence |
 |---|---|
 | Undock moves the panel to its own OS window; terminal goes full width | `panel-undock-dock`: two windows after the chord, `#tv-sidebar` gone from the terminal row, `.tv-terminal` width back to the closed-state width within 1px, PTY columns back within 1 of the closed count |
-| Dock returns the panel at its saved width and the terminal narrows; docked baseline unchanged | `panel-undock-dock`: one window after docking, sidebar width back to the docked width within 1px, `sidebar.left >= terminal.right - 1` (push, not overlay), terminal narrowed, PTY columns down again. `npm run smoke:visual -- --check` is unaffected: the docked layout rules were not touched |
+| Dock returns the panel at its saved width and the terminal narrows; docked baseline unchanged | `panel-undock-dock` widens the docked panel with the resizer's keyboard path, waits for the saved width, then asserts the redocked sidebar returns at *that* width within 1px (so a reset-to-320px path fails), one window after docking, `sidebar.left >= terminal.right - 1` (push, not overlay), terminal narrowed, PTY columns down again. The docked layout at the default width is unchanged, so `npm run smoke:visual -- --check` is unaffected |
 | Quit while undocked, relaunch: no panel and no panel window; opening restores the undocked window at its saved geometry | `panel-undock-relaunch`, two app processes on one data directory |
 | A saved position on a missing monitor is clamped back on screen, size kept | `clamp_position` unit tests in `panel.rs`, including a rectangle outside every monitor |
 | Undock and dock work from the keyboard alone | every transition in `panel-undock-dock` is driven by `Ctrl+Shift+B` only, including docking from the panel window |
+| At most one panel window, and a repeat request reuses it | `panel-undock-dock` step 5 compares the WebDriver window handle before and after `panel_open`: destroying and rebuilding at the same width now fails even though the count and the width would still match |
 
 ### Smoke harness
 

@@ -161,7 +161,15 @@ function stampThemes(): void {
 
 /** Set slider-driven --text-scale + the mode attribute; notify terminals. */
 export function applyReadingComfort(): void {
-  const state = getReadingComfortState();
+  applyReadingComfortState(getReadingComfortState());
+}
+
+/**
+ * Apply a state this document did not read itself — the undocked panel mirrors
+ * the main window's preferences, and its own storage may not be the one that
+ * changed. `null` is "off", the same shape `getReadingComfortState` returns.
+ */
+export function applyReadingComfortState(state: ReadingComfortState | null): void {
   if (!state) {
     clearDom();
     return;

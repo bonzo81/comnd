@@ -374,9 +374,22 @@ impl ConfigStore {
         self.apply_and_persist(|config| config.shortcuts = overrides)
     }
 
-    /// Replace the side panel state and persist (docs/plans/066).
-    pub fn set_panel(&mut self, panel: PanelConfig) -> Result<(), String> {
-        self.apply_and_persist(|config| config.panel = panel)
+    /// Persist only the panel's window rectangle (docs/plans/066). Field-level
+    /// on purpose: the geometry worker, the dock write and the width write run
+    /// independently, and replacing the whole panel would let whichever lands
+    /// last resurrect the others' previous values.
+    pub fn save_panel_geometry(&mut self, window: Option<PanelWindowGeometry>) -> Result<(), String> {
+        self.apply_and_persist(|config| config.panel.window = window)
+    }
+
+    /// Persist only the panel's home (docked or undocked).
+    pub fn save_panel_undocked(&mut self, undocked: bool) -> Result<(), String> {
+        self.apply_and_persist(|config| config.panel.undocked = undocked)
+    }
+
+    /// Persist only the docked panel width.
+    pub fn save_panel_docked_width(&mut self, width: u32) -> Result<(), String> {
+        self.apply_and_persist(|config| config.panel.docked_width = width)
     }
 
     /// Update session logging enabled/disabled and persist.

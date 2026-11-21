@@ -171,67 +171,88 @@ fn clamped_docked_width(width: u32) -> u32 {
 
 // ─── Persisted state ───────────────────────────────────────────────
 
-fn read_panel_config(app: &AppHandle) -> PanelConfig {
-    let state = app.state::<AppState>();
-    let guard = match state.config.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let mut panel = guard.get().panel.clone();
-    panel.docked_width = clamped_docked_width(panel.docked_width);
-    panel
-}
-
-fn write_panel_config(app: &AppHandle, panel: PanelConfig) -> Result<(), String> {
+/// Run `change` against the config store under one guard, so a read-modify-write
+/// of one panel field cannot lose a concurrent write of another (the geometry
+/// worker, a dock and a width save all run independently).
+fn with_config<T>(
+    app: &AppHandle,
+    change: impl FnOnce(&mut crate::config::ConfigStore) -> Result<T, String>,
+) -> Result<T, String> {
     let state = app.state::<AppState>();
     let mut guard = match state.config.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    guard.set_panel(panel)
+    change(&mut guard)
 }
 
-/// Persist only the window rectangle, leaving the undocked flag and docked width
-/// as they are. Called from the debounce worker and from the close handler.
+fn read_panel_config(app: &AppHandle) -> PanelConfig {
+    let mut panel = with_config(app, |store| Ok(store.get().panel.clone())).unwrap_or_default();
+    panel.docked_width = clamped_docked_width(panel.docked_width);
+    panel
+}
+
+/// Persist only the window rectangle, leaving the home and docked width alone.
+/// Called from the debounce worker and from the close path.
 fn persist_geometry(app: &AppHandle, geometry: PanelWindowGeometry) -> Result<(), String> {
-    let mut panel = read_panel_config(app);
-    panel.window = Some(geometry);
-    write_panel_config(app, panel)
+    with_config(app, |store| store.save_panel_geometry(Some(geometry)))
+}
+
+fn persist_undocked(app: &AppHandle, undocked: bool) -> Result<(), String> {
+    with_config(app, |store| store.save_panel_undocked(undocked))
+}
+
+fn persist_docked_width(app: &AppHandle, width: u32) -> Result<(), String> {
+    with_config(app, |store| store.save_panel_docked_width(width))
 }
 
 // ─── Window lifecycle ──────────────────────────────────────────────
 
 /// Debounced geometry writer. Dragging emits one move event per pixel; this
 /// coalesces them into at most one config write per `GEOMETRY_DEBOUNCE`, and the
-/// close handler flushes the last one synchronously so quitting straight after a
-/// drag cannot lose it.
+/// close path flushes the live rectangle synchronously so quitting straight after
+/// a drag cannot lose it.
 struct GeometrySaver {
     pending: Arc<Mutex<Option<PanelWindowGeometry>>>,
     stop: Arc<AtomicBool>,
+    /// Held by a write. The close path takes it after setting `stop`, so a
+    /// rectangle the worker already collected cannot land *after* the final one.
+    writes: Arc<Mutex<()>>,
 }
 
 impl GeometrySaver {
     fn start(app: &AppHandle) -> Self {
         let pending: Arc<Mutex<Option<PanelWindowGeometry>>> = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
+        let writes: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
         let worker_pending = Arc::clone(&pending);
         let worker_stop = Arc::clone(&stop);
+        let worker_writes = Arc::clone(&writes);
         let worker_app = app.clone();
         std::thread::spawn(move || {
-            while !worker_stop.load(Ordering::Relaxed) {
+            while !worker_stop.load(Ordering::SeqCst) {
                 std::thread::sleep(GEOMETRY_DEBOUNCE);
                 let next = match worker_pending.lock() {
                     Ok(mut slot) => slot.take(),
                     Err(_) => None,
                 };
-                if let Some(geometry) = next {
-                    if let Err(e) = persist_geometry(&worker_app, geometry) {
-                        log::warn!("Failed to save panel window geometry: {}", e);
-                    }
+                let Some(geometry) = next else { continue };
+                let _writing = match worker_writes.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                // The window closed while this rectangle waited for the lock:
+                // the close path has already saved the live one, and writing
+                // this older value would undo it.
+                if worker_stop.load(Ordering::SeqCst) {
+                    continue;
+                }
+                if let Err(e) = persist_geometry(&worker_app, geometry) {
+                    log::warn!("Failed to save panel window geometry: {}", e);
                 }
             }
         });
-        GeometrySaver { pending, stop }
+        GeometrySaver { pending, stop, writes }
     }
 
     fn record(&self, geometry: PanelWindowGeometry) {
@@ -240,15 +261,46 @@ impl GeometrySaver {
         }
     }
 
-    /// Take the pending rectangle, if any, for a synchronous write. Used by the
-    /// close handler, where waiting for the debounce would lose the last move.
-    fn take(&self) -> Option<PanelWindowGeometry> {
-        self.pending.lock().ok().and_then(|mut slot| slot.take())
+    /// Stop the debounce thread and wait for a write it already started, so the
+    /// caller's own rectangle is the last one persisted.
+    fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _writing = match self.writes.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+    }
+}
+
+/// The geometry writer for the live panel window. Registered while the window
+/// exists so every destruction path can stop it before saving the final
+/// rectangle — including the programmatic `destroy()` calls that Tauri routes
+/// around `CloseRequested`.
+#[derive(Default)]
+pub struct PanelGeometryWriter(Mutex<Option<Arc<GeometrySaver>>>);
+
+impl PanelGeometryWriter {
+    fn install(&self, saver: Arc<GeometrySaver>) {
+        let mut slot = match self.0.lock() {
+            Ok(slot) => slot,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *slot = Some(saver);
     }
 
-    /// Stop the debounce thread once the window is gone.
+    /// Stop the writer, waiting out a write already in flight. Idempotent: the
+    /// saver is taken, so a second call (close then `Destroyed`) does nothing.
     fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
+        let saver = {
+            let mut slot = match self.0.lock() {
+                Ok(slot) => slot,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            slot.take()
+        };
+        if let Some(saver) = saver {
+            saver.stop();
+        }
     }
 }
 
@@ -269,14 +321,14 @@ fn current_geometry(window: &WebviewWindow, fallback: PanelWindowGeometry) -> Pa
 
 fn attach_geometry_tracking(app: &AppHandle, window: &WebviewWindow, initial: PanelWindowGeometry) {
     let saver = Arc::new(GeometrySaver::start(app));
+    app.state::<PanelGeometryWriter>().install(Arc::clone(&saver));
     // The latest known rectangle: a move event carries only the position and a
     // resize event only the size, so the two are merged here.
     let latest = Arc::new(Mutex::new(initial));
     let close_app = app.clone();
-    let close_saver = Arc::clone(&saver);
     let move_saver = Arc::clone(&saver);
     let size_saver = Arc::clone(&saver);
-    let destroy_saver = Arc::clone(&saver);
+    let destroy_app = app.clone();
 
     window.on_window_event(move |event| match event {
         WindowEvent::Moved(position) => {
@@ -298,31 +350,38 @@ fn attach_geometry_tracking(app: &AppHandle, window: &WebviewWindow, initial: Pa
             // panel rather than docking it: docking is the explicit action, and a
             // window that the user dismissed must not reappear docked.
             api.prevent_close();
-            // Flush the final rectangle synchronously — the debounce worker may
-            // not have written the last move before the window goes away.
-            if let Some(geometry) = close_saver.take() {
-                if let Err(e) = persist_geometry(&close_app, geometry) {
-                    log::warn!("Failed to save panel window geometry on close: {}", e);
-                }
-            }
-            if let Some(window) = close_app.get_webview_window(PANEL_LABEL) {
-                let _ = window.destroy();
+            // Same flush-and-destroy path programmatic closes use, so the last
+            // move is saved whether the user or the app closes the window.
+            if let Err(e) = close_panel_window(&close_app) {
+                log::warn!("Failed to close the panel window: {}", e);
             }
             if let Err(e) = close_app.emit_to("main", PANEL_CLOSED_EVENT, ()) {
                 log::warn!("Failed to report panel close to the main window: {}", e);
             }
         }
-        WindowEvent::Destroyed => destroy_saver.stop(),
+        WindowEvent::Destroyed => destroy_app.state::<PanelGeometryWriter>().stop(),
         _ => {}
     });
 }
 
 /// Close the panel window if one exists. Safe to call when there is none.
+///
+/// The final rectangle is read from the live window and saved here: Tauri's
+/// `destroy()` bypasses `CloseRequested`, so docking, the panel's Close button
+/// and app shutdown would otherwise drop a move the debounce worker had not
+/// written yet.
 fn close_panel_window(app: &AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(PANEL_LABEL) {
-        window.destroy().map_err(|e| e.to_string())?;
+    let Some(window) = app.get_webview_window(PANEL_LABEL) else {
+        return Ok(());
+    };
+    let geometry = current_geometry(&window, default_geometry(app));
+    // Stop the worker *before* writing: waiting out a write already in flight
+    // means it cannot land after this rectangle and undo it.
+    app.state::<PanelGeometryWriter>().stop();
+    if let Err(e) = persist_geometry(app, geometry) {
+        log::warn!("Failed to save panel window geometry before closing: {}", e);
     }
-    Ok(())
+    window.destroy().map_err(|e| e.to_string())
 }
 
 // ─── Commands ──────────────────────────────────────────────────────
@@ -336,11 +395,13 @@ pub async fn panel_get_state(app: AppHandle) -> Result<PanelConfig, String> {
 
 /// Persist where the panel lives. Docking also destroys the window, so a stale
 /// panel window can never outlive the docked state.
+///
+/// The write comes first: if it fails the home is unchanged and the window stays
+/// where the user can still reach it, rather than the frontend claiming a dock
+/// the config does not have.
 #[tauri::command]
 pub async fn panel_set_undocked(app: AppHandle, undocked: bool) -> Result<(), String> {
-    let mut panel = read_panel_config(&app);
-    panel.undocked = undocked;
-    write_panel_config(&app, panel)?;
+    persist_undocked(&app, undocked)?;
     if !undocked {
         close_panel_window(&app)?;
     }
@@ -352,9 +413,7 @@ pub async fn panel_set_undocked(app: AppHandle, undocked: bool) -> Result<(), St
 #[tauri::command]
 pub async fn panel_set_docked_width(app: AppHandle, width: u32) -> Result<u32, String> {
     let width = clamped_docked_width(width);
-    let mut panel = read_panel_config(&app);
-    panel.docked_width = width;
-    write_panel_config(&app, panel)?;
+    persist_docked_width(&app, width)?;
     Ok(width)
 }
 
@@ -466,9 +525,9 @@ pub async fn test_panel_windows(app: AppHandle) -> Result<Vec<PanelWindowInfo>, 
     Ok(windows)
 }
 
-/// Move and resize the panel window, persisting the rectangle immediately. The
-/// relaunch smoke scenario sets up a known geometry through this so the restored
-/// position can be asserted without depending on where a drag happened to land.
+/// Move and resize the panel window. Deliberately does *not* write the config:
+/// the production `Moved`/`Resized` tracker owns that, so the relaunch scenario
+/// proves the path the user's own drag takes.
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn test_panel_set_geometry(
@@ -486,8 +545,7 @@ pub async fn test_panel_set_geometry(
         .map_err(|e| e.to_string())?;
     window
         .set_position(PhysicalPosition::new(x, y))
-        .map_err(|e| e.to_string())?;
-    persist_geometry(&app, PanelWindowGeometry { x, y, width, height })
+        .map_err(|e| e.to_string())
 }
 
 /// Destroy the panel window when the main window goes away, so quitting the app

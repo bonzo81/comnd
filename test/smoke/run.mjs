@@ -1121,13 +1121,34 @@ function panelUndockRelaunchScenario() {
               + `(${placed[key]}, expected ${requested[key]})`,
           );
         }
-        // set_panel_set_geometry persists at once; the live move/resize debounce
-        // is 300 ms, so wait past it before reading the stored config back.
-        await pause(1_200);
+        // `test_panel_set_geometry` only moves the window; the production
+        // Moved/Resized tracker is what saves. Waiting for the saved rectangle to
+        // match the live one is the assertion that a real drag would also
+        // survive, rather than the debug command writing the value itself.
+        const persisted = async () => {
+          const config = await invoke(browser, "panel_get_state");
+          return config.window;
+        };
+        let stored = null;
+        try {
+          await browser.waitUntil(async () => {
+            stored = await persisted();
+            return !!stored
+              && ["x", "y", "width", "height"]
+                .every((key) => Math.abs(stored[key] - placed[key]) <= 2);
+          }, {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Panel relaunch: the production geometry tracker never saved the live rectangle",
+          });
+        } catch (error) {
+          throw new Error(
+            `${error.message} (saved ${JSON.stringify(stored)}, live ${JSON.stringify(placed)})`,
+          );
+        }
         const config = await invoke(browser, "panel_get_state");
         assert.equal(config.undocked, true,
           "Panel relaunch: the undocked home was not written to the config");
-        assert(config.window, "Panel relaunch: the panel geometry was not written to the config");
         saved = config.window;
       },
       async (browser, dataDir) => {
@@ -2893,6 +2914,31 @@ async function main() {
             + `(${closedCols} cols -> ${dockedCols} cols)`,
         );
 
+        // Widen the docked panel through the resizer's own keyboard path, so the
+        // redock assertion cannot pass by falling back to the 320px default. The
+        // write is debounced, so wait for the config to catch up: the saved value
+        // is what docking must restore.
+        await browser.execute(() => document.querySelector("#tv-sidebar-resizer")?.focus());
+        assert.equal(
+          await browser.execute(() => document.activeElement?.id ?? ""),
+          "tv-sidebar-resizer",
+          "Panel undock: the resizer did not take keyboard focus",
+        );
+        for (let i = 0; i < 3; i += 1) await browser.keys(["\uE008", "\uE012"]);
+        await pause(900);
+        const widened = (await layout()).sidebar.width;
+        assert(
+          widened > docked.sidebar.width + 20,
+          `Panel undock: the resizer did not widen the docked panel `
+            + `(${docked.sidebar.width}px -> ${widened}px)`,
+        );
+        const savedWidth = (await invoke(browser, "panel_get_state")).docked_width;
+        assert(
+          Math.abs(savedWidth - Math.round(widened)) <= 2,
+          `Panel undock: the widened width was not saved `
+            + `(config ${savedWidth}px, live ${widened}px)`,
+        );
+
         // 2. Open → undocked: the panel leaves the row and the terminal takes
         //    the full width back, through the same fit() → ssh_resize path.
         await panelShortcut(browser);
@@ -2968,9 +3014,9 @@ async function main() {
         await pause(800);
         const redocked = await layout();
         assert(
-          Math.abs(redocked.sidebar.width - docked.sidebar.width) <= 1,
+          Math.abs(redocked.sidebar.width - savedWidth) <= 1,
           `Panel undock: docking did not restore the saved width `
-            + `(${docked.sidebar.width}px -> ${redocked.sidebar.width}px)`,
+            + `(${savedWidth}px saved, ${redocked.sidebar.width}px after redocking)`,
         );
         assert(
           redocked.sidebar.left >= redocked.terminal.right - 1,
@@ -2998,11 +3044,16 @@ async function main() {
         );
 
         // 5. Undock again and ask for the window a second time: the same single
-        //    window comes back, never a copy.
+        //    window comes back, never a copy. The WebDriver handle proves reuse —
+        //    destroying and rebuilding the window at the same width would satisfy
+        //    the count and the width on its own.
         await panelShortcut(browser);
         await waitForWindowCount(browser, 2,
           "Panel undock: undocking a second time did not open exactly one window");
+        const firstTarget = await switchToWindow(browser, "panel",
+          "Panel undock: the second undock did not open a panel window");
         const first = await singlePanelWindow(browser, "Panel undock (second undock)");
+        await browser.switchToWindow(firstTarget.previous);
         await invoke(browser, "panel_open");
         await pause(500);
         await waitForWindowCount(browser, 2,
@@ -3011,6 +3062,11 @@ async function main() {
         assert.equal(second.width, first.width,
           `Panel undock: the reused window changed width `
             + `(${first.width}px -> ${second.width}px)`);
+        const again = await switchToWindow(browser, "panel",
+          "Panel undock: the requested panel window never became scriptable");
+        assert.equal(again.handle, firstTarget.handle,
+          "Panel undock: the panel window was destroyed and rebuilt instead of reused");
+        await browser.switchToWindow(again.previous);
 
         // 6. Finish docked, so the app is left in its default home for teardown.
         await panelShortcut(browser);

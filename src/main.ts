@@ -34,12 +34,12 @@ import {
 } from "./lib/reading-comfort";
 import { startApp } from "./lib/app-startup";
 import {
-  applySidePanelAction, closeSidePanel, cycleSidePanel, getSidePanelState, handlePanelWindowClosed,
-  initSidePanel, type SidePanelAction,
+  applySidePanelAction, closeSidePanel, cycleSidePanel, flushSidePanelWidth,
+  getSidePanelState, handlePanelWindowClosed, initSidePanel, type SidePanelAction,
 } from "./lib/side-panel";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
-  formatCombo, initShortcuts, matches, resolvedCombo,
+  formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
   SECTION_TITLES, SHORTCUT_DEFS, SHORTCUT_SECTIONS,
 } from "./lib/shortcuts";
 import { setToggleState } from "./lib/a11y";
@@ -149,7 +149,17 @@ class App {
     // help modal re-renders so the grid never shows stale combos.
     window.addEventListener("comnd:shortcuts", () => {
       if (this.showShortcuts) this.renderShortcutsModal();
+      // The undocked window keeps its own registry: hand it the new map so a
+      // rebound panel shortcut still docks from there, and refresh the
+      // advertised combination on both Dock controls.
+      void emitTo("panel", "comnd:shortcuts", getOverrides()).catch(() => {});
+      this.publishPanelPreferences();
     });
+
+    // Theme and Reading Comfort are per-document: the undocked panel would
+    // otherwise keep the scale it opened with until it was reopened.
+    window.addEventListener("comnd:theme", () => this.publishPanelPreferences());
+    window.addEventListener("comnd:reading-comfort", () => this.publishPanelPreferences());
 
     // Content column — holds the three view wrappers, sits right of nav panel
     this.contentCol = document.createElement("div");
@@ -1192,7 +1202,10 @@ class App {
     });
 
     // A panel window that just mounted asks for the current state.
-    void listen("comnd:panel-ready", () => this.publishPanelState());
+    void listen("comnd:panel-ready", () => {
+      this.publishPanelState();
+      this.publishPanelPreferences();
+    });
   }
 
   /** Send the panel state to the undocked window, if it exists. */
@@ -1200,6 +1213,16 @@ class App {
     const state = getSidePanelState();
     if (!state.open || !state.undocked) return;
     void emitTo("panel", "comnd:panel-state", state).catch(() => {});
+  }
+
+  /** Mirror the per-document preferences the panel window applies itself. */
+  private publishPanelPreferences(): void {
+    const state = getSidePanelState();
+    if (!state.open || !state.undocked) return;
+    void emitTo("panel", "comnd:panel-prefs", {
+      theme: getAppTheme(),
+      readingComfort: getReadingComfortState(),
+    }).catch(() => {});
   }
 
   private activeView(): TerminalView | null {
@@ -1368,6 +1391,9 @@ async function bootstrap(): Promise<void> {
     document.documentElement.dataset.comndWindow = "panel";
     setAppTheme(getAppTheme());
     applyReadingComfort();
+    // The panel window has its own registry (no App): without this its matcher
+    // keeps the default binding and a rebound Dock shortcut is dead here.
+    await initShortcuts();
     const { mountPanelWindowInAppRoot } = await import("./components/panel-window");
     const root = document.getElementById("app");
     if (root) mountPanelWindowInAppRoot(root);
@@ -1375,6 +1401,7 @@ async function bootstrap(): Promise<void> {
   }
 
   document.documentElement.dataset.comndWindow = "main";
+  await holdCloseForPanelWidth();
   if (import.meta.env.MODE === "smoke") {
     void import("./lib/smoke-mutation")
       .then((m) => m.applySmokeMutation())
@@ -1382,6 +1409,19 @@ async function bootstrap(): Promise<void> {
       .finally(() => startApp(() => new App()));
   } else {
     startApp(() => new App());
+  }
+}
+
+/**
+ * A docked width dragged inside its 400 ms debounce would be lost when the app
+ * closes; the close handler awaits the write, so quitting mid-drag keeps the
+ * width the user chose.
+ */
+async function holdCloseForPanelWidth(): Promise<void> {
+  try {
+    await getCurrentWindow().onCloseRequested(() => flushSidePanelWidth());
+  } catch {
+    // Not under Tauri (unit test) — there is no close to hold.
   }
 }
 

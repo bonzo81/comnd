@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
-import { mountPanelWindow, type PanelWindowBridge } from "./panel-window";
+import { mountPanelWindow, applyPanelPreferences, type PanelWindowBridge } from "./panel-window";
+import { ariaKeyShortcuts, platformMod, setOverrides } from "../lib/shortcuts";
 import type { SidePanelAction, SidePanelState } from "../lib/side-panel";
 import type { Command } from "../lib/tauri-api";
 
@@ -47,7 +48,7 @@ function bridge(): FakeBridge {
     send,
     requestState,
     push: (next) => listener?.(next),
-    onState: (fn) => {
+    onState: async (fn) => {
       listener = fn;
       return () => {
         listener = null;
@@ -70,10 +71,11 @@ function mount() {
   return { root, b };
 }
 
-const key = (k: string, mods: { ctrl?: boolean; shift?: boolean } = {}) => {
+const key = (k: string, mods: { ctrl?: boolean; meta?: boolean; shift?: boolean } = {}) => {
   const e = new KeyboardEvent("keydown", {
     key: k,
     ctrlKey: !!mods.ctrl,
+    metaKey: !!mods.meta,
     shiftKey: !!mods.shift,
     bubbles: true,
     cancelable: true,
@@ -82,15 +84,24 @@ const key = (k: string, mods: { ctrl?: boolean; shift?: boolean } = {}) => {
   return e;
 };
 
+/** "Mod" is Ctrl on Windows/Linux and Cmd on macOS — the same resolution
+ *  `matches()` applies, so this test follows the platform it runs on. */
+const modChord = () =>
+  platformMod() === "Cmd" ? { meta: true, shift: true } : { ctrl: true, shift: true };
+
 afterEach(() => {
   while (mounted.length) mounted.pop()!();
   delete document.documentElement.dataset.comndWindow;
+  setOverrides({});
 });
 
 describe("undocked panel window", () => {
-  it("marks the document as the panel window and asks for state on mount", () => {
+  it("marks the document as the panel window and asks for state on mount", async () => {
     const { root, b } = mount();
     expect(document.documentElement.dataset.comndWindow).toBe("panel");
+    // The snapshot request is an event: it goes out only once the subscription
+    // is live, so the reply cannot arrive before anything is listening.
+    await Promise.resolve();
     expect(b.requestState).toHaveBeenCalledTimes(1);
     expect(root.querySelector(".pw-title")?.textContent).toBe("Panel");
   });
@@ -99,7 +110,9 @@ describe("undocked panel window", () => {
     const { root, b } = mount();
     const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;
     expect(dock.textContent).toBe("Dock");
-    expect(dock.getAttribute("aria-keyshortcuts")).toBe("Control+Shift+B");
+    // Resolved, not hard-coded: the platform modifier and any saved override.
+    expect(dock.getAttribute("aria-keyshortcuts")).toBe(ariaKeyShortcuts("toggle-side-panel"));
+    expect(dock.getAttribute("aria-keyshortcuts")).toMatch(/^(Control|Meta)\+Shift\+B$/);
     dock.click();
     expect(b.send).toHaveBeenCalledWith({ type: "dock" });
   });
@@ -158,9 +171,52 @@ describe("undocked panel window", () => {
     expect(b.send).toHaveBeenCalledWith({ type: "close" });
   });
 
+  it("does not ask for a snapshot before the subscription is live", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    let release: (() => void) | null = null;
+    const requestState = vi.fn();
+    const teardown = mountPanelWindow(root, {
+      send: vi.fn(),
+      requestState,
+      onState: () =>
+        new Promise<() => void>((resolve) => {
+          release = () => resolve(() => {});
+        }),
+    });
+    expect(requestState).not.toHaveBeenCalled();
+    release!();
+    await Promise.resolve();
+    expect(requestState).toHaveBeenCalledTimes(1);
+    teardown();
+    root.remove();
+  });
+
+  it("applies the theme and reading scale the main window publishes", () => {
+    applyPanelPreferences({
+      theme: "solarized-light",
+      readingComfort: { prevFontSize: 14, uiScale: 1.4, lineHeight: 1.4, letterSpacing: 2 },
+    });
+    expect(document.documentElement.dataset.theme).toBe("solarized-light");
+    expect(document.documentElement.dataset.readingComfort).toBe("on");
+    expect(document.documentElement.style.getPropertyValue("--text-scale")).toBe("1.4");
+
+    applyPanelPreferences({ theme: "dark", readingComfort: null });
+    expect(document.documentElement.dataset.readingComfort).toBeUndefined();
+    expect(document.documentElement.style.getPropertyValue("--text-scale")).toBe("");
+  });
+
+  it("follows a rebound panel shortcut in its advertised combination", () => {
+    const { root } = mount();
+    const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;
+    setOverrides({ "toggle-side-panel": "Mod+Alt+B" });
+    expect(dock.getAttribute("aria-keyshortcuts")).toBe(ariaKeyShortcuts("toggle-side-panel"));
+    expect(dock.getAttribute("aria-keyshortcuts")).toMatch(/^(Control|Meta)\+Alt\+B$/);
+  });
+
   it("docks on the toggle-panel shortcut, the same key that undocked it", () => {
     const { b } = mount();
-    key("B", { ctrl: true, shift: true });
+    key("B", modChord());
     expect(b.send).toHaveBeenCalledWith({ type: "dock" });
   });
 

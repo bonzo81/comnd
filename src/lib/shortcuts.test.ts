@@ -13,6 +13,7 @@ import {
   SECTION_TITLES,
   SHORTCUT_DEFS,
   SHORTCUT_SECTIONS,
+  ariaKeyShortcuts,
   ctrlByteForCombo,
   findMapConflict,
   formatCombo,
@@ -325,6 +326,29 @@ describe("formatCombo", () => {
     expect(formatCombo("Ctrl+Space")).toBe("⌃Space");
     expect(formatCombo("Mod+=")).toBe("⌘=");
     restore();
+  });
+});
+
+describe("ariaKeyShortcuts", () => {
+  it("spells the platform modifier the way aria-keyshortcuts expects", () => {
+    const restore = MAC();
+    expect(ariaKeyShortcuts("toggle-side-panel")).toBe("Meta+Shift+B");
+    restore();
+    expect(ariaKeyShortcuts("toggle-side-panel")).toBe("Control+Shift+B");
+  });
+
+  it("follows a saved override instead of the default", () => {
+    setOverrides({ "toggle-side-panel": "Mod+Alt+B" });
+    const value = ariaKeyShortcuts("toggle-side-panel");
+    expect(value).toMatch(/^(Control|Meta)\+Alt\+B$/);
+    expect(value).not.toContain("Shift");
+    setOverrides({});
+  });
+
+  it("never leaks the canonical Mod token", () => {
+    for (const def of SHORTCUT_DEFS) {
+      expect(ariaKeyShortcuts(def.id)).not.toContain("Mod");
+    }
   });
 });
 

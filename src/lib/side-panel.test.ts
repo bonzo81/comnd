@@ -54,6 +54,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** The window effects are queued, so state settles over a few microtasks. */
+async function flush(times = 8) {
+  for (let i = 0; i < times; i += 1) await Promise.resolve();
+}
+
 describe("side panel state", () => {
   it("starts closed and docked whatever the config says", async () => {
     const h = harness({ undocked: true, docked_width: 480 });
@@ -114,10 +119,11 @@ describe("side panel state", () => {
     await initSidePanel();
     cycleSidePanel();
     expect(getSidePanelState().open).toBe(true);
+    await flush();
     expect(h.openWindow).toHaveBeenCalledTimes(1);
     // Already undocked: the cycle docks rather than opening another window.
     cycleSidePanel();
-    await Promise.resolve();
+    await flush();
     expect(h.setUndocked).toHaveBeenCalledWith(false);
     expect(h.openWindow).toHaveBeenCalledTimes(1);
   });
@@ -133,6 +139,7 @@ describe("side panel state", () => {
     const h = harness({ undocked: true });
     await initSidePanel();
     openSidePanel();
+    await flush();
     expect(h.openWindow).toHaveBeenCalledTimes(1);
   });
 
@@ -175,6 +182,7 @@ describe("side panel state", () => {
     openSidePanel();
     await setPanelUndocked(true);
     closeSidePanel();
+    await flush();
     expect(h.closeWindow).toHaveBeenCalledTimes(1);
     handlePanelWindowClosed();
     expect(h.closeWindow).toHaveBeenCalledTimes(1);
@@ -186,6 +194,7 @@ describe("side panel state", () => {
     await initSidePanel();
     openSidePanel();
     closeSidePanel();
+    await flush();
     expect(h.closeWindow).not.toHaveBeenCalled();
   });
 
@@ -236,14 +245,77 @@ describe("side panel state", () => {
     expect(getSidePanelState().dockedWidth).toBe(DOCKED_WIDTH_MIN);
   });
 
-  it("flushes a pending width write", () => {
+  it("flushes a pending width write", async () => {
     vi.useFakeTimers();
     const h = harness();
     setSidePanelDockedWidth(500);
-    flushSidePanelWidth();
+    await flushSidePanelWidth();
     expect(h.setDockedWidth).toHaveBeenCalledWith(500);
     vi.advanceTimersByTime(1000);
     expect(h.setDockedWidth).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls the home back when the dock preference cannot be saved", async () => {
+    const h = harness();
+    await initSidePanel();
+    openSidePanel();
+    await setPanelUndocked(true);
+    h.setUndocked.mockRejectedValueOnce(new Error("disk full"));
+
+    await setPanelUndocked(false);
+
+    // Rust keeps the old home when the write fails, and only destroys the panel
+    // window after a successful one — the frontend must not claim a dock it
+    // does not have.
+    expect(getSidePanelState().undocked).toBe(true);
+    expect(getSidePanelState().open).toBe(true);
+    expect(h.closeWindow).not.toHaveBeenCalled();
+    const snapshot = getSidePanelState().snapshot;
+    expect(snapshot.kind === "placeholder" && snapshot.text).toMatch(/Failed to dock/);
+  });
+
+  it("keeps the toggle usable when the window cannot open", async () => {
+    const h = harness({ undocked: true });
+    h.openWindow.mockRejectedValueOnce(new Error("no window"));
+    await initSidePanel();
+    openSidePanel();
+    await flush();
+    expect(getSidePanelState().open).toBe(false);
+    const snapshot = getSidePanelState().snapshot;
+    expect(snapshot.kind === "placeholder" && snapshot.text).toMatch(/Failed to open/);
+    // The next press must try again rather than return early on a stale flag.
+    openSidePanel();
+    await flush();
+    expect(h.openWindow).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reopen a window a later dock already ordered away", async () => {
+    const h = harness();
+    let finishOpen: (() => void) | null = null;
+    h.openWindow.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishOpen = () => resolve({ x: 0, y: 0, width: 420, height: 640 });
+      }),
+    );
+    await initSidePanel();
+    openSidePanel();
+
+    const undocking = setPanelUndocked(true);
+    await flush();
+    expect(finishOpen).not.toBeNull();
+
+    // Dock while the window is still being created.
+    const docking = setPanelUndocked(false);
+    await flush();
+    finishOpen!();
+    await docking;
+    await undocking;
+    await flush();
+
+    expect(getSidePanelState().undocked).toBe(false);
+    // The window that arrived late is closed again: one window, and the panel is
+    // docked.
+    expect(h.closeWindow).toHaveBeenCalledTimes(1);
   });
 
   it("forwards replay actions to the terminal view but handles dock itself", async () => {

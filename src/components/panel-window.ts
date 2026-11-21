@@ -14,8 +14,10 @@
  */
 
 import { icons } from "../lib/icons";
-import { matches } from "../lib/shortcuts";
+import { ariaKeyShortcuts, matches, setOverrides } from "../lib/shortcuts";
 import { renderSidePanel } from "../lib/side-panel-render";
+import { applyReadingComfortState, type ReadingComfortState } from "../lib/reading-comfort";
+import { setAppTheme, type Theme } from "../lib/theme";
 import type { SidePanelAction, SidePanelState } from "../lib/side-panel";
 import type { ReplayCommand } from "../lib/tauri-api";
 
@@ -24,8 +26,9 @@ export interface PanelWindowBridge {
   send: (action: SidePanelAction) => void;
   /** Ask for the current state — a window that just opened has none yet. */
   requestState: () => void;
-  /** Subscribe to state pushes from the main window. */
-  onState: (listener: (state: SidePanelState) => void) => () => void;
+  /** Subscribe to state pushes from the main window. Resolves once the
+   *  subscription is live, which is when asking for the first snapshot is safe. */
+  onState: (listener: (state: SidePanelState) => void) => Promise<() => void>;
 }
 
 /**
@@ -41,7 +44,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     <div class="panel-window">
       <header class="pw-head" data-tauri-drag-region="deep">
         <h1 class="pw-title">Panel</h1>
-        <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="Control+Shift+B">${icons.dock}<span>Dock</span></button>
+        <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="${ariaKeyShortcuts("toggle-side-panel")}">${icons.dock}<span>Dock</span></button>
         <button type="button" class="btn-text pw-close" id="panel-close" aria-label="Close panel" title="Close panel" aria-keyshortcuts="Escape">${icons.x}</button>
       </header>
       <div class="sb-toggle" role="tablist" aria-label="Panel content">
@@ -55,6 +58,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   const content = root.querySelector<HTMLElement>(".sb-content")!;
   const kbTab = root.querySelector<HTMLElement>(".sb-toggle-kb")!;
   const replayTab = root.querySelector<HTMLElement>(".sb-toggle-replay")!;
+  const dock = root.querySelector<HTMLButtonElement>(".pw-dock")!;
 
   const handlers = {
     play: (command: ReplayCommand) => bridge.send({ type: "play", id: command.id }),
@@ -79,7 +83,14 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   const onKb = () => bridge.send({ type: "mode", mode: "kb" });
   const onReplay = () => bridge.send({ type: "mode", mode: "replay" });
 
-  root.querySelector(".pw-dock")!.addEventListener("click", onDock);
+  // Rebinding the panel shortcut anywhere in the app re-emits this event, so a
+  // saved override reaches the Dock control's advertised shortcut too.
+  const syncDockShortcut = () => {
+    dock.setAttribute("aria-keyshortcuts", ariaKeyShortcuts("toggle-side-panel"));
+  };
+  window.addEventListener("comnd:shortcuts", syncDockShortcut);
+
+  dock.addEventListener("click", onDock);
   root.querySelector(".pw-close")!.addEventListener("click", onClose);
   kbTab.addEventListener("click", onKb);
   replayTab.addEventListener("click", onReplay);
@@ -99,18 +110,47 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   };
   document.addEventListener("keydown", onKeyDown);
 
-  const unsubscribe = bridge.onState(apply);
-  bridge.requestState();
+  // Subscribe before asking for a snapshot: the reply is an event, and a
+  // request that beats the subscription leaves the window on its placeholder
+  // until the subject next changes.
+  let disposed = false;
+  let unsubscribe: (() => void) | null = null;
+  void bridge.onState(apply).then((fn) => {
+    if (disposed) {
+      fn();
+      return;
+    }
+    unsubscribe = fn;
+    bridge.requestState();
+  });
 
   return () => {
+    disposed = true;
     document.removeEventListener("keydown", onKeyDown);
-    unsubscribe();
-    root.querySelector(".pw-dock")!.removeEventListener("click", onDock);
+    window.removeEventListener("comnd:shortcuts", syncDockShortcut);
+    unsubscribe?.();
+    unsubscribe = null;
+    dock.removeEventListener("click", onDock);
     root.querySelector(".pw-close")!.removeEventListener("click", onClose);
     kbTab.removeEventListener("click", onKb);
     replayTab.removeEventListener("click", onReplay);
     delete document.documentElement.dataset.comndWindow;
   };
+}
+
+/**
+ * Preferences the main window owns and this window must mirror: the app theme
+ * and Reading Comfort scale are applied per document, so a change made while
+ * the panel is open would otherwise leave it at the old scale until reopened.
+ */
+export interface PanelPreferences {
+  theme: Theme;
+  readingComfort: ReadingComfortState | null;
+}
+
+export function applyPanelPreferences(prefs: PanelPreferences): void {
+  setAppTheme(prefs.theme);
+  applyReadingComfortState(prefs.readingComfort);
 }
 
 /**
@@ -125,23 +165,23 @@ export function mountPanelWindowInAppRoot(container: HTMLElement): void {
     const send = (action: SidePanelAction) => {
       void emitTo("main", "comnd:panel-action", action).catch(() => {});
     };
+    // Register these before the panel asks for its first snapshot, so the prefs
+    // and shortcut replies cannot arrive before anything is listening.
+    await listen<PanelPreferences>("comnd:panel-prefs", (event) => {
+      applyPanelPreferences(event.payload);
+    });
+    // The main window owns the override map; a saved rebinding has to reach
+    // this window's own registry or a moved Dock shortcut stops working here.
+    await listen<Record<string, string>>("comnd:shortcuts", (event) => {
+      setOverrides(event.payload ?? {});
+    });
     mountPanelWindow(container, {
       send,
       requestState: () => {
         void emitTo("main", "comnd:panel-ready", null).catch(() => {});
       },
-      onState: (listener) => {
-        let disposed = false;
-        let unlisten: (() => void) | null = null;
-        void listen<SidePanelState>("comnd:panel-state", (event) => listener(event.payload)).then((fn) => {
-          if (disposed) fn();
-          else unlisten = fn;
-        });
-        return () => {
-          disposed = true;
-          unlisten?.();
-        };
-      },
+      onState: (listener) =>
+        listen<SidePanelState>("comnd:panel-state", (event) => listener(event.payload)),
     });
   })();
 }

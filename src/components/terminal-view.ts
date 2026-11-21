@@ -57,7 +57,7 @@ import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
 import type { SessionLifecycle } from "../lib/duplicate-session";
 import { AuthInputCollector } from "../lib/auth-input";
-import { ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
+import { ariaKeyShortcuts, ctrlByteForCombo, matches, resolvedCombo } from "../lib/shortcuts";
   import { confirmDialog } from "../lib/confirm-dialog";
   import { openModal } from "../lib/modal";
 import { tofuRespond } from "../lib/tauri-api";
@@ -173,6 +173,10 @@ export class TerminalView {
   private panelHandlers: SidePanelHandlers | null = null;
   private panelLayoutKey = "";
   private panelSettleKey = "";
+  private panelWasOpen = false;
+  /** Invalidates a Replay load whose session stopped owning the panel. */
+  private replayLoadSeq = 0;
+  private shortcutsChangeHandler: (() => void) | null = null;
   private renderedPanelSnapshot: SidePanelSnapshot | null = null;
   private sidebarResizing = false;
   private sidebarResizeRaf = 0;
@@ -635,7 +639,7 @@ export class TerminalView {
                 id="panel-undock"
                 title="Undock side panel into its own window"
                 aria-label="Undock side panel"
-                aria-keyshortcuts="Control+Shift+B"
+                aria-keyshortcuts="${ariaKeyShortcuts("toggle-side-panel")}"
               >${icons.undock}<span>Undock</span></button>
             </div>
             <div class="sb-content">
@@ -741,6 +745,14 @@ export class TerminalView {
     this.$("#panel-undock")?.addEventListener("click", () => {
       void setPanelUndocked(true);
     });
+    // A rebinding changes the combo the Undock control advertises.
+    this.shortcutsChangeHandler = () => {
+      this.$("#panel-undock")?.setAttribute(
+        "aria-keyshortcuts",
+        ariaKeyShortcuts("toggle-side-panel"),
+      );
+    };
+    window.addEventListener("comnd:shortcuts", this.shortcutsChangeHandler);
     this.initSidebarResize();
     this.initSidebarToggle();
     // The panel is app-wide (ADR-013) and lives in lib/side-panel.ts; this view
@@ -1368,6 +1380,17 @@ export class TerminalView {
     if (docked && settleKey !== this.panelSettleKey) this.settleSidebarContent();
     this.panelSettleKey = settleKey;
 
+    // A closed → open transition is a new subject. Replay was skipped while the
+    // panel was shut (setPanelActive refuses to load into a closed pane), so
+    // reopening it after a tab switch would otherwise show the previous host's
+    // commands, and Play would have nothing to find.
+    const justOpened = state.open && !this.panelWasOpen;
+    this.panelWasOpen = state.open;
+    if (justOpened && this.panelActive) {
+      if (state.mode === "replay") void this.showReplayPanel();
+      else this.updateSidebarPlaceholder();
+    }
+
     // Only a change of occupied width needs a refit: a drag already fits on
     // every pointer frame, and a snapshot change never moves the pane.
     const layoutKey = docked ? `open|${state.dockedWidth}` : "closed";
@@ -1579,14 +1602,26 @@ export class TerminalView {
   /** Load the replay list into the panel for this session's platform. */
   private async showReplayPanel(): Promise<void> {
     if (!this.panelActive || !getSidePanelState().open) return;
+    // A late completion from a tab that has since given up the panel would
+    // otherwise replace the active host's list (or its error) with this one's.
+    const seq = ++this.replayLoadSeq;
+    const stillOwner = () =>
+      seq === this.replayLoadSeq &&
+      this.panelActive &&
+      getSidePanelState().open &&
+      getSidePanelState().mode === "replay";
     const platform = this.host?.platform ?? "";
+    let items: ReplayCommand[];
     try {
-      this.replayItems = await replayList();
+      items = await replayList();
     } catch (e) {
+      if (!stillOwner()) return;
       setSidePanelError(`Failed to load Command Replay: ${e}`);
       return;
     }
-    setSidePanelSnapshot({ kind: "replay", items: this.replayItems, platform });
+    if (!stillOwner()) return;
+    this.replayItems = items;
+    setSidePanelSnapshot({ kind: "replay", items, platform });
   }
 
   private openReplaySaveDialog(): void {
@@ -1632,7 +1667,11 @@ export class TerminalView {
   setPanelActive(active: boolean): void {
     if (this.panelActive === active) return;
     this.panelActive = active;
-    if (!active) return;
+    if (!active) {
+      // Any load still in flight belongs to the tab that just gave the panel up.
+      this.replayLoadSeq++;
+      return;
+    }
     this.applyPanelState(getSidePanelState());
     const state = getSidePanelState();
     if (!state.open) return;
@@ -1871,6 +1910,10 @@ export class TerminalView {
     if (this.highlightChangeHandler) {
       window.removeEventListener("comnd:output-highlight", this.highlightChangeHandler);
       this.highlightChangeHandler = null;
+    }
+    if (this.shortcutsChangeHandler) {
+      window.removeEventListener("comnd:shortcuts", this.shortcutsChangeHandler);
+      this.shortcutsChangeHandler = null;
     }
 
     this.timestampGutter?.dispose();

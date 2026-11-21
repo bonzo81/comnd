@@ -576,6 +576,7 @@ pub fn run() {
             });
 
             // The undocked panel window must not outlive the main window.
+            app.manage(panel::PanelGeometryWriter::default());
             panel::attach_main_window_cleanup(app.handle());
 
             Ok(())
