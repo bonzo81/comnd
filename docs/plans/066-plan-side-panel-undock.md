@@ -145,12 +145,34 @@ same reasoning makes `panel_close`, docking and app shutdown all go through one
 `close_panel_window`: Tauri's `destroy()` bypasses `CloseRequested`, so that function reads the
 live rectangle and saves it before destroying, rather than trusting the debounce.
 
-**The frontend reconciles the window against the latest home.** `setPanelUndocked` used its
-captured argument, so an undock that resumed after a dock could open a window beside the
-restored sidebar. Native effects are now queued and each run reads the current state; an open
-that completes after the home moved closes the window it just created. A failed dock write
-rolls the home back and reports in the panel (Rust keeps the old home and only destroys the
-window after a successful write), and a failed open clears `open` so the toggle stays usable.
+**The close path is serialised end to end.** A second round of review found that taking the
+saver out of `PanelGeometryWriter` made the worker lock defeat itself: a concurrent close saw no
+saver, skipped the wait and wrote beside a write still in progress. Worse, it could read the
+rectangle from a window the first close had already destroyed, and `current_geometry`'s
+per-field fallback would then save the *default* rectangle over the user's geometry. The writer
+keeps its saver (so every close waits on the same lock) and holds a `closing` guard across
+read → stop → persist → destroy. Tests: `close_paths_are_serialised`,
+`a_rectangle_collected_before_stop_is_not_written_after_it` and
+`a_rectangle_recorded_after_stop_is_never_written`.
+
+**The frontend has one serialised lifecycle, and it announces only what it saved.** The write
+used to run outside the queue, so an undock write could land after a dock write and leave the
+saved home undocked for the next launch; and the home was announced before the write, so the
+docked panel could appear beside a window that was still open. `applyPanelLifecycle` now runs
+one step per request — persist the requested home, then reconcile the window — and publishes
+the new home only once the config agrees with it. A request id decides which completion owns
+the state, so a failed open cannot clear a newer one, and the queue reads `state` when a step
+runs rather than when it was queued. Tests: `writes the home in the order the user asked for
+it`, `announces the docked home only after the write succeeds`,
+`does not let a stale open failure clear a newer open`, plus the earlier
+`does not reopen a window a later dock already ordered away`.
+
+**The advertised shortcut is applied as an attribute.** `aria-keyshortcuts` was interpolated
+into the markup, and the combo parser accepts any single character, so a saved binding such as
+`Mod+Shift+"` could truncate the attribute (and a crafted override could inject markup). Both
+Dock and Undock now set it with `setAttribute` after rendering and refresh it on
+`comnd:shortcuts`; the panel test mounts with a quote-containing binding and asserts the value
+survives.
 
 **The panel window cannot miss its first snapshot.** `comnd:panel-ready` used to be emitted
 immediately after calling `listen()`; the reply could arrive before the listener resolved and
@@ -165,10 +187,10 @@ its error over the new owner.
 
 **Smaller gaps.** The docked width is flushed on the main window's close request
 (`onCloseRequested` awaits the write), theme and Reading Comfort changes are pushed to an open
-panel window, the panel window loads shortcut overrides and receives later ones, both Dock and
-Undock advertise the resolved binding in `aria-keyshortcuts` instead of a hard-coded
-`Control+Shift+B`, and the tab strip wraps rather than overlapping at 240px with the largest UI
-text scale.
+panel window, the panel window loads shortcut overrides and receives later ones, and the tab
+strip wraps rather than overlapping at 240px with the largest UI text scale — `terminal-sidebar-
+layout` now proves that by measuring the rendered boxes at 240px and 1.5× text: no label is
+clipped, nothing leaves the panel, and no two items on one row overlap.
 
 ## Verification
 
@@ -178,16 +200,16 @@ WebView2 157.0.4341.60 on `PATH`.
 | Gate | Result |
 |---|---|
 | `npm run build` | exit 0 |
-| `npm run test` | 52 files, 983 tests passed |
+| `npm run test` | 52 files, 987 tests passed |
 | `npm run lint:css` | exit 0 — 82 tokens, 120 files scanned |
 | `cargo check --all-targets` (`src-tauri/`) | exit 0 |
-| `cargo test` (`src-tauri/`) | 270 passed |
-| `cargo test --release --lib` (`src-tauri/`) | 268 passed |
+| `cargo test` (`src-tauri/`) | 273 passed |
+| `cargo test --release --lib` (`src-tauri/`) | 271 passed |
 | `npm run smoke` | exit 0 — 25 scenarios, including `panel-undock-dock` and `panel-undock-relaunch` |
 | `npm run smoke:mutation` | exit 0, expected single failure reporting dropped `ssh_send` input |
 | `npm run smoke -- --mutation=terminal-sidebar-layout` | exit 0, expected single failure |
 | `npm run lint:eol` | exit 0 — 369 text files in the index |
-| `npm run test:coverage` (frontend floors) | exit 0 — `lib` 87.45% (floor 78%), `components` 38.03% (floor 29%) |
+| `npm run test:coverage` (frontend floors) | exit 0 — `lib` 87.49% (floor 78%), `components` 38.08% (floor 29%) |
 | `npm run test:coverage:rust` (Rust floors) | exit 0 — stores 68.00% (floor 65%), command layer 40.87% (floor 35%); measured on Windows, where the numbers are indicative only |
 
 `npm run smoke` rebuilds the app, and `tauri build` regenerates
