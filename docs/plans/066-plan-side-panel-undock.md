@@ -145,16 +145,24 @@ same reasoning makes `panel_close`, docking and app shutdown all go through one
 `close_panel_window`: Tauri's `destroy()` bypasses `CloseRequested`, so that function reads the
 live rectangle and saves it before destroying, rather than trusting the debounce.
 
-**The close path is serialised end to end.** A second round of review found that taking the
-saver out of `PanelGeometryWriter` made the worker lock defeat itself: a concurrent close saw no
-saver, skipped the wait and wrote beside a write still in progress. Worse, it could read the
-rectangle from a window the first close had already destroyed, and `current_geometry`'s
-per-field fallback would then save the *default* rectangle over the user's geometry. The writer
-keeps its saver (so every close waits on the same lock) and holds a `closing` guard across
-read → stop → persist → destroy. The guard is taken *before* the window lookup, so two closes
-cannot both keep a handle from before the first destroyed it. Tests:
-`close_paths_are_serialised`, `a_rectangle_collected_before_stop_is_not_written_after_it` and
-`a_rectangle_recorded_after_stop_is_never_written`.
+**The close path is serialised end to end, and a close claims the window.** A second round
+of review found that taking the saver out of `PanelGeometryWriter` made the worker lock defeat
+itself: a concurrent close saw no saver, skipped the wait and wrote beside a write still in
+progress. Worse, it could read the rectangle from a window the first close had already
+destroyed, and a per-field fallback would then save the *default* rectangle over the user's
+geometry. The writer keeps its saver (so every close waits on the same lock), a `closing` guard
+covers read → stop → persist → destroy, and a close now *claims* the window before destroying
+it: `destroy()` reaches the event loop asynchronously, so `get_webview_window` keeps reporting
+the label for a moment and a second close would otherwise read a dying window. The close path
+also refuses to write anything when the live rectangle cannot be read (`live_geometry`), so a
+default rectangle can never be substituted for a real one. Tests:
+`close_paths_are_serialised`, `a_claimed_window_is_not_closed_twice`,
+`a_rebuilt_window_can_be_closed_again`, `a_rectangle_collected_before_stop_is_not_written_after_it`
+and `a_rectangle_recorded_after_stop_is_never_written`. The live-window half is exercised by
+`panel-undock-relaunch`, which races two closes through `test_panel_race_close` with the
+debounce worker still holding a rectangle and asserts the geometry each path saved equals the
+window's real rectangle — the assertion that failed before the claim existed (it saved
+`x = 1605`, the default, instead of the live `390`).
 
 **The frontend has one serialised lifecycle, and it announces only what it saved.** The write
 used to run outside the queue, so an undock write could land after a dock write and leave the
@@ -203,16 +211,16 @@ WebView2 157.0.4341.60 on `PATH`.
 | Gate | Result |
 |---|---|
 | `npm run build` | exit 0 |
-| `npm run test` | 52 files, 987 tests passed |
+| `npm run test` | 52 files, 989 tests passed |
 | `npm run lint:css` | exit 0 — 82 tokens, 120 files scanned |
 | `cargo check --all-targets` (`src-tauri/`) | exit 0 |
-| `cargo test` (`src-tauri/`) | 273 passed |
-| `cargo test --release --lib` (`src-tauri/`) | 271 passed |
+| `cargo test` (`src-tauri/`) | 275 passed |
+| `cargo test --release --lib` (`src-tauri/`) | 273 passed |
 | `npm run smoke` | exit 0 — 25 scenarios, including `panel-undock-dock` and `panel-undock-relaunch` |
 | `npm run smoke:mutation` | exit 0, expected single failure reporting dropped `ssh_send` input |
 | `npm run smoke -- --mutation=terminal-sidebar-layout` | exit 0, expected single failure |
 | `npm run lint:eol` | exit 0 — 369 text files in the index |
-| `npm run test:coverage` (frontend floors) | exit 0 — `lib` 87.49% (floor 78%), `components` 38.08% (floor 29%) |
+| `npm run test:coverage` (frontend floors) | exit 0 — `lib` 87.50% (floor 78%), `components` 38.08% (floor 29%) |
 | `npm run test:coverage:rust` (Rust floors) | exit 0 — stores 68.00% (floor 65%), command layer 40.87% (floor 35%); measured on Windows, where the numbers are indicative only |
 
 `npm run smoke` rebuilds the app, and `tauri build` regenerates
@@ -231,6 +239,7 @@ so the same one-line fix applies whenever a capability change is committed from 
 | A saved position on a missing monitor is clamped back on screen, size kept | `clamp_position` unit tests in `panel.rs`, including a rectangle outside every monitor |
 | Undock and dock work from the keyboard alone | every transition in `panel-undock-dock` is driven by `Ctrl+Shift+B` only, including docking from the panel window |
 | At most one panel window, and a repeat request reuses it | `panel-undock-dock` step 5 compares the WebDriver window handle before and after `panel_open`: destroying and rebuilding at the same width now fails even though the count and the width would still match |
+| Overlapping closes save the live rectangle, not a default | `panel-undock-relaunch` races two closes through `test_panel_race_close` after moving and resizing the window, then asserts all four saved fields equal the live rectangle and that no panel window is left |
 
 ### Smoke harness
 
