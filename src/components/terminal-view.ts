@@ -639,7 +639,6 @@ export class TerminalView {
                 id="panel-undock"
                 title="Undock side panel into its own window"
                 aria-label="Undock side panel"
-                aria-keyshortcuts="${ariaKeyShortcuts("toggle-side-panel")}"
               >${icons.undock}<span>Undock</span></button>
             </div>
             <div class="sb-content">
@@ -745,7 +744,9 @@ export class TerminalView {
     this.$("#panel-undock")?.addEventListener("click", () => {
       void setPanelUndocked(true);
     });
-    // A rebinding changes the combo the Undock control advertises.
+    // Set the advertised combination through the DOM, never by interpolating it
+    // into the markup: a saved binding can contain a quote and would truncate
+    // the attribute. A rebinding changes the combo this control advertises.
     this.shortcutsChangeHandler = () => {
       this.$("#panel-undock")?.setAttribute(
         "aria-keyshortcuts",
@@ -753,6 +754,7 @@ export class TerminalView {
       );
     };
     window.addEventListener("comnd:shortcuts", this.shortcutsChangeHandler);
+    this.shortcutsChangeHandler();
     this.initSidebarResize();
     this.initSidebarToggle();
     // The panel is app-wide (ADR-013) and lives in lib/side-panel.ts; this view

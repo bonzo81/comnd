@@ -206,6 +206,20 @@ describe("undocked panel window", () => {
     expect(document.documentElement.style.getPropertyValue("--text-scale")).toBe("");
   });
 
+  it("sets the advertised shortcut as an attribute, not as markup", () => {
+    // A saved binding can hold a quote. Applied with setAttribute after render,
+    // it sets the value instead of truncating the attribute or the element.
+    setOverrides({ "toggle-side-panel": 'Mod+Shift+"' });
+    const { root } = mount();
+    const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;
+    const expected = ariaKeyShortcuts("toggle-side-panel");
+    expect(dock.getAttribute("aria-keyshortcuts")).toBe(expected);
+    expect(expected).toContain('"');
+    expect(dock.querySelector("span")?.textContent).toBe("Dock");
+    expect(root.querySelectorAll(".pw-head button")).toHaveLength(2);
+    expect(root.querySelector(".pw-title")?.textContent).toBe("Panel");
+  });
+
   it("follows a rebound panel shortcut in its advertised combination", () => {
     const { root } = mount();
     const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;

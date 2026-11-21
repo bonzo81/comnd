@@ -44,7 +44,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     <div class="panel-window">
       <header class="pw-head" data-tauri-drag-region="deep">
         <h1 class="pw-title">Panel</h1>
-        <button type="button" class="btn-text pw-dock" id="panel-dock" aria-keyshortcuts="${ariaKeyShortcuts("toggle-side-panel")}">${icons.dock}<span>Dock</span></button>
+        <button type="button" class="btn-text pw-dock" id="panel-dock">${icons.dock}<span>Dock</span></button>
         <button type="button" class="btn-text pw-close" id="panel-close" aria-label="Close panel" title="Close panel" aria-keyshortcuts="Escape">${icons.x}</button>
       </header>
       <div class="sb-toggle" role="tablist" aria-label="Panel content">
@@ -83,12 +83,15 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   const onKb = () => bridge.send({ type: "mode", mode: "kb" });
   const onReplay = () => bridge.send({ type: "mode", mode: "replay" });
 
-  // Rebinding the panel shortcut anywhere in the app re-emits this event, so a
-  // saved override reaches the Dock control's advertised shortcut too.
+  // Set the advertised combination through the DOM, never by interpolating it
+  // into the markup: a saved binding can contain a quote ("Mod+\"") and would
+  // otherwise truncate the attribute. Rebinding anywhere in the app re-emits
+  // this event, so the control follows the effective binding.
   const syncDockShortcut = () => {
     dock.setAttribute("aria-keyshortcuts", ariaKeyShortcuts("toggle-side-panel"));
   };
   window.addEventListener("comnd:shortcuts", syncDockShortcut);
+  syncDockShortcut();
 
   dock.addEventListener("click", onDock);
   root.querySelector(".pw-close")!.addEventListener("click", onClose);
