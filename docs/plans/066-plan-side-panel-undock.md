@@ -151,19 +151,22 @@ saver, skipped the wait and wrote beside a write still in progress. Worse, it co
 rectangle from a window the first close had already destroyed, and `current_geometry`'s
 per-field fallback would then save the *default* rectangle over the user's geometry. The writer
 keeps its saver (so every close waits on the same lock) and holds a `closing` guard across
-read → stop → persist → destroy. Tests: `close_paths_are_serialised`,
-`a_rectangle_collected_before_stop_is_not_written_after_it` and
+read → stop → persist → destroy. The guard is taken *before* the window lookup, so two closes
+cannot both keep a handle from before the first destroyed it. Tests:
+`close_paths_are_serialised`, `a_rectangle_collected_before_stop_is_not_written_after_it` and
 `a_rectangle_recorded_after_stop_is_never_written`.
 
 **The frontend has one serialised lifecycle, and it announces only what it saved.** The write
 used to run outside the queue, so an undock write could land after a dock write and leave the
 saved home undocked for the next launch; and the home was announced before the write, so the
-docked panel could appear beside a window that was still open. `applyPanelLifecycle` now runs
-one step per request — persist the requested home, then reconcile the window — and publishes
-the new home only once the config agrees with it. A request id decides which completion owns
-the state, so a failed open cannot clear a newer one, and the queue reads `state` when a step
-runs rather than when it was queued. Tests: `writes the home in the order the user asked for
-it`, `announces the docked home only after the write succeeds`,
+docked panel could appear beside a window that was still open. The requested home is now held
+*apart* from the published one — a snapshot or mode change during a pending write cannot leak
+it — and `applyPanelLifecycle` runs one step per request: persist the requested home, then
+reconcile the window, publishing the home only once the config agrees with it. A request id
+decides which completion owns the state, so a failed open cannot clear a newer one, and an
+open that completes after a dock closes the window it just created. Tests: `writes the home in
+the order the user asked for it`, `never publishes a home whose write has not finished`,
+`announces the docked home only after the write succeeds`,
 `does not let a stale open failure clear a newer open`, plus the earlier
 `does not reopen a window a later dock already ordered away`.
 
@@ -171,8 +174,8 @@ it`, `announces the docked home only after the write succeeds`,
 into the markup, and the combo parser accepts any single character, so a saved binding such as
 `Mod+Shift+"` could truncate the attribute (and a crafted override could inject markup). Both
 Dock and Undock now set it with `setAttribute` after rendering and refresh it on
-`comnd:shortcuts`; the panel test mounts with a quote-containing binding and asserts the value
-survives.
+`comnd:shortcuts`; the panel tests mount with a quote-containing binding and with a
+markup-shaped override, and assert the value survives as an attribute with no element added.
 
 **The panel window cannot miss its first snapshot.** `comnd:panel-ready` used to be emitted
 immediately after calling `listen()`; the reply could arrive before the listener resolved and
