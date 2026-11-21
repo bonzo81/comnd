@@ -220,6 +220,18 @@ describe("undocked panel window", () => {
     expect(root.querySelector(".pw-title")?.textContent).toBe("Panel");
   });
 
+  it("keeps a crafted override out of the rendered markup", () => {
+    // The combo parser accepts any trailing token, so an override can carry
+    // markup. It must land in an attribute value, never in the document.
+    setOverrides({ "toggle-side-panel": 'Mod+Shift+"><img src=x onerror=alert(1)>' });
+    const { root } = mount();
+    expect(root.querySelector("img")).toBeNull();
+    const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;
+    expect(dock.getAttribute("aria-keyshortcuts")).toContain('<img');
+    expect(dock.querySelector("span")?.textContent).toBe("Dock");
+    expect(root.querySelectorAll(".pw-head button")).toHaveLength(2);
+  });
+
   it("follows a rebound panel shortcut in its advertised combination", () => {
     const { root } = mount();
     const dock = root.querySelector<HTMLButtonElement>("#panel-dock")!;
