@@ -229,6 +229,10 @@ impl GeometrySaver {
     fn start(app: &AppHandle) -> Self {
         let worker_app = app.clone();
         Self::with_persist(Arc::new(move |geometry| {
+            // Debug builds can hold one write to prove the close paths behave
+            // while a write is genuinely in flight; a release build has no gate.
+            #[cfg(debug_assertions)]
+            worker_app.state::<PanelGeometryWriter>().debug_wait();
             if let Err(e) = persist_geometry(&worker_app, geometry) {
                 log::warn!("Failed to save panel window geometry: {}", e);
             }
@@ -314,6 +318,10 @@ pub struct PanelGeometryWriter {
     /// a moment afterwards; without this claim a second close would read a dying
     /// window and (before `live_geometry`) save the default rectangle.
     closed: AtomicBool,
+    /// Debug-only: holds one worker write until a test releases it, so the smoke
+    /// suite can start both close paths while a write is genuinely in flight.
+    #[cfg(debug_assertions)]
+    gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 impl PanelGeometryWriter {
@@ -360,6 +368,46 @@ impl PanelGeometryWriter {
         };
         if let Some(saver) = saver {
             saver.stop();
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl PanelGeometryWriter {
+    /// Hold the next worker write at the gate. The worker signals `started` and
+    /// blocks until `release` fires or the gate is dropped.
+    fn debug_arm(&self, started: std::sync::mpsc::Sender<()>, release: std::sync::mpsc::Receiver<()>) {
+        let mut slot = match self.gate.lock() {
+            Ok(slot) => slot,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *slot = Some((started, release));
+    }
+
+    /// Drop an armed gate, unblocking a worker that is waiting on it.
+    fn debug_disarm(&self) {
+        let mut slot = match self.gate.lock() {
+            Ok(slot) => slot,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *slot = None;
+    }
+
+    /// Called by the worker immediately before it writes. Blocks while a test
+    /// holds the gate, which is what makes "a write in flight" observable.
+    fn debug_wait(&self) {
+        let gate = {
+            let mut slot = match self.gate.lock() {
+                Ok(slot) => slot,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            slot.take()
+        };
+        if let Some((started, release)) = gate {
+            started.send(()).ok();
+            // A dropped sender also releases the worker, so a failed test cannot
+            // wedge it.
+            release.recv().ok();
         }
     }
 }
@@ -622,24 +670,69 @@ pub async fn test_panel_set_geometry(
         .map_err(|e| e.to_string())
 }
 
-/// Close the panel window twice at the same time, as two UI paths can, and
-/// report the rectangle the close paths saved.
+/// What `test_panel_race_close` observed: the rectangle the close paths saved and
+/// the window's real rectangle when the race started.
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PanelCloseRaceReport {
+    pub saved: PanelWindowGeometry,
+    pub live: PanelWindowGeometry,
+}
+
+/// Close the panel window twice at the same time while a worker write is held,
+/// then let the write finish, and report what the close paths saved.
 ///
-/// Debug only. The smoke suite uses it to prove the outcome a stale window handle
-/// used to produce: the second close would read the destroyed window, fall back
-/// to the default rectangle and save that over the user's geometry.
+/// Debug only. This is the sequence a stale window handle used to corrupt: the
+/// second close would read the destroyed window, fall back to the default
+/// rectangle and save that over the user's geometry. Nudging the window first
+/// guarantees a pending write (the centred default is hundreds of pixels away,
+/// so a default write is unmistakable in the report).
 #[cfg(debug_assertions)]
 #[tauri::command]
-pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelWindowGeometry, String> {
+pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceReport, String> {
+    let writer = app.state::<PanelGeometryWriter>();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+
+    let live = {
+        let window = app
+            .get_webview_window(PANEL_LABEL)
+            .ok_or_else(|| "The panel window is not open".to_string())?;
+        let current = live_geometry(&window)
+            .ok_or_else(|| "The panel window has no readable geometry".to_string())?;
+        // Arm the gate before moving, so the move's write is the one held.
+        writer.debug_arm(started_tx, release_rx);
+        window
+            .set_position(PhysicalPosition::new(current.x + 2, current.y + 2))
+            .map_err(|e| e.to_string())?;
+        live_geometry(&window)
+            .ok_or_else(|| "The panel window lost its geometry".to_string())?
+    };
+
+    // The tracker reaches the gate within one debounce interval; a miss means the
+    // scenario can no longer prove anything, so fail rather than race nothing.
+    if started_rx
+        .recv_timeout(GEOMETRY_DEBOUNCE * 4)
+        .is_err()
+    {
+        writer.debug_disarm();
+        return Err("The geometry worker never reached the paused write".to_string());
+    }
+
     let first = app.clone();
     let second = app.clone();
     let a = std::thread::spawn(move || close_panel_window(&first));
     let b = std::thread::spawn(move || close_panel_window(&second));
-    a.join().map_err(|_| "the first close panicked".to_string())??;
-    b.join().map_err(|_| "the second close panicked".to_string())??;
-    read_panel_config(&app)
+    // Let both close paths reach the write the worker is holding.
+    std::thread::sleep(Duration::from_millis(100));
+    let _ = release_tx.send(());
+
+    a.join().map_err(|_| "The first close panicked".to_string())??;
+    b.join().map_err(|_| "The second close panicked".to_string())??;
+    let saved = read_panel_config(&app)
         .window
-        .ok_or_else(|| "the close paths saved no geometry".to_string())
+        .ok_or_else(|| "The close paths saved no geometry".to_string())?;
+    Ok(PanelCloseRaceReport { saved, live })
 }
 
 /// Destroy the panel window when the main window goes away, so quitting the app
