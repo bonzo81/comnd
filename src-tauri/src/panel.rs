@@ -232,7 +232,9 @@ impl GeometrySaver {
             // Debug builds can hold one write to prove the close paths behave
             // while a write is genuinely in flight; a release build has no gate.
             #[cfg(debug_assertions)]
-            worker_app.state::<PanelGeometryWriter>().debug_wait();
+            worker_app
+                .state::<PanelGeometryWriter>()
+                .debug_wait(geometry);
             if let Err(e) = persist_geometry(&worker_app, geometry) {
                 log::warn!("Failed to save panel window geometry: {}", e);
             }
@@ -319,13 +321,15 @@ pub struct PanelGeometryWriter {
     /// window and (before `live_geometry`) save the default rectangle.
     closed: AtomicBool,
     /// Debug-only: holds one worker write until a test releases it, so the smoke
-    /// suite can start both close paths while a write is genuinely in flight.
+    /// suite can start both close paths while a write is genuinely in flight. The
+    /// worker sends the rectangle it actually took, not one the test guessed.
     #[cfg(debug_assertions)]
-    gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    gate: Mutex<Option<(std::sync::mpsc::Sender<PanelWindowGeometry>, std::sync::mpsc::Receiver<()>)>>,
     /// Debug-only: closes blocked acquiring `closing`.
     #[cfg(debug_assertions)]
     waiting: AtomicUsize,
-    /// Debug-only: closes that reached `stop()` while holding the guard.
+    /// Debug-only: closes that found the write lock held, i.e. are queued behind
+    /// an in-flight write.
     #[cfg(debug_assertions)]
     at_stop: AtomicUsize,
 }
@@ -345,14 +349,25 @@ impl PanelGeometryWriter {
     /// Hold the returned guard until the final rectangle is written and the
     /// window destroyed.
     fn begin_close(&self) -> Option<MutexGuard<'_, ()>> {
-        #[cfg(debug_assertions)]
-        self.waiting.fetch_add(1, Ordering::SeqCst);
-        let guard = match self.closing.lock() {
+        // Observe contention rather than announcing an intention: a thread that
+        // only increments a counter can be descheduled before it ever blocks, so
+        // the counter would not prove anything. `waiting` is raised only while a
+        // close is actually queued on a guard another close holds.
+        let guard = match self.closing.try_lock() {
             Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                #[cfg(debug_assertions)]
+                self.waiting.fetch_add(1, Ordering::SeqCst);
+                let waited = match self.closing.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                #[cfg(debug_assertions)]
+                self.waiting.fetch_sub(1, Ordering::SeqCst);
+                waited
+            }
         };
-        #[cfg(debug_assertions)]
-        self.waiting.fetch_sub(1, Ordering::SeqCst);
         if self.closed.load(Ordering::SeqCst) {
             return None;
         }
@@ -386,7 +401,11 @@ impl PanelGeometryWriter {
 impl PanelGeometryWriter {
     /// Hold the next worker write at the gate. The worker signals `started` and
     /// blocks until `release` fires or the gate is dropped.
-    fn debug_arm(&self, started: std::sync::mpsc::Sender<()>, release: std::sync::mpsc::Receiver<()>) {
+    fn debug_arm(
+        &self,
+        started: std::sync::mpsc::Sender<PanelWindowGeometry>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
         let mut slot = match self.gate.lock() {
             Ok(slot) => slot,
             Err(poisoned) => poisoned.into_inner(),
@@ -397,13 +416,26 @@ impl PanelGeometryWriter {
         self.at_stop.store(0, Ordering::SeqCst);
     }
 
-    /// Called by the close path once it holds the guard and is about to stop the
-    /// writer, i.e. the point where it blocks on an in-flight write.
+    /// Called by the close path just before it stops the writer. The counter is
+    /// raised only when the write lock is actually held, so it records a close
+    /// queued behind an in-flight write rather than one that merely reached the
+    /// call.
     fn debug_note_stop(&self) {
-        self.at_stop.fetch_add(1, Ordering::SeqCst);
+        let saver = {
+            let slot = match self.saver.lock() {
+                Ok(slot) => slot,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            slot.clone()
+        };
+        if let Some(saver) = saver {
+            if saver.writes.try_lock().is_err() {
+                self.at_stop.fetch_add(1, Ordering::SeqCst);
+            }
+        }
     }
 
-    /// (closes blocked on the guard, closes that reached `stop()`).
+    /// (closes queued on the guard, closes queued behind a write).
     fn debug_close_state(&self) -> (usize, usize) {
         (
             self.waiting.load(Ordering::SeqCst),
@@ -420,9 +452,10 @@ impl PanelGeometryWriter {
         *slot = None;
     }
 
-    /// Called by the worker immediately before it writes. Blocks while a test
-    /// holds the gate, which is what makes "a write in flight" observable.
-    fn debug_wait(&self) {
+    /// Called by the worker immediately before it writes. Sends the rectangle it
+    /// actually took, then blocks while a test holds the gate — which is what
+    /// makes "a write in flight" observable.
+    fn debug_wait(&self, geometry: PanelWindowGeometry) {
         let gate = {
             let mut slot = match self.gate.lock() {
                 Ok(slot) => slot,
@@ -431,8 +464,8 @@ impl PanelGeometryWriter {
             slot.take()
         };
         if let Some((started, release)) = gate {
-            started.send(()).ok();
-            // A dropped sender also releases the worker, so a failed test cannot
+            started.send(geometry).ok();
+            // A dropped receiver also releases the worker, so a failed test cannot
             // wedge it.
             release.recv().ok();
         }
@@ -734,26 +767,21 @@ pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceRepor
     let start = live_geometry(&window)
         .ok_or_else(|| "The panel window has no readable geometry".to_string())?;
 
-    // A: arm the gate, then move so the tracker records a rectangle to write.
+    // Arm the gate, then move so the tracker has a rectangle to write.
     writer.debug_arm(started_tx, release_rx);
-    let stale = PanelWindowGeometry {
-        x: start.x + 2,
-        y: start.y + 2,
-        ..start
-    };
     window
-        .set_position(PhysicalPosition::new(stale.x, stale.y))
+        .set_position(PhysicalPosition::new(start.x + 2, start.y + 2))
         .map_err(|e| e.to_string())?;
 
-    // The tracker reaches the gate within one debounce interval; a miss means the
-    // scenario can no longer prove anything, so fail rather than race nothing.
-    if started_rx
-        .recv_timeout(GEOMETRY_DEBOUNCE * 4)
-        .is_err()
-    {
-        writer.debug_disarm();
-        return Err("The geometry worker never reached the paused write".to_string());
-    }
+    // The worker sends the rectangle it actually took, so "stale" is what is
+    // really paused rather than a value this command guessed.
+    let stale = match started_rx.recv_timeout(GEOMETRY_DEBOUNCE * 4) {
+        Ok(geometry) => geometry,
+        Err(_) => {
+            writer.debug_disarm();
+            return Err("The geometry worker never reached the paused write".to_string());
+        }
+    };
 
     // B: a rectangle far enough from A that a stale write cannot pass for it.
     let target = PanelWindowGeometry {
