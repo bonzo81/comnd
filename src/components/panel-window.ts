@@ -48,8 +48,9 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
         <button type="button" class="btn-text pw-close" id="panel-close" aria-label="Close panel" title="Close panel" aria-keyshortcuts="Escape">${icons.x}</button>
       </header>
       <div class="sb-toggle" role="tablist" aria-label="Panel content">
-        <button class="sb-toggle-btn sb-toggle-kb" role="tab" aria-selected="true">Knowledge Base</button>
-        <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false">Command Replay</button>
+        <button class="sb-toggle-btn sb-toggle-kb" role="tab" aria-selected="true" aria-label="Knowledge Base" title="Knowledge Base">${icons.book}</button>
+        <button class="sb-toggle-btn sb-toggle-replay" role="tab" aria-selected="false" aria-label="Command Replay" title="Command Replay">${icons.clock}</button>
+        <button class="sb-toggle-btn sb-toggle-netbox" role="tab" aria-selected="false" aria-label="NetBox device details" title="NetBox device details" hidden>${icons.netbox}</button>
       </div>
       <div class="sb-content"><p class="sb-placeholder">Waiting for the terminal…</p></div>
     </div>
@@ -58,21 +59,28 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   const content = root.querySelector<HTMLElement>(".sb-content")!;
   const kbTab = root.querySelector<HTMLElement>(".sb-toggle-kb")!;
   const replayTab = root.querySelector<HTMLElement>(".sb-toggle-replay")!;
+  const netboxTab = root.querySelector<HTMLElement>(".sb-toggle-netbox")!;
   const dock = root.querySelector<HTMLButtonElement>(".pw-dock")!;
 
   const handlers = {
     play: (command: ReplayCommand) => bridge.send({ type: "play", id: command.id }),
     add: () => bridge.send({ type: "add" }),
     runExample: (command: string) => bridge.send({ type: "run", command }),
+    retryNetbox: () => bridge.send({ type: "retry-netbox" }),
   };
 
   let renderedSnapshot: SidePanelState["snapshot"] | null = null;
 
   const apply = (state: SidePanelState) => {
-    kbTab.classList.toggle("active", state.mode === "kb");
-    replayTab.classList.toggle("active", state.mode === "replay");
-    kbTab.setAttribute("aria-selected", String(state.mode === "kb"));
-    replayTab.setAttribute("aria-selected", String(state.mode === "replay"));
+    for (const [mode, tab] of [
+      ["kb", kbTab],
+      ["replay", replayTab],
+      ["netbox", netboxTab],
+    ] as const) {
+      tab.classList.toggle("active", state.mode === mode);
+      tab.setAttribute("aria-selected", String(state.mode === mode));
+    }
+    netboxTab.hidden = state.netboxHostId === null;
     if (state.snapshot === renderedSnapshot) return;
     renderedSnapshot = state.snapshot;
     renderSidePanel(content, state.snapshot, handlers);
@@ -82,6 +90,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   const onClose = () => bridge.send({ type: "close" });
   const onKb = () => bridge.send({ type: "mode", mode: "kb" });
   const onReplay = () => bridge.send({ type: "mode", mode: "replay" });
+  const onNetbox = () => bridge.send({ type: "mode", mode: "netbox" });
 
   // Set the advertised combination through the DOM, never by interpolating it
   // into the markup: a saved binding can contain a quote ("Mod+\"") and would
@@ -97,6 +106,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
   root.querySelector(".pw-close")!.addEventListener("click", onClose);
   kbTab.addEventListener("click", onKb);
   replayTab.addEventListener("click", onReplay);
+  netboxTab.addEventListener("click", onNetbox);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -137,6 +147,7 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     root.querySelector(".pw-close")!.removeEventListener("click", onClose);
     kbTab.removeEventListener("click", onKb);
     replayTab.removeEventListener("click", onReplay);
+    netboxTab.removeEventListener("click", onNetbox);
     delete document.documentElement.dataset.comndWindow;
   };
 }

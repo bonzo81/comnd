@@ -630,6 +630,7 @@ pub fn run() {
                 netbox::netbox_get_sites,
                 netbox::netbox_get_roles,
                 netbox::netbox_get_tags,
+                netbox::netbox_get_device_summary,
                 netbox::netbox_set_device_enabled,
                 netbox::netbox_set_device_overlay,
                 netbox::netbox_get_status,

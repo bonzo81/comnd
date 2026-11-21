@@ -292,6 +292,12 @@ const cases: WrapperCase[] = [
   { name: "netboxGetRoles", cmd: "netbox_get_roles", run: () => api.netboxGetRoles() },
   { name: "netboxGetTags", cmd: "netbox_get_tags", run: () => api.netboxGetTags() },
   {
+    name: "netboxGetDeviceSummary",
+    cmd: "netbox_get_device_summary",
+    run: () => api.netboxGetDeviceSummary("netbox:5"),
+    args: { hostId: "netbox:5" },
+  },
+  {
     name: "netboxSetDeviceEnabled",
     cmd: "netbox_set_device_enabled",
     run: () => api.netboxSetDeviceEnabled(5, false),
