@@ -401,15 +401,15 @@ fn attach_geometry_tracking(app: &AppHandle, window: &WebviewWindow, initial: Pa
 /// and app shutdown would otherwise drop a move the debounce worker had not
 /// written yet.
 fn close_panel_window(app: &AppHandle) -> Result<(), String> {
+    let writer = app.state::<PanelGeometryWriter>();
+    // Take the guard *before* looking the window up. Two closes can otherwise
+    // both keep a handle from before the first destroyed it, and a stale handle
+    // fails `outer_position` / `inner_size` — `current_geometry` would then fall
+    // back to the default rectangle and save that over the user's geometry.
+    let _closing = writer.closing();
     let Some(window) = app.get_webview_window(PANEL_LABEL) else {
         return Ok(());
     };
-    let writer = app.state::<PanelGeometryWriter>();
-    // Serialise the whole close, including its final write. Two closes running at
-    // once would read the same window, and the later one would read it after it
-    // was destroyed — `current_geometry` then falls back to the default rectangle
-    // and would save that over the user's geometry.
-    let _closing = writer.closing();
     let geometry = current_geometry(&window, default_geometry(app));
     // Stop the worker *before* writing: waiting out a write already in flight
     // means it cannot land after this rectangle and undo it.
