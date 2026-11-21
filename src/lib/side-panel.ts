@@ -108,6 +108,10 @@ let windowOpen = false;
 /** The home actually written to the config, so a failed write knows what to
  *  restore and a later step does not rewrite it. */
 let persistedHome = false;
+/** A home the user asked for whose write has not finished yet. Kept apart from
+ *  `state.undocked` so no other update — a snapshot, a mode change — can publish
+ *  a home the config does not have. */
+let requestedHome: boolean | null = null;
 
 function initialState(): SidePanelState {
   return {
@@ -174,7 +178,12 @@ export function cycleSidePanel(): void {
     openSidePanel();
     return;
   }
-  void setPanelUndocked(!state.undocked);
+  void setPanelUndocked(!wantedHome());
+}
+
+/** The home last asked for, which may be a step ahead of the published one. */
+function wantedHome(): boolean {
+  return requestedHome ?? state.undocked;
 }
 
 /**
@@ -182,8 +191,8 @@ export function cycleSidePanel(): void {
  * open exactly when the panel is open and undocked.
  *
  * Only ever called from inside a lifecycle step, so two home changes cannot
- * overlap. It reads the state when it runs and re-checks after creating the
- * window, because a dock can land while that call is in flight.
+ * overlap. It re-checks after creating the window against the *requested* home,
+ * because a dock can land while that call is in flight.
  */
 async function syncPanelWindow(): Promise<void> {
   const wanted = state.open && state.undocked;
@@ -195,7 +204,7 @@ async function syncPanelWindow(): Promise<void> {
   }
   await deps.openWindow();
   windowOpen = true;
-  if (!(state.open && state.undocked)) {
+  if (!(state.open && wantedHome())) {
     await deps.closeWindow();
     windowOpen = false;
   }
@@ -214,15 +223,16 @@ function enqueue(step: () => Promise<void>): Promise<void> {
  *
  * The write and the window effect once ran outside the queue, so an undock write
  * could land after a dock write and leave the saved home wrong for the next
- * launch. Each step reads `state` when it runs rather than when it was queued,
- * and the new home is published only once the config agrees with it, so a docked
- * panel never appears beside a window that is still open.
+ * launch. The requested home is held apart from the published one, so no other
+ * update during the write can announce a home the config does not have; each
+ * step reads the request when it runs and publishes only after the write
+ * succeeds.
  */
 function applyPanelLifecycle(): Promise<void> {
   const seq = ++lifecycleSeq;
   return enqueue(async () => {
-    if (persistedHome !== state.undocked) {
-      const target = state.undocked;
+    const target = wantedHome();
+    if (persistedHome !== target) {
       try {
         await deps.setUndocked(target);
         persistedHome = target;
@@ -230,10 +240,10 @@ function applyPanelLifecycle(): Promise<void> {
         // the reconcile below must not ask for a second close.
         if (!target) windowOpen = false;
       } catch (error) {
+        // Rust kept the old home, and nothing was published, so there is
+        // nothing to roll back — only a failure to report.
         if (seq === lifecycleSeq) {
-          // Rust kept the old home: show that, and leave the window alone.
-          state = { ...state, undocked: persistedHome };
-          setState({});
+          requestedHome = null;
           setSidePanelError(
             `Failed to ${target ? "undock" : "dock"} the side panel: ${error}`,
           );
@@ -241,6 +251,11 @@ function applyPanelLifecycle(): Promise<void> {
         return;
       }
     }
+    // The config now agrees with the request, so the home may be published.
+    // Only this step's own request is cleared: a newer one has to survive to be
+    // written by its own step.
+    if (seq === lifecycleSeq) requestedHome = null;
+    if (state.undocked !== target) state = { ...state, undocked: target };
     // Publish the new home / open state only now: the config and the native
     // window are in step with it.
     if (seq === lifecycleSeq) setState({});
@@ -294,8 +309,8 @@ export function handlePanelWindowClosed(): void {
  * panel where it was and reports the failure in the pane.
  */
 export function setPanelUndocked(undocked: boolean): Promise<void> {
-  if (state.undocked === undocked) return Promise.resolve();
-  state = { ...state, undocked };
+  if (wantedHome() === undocked) return Promise.resolve();
+  requestedHome = undocked;
   return applyPanelLifecycle();
 }
 
@@ -378,5 +393,6 @@ export function __resetSidePanel(): void {
   lifecycleSeq = 0;
   windowOpen = false;
   persistedHome = false;
+  requestedHome = null;
   state = initialState();
 }

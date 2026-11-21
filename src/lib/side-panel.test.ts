@@ -374,6 +374,37 @@ describe("side panel state", () => {
     expect(h.closeWindow).not.toHaveBeenCalled();
   });
 
+  it("never publishes a home whose write has not finished", async () => {
+    const h = harness();
+    await initSidePanel();
+    openSidePanel();
+    await setPanelUndocked(true);
+
+    const seen: boolean[] = [];
+    subscribeSidePanel((s) => seen.push(s.undocked));
+    let reject: ((error: unknown) => void) | null = null;
+    h.setUndocked.mockImplementationOnce(
+      () => new Promise<void>((_resolve, rejectWrite) => {
+        reject = rejectWrite;
+      }),
+    );
+
+    const docking = setPanelUndocked(false);
+    await flush();
+    // An unrelated update during the pending write must not leak the new home:
+    // the docked panel would appear beside a window that is still open.
+    setSidePanelSnapshot({ kind: "placeholder", text: "mid-write" });
+    expect(seen.every((undocked) => undocked === true)).toBe(true);
+
+    reject!(new Error("disk full"));
+    await docking;
+    await flush();
+    expect(seen.every((undocked) => undocked === true)).toBe(true);
+    expect(getSidePanelState().undocked).toBe(true);
+    const snapshot = getSidePanelState().snapshot;
+    expect(snapshot.kind === "placeholder" && snapshot.text).toMatch(/Failed to dock/);
+  });
+
   it("writes the home in the order the user asked for it", async () => {
     const h = harness();
     await initSidePanel();
