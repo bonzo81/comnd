@@ -404,6 +404,16 @@ const headlessWebkitEnv = () => (process.platform === "linux"
   }
   : {});
 
+// Windows keeps WebView2's user-data folder (cookies, localStorage) outside
+// `COMND_DATA_DIR`, so a pooled run would share one profile between scenarios:
+// the app process trees are linked through it, and one scenario's stored state
+// can change another's results. WebView2 reads this variable at startup, and
+// the folder lives inside the scenario's data directory, so it is removed with
+// it. The Linux equivalent, the Xvfb display, is per boot for the same reason.
+const webviewProfileEnv = (dataDir) => (process.platform === "win32"
+  ? { WEBVIEW2_USER_DATA_FOLDER: path.join(dataDir, "webview2") }
+  : {});
+
 export async function startDriver(dataDir, extraEnv = {}) {
   const port = await freePort();
   // tauri-driver forwards to the platform WebDriver, which listens on its own
@@ -415,6 +425,7 @@ export async function startDriver(dataDir, extraEnv = {}) {
   const env = {
     ...process.env,
     ...headlessWebkitEnv(),
+    ...webviewProfileEnv(dataDir),
     ...(display ? { DISPLAY: `:${display.display}` } : {}),
     COMND_DATA_DIR: dataDir,
     COMND_TEST_MOCK_SECRET: "smoke-secret",
