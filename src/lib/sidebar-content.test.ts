@@ -1,21 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarContent, wireExampleCopy } from "./sidebar-content";
 import type { Command } from "./tauri-api";
+import { command } from "../../tests/harness";
 
-function makeCommand(over: Partial<Command> = {}): Command {
-  return {
-    name: "reload",
+/** These fixtures are about `reload`; the shared factory supplies the rest. */
+const makeCommand = (over: Partial<Command> = {}): Command =>
+  command("reload", {
     syntax: "reload [reason <text>]",
     description: "Reload the device",
     category: "system",
     mode: "exec",
-    aliases: [],
-    examples: [],
-    versions: { introduced: null, deprecated: null, notes: null },
-    tags: [],
     ...over,
-  };
-}
+  });
 
 const pane = (html: string) => html.replace(/\s+/g, " ");
 

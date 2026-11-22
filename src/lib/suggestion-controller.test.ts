@@ -7,11 +7,10 @@ import { Dropdown } from "./dropdown";
 import type { SuggestionResult } from "./suggestion-engine";
 import type { Command, CommandToken, PlatformIndex } from "./tauri-api";
 import { resetSinks, setLogLevel, setSinks, type LogRecord } from "./logger";
+import { command } from "../../tests/harness";
 
-const cmd = (name: string, mode = "bash"): Command => ({
-  id: name, name, mode, category: "test", description: "",
-  usage: name, platforms: ["linux-bash"], aliases: [],
-} as unknown as Command);
+const cmd = (name: string, mode = "bash"): Command =>
+  command(name, { description: "", mode });
 
 function terminalStub(): Terminal {
   return {
@@ -844,18 +843,12 @@ describe("SuggestionController — prefix commands", () => {
     prefix_commands: { sudo: { unlocks: ["shell"], skip_flag_value: ["-u"] } },
   } as unknown as PlatformIndex;
 
-  const systemctl: Command = {
-    name: "systemctl restart",
+  const systemctl: Command = command("systemctl restart", {
     syntax: "systemctl restart <unit>",
     description: "",
-    category: "test",
     mode: "shell",
-    aliases: [],
-    examples: [],
-    versions: { introduced: null, deprecated: null, notes: null },
-    tags: [],
     tokens: [{ lit: "systemctl restart" }, { var: "unit", type: "free" }],
-  };
+  });
 
   /** Legacy (no `tokens`) command — exercises the name-remainder path. */
   const legacySystemctl: Command = {

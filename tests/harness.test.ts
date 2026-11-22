@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { createHarness } from "./harness";
+import { command, createHarness } from "./harness";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getHosts, setLogLevel } from "../src/lib/tauri-api";
 
 // The harness is the highest-leverage module in the suite â€” its interface
-// is the test surface, so it gets the same treatment (plan-test-harness.md).
+// is the test surface, so it gets the same treatment
+// (docs/plans/054-plan-test-harness.md).
 // Two pins at the bottom are order-dependent on purpose: they prove the
 // previous test's harness (and mount) were cleaned up automatically.
 describe("test harness", () => {
@@ -76,6 +77,14 @@ describe("test harness", () => {
     expect(h.fixtures.host().platform).toBe("linux-bash");
     expect(h.fixtures.hostGroup().name).toBe("Test Group");
     expect(h.fixtures.command("show version").syntax).toBe("show version");
+  });
+
+  it("a fixture is usable without createHarness()", () => {
+    // Direct import, no harness: the factory must not need the IPC dispatcher.
+    const c = command("show version");
+    expect(c.name).toBe("show version");
+    expect(c.syntax).toBe("show version");
+    expect(c.mode).toBe("bash");
   });
 
   it("mount() attaches a container for the test's lifetime", () => {

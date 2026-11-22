@@ -2,25 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Dropdown } from "./dropdown";
 import type { SuggestionResult, TokenMatch } from "./suggestion-engine";
 import type { Command, CommandToken } from "./tauri-api";
-
-function makeCommand(
-  name: string,
-  opts: { overrides?: boolean; tokens?: CommandToken[] } = {},
-): Command {
-  return {
-    name,
-    syntax: name,
-    description: "",
-    category: "test",
-    mode: "shell",
-    aliases: [],
-    examples: [],
-    versions: { introduced: null, deprecated: null, notes: null },
-    tags: [],
-    ...(opts.tokens ? { tokens: opts.tokens } : {}),
-    ...(opts.overrides ? { overrides: true } : {}),
-  };
-}
+import { command } from "../../tests/harness";
 
 function makeResult(
   command: Command,
@@ -118,7 +100,7 @@ afterEach(() => {
 describe("Dropdown — row rendering", () => {
   it("caps rendered rows at 8 and reports the remainder", () => {
     const { dropdown, container } = makeDropdown();
-    const results = Array.from({ length: 10 }, (_, i) => makeResult(makeCommand(`cmd${i}`)));
+    const results = Array.from({ length: 10 }, (_, i) => makeResult(command(`cmd${i}`)));
 
     dropdown.show(results, "");
 
@@ -128,7 +110,7 @@ describe("Dropdown — row rendering", () => {
 
   it("shows no scroll indicator when every row fits", () => {
     const { dropdown, container } = makeDropdown();
-    const results = Array.from({ length: 8 }, (_, i) => makeResult(makeCommand(`cmd${i}`)));
+    const results = Array.from({ length: 8 }, (_, i) => makeResult(command(`cmd${i}`)));
 
     dropdown.show(results, "");
 
@@ -140,7 +122,7 @@ describe("Dropdown — row rendering", () => {
     const { dropdown, container } = makeDropdown();
 
     dropdown.show(
-      [makeResult(makeCommand("custom-cmd", { overrides: true })), makeResult(makeCommand("bundled-cmd"))],
+      [makeResult(command("custom-cmd", { overrides: true })), makeResult(command("bundled-cmd"))],
       "",
     );
 
@@ -151,10 +133,10 @@ describe("Dropdown — row rendering", () => {
 
   it("renders the remaining tokens as a syntax suffix", () => {
     const tokens: CommandToken[] = [{ lit: "systemctl restart" }, { var: "unit", type: "free" }];
-    const command = makeCommand("systemctl restart", { tokens });
+    const cmd = command("systemctl restart", { tokens });
     const { dropdown, container } = makeDropdown();
 
-    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 1) })], "systemctl restart ");
+    dropdown.show([makeResult(cmd, { tokenMatch: tokenMatchAt(tokens, 1) })], "systemctl restart ");
 
     const suffix = container.querySelector(".suggestion-item .token-suffix");
     expect(suffix?.textContent).toBe("<unit>");
@@ -168,10 +150,10 @@ describe("Dropdown — row rendering", () => {
       { lit: "-P" },
       { var: "port", type: "free" },
     ];
-    const command = makeCommand("scp", { tokens });
+    const cmd = command("scp", { tokens });
     const { dropdown, container } = makeDropdown();
 
-    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "s");
+    dropdown.show([makeResult(cmd, { tokenMatch: tokenMatchAt(tokens, 0) })], "s");
 
     const row = container.querySelector(".suggestion-item")!;
     expect(row.querySelector(".suggestion-name")?.textContent).toBe("scp");
@@ -182,10 +164,10 @@ describe("Dropdown — row rendering", () => {
 
   it("renders no suffix when the command name is the only token", () => {
     const tokens: CommandToken[] = [{ lit: "uptime" }];
-    const command = makeCommand("uptime", { tokens });
+    const cmd = command("uptime", { tokens });
     const { dropdown, container } = makeDropdown();
 
-    dropdown.show([makeResult(command, { tokenMatch: tokenMatchAt(tokens, 0) })], "u");
+    dropdown.show([makeResult(cmd, { tokenMatch: tokenMatchAt(tokens, 0) })], "u");
 
     const suffix = container.querySelector(".suggestion-item .token-suffix");
     expect(suffix?.textContent).toBe("");
@@ -193,8 +175,8 @@ describe("Dropdown — row rendering", () => {
 
   it("grows the name highlight as more characters are typed", () => {
     const { dropdown, container } = makeDropdown();
-    const ssh = makeResult(makeCommand("ssh"));
-    const sort = makeResult(makeCommand("sort"));
+    const ssh = makeResult(command("ssh"));
+    const sort = makeResult(command("sort"));
 
     dropdown.show([ssh, sort], "s");
     const rows = () => container.querySelectorAll(".suggestion-item");
@@ -212,15 +194,15 @@ describe("Dropdown — row rendering", () => {
   it("keeps the whole name highlighted once a space follows it", () => {
     const { dropdown, container } = makeDropdown();
 
-    dropdown.show([makeResult(makeCommand("ss"))], "ss");
-    dropdown.updateResults([makeResult(makeCommand("ss"))], "ss ");
+    dropdown.show([makeResult(command("ss"))], "ss");
+    dropdown.updateResults([makeResult(command("ss"))], "ss ");
 
     expect(container.querySelector(".prefix-match")?.textContent).toBe("ss");
   });
 
   it("keeps growing the highlight inside a multi-word command name", () => {
     const { dropdown, container } = makeDropdown();
-    const show = makeResult(makeCommand("show interfaces"));
+    const show = makeResult(command("show interfaces"));
 
     dropdown.show([show], "show");
     expect(container.querySelector(".prefix-match")?.textContent).toBe("show");
@@ -235,14 +217,14 @@ describe("Dropdown — row rendering", () => {
   it("stops the highlight at the name boundary when arguments follow", () => {
     const { dropdown, container } = makeDropdown();
 
-    dropdown.show([makeResult(makeCommand("show interfaces"))], "show interfaces status");
+    dropdown.show([makeResult(command("show interfaces"))], "show interfaces status");
 
     expect(container.querySelector(".prefix-match")?.textContent).toBe("show interfaces");
   });
 
   it("skips the typed-text highlight on prefix-command rows", () => {
-    const prefixRow = makeResult(makeCommand("systemctl restart"), { prefix: "sudo" });
-    const plainRow = makeResult(makeCommand("system status"));
+    const prefixRow = makeResult(command("systemctl restart"), { prefix: "sudo" });
+    const plainRow = makeResult(command("system status"));
     const { dropdown, container } = makeDropdown();
 
     dropdown.show([prefixRow, plainRow], "system");
@@ -258,7 +240,7 @@ describe("Dropdown — selection", () => {
   it("moves the single .selected row with navigation", () => {
     const { dropdown, container } = makeDropdown();
     dropdown.show(
-      [makeCommand("alpha"), makeCommand("beta"), makeCommand("gamma")].map((c) => makeResult(c)),
+      [command("alpha"), command("beta"), command("gamma")].map((c) => makeResult(c)),
       "",
     );
 
@@ -282,10 +264,10 @@ describe("Dropdown — mouse accept", () => {
   it("accepts the clicked row's payload, not row 0's", () => {
     const alphaTokens: CommandToken[] = [{ lit: "alpha" }];
     const betaTokens: CommandToken[] = [{ lit: "beta" }];
-    const alpha = makeResult(makeCommand("alpha", { tokens: alphaTokens }), {
+    const alpha = makeResult(command("alpha", { tokens: alphaTokens }), {
       tokenMatch: tokenMatchAt(alphaTokens, 0),
     });
-    const beta = makeResult(makeCommand("beta", { tokens: betaTokens }), {
+    const beta = makeResult(command("beta", { tokens: betaTokens }), {
       tokenMatch: tokenMatchAt(betaTokens, 0),
     });
     const { dropdown, container, onAccept } = makeDropdown();
@@ -335,7 +317,7 @@ function systemctlTokens(): CommandToken[] {
 }
 
 function systemctlResult(tokens: CommandToken[], currentTokenInput = ""): SuggestionResult {
-  return makeResult(makeCommand("systemctl", { tokens }), {
+  return makeResult(command("systemctl", { tokens }), {
     tokenMatch: tokenMatchAt(tokens, 1, currentTokenInput),
   });
 }
@@ -362,7 +344,7 @@ describe("Dropdown — choice mode", () => {
   it("shows the custom-override badge once above the option rows", () => {
     const tokens = systemctlTokens();
     const { dropdown, container } = makeDropdown();
-    const custom = makeCommand("systemctl", { tokens, overrides: true });
+    const custom = command("systemctl", { tokens, overrides: true });
 
     dropdown.show([makeResult(custom, { tokenMatch: tokenMatchAt(tokens, 1) })], "systemctl ");
 
@@ -562,7 +544,7 @@ describe("Dropdown — choice mode", () => {
     expect(container.querySelectorAll(".choice-row")).toHaveLength(SYSTEMCTL_OPTIONS.length);
 
     dropdown.updateResults([
-      makeResult(makeCommand("systemctl", { tokens }), { tokenMatch: tokenMatchAt(tokens, 2) }),
+      makeResult(command("systemctl", { tokens }), { tokenMatch: tokenMatchAt(tokens, 2) }),
     ]);
 
     expect(container.querySelector(".choice-row")).toBeNull();
@@ -590,18 +572,18 @@ describe("Dropdown — arrival settle", () => {
     const { dropdown, container } = makeDropdown();
     const el = container.querySelector(".suggestion-dropdown") as HTMLElement;
 
-    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    dropdown.show([makeResult(command("show"))], "sh");
     expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
 
     el.classList.remove("suggestion-dropdown--enter");
     dropdown.updateResults([
-      makeResult(makeCommand("show")),
-      makeResult(makeCommand("shutdown")),
+      makeResult(command("show")),
+      makeResult(command("shutdown")),
     ]);
     expect(el.classList.contains("suggestion-dropdown--enter")).toBe(false);
 
     dropdown.hide();
-    dropdown.show([makeResult(makeCommand("show"))], "sh");
+    dropdown.show([makeResult(command("show"))], "sh");
     expect(el.classList.contains("suggestion-dropdown--enter")).toBe(true);
   });
 });
