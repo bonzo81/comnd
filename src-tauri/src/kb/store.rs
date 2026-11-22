@@ -513,10 +513,9 @@ mod tests {
     fn test_tombstone_hides_bundled_after_merge() {
         // User _deleted.yaml must keep hiding a bundled command after the
         // user-wins merge change (existing behaviour, pinned).
-        let base = std::env::temp_dir().join(format!("comnd-tombstone-{}", std::process::id()));
-        let bundled = base.join("bundled");
-        let user = base.join("user");
-        let _ = std::fs::remove_dir_all(&base);
+        let dir = TempDir::new("kb-tombstone");
+        let bundled = dir.join("bundled");
+        let user = dir.join("user");
         std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
         std::fs::create_dir_all(user.join("test-plat")).unwrap();
 
@@ -538,8 +537,6 @@ mod tests {
             "tombstoned bundled command must stay hidden, got: {:?}",
             store.commands.iter().map(|c| &c.name).collect::<Vec<_>>()
         );
-
-        std::fs::remove_dir_all(&base).ok();
     }
 
     // ─── Mutation through a single persistent KbManager (invalidation) ──
