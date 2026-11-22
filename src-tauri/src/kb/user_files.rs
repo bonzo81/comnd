@@ -249,7 +249,7 @@ pub(super) fn upsert_command(
             .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
     }
 
-    write_commands_to_yaml(&[command.clone()], &path)?;
+    write_commands_to_yaml(std::slice::from_ref(command), &path)?;
 
     // Remove from _deleted.yaml if it was previously deleted
     let platform_dir = user_kb_path.join(platform);
@@ -513,7 +513,7 @@ mod tests {
             overrides: false,
         };
 
-        let yaml = serialize_commands(&[cmd.clone()]).unwrap();
+        let yaml = serialize_commands(std::slice::from_ref(&cmd)).unwrap();
         // Tagged-union sanity: the YAML must carry the lowercase variant tags.
         assert!(yaml.contains("lit:"), "lit tag missing in: {}", yaml);
         assert!(yaml.contains("choice:"), "choice tag missing in: {}", yaml);

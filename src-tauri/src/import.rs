@@ -261,9 +261,8 @@ pub async fn extract_from_text(
                 &on_output,
             )
             .await
-            .map_err(|e| {
+            .inspect_err(|e| {
                 progress(&ImportProgress::Error { message: e.clone() });
-                e
             })?;
     } else {
         // One failing chunk doesn't kill the import — collect its error and
@@ -411,8 +410,8 @@ pub async fn extract_from_text(
 /// bundled KB; see docs/specs/10-custom-knowledge-base.md.
 pub async fn commit_import(
     commands: Vec<Command>,
-    bundled_kb_path: &PathBuf,
-    user_kb_path: &PathBuf,
+    bundled_kb_path: &Path,
+    user_kb_path: &Path,
     platform: &str,
     category: &str,
     progress: &ProgressFn<'_>,
@@ -576,9 +575,7 @@ async fn real_http_fetch(url: &str) -> Result<String, String> {
                 "HTTP {} — This URL requires authentication or a proxy. Try a different publicly accessible URL.",
                 status
             ),
-            429 => format!(
-                "HTTP 429 Too Many Requests — You've been rate-limited. Wait a minute and try again, or use a different URL."
-            ),
+            429 => "HTTP 429 Too Many Requests — You've been rate-limited. Wait a minute and try again, or use a different URL.".to_string(),
             _ => format!("HTTP {}: {}", status, status.canonical_reason().unwrap_or("Unknown")),
         };
         return Err(friendly);
@@ -815,8 +812,8 @@ fn validate_extracted_command(
 
 /// Ensure the KB directory structure exists for a platform/category.
 fn ensure_kb_structure(
-    bundled_kb_path: &PathBuf,
-    user_kb_path: &PathBuf,
+    bundled_kb_path: &Path,
+    user_kb_path: &Path,
     platform: &str,
     _category: &str,
     platform_name: Option<&str>,
@@ -867,9 +864,9 @@ pub fn new_platform_index(id: &str, name: &str) -> PlatformIndex {
 /// `new_platform_index` scaffold; no prompt-pattern authoring UI this phase —
 /// users who want modes edit `index.yaml` by hand.
 fn create_platform_index(
-    bundled_kb_path: &PathBuf,
+    bundled_kb_path: &Path,
     platform: &str,
-    path: &PathBuf,
+    path: &Path,
     platform_name: Option<&str>,
 ) -> Result<(), String> {
     let bundled_index = bundled_kb_path.join(platform).join("index.yaml");
@@ -1238,8 +1235,7 @@ mod tests {
     #[test]
     fn test_split_text_chunks_respects_limit() {
         let line = "show ip route — displays the routing table and forwarding state"; // ~64 chars
-        let text = std::iter::repeat(line)
-            .take(300)
+        let text = std::iter::repeat_n(line, 300)
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
@@ -1378,9 +1374,10 @@ mod tests {
     }
 
     fn test_config(base_url: &str) -> AppConfig {
-        let mut cfg = AppConfig::default();
-        cfg.llm_base_url = base_url.to_string();
-        cfg
+        AppConfig {
+            llm_base_url: base_url.to_string(),
+            ..Default::default()
+        }
     }
 
     #[tokio::test]
@@ -1422,7 +1419,7 @@ mod tests {
     async fn test_extract_multi_chunk_partial_failure() {
         // 3 chunks: need text > 24K chars (CHUNK_EXTRACTION_CHARS = 12_000)
         let filler = "lorem ipsum dolor sit amet ";
-        let text = std::iter::repeat(filler).take(1000).collect::<String>();
+        let text = std::iter::repeat_n(filler, 1000).collect::<String>();
         assert!(text.len() > 24_000, "text too short: {}", text.len());
 
         let sse_a = sse_json(&["show ip route"]);

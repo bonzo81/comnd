@@ -5,7 +5,7 @@
 
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -220,7 +220,7 @@ pub fn save_llm_api_key(key: Option<String>) -> Result<(), String> {
 pub fn get_llm_api_key() -> Result<Option<String>, String> {
     match keyring::Entry::new("comnd", LLM_KEY_ENTRY).and_then(|e| e.get_password()) {
         Ok(k) => Ok(Some(k)),
-        Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -254,7 +254,7 @@ pub fn get_provider_secret(id: &str) -> Result<Option<String>, String> {
         .and_then(|e| e.get_password())
     {
         Ok(k) => Ok(Some(k)),
-        Err(e) if matches!(e, keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -554,7 +554,7 @@ fn migrate_plaintext_api_key(config_path: &std::path::Path) {
 }
 
 /// Load config from JSON file, returning default on any error.
-fn load_config_from_file(path: &PathBuf) -> AppConfig {
+fn load_config_from_file(path: &Path) -> AppConfig {
     crate::paths::load_json_or_preserve::<AppConfig>(path)
 }
 
@@ -843,8 +843,10 @@ mod tests {
         assert_eq!(parsed.log_level, config.log_level);
         assert!(parsed.log_file_path.is_none());
 
-        let mut custom = AppConfig::default();
-        custom.log_file_path = Some("/var/log/comnd/comnd.log".to_string());
+        let custom = AppConfig {
+            log_file_path: Some("/var/log/comnd/comnd.log".to_string()),
+            ..Default::default()
+        };
         let json = serde_json::to_string(&custom).unwrap();
         let parsed: AppConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(

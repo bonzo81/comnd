@@ -41,6 +41,9 @@ pub const BURST_PACKETS: usize = 300;
 /// value (issue #107).
 pub const MOCK_AUTH_URL: &str = "https://login.tailscale.com/a/test123";
 
+/// Every PTY size the client has asked the mock for, in arrival order.
+pub type PtySizes = Arc<std::sync::Mutex<Vec<(u32, u32)>>>;
+
 // ─── Mock Server Handler ─────────────────────────────────────────────
 
 /// Per-connection state for one SSH connection. Lives on the handler
@@ -77,7 +80,7 @@ struct MockHandler {
     /// Every PTY size the client has asked for: the initial `pty_request`
     /// and each `window_change_request`. Lets the smoke suite prove the
     /// sidebar resize reaches the remote instead of only the DOM.
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     /// Mutation-test mode: accept input but suppress all shell responses.
     mute_output: bool,
 }
@@ -292,7 +295,7 @@ struct MockServer {
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     mute_output: bool,
 }
 
@@ -652,7 +655,7 @@ async fn start_mock_server_inner(
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     mute_output: bool,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair

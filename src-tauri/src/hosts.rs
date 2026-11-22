@@ -2,7 +2,7 @@
 //! Host groups — separate JSON file, hierarchical (parent_id for nesting).
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Credential types live in credentials.rs (Phase 0 of the host-source
 // plan); re-exported here so existing `hosts::...` paths keep compiling.
@@ -366,7 +366,7 @@ impl HostStore {
 }
 
 /// Load hosts from JSON file, returning empty vec on any error.
-fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
+fn load_hosts_from_file(path: &Path) -> Vec<Host> {
     let mut hosts = crate::paths::load_json_or_preserve::<Vec<Host>>(path);
     for h in &mut hosts {
         h.normalize_credential();
@@ -374,7 +374,7 @@ fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
     hosts
 }
 
-fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
+fn load_groups_from_file(path: &Path) -> Vec<HostGroup> {
     crate::paths::load_json_or_preserve::<Vec<HostGroup>>(path)
 }
 
@@ -894,7 +894,7 @@ mod tests {
         };
         std::fs::write(
             dir.join("groups.json"),
-            serde_json::to_string_pretty(&[group.clone()]).unwrap(),
+            serde_json::to_string_pretty(std::slice::from_ref(&group)).unwrap(),
         )
         .unwrap();
         std::fs::write(dir.join("hosts.json"), "{ not valid json ").unwrap();

@@ -33,20 +33,17 @@ pub async fn connect_agent() -> Result<DynAgent, String> {
     #[cfg(unix)]
     {
         match AgentClient::connect_env().await {
-            Ok(client) => return Ok(client.dynamic()),
-            Err(e) => {
-                return Err(format!(
-                    "No SSH agent detected — start ssh-agent and add a key. Tried: {e}"
-                ))
-            }
+            Ok(client) => Ok(client.dynamic()),
+            Err(e) => Err(format!(
+                "No SSH agent detected — start ssh-agent and add a key. Tried: {e}"
+            )),
         }
     }
 
     #[cfg(windows)]
     {
-        match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
-            Ok(client) => return Ok(client.dynamic()),
-            Err(_) => {}
+        if let Ok(client) = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+            return Ok(client.dynamic());
         }
         Err("No SSH agent detected — start ssh-agent and add a key".to_string())
     }

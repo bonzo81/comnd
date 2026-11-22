@@ -338,7 +338,7 @@ impl LlmClient {
             // Output cap. Servers that need more ignore or clamp it; servers
             // with smaller limits accept it as a no-op ceiling. Without this,
             // server defaults apply (e.g. Ollama) or generation is unbounded.
-            "max_tokens": self.context_length.min(8192).max(1024),
+            "max_tokens": self.context_length.clamp(1024, 8192),
         });
 
         log::info!(
@@ -429,7 +429,7 @@ impl LlmClient {
             // Output cap, NOT the context window. Bounded to common model
             // limits — larger values (e.g. the full context length) are
             // rejected by models with smaller output caps (e.g. Claude).
-            "max_tokens": self.context_length.min(8192).max(1024),
+            "max_tokens": self.context_length.clamp(1024, 8192),
             "system": system,
             "messages": [
                 { "role": "user", "content": user }

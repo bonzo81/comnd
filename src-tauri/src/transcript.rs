@@ -5,6 +5,7 @@
 //! `Transcript::output`, which fans it out to two places:
 //!   1. the per-session log file (crate::session_log::SessionLog), and
 //!   2. the frontend terminal, via the `ssh-output` Tauri event.
+//!
 //! Before this module existed the fan-out was hand-rolled at each call site,
 //! so auth-phase output reached the screen but never the session log — the
 //! transcript silently diverged from what the user saw.

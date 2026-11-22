@@ -41,6 +41,10 @@ pub(crate) async fn get_all_kb_commands(
     kb.get_all_commands(&platform)
 }
 
+// One flat parameter per field because this is a Tauri command: the argument
+// names are the frontend's `invoke` keys, so bundling them into a struct would
+// change the IPC contract for a lint.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) async fn save_kb_command(
     platform: String,

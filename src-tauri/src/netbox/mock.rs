@@ -561,9 +561,11 @@ fn choices(nodes: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Status/body/headers for the failing scenarios. `ok` and `refresh`
-/// return `None` so the caller serves fixtures.
-fn error_response(scenario: &str) -> Option<(u16, String, Vec<(String, String)>)> {
+/// Status/body/headers for the failing scenarios.
+type ErrorResponse = (u16, String, Vec<(String, String)>);
+
+/// `ok` and `refresh` return `None` so the caller serves fixtures.
+fn error_response(scenario: &str) -> Option<ErrorResponse> {
     match scenario {
         "unauthorized" => Some((401, r#"{"detail":"Invalid token"}"#.into(), vec![])),
         "forbidden" => Some((403, r#"{"detail":"Forbidden"}"#.into(), vec![])),

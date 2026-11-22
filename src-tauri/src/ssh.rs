@@ -105,7 +105,7 @@ fn extract_https_url(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|w| w.starts_with("https://"))
         .map(|url| {
-            url.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | '>' | ';' | '\'' | '"'))
+            url.trim_end_matches(['.', ',', ')', '>', ';', '\'', '"'])
                 .to_string()
         })
 }
@@ -570,6 +570,11 @@ fn create_session_log(
 }
 
 impl SshSession {
+    // The signature mirrors everything `ssh_connect` resolves for a connection
+    // and every test fixture needs to drive it; grouping the parameters would
+    // make the call sites longer without making them clearer, so the count is
+    // accepted here rather than papered over crate-wide.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect(
         events: Arc<dyn ConnectionEvents>,
         sink: Box<dyn crate::transcript::OutputSink>,
@@ -725,6 +730,9 @@ impl SshSession {
         })
     }
 
+    // Same reasoning as `connect`: each parameter is a distinct already-resolved
+    // input to the auth chain, and bundling them would only rename the list.
+    #[allow(clippy::too_many_arguments)]
     async fn authenticate(
         events: &dyn ConnectionEvents,
         session: &mut client::Handle<ClientHandler>,
@@ -1077,7 +1085,7 @@ impl SshSession {
 
     pub async fn send(&self, data: &[u8]) -> Result<(), String> {
         self.channel
-            .data(&data[..])
+            .data(data)
             .await
             .map_err(|e| format!("Failed to send data: {}", e))
     }
@@ -1147,7 +1155,7 @@ pub struct SshManager {
     test_server_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Every PTY size the mock host has been asked for, in arrival order.
     #[cfg(debug_assertions)]
-    test_server_pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    test_server_pty_sizes: Option<crate::test_server::PtySizes>,
 }
 
 impl SshManager {
@@ -1206,7 +1214,7 @@ impl SshManager {
     }
 
     #[cfg(debug_assertions)]
-    pub fn test_server_pty_sizes(&self) -> Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>> {
+    pub fn test_server_pty_sizes(&self) -> Option<crate::test_server::PtySizes> {
         self.test_server_pty_sizes.clone()
     }
 
@@ -1498,9 +1506,11 @@ mod tests {
     }
 
     /// Serialises the capture window: the logger is process-wide, so two
-    /// capturing tests would otherwise interleave their lines.
-    fn capture_window() -> &'static std::sync::Mutex<()> {
-        static WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// capturing tests would otherwise interleave their lines. Async-aware so
+    /// the guard can be held across the test's awaits without blocking the
+    /// runtime thread.
+    fn capture_window() -> &'static tokio::sync::Mutex<()> {
+        static WINDOW: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         &WINDOW
     }
 
@@ -1569,9 +1579,7 @@ mod tests {
         }
 
         // Unique per run, so only this connect can put these in a log line.
-        let _connect = connect_slot()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _connect = connect_slot().lock().await;
         let marker = format!(
             "{}-{}",
             std::process::id(),
@@ -1611,9 +1619,7 @@ mod tests {
         let _known_hosts_guard = KnownHostsGuard;
 
         install_capture_logger();
-        let _window = capture_window()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _window = capture_window().lock().await;
 
         let (port, server) = crate::test_server::start_password_only_mock_server(&password).await;
 
@@ -1732,9 +1738,10 @@ mod tests {
 
     /// Tests that run a real connect share the process-wide
     /// `known_hosts_override()` slot and `pending_tofu()` map, so they must not
-    /// overlap.
-    fn connect_slot() -> &'static std::sync::Mutex<()> {
-        static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// overlap. Async-aware so the guard can be held across the test's awaits
+    /// without blocking the runtime thread.
+    fn connect_slot() -> &'static tokio::sync::Mutex<()> {
+        static SLOT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         &SLOT
     }
 
@@ -1794,9 +1801,7 @@ mod tests {
             async fn evict(&self, _session_id: u64) {}
         }
 
-        let _connect = connect_slot()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _connect = connect_slot().lock().await;
 
         let output = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let session_id: u64 = 0x0068_0000_0000_0002;

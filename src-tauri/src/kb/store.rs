@@ -320,7 +320,7 @@ impl KbManager {
             return Ok(Err(errors));
         }
 
-        upsert_command(&user_kb_path, platform, category, command)?;
+        upsert_command(user_kb_path, platform, category, command)?;
         self.stores.remove(platform);
         Ok(Ok(()))
     }

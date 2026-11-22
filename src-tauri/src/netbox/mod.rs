@@ -1134,9 +1134,11 @@ mod tests {
         assert!(policy.overrides.is_empty());
 
         // skip policy → no fallback even if a fallback platform is set
-        let mut cfg = NetBoxConfig::default();
-        cfg.platform_policy = "skip".into();
-        cfg.platform_fallback = Some("linux-bash".into());
+        let cfg = NetBoxConfig {
+            platform_policy: "skip".into(),
+            platform_fallback: Some("linux-bash".into()),
+            ..Default::default()
+        };
         assert_eq!(
             cfg.platform_policy(&PlatformRegistry::builtin())
                 .resolve(Some("foo")),

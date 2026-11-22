@@ -428,7 +428,7 @@ pub fn apply_merge(
         &temp_dir.join("hosts.json"),
         "hosts",
         |h| h.id.clone(),
-        &resolutions,
+        resolutions,
     )?;
     // Groups
     added += merge_json_array::<crate::hosts::HostGroup>(
@@ -436,19 +436,19 @@ pub fn apply_merge(
         &temp_dir.join("groups.json"),
         "groups",
         |g| g.id.clone(),
-        &resolutions,
+        resolutions,
     )?;
     // Known hosts
     added += merge_known_hosts(
         &data_dir.join("known_hosts.json"),
         &temp_dir.join("known_hosts.json"),
-        &resolutions,
+        resolutions,
     )?;
     // Config
     merge_config(
         &data_dir.join("config.json"),
         &temp_dir.join("config.json"),
-        &resolutions,
+        resolutions,
     )?;
 
     // KB: per-platform merge (copy platform dirs from backup that don't exist
@@ -718,13 +718,16 @@ fn merge_known_hosts(
     let mut added = 0;
     for (key, backup_val) in backup {
         let conflict_key = format!("known_hosts:{}", key);
-        if current.contains_key(&key) {
-            if let Some(ConflictResolution::UseBackup) = resolutions.get(&conflict_key) {
-                current.insert(key, backup_val);
+        match current.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if let Some(ConflictResolution::UseBackup) = resolutions.get(&conflict_key) {
+                    e.insert(backup_val);
+                }
             }
-        } else {
-            current.insert(key, backup_val);
-            added += 1;
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(backup_val);
+                added += 1;
+            }
         }
     }
 
@@ -1111,7 +1114,7 @@ mod tests {
     #[test]
     fn test_copy_capped_errors_past_cap() {
         let mut total = 0u64;
-        let data = vec![0u8; 100];
+        let data = [0u8; 100];
         let err = copy_capped(&data[..], std::io::sink(), &mut total, 50).unwrap_err();
         assert!(err.contains("limit"), "got: {err}");
     }
