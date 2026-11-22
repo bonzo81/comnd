@@ -118,9 +118,15 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
+      # The Rust version lives in rust-toolchain.toml at the repo root (checked
+      # out from the release tag), and `rustup toolchain install` installs the
+      # toolchain that file pins. Bump the pin deliberately, in its own PR.
+      - name: install the pinned Rust toolchain
+        run: rustup toolchain install
+
+      - name: install extra Rust targets
+        if: matrix.rust-targets != ''
+        run: rustup target add ${{ matrix.rust-targets }}
 
       - uses: swatinem/rust-cache@v2
         with:

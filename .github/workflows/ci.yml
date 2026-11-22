@@ -87,7 +87,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The Rust version lives in rust-toolchain.toml at the repo root, and
+      # `rustup toolchain install` installs the toolchain that file pins.
+      # Bump the pin deliberately, in its own PR.
+      - name: install the pinned Rust toolchain
+        run: rustup toolchain install
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -178,7 +182,11 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The Rust version lives in rust-toolchain.toml at the repo root, and
+      # `rustup toolchain install` installs the toolchain that file pins.
+      # Bump the pin deliberately, in its own PR.
+      - name: install the pinned Rust toolchain
+        run: rustup toolchain install
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -238,7 +246,11 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The Rust version lives in rust-toolchain.toml at the repo root, and
+      # `rustup toolchain install` installs the toolchain that file pins.
+      # Bump the pin deliberately, in its own PR.
+      - name: install the pinned Rust toolchain
+        run: rustup toolchain install
 
       - uses: swatinem/rust-cache@v2
         with:
