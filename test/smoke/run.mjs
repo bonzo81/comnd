@@ -1126,6 +1126,32 @@ async function singlePanelWindow(browser, behavior) {
 }
 
 /**
+ * Poll until the one visible panel window reports the requested rectangle.
+ *
+ * `set_size`/`set_position` are requests to the window manager: `inner_size()`
+ * keeps reporting the old rectangle until the configure event arrives, so a
+ * single read races the resize (main run 45067717205 read the 420 px default
+ * width where 560 had just been requested).
+ */
+async function waitForPanelGeometry(browser, expected, behavior, keys = ["width", "height"]) {
+  const deadline = Date.now() + WAIT_MS;
+  let panel = await singlePanelWindow(browser, behavior);
+  for (;;) {
+    if (keys.every((key) => Math.abs(panel[key] - expected[key]) <= 2)) return panel;
+    if (Date.now() > deadline) {
+      const live = keys.map((key) => `${key} ${panel[key]}`).join(", ");
+      const want = keys.map((key) => `${key} ${expected[key]}`).join(", ");
+      throw new Error(
+        `${behavior}: the panel window never took the requested rectangle `
+          + `(live ${live}, expected ${want})`,
+      );
+    }
+    await pause(100);
+    panel = await singlePanelWindow(browser, behavior);
+  }
+}
+
+/**
  * Ctrl+Shift+B, the panel's tri-state shortcut (open / undock / dock).
  *
  * The terminal and the panel window both bind it, so it reaches the right
@@ -1174,7 +1200,9 @@ function panelUndockRelaunchScenario() {
         assert(main, "Panel relaunch: the main window is missing from the window list");
         const requested = { x: main.x + 48, y: main.y + 48, width: 560, height: 460 };
         await invoke(browser, "test_panel_set_geometry", requested);
-        const placed = await singlePanelWindow(browser, "Panel relaunch (placed)");
+        const placed = await waitForPanelGeometry(
+          browser, requested, "Panel relaunch (placed)",
+        );
         for (const key of ["width", "height"]) {
           assert(
             Math.abs(placed[key] - requested[key]) <= 2,
@@ -1263,7 +1291,9 @@ function panelUndockRelaunchScenario() {
         await panelShortcut(browser);
         await waitForWindowCount(browser, 2,
           "Panel relaunch: opening the panel did not restore its window");
-        const restored = await singlePanelWindow(browser, "Panel relaunch (restored)");
+        const restored = await waitForPanelGeometry(
+          browser, saved, "Panel relaunch (restored)", ["x", "y", "width", "height"],
+        );
         for (const key of ["x", "y", "width", "height"]) {
           assert(
             Math.abs(restored[key] - saved[key]) <= 2,
