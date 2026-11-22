@@ -589,33 +589,12 @@ pub async fn delete_host_group(
 mod tests {
     use super::*;
 
-    fn make_host(name: &str, hostname: &str) -> Host {
-        Host {
-            id: String::new(),
-            display_name: name.to_string(),
-            hostname: hostname.to_string(),
-            port: 22,
-            username: "admin".to_string(),
-            auth_type: "password".to_string(),
-            ssh_key_path: None,
-            credential: None,
-            platform: "cisco-iosxe".to_string(),
-            os_version: None,
-            highlight_profile: None,
-            notes: None,
-            last_connected: None,
-            created_at: String::new(),
-            sort_order: 0,
-            tags: vec![],
-            group_id: None,
-            source: None,
-        }
-    }
+    use crate::fixtures::{mk_group, mk_host, TempDir};
 
     #[test]
     fn test_create_and_get_hosts() {
         let mut store = HostStore::in_memory();
-        let host = make_host("Test Router", "192.168.1.1");
+        let host = mk_host("Test Router", "192.168.1.1");
 
         let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         assert!(!created.id.is_empty());
@@ -629,7 +608,7 @@ mod tests {
     #[test]
     fn test_update_host() {
         let mut store = HostStore::in_memory();
-        let host = make_host("Router A", "10.0.0.1");
+        let host = mk_host("Router A", "10.0.0.1");
 
         let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         let mut updated = created.clone();
@@ -642,7 +621,7 @@ mod tests {
     #[test]
     fn test_delete_host() {
         let mut store = HostStore::in_memory();
-        let host = make_host("Delete Me", "10.0.0.2");
+        let host = mk_host("Delete Me", "10.0.0.2");
 
         let created = store.create(host, &PlatformRegistry::builtin()).unwrap();
         store.delete(&created.id).unwrap();
@@ -667,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_serializes_credential_only() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.normalize_credential();
         let json = serde_json::to_string(&host).unwrap();
         assert!(
@@ -692,15 +671,14 @@ mod tests {
 
     #[test]
     fn test_corrupt_file_preserved() {
-        let dir = std::env::temp_dir().join(format!("comnd_hosts_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("hosts-corrupt");
         let path = dir.join("hosts.json");
         std::fs::write(&path, "{not valid json").unwrap();
 
         let hosts = load_hosts_from_file(&path);
         assert!(hosts.is_empty());
         assert!(!path.exists(), "corrupt file should be renamed away");
-        let preserved = std::fs::read_dir(&dir)
+        let preserved = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .any(|e| {
@@ -709,27 +687,26 @@ mod tests {
                     .starts_with("hosts.json.corrupt-")
             });
         assert!(preserved, "expected a .corrupt-<ts> backup file");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ─── Validation tests ───────────────────────────────────────────
 
     #[test]
     fn test_validate_host_accepts_valid() {
-        let host = make_host("Core Switch", "core-sw-01.lab.local");
+        let host = mk_host("Core Switch", "core-sw-01.lab.local");
         assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_accepts_ipv6_bracketed() {
-        let mut host = make_host("IPv6 Host", "[::1]");
+        let mut host = mk_host("IPv6 Host", "[::1]");
         host.platform = "linux-bash".to_string();
         assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_rejects_empty_display_name() {
-        let mut host = make_host("", "10.0.0.1");
+        let mut host = mk_host("", "10.0.0.1");
         host.display_name = "   ".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Display name"));
@@ -737,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_empty_hostname() {
-        let mut host = make_host("R1", "");
+        let mut host = mk_host("R1", "");
         host.hostname = "  ".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Hostname"));
@@ -745,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_empty_username() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.username = "".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("Username"));
@@ -753,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_control_chars_in_hostname() {
-        let mut host = make_host("R1", "10.0.0.1\nbad");
+        let mut host = mk_host("R1", "10.0.0.1\nbad");
         host.hostname = "evil.com\nSSH-2.0".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("invalid character"));
@@ -761,7 +738,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_control_chars_in_username() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.username = "root\n".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
@@ -769,7 +746,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_control_chars_in_display_name() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.display_name = "Bad\x07Name".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
@@ -777,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_leading_hyphen_hostname() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.hostname = "-bad".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("hyphen"));
@@ -785,7 +762,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_invalid_platform() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.platform = "juniper-junos".to_string();
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("not valid"));
@@ -794,7 +771,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_oversized_display_name() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.display_name = "x".repeat(129);
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("too long"));
@@ -802,7 +779,7 @@ mod tests {
 
     #[test]
     fn test_validate_host_rejects_oversized_notes() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.notes = Some("x".repeat(4097));
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("too long"));
@@ -810,14 +787,14 @@ mod tests {
 
     #[test]
     fn test_validate_host_allows_newlines_in_notes() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.notes = Some("Line 1\nLine 2\r\nLine 3\tTabbed".to_string());
         assert!(validate_host(&host, &PlatformRegistry::builtin()).is_ok());
     }
 
     #[test]
     fn test_validate_host_rejects_non_tab_control_in_notes() {
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.notes = Some("bad\x00data".to_string());
         let err = validate_host(&host, &PlatformRegistry::builtin()).unwrap_err();
         assert!(err.contains("control character"));
@@ -826,7 +803,7 @@ mod tests {
     #[test]
     fn test_create_rejects_invalid_host() {
         let mut store = HostStore::in_memory();
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.hostname = "bad\nname".to_string();
         assert!(store.create(host, &PlatformRegistry::builtin()).is_err());
     }
@@ -835,9 +812,7 @@ mod tests {
     fn test_update_rejects_invalid_host() {
         let mut store = HostStore::in_memory();
         let platforms = PlatformRegistry::builtin();
-        let created = store
-            .create(make_host("R1", "10.0.0.1"), &platforms)
-            .unwrap();
+        let created = store.create(mk_host("R1", "10.0.0.1"), &platforms).unwrap();
         let mut updated = created;
         updated.username = "".to_string();
         assert!(store.update(updated, &platforms).is_err());
@@ -845,12 +820,12 @@ mod tests {
 
     #[test]
     fn test_custom_platform_host_validates_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("comnd_hosts_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("hosts-custom-platform");
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
 
-        let mut host = make_host("R1", "10.0.0.1");
+        let mut host = mk_host("R1", "10.0.0.1");
         host.platform = "my-custom".to_string();
         assert!(validate_host(&host, &platforms).is_ok());
         // Fails against a registry that lacks the custom platform
@@ -876,21 +851,12 @@ mod tests {
         // Part B: one store owns both files. A corrupt hosts.json must reset
         // hosts to empty WITHOUT clobbering a valid groups.json (and vice
         // versa), since each file is loaded independently.
-        let dir = std::env::temp_dir().join(format!(
-            "comnd-hosts-btest-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("hosts-btest");
 
         let group = HostGroup {
             id: "g1".to_string(),
-            name: "Core".to_string(),
-            parent_id: None,
-            sort_order: 0,
-            color: None,
-            icon: None,
             created_at: "t".to_string(),
+            ..mk_group("Core")
         };
         std::fs::write(
             dir.join("groups.json"),
@@ -914,19 +880,13 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
                 .unwrap();
         assert_eq!(reloaded.len(), 1);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ─── last_connected + group CRUD (coverage gaps R1/R2) ──────────
 
     /// A store backed by a real temp dir, so `save()` actually writes.
-    fn temp_store() -> (std::path::PathBuf, HostStore) {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd-hosts-crud-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
+    fn temp_store() -> (TempDir, HostStore) {
+        let dir = TempDir::new("hosts-crud");
         let store = HostStore::new(&dir).unwrap();
         (dir, store)
     }
@@ -935,7 +895,7 @@ mod tests {
     fn test_touch_sets_last_connected_and_persists() {
         let (dir, mut store) = temp_store();
         let created = store
-            .create(make_host("R1", "10.0.0.1"), &PlatformRegistry::builtin())
+            .create(mk_host("R1", "10.0.0.1"), &PlatformRegistry::builtin())
             .unwrap();
         assert!(created.last_connected.is_none());
 
@@ -959,21 +919,14 @@ mod tests {
             std::fs::read_to_string(dir.join("hosts.json")).unwrap(),
             before
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_group_crud_assigns_ids_and_persists() {
         let (dir, mut store) = temp_store();
         let blank_group = |name: &str, parent: Option<String>| HostGroup {
-            id: String::new(),
-            name: name.to_string(),
             parent_id: parent,
-            sort_order: 0,
-            color: None,
-            icon: None,
-            created_at: String::new(),
+            ..mk_group(name)
         };
 
         let core = store.create_group(blank_group("Core", None)).unwrap();
@@ -1009,21 +962,14 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
                 .unwrap();
         assert_eq!(on_disk.len(), 1, "delete_group persists the removal");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_group_crud_unknown_id_errors() {
-        let (dir, mut store) = temp_store();
+        let (_dir, mut store) = temp_store();
         let ghost = HostGroup {
             id: "ghost".to_string(),
-            name: "Ghost".to_string(),
-            parent_id: None,
-            sort_order: 0,
-            color: None,
-            icon: None,
-            created_at: String::new(),
+            ..mk_group("Ghost")
         };
 
         assert_eq!(
@@ -1035,7 +981,5 @@ mod tests {
             "Host group not found: ghost"
         );
         assert!(store.get_groups().unwrap().is_empty());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

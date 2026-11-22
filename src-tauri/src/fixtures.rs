@@ -7,6 +7,7 @@
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
+use crate::hosts::{Host, HostGroup};
 use crate::kb::{
     Command, CommandOrder, CommandToken, CommandVersions, KbManager, KbStore, PlatformIndex,
 };
@@ -52,6 +53,12 @@ impl Deref for TempDir {
     type Target = Path;
 
     fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for TempDir {
+    fn as_ref(&self) -> &Path {
         &self.path
     }
 }
@@ -160,6 +167,43 @@ pub(crate) fn loaded_cmd(bundled: &Path, user: &Path, name: &str) -> Option<Comm
     let mut mgr = KbManager::with_user_path(bundled.to_path_buf(), user.to_path_buf());
     let store = mgr.get_or_load("test-plat").unwrap();
     store.commands.iter().find(|c| c.name == name).cloned()
+}
+
+// ─── Host and group builders ──────────────────────────────────────────────
+
+pub(crate) fn mk_host(name: &str, hostname: &str) -> Host {
+    Host {
+        id: String::new(),
+        display_name: name.to_string(),
+        hostname: hostname.to_string(),
+        port: 22,
+        username: "admin".to_string(),
+        auth_type: "password".to_string(),
+        ssh_key_path: None,
+        credential: None,
+        platform: "cisco-iosxe".to_string(),
+        os_version: None,
+        highlight_profile: None,
+        notes: None,
+        last_connected: None,
+        created_at: String::new(),
+        sort_order: 0,
+        tags: vec![],
+        group_id: None,
+        source: None,
+    }
+}
+
+pub(crate) fn mk_group(name: &str) -> HostGroup {
+    HostGroup {
+        id: String::new(),
+        name: name.to_string(),
+        parent_id: None,
+        sort_order: 0,
+        color: None,
+        icon: None,
+        created_at: String::new(),
+    }
 }
 
 #[cfg(test)]
