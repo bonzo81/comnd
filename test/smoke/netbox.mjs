@@ -22,6 +22,7 @@ import {
   actOn,
   buildApp,
   invoke,
+  parseJobs,
   pause,
   runCase,
   runSuite,
@@ -872,7 +873,7 @@ async function main() {
   if (runUnderXvfb(import.meta.url)) return;
 
   buildApp();
-  await runSuite(tests, netboxSuite);
+  await runSuite(tests, { ...netboxSuite, jobs: parseJobs(process.argv) });
 }
 
 main().catch((error) => {

@@ -211,29 +211,17 @@ jobs:
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.1.0 --locked
 
+      # Scenarios are independent (own driver, port and data dir), and on this
+      # runner most of a scenario's wall time is waiting on the app and driver,
+      # so a small pool overlaps it. Keep it under the runner's core count.
       - name: full-app SSH smoke tests
-        run: xvfb-run -a npm run smoke
+        run: xvfb-run -a npm run smoke -- --jobs=3
 
-      - name: smoke mutation check
-        run: xvfb-run -a npm run smoke:mutation
-
-      - name: smoke mutation check (focus)
-        run: xvfb-run -a npm run smoke -- --mutation=focus
-
-      - name: smoke mutation check (name)
-        run: xvfb-run -a npm run smoke -- --mutation=name
-
-      - name: smoke mutation check (layout)
-        run: xvfb-run -a npm run smoke -- --mutation=layout
-
-      - name: smoke mutation check (suggestion)
-        run: xvfb-run -a npm run smoke -- --mutation=suggestion
-
-      - name: smoke mutation check (kb-layout)
-        run: xvfb-run -a npm run smoke -- --mutation=kb-layout
-
-      - name: smoke mutation check (terminal-sidebar-layout)
-        run: xvfb-run -a npm run smoke -- --mutation=terminal-sidebar-layout
+      # One process proves all seven mutation categories after the build above.
+      # A separate invocation per category re-ran the whole `tauri build` to
+      # drive a single scenario, which was most of this job's mutation time.
+      - name: smoke mutation checks (all categories)
+        run: xvfb-run -a npm run smoke:mutation:all
 
   smoke-netbox:
     runs-on: ubuntu-22.04
@@ -276,7 +264,7 @@ jobs:
         run: cargo install tauri-driver --version 2.1.0 --locked
 
       - name: NetBox workflow smoke tests
-        run: xvfb-run -a npm run smoke:netbox
+        run: xvfb-run -a npm run smoke:netbox -- --jobs=3
 
   commitlint:
     if: github.event_name == 'pull_request'

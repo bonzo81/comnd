@@ -12,6 +12,12 @@ matchers and CI runs seven mutation jobs. The two new categories exist because a
 visual baseline cannot show a control pushed outside the window; both scenarios
 assert DOM geometry at the window the app opens with, and ADR-011 records why.
 
+Amended 2026-11-22: CI proves all seven categories in one `npm run smoke:mutation:all`
+process after a single `tauri build`, rather than seven separate invocations that each
+re-ran the whole build to drive one scenario. The CLI keeps its old forms — bare
+`--mutation` is still `ssh_send`, `--mutation=<category>` still proves one category —
+and adds `all` plus comma lists.
+
 ## Goal
 
 The runner can break one app behaviour from the app process's environment, and running the

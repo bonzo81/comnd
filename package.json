@@ -18,6 +18,7 @@
     "build:smoke": "tsc && vite build --mode smoke",
     "smoke": "node test/smoke/run.mjs",
     "smoke:mutation": "node test/smoke/run.mjs --mutation",
+    "smoke:mutation:all": "node test/smoke/run.mjs --mutation=all",
     "smoke:netbox": "node test/smoke/netbox.mjs",
     "smoke:visual": "node test/smoke/visual.mjs"
   },
