@@ -503,6 +503,11 @@ export function createTerminalFake(init: TerminalFakeOptions = {}): TerminalFake
     else buffer.baseY++;
   };
 
+  /** xterm defers the wrap of a full last column until the next printable
+   *  character, so a CR/LF after an exactly-full line advances one row, not
+   *  two. Reset by CR/LF/BS. */
+  let wrapPending = false;
+
   /** Advance the cursor the way xterm's parser would for the constructs the
    *  app writes: printable text, CR/LF/BS/TAB and ANSI escapes (which are
    *  control sequences, not text — the cursor-hide/show writes must not move
@@ -530,17 +535,26 @@ export function createTerminalFake(init: TerminalFakeOptions = {}): TerminalFake
       }
       if (ch === "\r") {
         buffer.cursorX = 0;
+        wrapPending = false;
       } else if (ch === "\n") {
         lineFeed();
+        wrapPending = false;
       } else if (ch === "\b") {
         if (buffer.cursorX > 0) buffer.cursorX--;
+        wrapPending = false;
       } else if (ch === "\t") {
         buffer.cursorX = Math.min(cols - 1, (Math.floor(buffer.cursorX / 8) + 1) * 8);
+        wrapPending = buffer.cursorX === cols - 1;
       } else if (text.charCodeAt(i) >= 0x20 && text.charCodeAt(i) !== 0x7f) {
-        buffer.cursorX++;
-        if (buffer.cursorX >= cols) {
+        if (wrapPending) {
           buffer.cursorX = 0;
           lineFeed();
+          wrapPending = false;
+        }
+        if (buffer.cursorX === cols - 1) {
+          wrapPending = true; // the last column is filled; the wrap waits
+        } else {
+          buffer.cursorX++;
         }
       }
     }

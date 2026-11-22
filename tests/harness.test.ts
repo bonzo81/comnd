@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { TERMINAL_MEMBERS, command, createHarness, createTerminalFake } from "./harness";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getHosts, setLogLevel } from "../src/lib/tauri-api";
@@ -112,6 +113,37 @@ describe("test harness", () => {
   });
 });
 
+/** True for `terminal` and the `this.terminal` forms the app writes, with
+ *  optional-chaining and non-null wrappers stripped. */
+function isTerminalReference(expression: ts.Expression): boolean {
+  let node = expression;
+  while (ts.isNonNullExpression(node) || ts.isParenthesizedExpression(node)) {
+    node = node.expression;
+  }
+  if (ts.isIdentifier(node)) return node.text === "terminal";
+  return (
+    ts.isPropertyAccessExpression(node)
+    && node.name.text === "terminal"
+    && node.expression.kind === ts.SyntaxKind.ThisKeyword
+  );
+}
+
+/** Members read from `terminal` in one source string. An AST walk, not a
+ *  regex: a property access split across lines is still found, and prose in
+ *  comments or strings is not. */
+function terminalMembersIn(source: string, fileName = "fixture.ts"): Set<string> {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && isTerminalReference(node.expression)) {
+      found.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
 /** Re-derive the Terminal members the app touches straight from `src`, so
  *  adding a member to product code fails the pin below instead of drifting. */
 function srcTerminalMembers(): string[] {
@@ -122,9 +154,8 @@ function srcTerminalMembers(): string[] {
       if (entry.isDirectory()) {
         walk(path);
       } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
-        const source = readFileSync(path, "utf8");
-        for (const match of source.matchAll(/terminal[!?]?\.([A-Za-z_$][\w$]*)/g)) {
-          found.add(match[1]);
+        for (const member of terminalMembersIn(readFileSync(path, "utf8"), path)) {
+          found.add(member);
         }
       }
     }
@@ -167,6 +198,28 @@ describe("terminal fake", () => {
     }
   });
 
+  it("finds accesses split across lines and ignores prose", () => {
+    const source = [
+      "this.terminal.write('x');",
+      "this.terminal?.buffer.active;",
+      "this.terminal!.rows;",
+      "this.terminal",
+      "  .resize(80, 24);",
+      "terminal.focus();",
+      "// it does from the terminal.",
+      "// if (matches(e, 'terminal')) return;",
+      "const text = 'terminal.write';",
+    ].join("\n");
+
+    expect([...terminalMembersIn(source)].sort()).toEqual([
+      "buffer",
+      "focus",
+      "resize",
+      "rows",
+      "write",
+    ]);
+  });
+
   it("write records, calls its completion callback, and advances lines", () => {
     const fake = createTerminalFake({ rows: 10, cols: 20 });
     const done = vi.fn();
@@ -184,6 +237,19 @@ describe("terminal fake", () => {
     fake.terminal.write("\x1b[?25h");
     expect(fake.buffer.cursorX).toBe(0);
     expect(fake.buffer.cursorY).toBe(0);
+  });
+
+  it("defers the wrap of a full last column until the next printable character", () => {
+    const exact = createTerminalFake({ rows: 10, cols: 80 });
+    exact.terminal.write("x".repeat(80));
+    expect(exact.buffer).toMatchObject({ cursorX: 79, cursorY: 0 });
+
+    exact.terminal.write("\r\n");
+    expect(exact.buffer).toMatchObject({ cursorX: 0, cursorY: 1, baseY: 0 });
+
+    const overflow = createTerminalFake({ rows: 10, cols: 80 });
+    overflow.terminal.write("x".repeat(81));
+    expect(overflow.buffer).toMatchObject({ cursorX: 1, cursorY: 1 });
   });
 
   it("exposes mutable buffer, rows, cols and options through the Terminal", () => {
