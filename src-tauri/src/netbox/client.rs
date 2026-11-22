@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     DeviceSummary, DeviceSummaryAddress, DeviceSummaryInterface, DeviceSummaryPeer,
-    DeviceSummarySubnet, DeviceSummaryVlan, NetBoxChoice, NetBoxFilters, NetBoxGeo,
-    NetBoxGeoNode,
+    DeviceSummarySubnet, DeviceSummaryVlan, NetBoxChoice, NetBoxFilters, NetBoxGeo, NetBoxGeoNode,
 };
 
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
@@ -218,10 +217,7 @@ fn summary_device_type(v: &serde_json::Value) -> Option<String> {
 /// whose owner device is the requested one: NetBox's IP `device_id` filter
 /// includes virtual-chassis siblings. A missing nested device passes, because
 /// the interfaces list's own `device_id` filter is exact.
-fn summary_ip_owner<'a>(
-    ip: &'a serde_json::Value,
-    device_id: u64,
-) -> Option<&'a serde_json::Value> {
+fn summary_ip_owner(ip: &serde_json::Value, device_id: u64) -> Option<&serde_json::Value> {
     if summary_text(ip.get("assigned_object_type")).as_deref() != Some("dcim.interface") {
         return None;
     }
@@ -478,9 +474,7 @@ fn summary_subnets(
     let mut subnets: Vec<DeviceSummarySubnet> = by_id.into_values().collect();
     subnets.sort_by(|a, b| {
         let key = |subnet: &DeviceSummarySubnet| match parse_cidr(&subnet.prefix) {
-            Some((std::net::IpAddr::V4(ip), length)) => {
-                (0u8, u128::from(u32::from(ip)), length)
-            }
+            Some((std::net::IpAddr::V4(ip), length)) => (0u8, u128::from(u32::from(ip)), length),
             Some((std::net::IpAddr::V6(ip), length)) => (1u8, u128::from(ip), length),
             None => (2u8, 0u128, 0u8),
         };
@@ -1237,6 +1231,9 @@ mod tests {
     use super::*;
     use crate::netbox::*;
 
+    /// One mocked HTTP response: status, body and headers.
+    type MockResponse = (u16, String, Vec<(String, String)>);
+
     // ─── Device parsing (plan §4.1) ────────────────────────────────
 
     fn device_json(id: u64, name: Option<&str>, address: Option<&str>) -> serde_json::Value {
@@ -1686,7 +1683,7 @@ mod tests {
         })
     }
 
-    fn summary_empty_endpoint(path: &str) -> Option<(u16, String, Vec<(String, String)>)> {
+    fn summary_empty_endpoint(path: &str) -> Option<MockResponse> {
         if path.starts_with("/api/dcim/interfaces/")
             || path.starts_with("/api/ipam/vlans/")
             || path.starts_with("/api/ipam/prefixes/")
@@ -1834,11 +1831,8 @@ mod tests {
                     }
                 }
                 // 1 interface / 2 VLANs / 2 peers vs 48 / 40 / 40.
-                let (interfaces, vlans, peers): (u64, u64, u64) = if device == 1 {
-                    (1, 2, 2)
-                } else {
-                    (48, 40, 40)
-                };
+                let (interfaces, vlans, peers): (u64, u64, u64) =
+                    if device == 1 { (1, 2, 2) } else { (48, 40, 40) };
                 if path.starts_with("/api/ipam/ip-addresses/") {
                     let results = (0..interfaces)
                         .map(|index| {
@@ -2127,7 +2121,10 @@ mod tests {
             },
         ];
         let subnets = summary_subnets(&prefixes, &[1, 2], &ips);
-        assert_eq!(subnets.iter().map(|s| s.id).collect::<Vec<_>>(), vec![11, 10, 12]);
+        assert_eq!(
+            subnets.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec![11, 10, 12]
+        );
         assert_eq!(subnets[0].prefix, "10.0.0.0/16");
         assert_eq!(subnets[1].prefix, "10.0.0.0/24");
         assert_eq!(subnets[2].vrf.as_deref(), Some("blue"));

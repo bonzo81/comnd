@@ -419,7 +419,12 @@ fn device_tab_prefixes() -> Vec<serde_json::Value> {
     ]
 }
 
-fn device_tab_cable(id: u64, own_interface: u64, peer_id: u64, peer_name: &str) -> serde_json::Value {
+fn device_tab_cable(
+    id: u64,
+    own_interface: u64,
+    peer_id: u64,
+    peer_name: &str,
+) -> serde_json::Value {
     serde_json::json!({
         "id": id,
         "a_terminations": [{
@@ -712,7 +717,10 @@ fn respond(state: &MockState, _method: &str, path: &str) -> (u16, String, Vec<(S
         }
         // The device tab's batched peer lookup: an `id=`-filtered device list.
         if scenario == "device-tab" && path.contains("fields=") && path.contains("id=") {
-            return page(None, filter_by_requested_ids(device_tab_peer_devices(), path));
+            return page(
+                None,
+                filter_by_requested_ids(device_tab_peer_devices(), path),
+            );
         }
         let device_tab = scenario == "device-tab";
         let (first, second) = if device_tab {
