@@ -353,6 +353,57 @@ export async function withWindow(browser, handle, fn) {
 
 export { WINDOW_MARKERS };
 
+// ─── Per-boot display (Linux) ───────────────────────────────────────
+//
+// Under a scenario pool, two app windows cannot both hold keyboard focus on
+// one X display: the second one reports `document focused false` and the
+// focus-ring assertions fail. Each boot therefore gets its own Xvfb display,
+// sized like `xvfb-run`'s default so geometry assertions see the same screen.
+// Outside a pool this is still what runs, because an isolated display is
+// cheaper than reasoning about what else shares one.
+
+let nextDisplay = 20 + (process.pid % 60);
+
+async function startDisplay() {
+  if (process.platform !== "linux") return null;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const display = nextDisplay;
+    nextDisplay = nextDisplay >= 99 ? 20 : nextDisplay + 1;
+    if (existsSync(`/tmp/.X11-unix/X${display}`) || existsSync(`/tmp/.X${display}-lock`)) continue;
+    const server = spawn(
+      "Xvfb",
+      [`:${display}`, "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
+      { stdio: "ignore" },
+    );
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      if (existsSync(`/tmp/.X11-unix/X${display}`)) return { server, display };
+      // Exited without a socket: the number was taken between the check above
+      // and the spawn, so try the next one.
+      if (server.exitCode !== null) break;
+      await pause(50);
+    }
+    if (server.exitCode === null) server.kill();
+    if (server.exitCode !== null && Date.now() < until) continue;
+    throw new Error(`Xvfb :${display} did not start within 5 seconds`);
+  }
+  throw new Error("Xvfb could not allocate a free display; check the xvfb package");
+}
+
+// A runner has no GPU and no accessibility bus, and WebKitGTK's DMA-BUF
+// renderer, compositing and AT-SPI bridge each stall window start-up there;
+// its bubblewrap sandbox also cannot initialise in the runner container. None
+// of these change what the scenarios assert (DOM state and geometry), and the
+// session phase of each PASS line shows whether a knob is still needed.
+const headlessWebkitEnv = () => (process.platform === "linux"
+  ? {
+    WEBKIT_DISABLE_DMABUF_RENDERER: "1",
+    WEBKIT_DISABLE_COMPOSITING_MODE: "1",
+    WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1",
+    NO_AT_BRIDGE: "1",
+  }
+  : {});
+
 export async function startDriver(dataDir, extraEnv = {}) {
   const port = await freePort();
   // tauri-driver forwards to the platform WebDriver, which listens on its own
@@ -360,8 +411,11 @@ export async function startDriver(dataDir, extraEnv = {}) {
   // scenarios running at once knock each other's sessions out ("invalid
   // session id", or a session attached to the other scenario's app).
   const nativePort = await freePort();
+  const display = await startDisplay();
   const env = {
     ...process.env,
+    ...headlessWebkitEnv(),
+    ...(display ? { DISPLAY: `:${display.display}` } : {}),
     COMND_DATA_DIR: dataDir,
     COMND_TEST_MOCK_SECRET: "smoke-secret",
     ...extraEnv,
@@ -380,7 +434,7 @@ export async function startDriver(dataDir, extraEnv = {}) {
   driver.stderr.on("data", (chunk) => {
     if (stderr.length < 4000) stderr += chunk.toString();
   });
-  return { driver, port, driverLog: () => stderr.trim() };
+  return { driver, port, display, driverLog: () => stderr.trim() };
 }
 
 /**
@@ -403,13 +457,14 @@ async function bootApp(dataDir, suite) {
     timings.session = Date.now() - sessionStarted;
   } catch (error) {
     if (started.driver.exitCode === null) started.driver.kill();
+    if (started.display?.server.exitCode === null) started.display.server.kill();
     throw error;
   }
-  return { driver: started.driver, browser, timings };
+  return { driver: started.driver, browser, display: started.display, driverLog: started.driverLog, timings };
 }
 
-/** Tear down one boot: the suite's teardown, then the session, then the driver. */
-async function shutdownApp({ driver, browser }, teardown) {
+/** Tear down one boot: the suite's teardown, then the session, the driver and the display. */
+async function shutdownApp({ driver, browser, display }, teardown) {
   let cleanupError;
   let teardownError;
   const timings = { stop: 0, close: 0, kill: 0 };
@@ -440,6 +495,7 @@ async function shutdownApp({ driver, browser }, teardown) {
     ]);
     timings.kill = Date.now() - killStarted;
   }
+  if (display?.server.exitCode === null) display.server.kill();
   return { cleanupError, teardownError, timings };
 }
 
@@ -525,6 +581,13 @@ export async function runCase(test, suite = {}) {
       app = await bootApp(dataDir, suite);
       addTimings(timings, app.timings);
       appReady = true;
+      // A session that takes seconds to create is the app start-up, and the
+      // driver's stderr is the only place WebKitGTK explains itself. Print it
+      // where the log will be read rather than only when a boot fails.
+      if (app.timings.session > 5_000) {
+        console.log(`${test.name}: slow session ${secs(app.timings.session)}; `
+          + `driver log: ${app.driverLog() || "(empty)"}`);
+      }
     }
     runStarted = Date.now();
     // A wedged WebDriver session otherwise blocks the whole job until its timeout.
