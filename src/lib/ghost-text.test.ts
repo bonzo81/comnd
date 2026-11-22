@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Terminal } from "@xterm/xterm";
+import { afterEach, describe, expect, it } from "vitest";
 import { GhostText } from "./ghost-text";
+import { createTerminalFake } from "../../tests/harness";
 
 const cleanups: Array<() => void> = [];
 
@@ -30,20 +30,15 @@ function makeGhost(cursorX = 3) {
   screen.getBoundingClientRect = () => rect;
   container.getBoundingClientRect = () => rect;
 
-  const buffer = { cursorX, cursorY: 2 };
-  const terminal = {
-    buffer: {
-      get active() {
-        return buffer;
-      },
-    },
+  const fake = createTerminalFake({
     rows: 10,
     cols: 10,
+    cursorX,
+    cursorY: 2,
     options: { fontSize: 14 },
-    write: vi.fn(),
-  } as unknown as Terminal;
+  });
 
-  const ghost = new GhostText(terminal, container);
+  const ghost = new GhostText(fake.terminal, container);
   const el = container.querySelector(".ghost-text") as HTMLElement;
   const badge = container.querySelector(".match-count-badge") as HTMLElement;
   // 25px of rendered text; jsdom reports 0 without this stub.
@@ -54,7 +49,7 @@ function makeGhost(cursorX = 3) {
     container.remove();
   });
 
-  return { ghost, buffer, el, badge, cellWidth: rect.width / 10 };
+  return { ghost, buffer: fake.buffer, el, badge, cellWidth: rect.width / 10 };
 }
 
 afterEach(() => {

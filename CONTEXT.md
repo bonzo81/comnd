@@ -52,3 +52,8 @@ terms; keep them current as concepts crystallize.
   their own, so a test can take a `Command` or a `Host` without swapping the IPC
   dispatcher. Strict by default: an unmocked IPC command throws. Not "test
   utils", "testkit", or a "fake backend".
+- **Terminal fake** — the single test-owned stand-in for xterm's `Terminal`: the
+  members the app actually uses, plus the geometry the ghost text and timestamps
+  read. It is the second adapter for the terminal seam (xterm is the first) and
+  holds the module's one `as unknown as Terminal` cast, so a screen can be
+  driven in a test without booting the app.

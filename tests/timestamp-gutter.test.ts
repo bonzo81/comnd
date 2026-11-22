@@ -1,24 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { Terminal } from "@xterm/xterm";
 import { TimestampGutter, formatTimestamp } from "../src/lib/timestamps";
+import { createTerminalFake, type TerminalFake } from "./harness";
 
 function makeTerminal() {
-  const term = new Terminal({ cols: 80, rows: 10, allowProposedApi: true });
+  const fake = createTerminalFake({ cols: 80, rows: 10 });
   const el = document.createElement("div");
   document.body.appendChild(el);
-  term.open(el);
-  return term;
+  fake.terminal.open(el);
+  return fake;
 }
 
-function writeAsync(term: Terminal, data: string) {
-  return new Promise<void>((resolve) => term.write(data, () => resolve()));
+function writeAsync(fake: TerminalFake, data: string) {
+  return new Promise<void>((resolve) => fake.terminal.write(data, () => resolve()));
 }
 
-/** Mirror terminal-view: capture cursor before write, stamp after. */
-async function feed(gutter: TimestampGutter, term: Terminal, data: string) {
-  const buf = term.buffer.active;
+/**
+ * Mirror terminal-view: capture cursor before write, stamp after.
+ *
+ * The fake reproduces xterm's line accounting for the constructs fed here
+ * (printable text and CR/LF), so this still exercises the gutter rather than
+ * xterm's own parser — the gutter is the subject of these tests.
+ */
+async function feed(gutter: TimestampGutter, fake: TerminalFake, data: string) {
+  const buf = fake.buffer;
   const before = buf.baseY + buf.cursorY;
-  await writeAsync(term, data);
+  await writeAsync(fake, data);
   gutter.onWrite(before, buf.baseY + buf.cursorY);
 }
 
@@ -38,7 +44,7 @@ describe("formatTimestamp", () => {
 describe("TimestampGutter", () => {
   it("stamps each line once at first contact, clears on demand", async () => {
     const term = makeTerminal();
-    const gutter = new TimestampGutter(term);
+    const gutter = new TimestampGutter(term.terminal);
 
     await feed(gutter, term, "hello\r\n");
     await feed(gutter, term, "world\r\n");
@@ -57,12 +63,12 @@ describe("TimestampGutter", () => {
 
     gutter.clear();
     expect(document.querySelectorAll(".ts-stamp").length).toBe(0);
-    term.dispose();
+    term.terminal.dispose();
   });
 
   it("re-renders existing stamps when format changes", async () => {
     const term = makeTerminal();
-    const gutter = new TimestampGutter(term);
+    const gutter = new TimestampGutter(term.terminal);
 
     await feed(gutter, term, "hello\r\n");
     await tick();
@@ -71,17 +77,17 @@ describe("TimestampGutter", () => {
 
     gutter.applyFormat("24h-ms");
     expect(stamp.textContent).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
-    term.dispose();
+    term.terminal.dispose();
   });
 
   it("records continuously so stamps can be revealed retroactively", async () => {
     const term = makeTerminal();
-    const gutter = new TimestampGutter(term);
+    const gutter = new TimestampGutter(term.terminal);
 
     // No enable step — recording is unconditional; visibility is CSS-only
     await feed(gutter, term, "early output\r\n");
     await tick();
     expect(document.querySelectorAll(".ts-stamp").length).toBe(2);
-    term.dispose();
+    term.terminal.dispose();
   });
 });

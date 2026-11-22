@@ -55,14 +55,13 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { Terminal } from "@xterm/xterm";
 import { SuggestionController } from "./suggestion-controller";
 import { LineTracker } from "./line-tracker";
 import { GhostText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import { StreamingTextDecoder } from "./stream-decoder";
 import type { Command, PlatformIndex } from "./tauri-api";
-import { command } from "../../tests/harness";
+import { command, createTerminalFake } from "../../tests/harness";
 
 // ─── Steps ──────────────────────────────────────────────────────────────────
 
@@ -548,16 +547,6 @@ const FIXTURES: ReadonlyArray<Fixture> = [LINUX_BASH, CISCO_IOSXE, CISCO_NXOS, F
 
 // ─── Replay ─────────────────────────────────────────────────────────────────
 
-function terminalStub(): Terminal {
-  return {
-    write: vi.fn(),
-    buffer: { active: { cursorX: 0, cursorY: 0 } },
-    rows: 10,
-    cols: 80,
-    options: {},
-  } as unknown as Terminal;
-}
-
 const cleanups: Array<() => void> = [];
 
 beforeEach(() => vi.useFakeTimers());
@@ -578,7 +567,7 @@ interface ReplayResult {
 function replay(fixture: Fixture, schedule: Schedule): ReplayResult {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const ghost = new GhostText(terminalStub(), container);
+  const ghost = new GhostText(createTerminalFake().terminal, container);
 
   const samples: Sample[] = [];
   const sent: string[] = [];

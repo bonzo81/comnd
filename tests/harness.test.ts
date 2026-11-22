@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { command, createHarness } from "./harness";
+import { describe, it, expect, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { TERMINAL_MEMBERS, command, createHarness, createTerminalFake } from "./harness";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getHosts, setLogLevel } from "../src/lib/tauri-api";
 
@@ -107,5 +109,153 @@ describe("test harness", () => {
   it("the baseline bus stays lenient without a harness", async () => {
     // Order-dependent pin: proves auto-restore from the previous test.
     await expect(getHosts()).resolves.toBeUndefined();
+  });
+});
+
+/** Re-derive the Terminal members the app touches straight from `src`, so
+ *  adding a member to product code fails the pin below instead of drifting. */
+function srcTerminalMembers(): string[] {
+  const found = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        const source = readFileSync(path, "utf8");
+        for (const match of source.matchAll(/terminal[!?]?\.([A-Za-z_$][\w$]*)/g)) {
+          found.add(match[1]);
+        }
+      }
+    }
+  };
+  walk(join(process.cwd(), "src"));
+  return [...found].sort();
+}
+
+describe("terminal fake", () => {
+  it("pins every Terminal member the app touches", () => {
+    expect([...TERMINAL_MEMBERS].sort()).toEqual([
+      "attachCustomKeyEventHandler",
+      "buffer",
+      "clear",
+      "clearSelection",
+      "cols",
+      "dispose",
+      "element",
+      "focus",
+      "getSelection",
+      "loadAddon",
+      "onData",
+      "onResize",
+      "onScroll",
+      "onSelectionChange",
+      "open",
+      "options",
+      "registerDecoration",
+      "registerMarker",
+      "rows",
+      "write",
+    ]);
+  });
+
+  it("matches the members src actually uses", () => {
+    const fake = createTerminalFake();
+    expect([...TERMINAL_MEMBERS].sort()).toEqual(srcTerminalMembers());
+    for (const member of TERMINAL_MEMBERS) {
+      expect(fake.terminal).toHaveProperty(member);
+    }
+  });
+
+  it("write records, calls its completion callback, and advances lines", () => {
+    const fake = createTerminalFake({ rows: 10, cols: 20 });
+    const done = vi.fn();
+
+    fake.terminal.write("hello\r\nworld", done);
+
+    expect(fake.written).toEqual(["hello\r\nworld"]);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(fake.buffer).toMatchObject({ cursorX: 5, cursorY: 1, baseY: 0 });
+  });
+
+  it("does not advance the cursor for ANSI escapes", () => {
+    const fake = createTerminalFake();
+    fake.terminal.write("\x1b[?25l");
+    fake.terminal.write("\x1b[?25h");
+    expect(fake.buffer.cursorX).toBe(0);
+    expect(fake.buffer.cursorY).toBe(0);
+  });
+
+  it("exposes mutable buffer, rows, cols and options through the Terminal", () => {
+    const fake = createTerminalFake();
+
+    fake.buffer.cursorX = 7;
+    expect(fake.terminal.buffer.active.cursorX).toBe(7);
+
+    fake.rows = 12;
+    fake.cols = 40;
+    expect(fake.terminal.rows).toBe(12);
+    expect(fake.terminal.cols).toBe(40);
+
+    fake.options.fontSize = 18;
+    expect(fake.terminal.options.fontSize).toBe(18);
+
+    fake.options = { lineHeight: 1.4 };
+    expect(fake.terminal.options.lineHeight).toBe(1.4);
+  });
+
+  it("returns a disposable from every event subscription", () => {
+    const fake = createTerminalFake();
+    const seen: unknown[] = [];
+
+    const data = fake.terminal.onData((d) => seen.push(d));
+    const resize = fake.terminal.onResize((s) => seen.push(s));
+    const scroll = fake.terminal.onScroll((y) => seen.push(y));
+    const selection = fake.terminal.onSelectionChange(() => seen.push("selection"));
+
+    fake.emitData("a");
+    fake.emitResize(40, 12);
+    fake.emitScroll(3);
+    fake.emitSelectionChange();
+    expect(seen).toEqual(["a", { cols: 40, rows: 12 }, 3, "selection"]);
+
+    for (const disposable of [data, resize, scroll, selection]) disposable.dispose();
+    fake.emitData("b");
+    expect(seen).toHaveLength(4);
+  });
+
+  it("records addons and keeps the custom key handler", () => {
+    const fake = createTerminalFake();
+    const addon = { activate: () => {}, dispose: () => {} };
+    fake.terminal.loadAddon(addon);
+    expect(fake.addons).toEqual([addon]);
+
+    fake.terminal.attachCustomKeyEventHandler(() => false);
+    expect(fake.handleKey(new KeyboardEvent("keydown"))).toBe(false);
+  });
+
+  it("returns a renderable decoration that disposes", () => {
+    const fake = createTerminalFake();
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    fake.terminal.open(parent);
+
+    const marker = fake.terminal.registerMarker(-1)!;
+    const decoration = fake.terminal.registerDecoration({ marker, x: 0, width: 1 })!;
+    let rendered: HTMLElement | null = null;
+    decoration.onRender((el) => {
+      rendered = el;
+    });
+
+    expect(rendered).toBe(decoration.element);
+    expect(parent.contains(decoration.element!)).toBe(true);
+    expect(decoration.isDisposed).toBe(false);
+
+    decoration.dispose();
+    expect(decoration.isDisposed).toBe(true);
+    expect(parent.contains(decoration.element!)).toBe(false);
+
+    fake.terminal.dispose();
+    parent.remove();
   });
 });

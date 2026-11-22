@@ -1,16 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { TerminalView } from "../src/components/terminal-view";
+import { host as hostFixture } from "./harness";
 
-// Minimal host — only the fields the connect/disconnect path touches.
-const host = {
-  id: "h1",
-  hostname: "10.0.0.1",
-  port: 22,
-  username: "admin",
-  display_name: "Test",
-  platform: "linux-bash",
-  auth_type: "password",
-} as never;
+// Only the fields this test cares about; the fixture fills the rest of Host.
+const host = hostFixture({ id: "h1", display_name: "Test" });
 
 function makeView() {
   const calls: { cb: string }[] = [];
