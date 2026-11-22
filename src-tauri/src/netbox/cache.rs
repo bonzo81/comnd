@@ -92,11 +92,11 @@ fn load_cache_from_file(path: &Path) -> NetBoxCache {
 mod tests {
     use super::*;
 
-    use crate::netbox::test_fixtures::*;
+    use crate::fixtures::*;
 
     #[test]
     fn test_cache_preserves_corrupt_file() {
-        let dir = temp_dir();
+        let dir = TempDir::new("netbox-cache");
         let path = dir.join("netbox-cache.json");
         std::fs::write(&path, "{not valid json").unwrap();
 
@@ -112,6 +112,5 @@ mod tests {
                     .starts_with("netbox-cache.json.corrupt-")
             });
         assert!(preserved, "expected a .corrupt-<ts> backup file");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

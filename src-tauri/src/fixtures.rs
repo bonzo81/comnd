@@ -7,10 +7,12 @@
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
+use crate::credentials::CredentialSource;
 use crate::hosts::{Host, HostGroup};
 use crate::kb::{
     Command, CommandOrder, CommandToken, CommandVersions, KbManager, KbStore, PlatformIndex,
 };
+use crate::netbox::{DeviceOverlay, NetBoxConfig, NetBoxDeviceEntry};
 
 // ─── Temp directory guard ─────────────────────────────────────────────────
 
@@ -203,6 +205,36 @@ pub(crate) fn mk_group(name: &str) -> HostGroup {
         color: None,
         icon: None,
         created_at: String::new(),
+    }
+}
+
+// ─── NetBox builders (folded in from netbox::test_fixtures) ───────────────
+
+pub(crate) fn sample_entry(id: u64, enabled: bool) -> NetBoxDeviceEntry {
+    NetBoxDeviceEntry {
+        netbox_id: id,
+        name: format!("dev-{}", id),
+        address: format!("10.0.0.{}", id),
+        platform: "cisco-iosxe".into(),
+        site: Some("dc1".into()),
+        location: Some("rack-1".into()),
+        tags: vec!["prod".into()],
+        status: "active".into(),
+        enabled,
+        overlay: DeviceOverlay::default(),
+    }
+}
+
+pub(crate) fn cfg_with(
+    username: Option<&str>,
+    port: u16,
+    cred: Option<CredentialSource>,
+) -> NetBoxConfig {
+    NetBoxConfig {
+        default_username: username.map(str::to_string),
+        default_port: port,
+        default_credential: cred,
+        ..Default::default()
     }
 }
 

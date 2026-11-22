@@ -267,8 +267,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::credentials::CredentialSource;
+    use crate::fixtures::*;
     use crate::netbox::client::RawNetBoxDevice;
-    use crate::netbox::test_fixtures::*;
     use crate::netbox::{DeviceOverlay, NetBoxConfig, NetBoxGeo, PlatformPolicy, SyncReport};
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_apply_sync_preserves_enabled_and_overlay() {
-        let dir = temp_dir();
+        let dir = TempDir::new("netbox-inventory");
         let mut store = NetBoxInventory::new(&dir).unwrap();
         store
             .apply_sync(
@@ -536,13 +536,11 @@ mod tests {
         let d3 = cache.devices.iter().find(|d| d.netbox_id == 3).unwrap();
         assert!(d3.enabled);
         assert_eq!(d3.overlay, DeviceOverlay::default());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_find_by_host_id_and_touch_and_setters() {
-        let dir = temp_dir();
+        let dir = TempDir::new("netbox-inventory");
         let mut store = NetBoxInventory::new(&dir).unwrap();
         store
             .apply_sync(
@@ -581,13 +579,11 @@ mod tests {
             .overlay
             .last_connected
             .is_some());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_cache_roundtrip() {
-        let dir = temp_dir();
+        let dir = TempDir::new("netbox-inventory");
         let mut inventory = NetBoxInventory::new(&dir).unwrap();
         inventory
             .apply_sync(
@@ -607,7 +603,5 @@ mod tests {
         assert_eq!(fresh.get().devices[0].name, "dev-1");
         assert_eq!(fresh.get().sync_report.as_ref().unwrap().fetched, 1);
         assert_eq!(fresh.get().version, 2);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

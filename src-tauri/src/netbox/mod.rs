@@ -836,53 +836,10 @@ pub fn synthetic_groups(
     groups
 }
 
-// --------------------------------------------------------------------------
-// Test fixtures shared by the module unit tests.
-// --------------------------------------------------------------------------
-#[cfg(test)]
-pub(crate) mod test_fixtures {
-    use super::*;
-    use std::path::PathBuf;
-
-    pub(crate) fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("comnd_netbox_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    pub(crate) fn sample_entry(id: u64, enabled: bool) -> NetBoxDeviceEntry {
-        NetBoxDeviceEntry {
-            netbox_id: id,
-            name: format!("dev-{}", id),
-            address: format!("10.0.0.{}", id),
-            platform: "cisco-iosxe".into(),
-            site: Some("dc1".into()),
-            location: Some("rack-1".into()),
-            tags: vec!["prod".into()],
-            status: "active".into(),
-            enabled,
-            overlay: DeviceOverlay::default(),
-        }
-    }
-
-    pub(crate) fn cfg_with(
-        username: Option<&str>,
-        port: u16,
-        cred: Option<CredentialSource>,
-    ) -> NetBoxConfig {
-        NetBoxConfig {
-            default_username: username.map(str::to_string),
-            default_port: port,
-            default_credential: cred,
-            ..Default::default()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::netbox::test_fixtures::*;
+    use crate::fixtures::*;
 
     // ─── Platform mapping (plan §7.2) ──────────────────────────────
 
@@ -1106,7 +1063,7 @@ mod tests {
 
     #[test]
     fn test_override_to_custom_platform_validates_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("comnd_netbox_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("netbox-platform");
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
