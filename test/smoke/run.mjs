@@ -54,6 +54,15 @@ function parseMutation(argv) {
   // `tauri build` to drive one ~20s scenario.
   if (value === "all") return [...MUTATION_CATEGORIES];
   const categories = value.split(",").map((category) => category.trim()).filter(Boolean);
+  // `--mutation=` or `--mutation=,` would otherwise run zero categories and
+  // "succeed" without proving anything.
+  if (categories.length === 0) {
+    console.error(
+      `--mutation= needs at least one category; `
+      + `expected one of ${MUTATION_CATEGORIES.join(", ")}, or all`,
+    );
+    process.exit(2);
+  }
   const unknown = categories.find((category) => !MUTATION_CATEGORIES.includes(category));
   if (unknown !== undefined) {
     console.error(
