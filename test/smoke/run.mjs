@@ -6,6 +6,7 @@ import {
   actOn,
   buildApp,
   invoke,
+  parseJobs,
   pause,
   runCase,
   runSuite,
@@ -39,26 +40,46 @@ function parseMutation(argv) {
   const equals = argv.find((arg) => arg.startsWith("--mutation="));
   const bare = argv.includes("--mutation");
   if (equals && bare) {
-    console.error("--mutation takes one category: pass either --mutation or --mutation=<category>");
+    console.error("--mutation takes its categories in one value: pass either --mutation or --mutation=<category>");
     process.exit(2);
   }
   if (!equals) {
     // A bare --mutation keeps its original meaning (ssh_send), so
-    // `npm run smoke:mutation` and the CI step that calls it are unchanged.
-    return bare ? "ssh_send" : null;
+    // `npm run smoke:mutation` keeps proving the SSH send path drops input.
+    return bare ? ["ssh_send"] : null;
   }
-  const category = equals.slice("--mutation=".length);
-  if (!MUTATION_CATEGORIES.includes(category)) {
+  const value = equals.slice("--mutation=".length);
+  // `all`, and comma lists, exist so one process can prove every category after
+  // a single app build: a separate invocation per category re-runs the whole
+  // `tauri build` to drive one ~20s scenario.
+  if (value === "all") return [...MUTATION_CATEGORIES];
+  const categories = value.split(",").map((category) => category.trim()).filter(Boolean);
+  // `--mutation=` or `--mutation=,` would otherwise run zero categories and
+  // "succeed" without proving anything.
+  if (categories.length === 0) {
     console.error(
-      `Unknown mutation category ${JSON.stringify(category)}; `
-      + `expected one of ${MUTATION_CATEGORIES.join(", ")}`,
+      `--mutation= needs at least one category; `
+      + `expected one of ${MUTATION_CATEGORIES.join(", ")}, or all`,
     );
     process.exit(2);
   }
-  return category;
+  const unknown = categories.find((category) => !MUTATION_CATEGORIES.includes(category));
+  if (unknown !== undefined) {
+    console.error(
+      `Unknown mutation category ${JSON.stringify(unknown)}; `
+      + `expected one of ${MUTATION_CATEGORIES.join(", ")}, or all`,
+    );
+    process.exit(2);
+  }
+  return categories;
 }
 
-const mutationCategory = parseMutation(process.argv);
+const mutationCategories = parseMutation(process.argv);
+
+// CI runs the full suite and then the mutation sweep as two steps of one job,
+// so the second step starts from the binary the first one built. Rebuilding
+// there recompiles the crate for nothing.
+const skipBuild = process.argv.includes("--no-build");
 
 // Each frontend mutation category must break exactly one scenario, and the
 // failure it produces must also prove the mutation was applied. A category
@@ -99,10 +120,10 @@ const MUTATION_CASES = {
   },
 };
 
-// The suite's per-run difference: a mutation run makes the app misbehave on
-// purpose, so a passing check cannot be satisfied by a silent or broken app.
-// The NetBox token is seeded because CI has no OS keyring; the accessibility
-// scenarios that open the NetBox configure dialog need it.
+// The suite's environment: a mutation run makes the app misbehave on purpose,
+// so a passing check cannot be satisfied by a silent or broken app. The NetBox
+// token is seeded because CI has no OS keyring; the accessibility scenarios
+// that open the NetBox configure dialog need it.
 const sshSuite = {
   env: {
     COMND_TEST_MOCK_NETBOX_TOKEN: "nbt_smoke.token",
@@ -110,7 +131,6 @@ const sshSuite = {
     // (the seam proof below) must not open one on the runner either. The app
     // still counts the launch before suppressing it.
     COMND_SMOKE_NO_BROWSER: "1",
-    ...(mutationCategory ? { COMND_SMOKE_MUTATION: mutationCategory } : {}),
   },
   // The accessibility scenarios may start the NetBox mock as well, so stop
   // whichever mock is running instead of only the SSH one. Both Rust commands
@@ -124,6 +144,12 @@ const sshSuite = {
     if (failed) throw failed.reason;
   },
 };
+
+/** The suite for one mutation category: that run's app misbehaves on purpose. */
+const mutationSuite = (category) => ({
+  ...sshSuite,
+  env: { ...sshSuite.env, COMND_SMOKE_MUTATION: category },
+});
 
 async function terminalText(browser) {
   return browser.execute(() => {
@@ -1950,37 +1976,7 @@ async function commandRoundTrip(browser, dataDir) {
 async function main() {
   if (runUnderXvfb(import.meta.url)) return;
 
-  buildApp();
-
-  if (mutationCategory === "ssh_send") {
-    try {
-      const result = await runCase({
-        name: "mutation-check",
-        // The app drops input at ssh_send, so the mock never receives the
-        // command and waitForBytes fails first. That failure alone is not
-        // enough: the app must also report a non-zero drop count, otherwise a
-        // frontend that never reaches ssh_send would satisfy the check. This
-        // must not match the old muteOutput failure (expected remote echo
-        // exactly once) either, so a passing unmutated run cannot satisfy it.
-        expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes[\s\S]*mutation activation: ssh_send dropped [1-9]\d* bytes/,
-        run: async (browser, dataDir) => {
-          try {
-            await commandRoundTrip(browser, dataDir);
-          } catch (error) {
-            throw new Error(`${error.message}; ${await mutationActivation(browser)}`);
-          }
-          throw new Error("Command round-trip: passed, but the mutation was supposed to drop input");
-        },
-      }, sshSuite);
-      console.log(`PASS mutation-check — ${result}`);
-    } catch (error) {
-      throw new Error(
-        `mutation-check: the ssh_send drop was not proven active: ${error.message}`,
-        { cause: error },
-      );
-    }
-    return;
-  }
+  if (!skipBuild) buildApp();
 
   const tests = [
     {
@@ -4153,6 +4149,9 @@ async function main() {
     },
     {
       name: "failure-clarity",
+      // Asserts on the byte-comparison helper itself; booting an app for it
+      // would cost a full launch to test no app behaviour.
+      needsApp: false,
       run() {
         let message = "";
         try {
@@ -4174,43 +4173,112 @@ async function main() {
     },
   ];
 
-  // A focus/name/layout/suggestion run boots the same app with
-  // COMND_SMOKE_MUTATION set and drives only the scenario that regression is
-  // supposed to break. The expected failure must name the assertion and carry
-  // proof that the frontend applied the mutation, so a broken seam cannot pass
-  // silently.
-  if (mutationCategory) {
-    const target = MUTATION_CASES[mutationCategory];
+  // A mutation run boots the same app with COMND_SMOKE_MUTATION set and drives
+  // only the scenario that regression is supposed to break. The expected
+  // failure must name the assertion and carry proof that the frontend (or, for
+  // ssh_send, the app) applied the mutation, so a broken seam cannot pass
+  // silently. Every requested category runs here, in one process after one
+  // build, so proving all seven costs seven scenario boots rather than seven
+  // full `tauri build` runs.
+  if (mutationCategories) {
+    const failures = await runMutations(tests, parseJobs(process.argv));
+    if (failures.length) throw new Error(failures.join("\n"));
+    return;
+  }
+
+  await runSuite(tests, { ...sshSuite, jobs: parseJobs(process.argv) });
+}
+
+/**
+ * Prove each requested mutation category, `jobs` at a time.
+ *
+ * Categories are as independent as scenarios are (own app, data directory and
+ * display), and each still has to fail on its own named assertion.
+ */
+async function runMutations(tests, jobs) {
+  const results = new Array(mutationCategories.length);
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= mutationCategories.length) return;
+      try {
+        results[index] = { ok: true, ...(await runMutation(mutationCategories[index], tests)) };
+      } catch (error) {
+        results[index] = { ok: false, error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(jobs, mutationCategories.length) }, worker));
+
+  const failures = [];
+  for (const result of results) {
+    if (result.ok) {
+      console.log(`PASS ${result.name} — ${result.expected}`);
+    } else {
+      failures.push(result.error.message);
+      console.error(`FAIL ${result.error.message}`);
+    }
+  }
+  return failures;
+}
+
+/** Prove one mutation category breaks exactly the scenario it is meant to. */
+async function runMutation(category, tests) {
+  const suite = mutationSuite(category);
+  try {
+    if (category === "ssh_send") {
+      return {
+        name: "mutation-check",
+        expected: (await runCase({
+          name: "mutation-check",
+          // The app drops input at ssh_send, so the mock never receives the
+          // command and waitForBytes fails first. That failure alone is not
+          // enough: the app must also report a non-zero drop count, otherwise a
+          // frontend that never reaches ssh_send would satisfy the check. This
+          // must not match the old muteOutput failure (expected remote echo
+          // exactly once) either, so a passing unmutated run cannot satisfy it.
+          expectedFailure: /Command round-trip: Mock host did not receive \d+ bytes; mock received 0 bytes[\s\S]*mutation activation: ssh_send dropped [1-9]\d* bytes/,
+          run: async (browser, dataDir) => {
+            try {
+              await commandRoundTrip(browser, dataDir);
+            } catch (error) {
+              throw new Error(`${error.message}; ${await mutationActivation(browser)}`);
+            }
+            throw new Error("Command round-trip: passed, but the mutation was supposed to drop input");
+          },
+        }, suite)).expected,
+      };
+    }
+
+    const target = MUTATION_CASES[category];
     const scenario = tests.find((test) => test.name === target.scenario);
-    assert(scenario, `mutation ${mutationCategory} names an unknown scenario ${target.scenario}`);
-    try {
-      const result = await runCase({
-        name: `mutation-${mutationCategory}`,
+    assert(scenario, `mutation ${category} names an unknown scenario ${target.scenario}`);
+    return {
+      name: `mutation-${category}`,
+      expected: (await runCase({
+        name: `mutation-${category}`,
         expectedFailure: target.expectedFailure,
         run: async (browser, dataDir) => {
           try {
             await scenario.run(browser, dataDir);
           } catch (error) {
-            throw new Error(`${error.message}; ${await categoryActivation(browser, mutationCategory)}`);
+            throw new Error(`${error.message}; ${await categoryActivation(browser, category)}`);
           }
           throw new Error(
-            `passed, but the ${mutationCategory} mutation was supposed to break it; `
-            + await categoryActivation(browser, mutationCategory),
+            `passed, but the ${category} mutation was supposed to break it; `
+            + await categoryActivation(browser, category),
           );
         },
-      }, sshSuite);
-      console.log(`PASS mutation-${mutationCategory} — ${result}`);
-    } catch (error) {
-      throw new Error(
-        `mutation-${mutationCategory}: the ${mutationCategory} regression was not proven active: `
-        + error.message,
-        { cause: error },
-      );
-    }
-    return;
+      }, suite)).expected,
+    };
+  } catch (error) {
+    throw new Error(
+      `mutation-${category === "ssh_send" ? "check" : category}: the ${category} regression was not proven active: `
+      + error.message,
+      { cause: error },
+    );
   }
-
-  await runSuite(tests, sshSuite);
 }
 
 main().catch((error) => {

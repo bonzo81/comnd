@@ -128,9 +128,14 @@ jobs:
         if: matrix.rust-targets != ''
         run: rustup target add ${{ matrix.rust-targets }}
 
+      # The two macOS legs cross-build different targets from one runner OS,
+      # so the automatic job-based key is identical for both: one leg could
+      # never save its cache and the other restored a cache built for the
+      # wrong triple. The target separates them.
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: ${{ matrix.rust-targets || matrix.platform }}
 
       - name: install frontend dependencies
         run: npm ci
@@ -138,7 +143,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # P1.4 — signs updater artifacts (latest.json + .sig) during `tauri build`.
+          # P1.4: `tauri build` signs the updater bundles (.sig); tauri-action
+          # embeds those signatures in latest.json, which is not itself signed.
           # Stored as a repo secret; the key itself is never checked in.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
@@ -149,5 +155,5 @@ jobs:
           # it is also the only Windows bundle target (tauri.windows.conf.json).
           updaterJsonPreferNsis: true
           # .sig files are build-time inputs for latest.json, which embeds the
-          # signatures — clients never fetch them, so don't attach them.
+          # signatures â€” clients never fetch them, so don't attach them.
           uploadUpdaterSignatures: false

@@ -24,9 +24,10 @@ Closes #
       test around debug-only (`debug_assertions`) code
 - [ ] `npm run smoke` — required when touching the keystroke path, the suggestion
       controller, the terminal view, or `test/smoke/`
-- [ ] `npm run smoke:mutation` — required when `test/smoke/` or the mock host changed
-- [ ] `npm run smoke -- --mutation=focus|name|layout|suggestion` — required when touching
-      the focus, accessible-name, layout, or suggestion-overlay assertions
+- [ ] `npm run smoke:mutation:all` — required when `test/smoke/` or the mock host changed;
+      one process proves all seven mutation categories
+- [ ] `npm run smoke -- --mutation=focus|name|layout|suggestion|kb-layout|terminal-sidebar-layout`
+      — a single-category re-check while iterating on one assertion
 - [ ] `npx commitlint --from origin/main` — Conventional Commits, 72-char subject
 
 ## Notes for reviewers

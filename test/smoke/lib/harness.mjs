@@ -27,6 +27,45 @@ export const appPath = path.join(
 
 export const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A millisecond duration as seconds, for suite timing output. */
+export const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+
+// Every phase a scenario can spend time in. Kept in boot→teardown order so the
+// printed line reads like the scenario does.
+const TIMING_PHASES = ["driver", "session", "run", "stop", "close", "kill"];
+
+const emptyTimings = () => Object.fromEntries(TIMING_PHASES.map((phase) => [phase, 0]));
+
+const addTimings = (total, part) => {
+  for (const phase of TIMING_PHASES) total[phase] += part?.[phase] ?? 0;
+};
+
+/** ` (3.4s wall: driver 0.2s, session 1.0s, run 2.0s, …)` for a PASS/FAIL line. */
+const formatTimings = (elapsed, timings) => {
+  if (!timings) return ` (${secs(elapsed)})`;
+  const phases = TIMING_PHASES.map((phase) => `${phase} ${secs(timings[phase])}`).join(", ");
+  return ` (${secs(elapsed)} wall: ${phases})`;
+};
+
+/**
+ * `--jobs=N` for a suite: how many scenarios run at once (default 1).
+ *
+ * Separate invocations used to be the only way to split a suite, and each one
+ * re-paid the app build and the driver start-up. A pool inside one process
+ * keeps a single build and overlaps the per-scenario wait instead.
+ */
+export function parseJobs(argv) {
+  const equals = argv.find((arg) => arg.startsWith("--jobs="));
+  if (!equals) return 1;
+  const raw = equals.slice("--jobs=".length);
+  const jobs = Number(raw);
+  if (!Number.isInteger(jobs) || jobs < 1) {
+    console.error(`--jobs takes a positive whole number, got ${JSON.stringify(raw)}`);
+    process.exit(2);
+  }
+  return jobs;
+}
+
 export const SCENARIO_TIMEOUT_MS = 180_000;
 
 // CI runners are slow (debug build, Xvfb, WebKit); a tight wait turns runner
@@ -41,15 +80,25 @@ export function withTimeout(promise, ms, label) {
   return Promise.race([promise, timerPromise]).finally(() => clearTimeout(timer));
 }
 
+// Ports handed out by `freePort` in this process. Two workers asking at once
+// can both see the same port free (each probe closes its socket before the
+// driver binds), so the set makes the answer unique even then.
+const issuedPorts = new Set();
+
 export async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+  for (;;) {
+    const server = net.createServer();
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = server.address();
+    await new Promise((resolve) => server.close(resolve));
+    if (!issuedPorts.has(port)) {
+      issuedPorts.add(port);
+      return port;
+    }
+  }
 }
 
 export async function waitForDriver(driver, port, driverLog) {
@@ -304,10 +353,80 @@ export async function withWindow(browser, handle, fn) {
 
 export { WINDOW_MARKERS };
 
+// ─── Per-boot display (Linux) ───────────────────────────────────────
+//
+// Under a scenario pool, two app windows cannot both hold keyboard focus on
+// one X display: the second one reports `document focused false` and the
+// focus-ring assertions fail. Each boot therefore gets its own Xvfb display,
+// sized like `xvfb-run`'s default so geometry assertions see the same screen.
+// Outside a pool this is still what runs, because an isolated display is
+// cheaper than reasoning about what else shares one.
+
+let nextDisplay = 20 + (process.pid % 60);
+
+async function startDisplay() {
+  if (process.platform !== "linux") return null;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const display = nextDisplay;
+    nextDisplay = nextDisplay >= 99 ? 20 : nextDisplay + 1;
+    if (existsSync(`/tmp/.X11-unix/X${display}`) || existsSync(`/tmp/.X${display}-lock`)) continue;
+    const server = spawn(
+      "Xvfb",
+      [`:${display}`, "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
+      { stdio: "ignore" },
+    );
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      if (existsSync(`/tmp/.X11-unix/X${display}`)) return { server, display };
+      // Exited without a socket: the number was taken between the check above
+      // and the spawn, so try the next one.
+      if (server.exitCode !== null) break;
+      await pause(50);
+    }
+    if (server.exitCode === null) server.kill();
+    if (server.exitCode !== null && Date.now() < until) continue;
+    throw new Error(`Xvfb :${display} did not start within 5 seconds`);
+  }
+  throw new Error("Xvfb could not allocate a free display; check the xvfb package");
+}
+
+// A runner has no GPU and no accessibility bus, and WebKitGTK's DMA-BUF
+// renderer, compositing and AT-SPI bridge each stall window start-up there;
+// its bubblewrap sandbox also cannot initialise in the runner container. None
+// of these change what the scenarios assert (DOM state and geometry), and the
+// session phase of each PASS line shows whether a knob is still needed.
+const headlessWebkitEnv = () => (process.platform === "linux"
+  ? {
+    WEBKIT_DISABLE_DMABUF_RENDERER: "1",
+    WEBKIT_DISABLE_COMPOSITING_MODE: "1",
+    WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1",
+    NO_AT_BRIDGE: "1",
+  }
+  : {});
+
+// Windows keeps WebView2's user-data folder (cookies, localStorage) outside
+// `COMND_DATA_DIR`, so a pooled run would share one profile between scenarios:
+// the app process trees are linked through it, and one scenario's stored state
+// can change another's results. WebView2 reads this variable at startup, and
+// the folder lives inside the scenario's data directory, so it is removed with
+// it. The Linux equivalent, the Xvfb display, is per boot for the same reason.
+const webviewProfileEnv = (dataDir) => (process.platform === "win32"
+  ? { WEBVIEW2_USER_DATA_FOLDER: path.join(dataDir, "webview2") }
+  : {});
+
 export async function startDriver(dataDir, extraEnv = {}) {
   const port = await freePort();
+  // tauri-driver forwards to the platform WebDriver, which listens on its own
+  // native port. Left at the default, every driver instance shares it, so two
+  // scenarios running at once knock each other's sessions out ("invalid
+  // session id", or a session attached to the other scenario's app).
+  const nativePort = await freePort();
+  const display = await startDisplay();
   const env = {
     ...process.env,
+    ...headlessWebkitEnv(),
+    ...webviewProfileEnv(dataDir),
+    ...(display ? { DISPLAY: `:${display.display}` } : {}),
     COMND_DATA_DIR: dataDir,
     COMND_TEST_MOCK_SECRET: "smoke-secret",
     ...extraEnv,
@@ -317,7 +436,7 @@ export async function startDriver(dataDir, extraEnv = {}) {
   // inherited value first so a normal run never mutates the app.
   delete env.COMND_SMOKE_MUTATION;
   if (extraEnv.COMND_SMOKE_MUTATION) env.COMND_SMOKE_MUTATION = extraEnv.COMND_SMOKE_MUTATION;
-  const driver = spawn("tauri-driver", ["--port", String(port)], {
+  const driver = spawn("tauri-driver", ["--port", String(port), "--native-port", String(nativePort)], {
     cwd: root,
     env,
     stdio: ["ignore", "ignore", "pipe"],
@@ -326,7 +445,7 @@ export async function startDriver(dataDir, extraEnv = {}) {
   driver.stderr.on("data", (chunk) => {
     if (stderr.length < 4000) stderr += chunk.toString();
   });
-  return { driver, port, driverLog: () => stderr.trim() };
+  return { driver, port, display, driverLog: () => stderr.trim() };
 }
 
 /**
@@ -338,27 +457,37 @@ export async function startDriver(dataDir, extraEnv = {}) {
  */
 async function bootApp(dataDir, suite) {
   const started = await startDriver(dataDir, suite.env);
+  const timings = { driver: 0, session: 0 };
   let browser;
+  const driverStarted = Date.now();
   try {
     await waitForDriver(started.driver, started.port, started.driverLog);
+    timings.driver = Date.now() - driverStarted;
+    const sessionStarted = Date.now();
     browser = await openSession(started.port);
+    timings.session = Date.now() - sessionStarted;
   } catch (error) {
     if (started.driver.exitCode === null) started.driver.kill();
+    if (started.display?.server.exitCode === null) started.display.server.kill();
     throw error;
   }
-  return { driver: started.driver, browser };
+  return { driver: started.driver, browser, display: started.display, driverLog: started.driverLog, timings };
 }
 
-/** Tear down one boot: the suite's teardown, then the session, then the driver. */
-async function shutdownApp({ driver, browser }, teardown) {
+/** Tear down one boot: the suite's teardown, then the session, the driver and the display. */
+async function shutdownApp({ driver, browser, display }, teardown) {
   let cleanupError;
   let teardownError;
+  const timings = { stop: 0, close: 0, kill: 0 };
   if (browser) {
+    const stopStarted = Date.now();
     try {
       await withTimeout(teardown(browser), 15_000, "suite teardown");
     } catch (caught) {
       teardownError = caught;
     }
+    timings.stop = Date.now() - stopStarted;
+    const closeStarted = Date.now();
     try {
       await withTimeout(browser.deleteSession(), 20_000, "session teardown");
     } catch (caught) {
@@ -366,15 +495,19 @@ async function shutdownApp({ driver, browser }, teardown) {
       // leak: the driver is killed below either way, and the data dir is removed.
       if (!/no such window/i.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
+    timings.close = Date.now() - closeStarted;
   }
   if (driver && driver.exitCode === null) {
+    const killStarted = Date.now();
     driver.kill();
     await Promise.race([
       new Promise((resolve) => driver.once("exit", resolve)),
       pause(5_000),
     ]);
+    timings.kill = Date.now() - killStarted;
   }
-  return { cleanupError, teardownError };
+  if (display?.server.exitCode === null) display.server.kill();
+  return { cleanupError, teardownError, timings };
 }
 
 /** The failure report: what the user could see when the scenario broke. */
@@ -393,7 +526,14 @@ async function describeFailure(browser, caught) {
 }
 
 /** Shared pass/fail reporting for `runCase` and `runBoots`. */
-function reportCase(test, { error, cleanupError, teardownError, appReady, dataDir }) {
+function reportCase(test, { error, cleanupError, teardownError, appReady, dataDir, timings }) {
+  // `timings` rides on the failure so the suite can still print which phase ate
+  // the time when a scenario goes red.
+  const fail = (message, cause) => {
+    const failure = new Error(message, { cause });
+    failure.timings = timings;
+    return failure;
+  };
   // Before the app window is up the suite's debug command may not exist yet, so
   // a teardown failure there is not actionable. Afterwards it is: a scenario
   // that reports PASS must have stopped the mock it started.
@@ -406,15 +546,19 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
   if (cleanupError) {
     // Keep the scenario's own failure visible instead of replacing it.
     const after = error ? ` (after: ${error.message})` : "";
-    throw new Error(`${test.name}: cleanup failed: ${cleanupError.message}${after}`, { cause: error });
+    throw fail(`${test.name}: cleanup failed: ${cleanupError.message}${after}`, error);
   }
   if (test.expectedFailure) {
-    assert(error, `${test.name}: expected the deliberate failure, but the behavior passed`);
-    assert.match(String(error.message ?? error), test.expectedFailure);
-    return `EXPECTED FAILURE: ${error.message}`;
+    try {
+      assert(error, `${test.name}: expected the deliberate failure, but the behavior passed`);
+      assert.match(String(error.message ?? error), test.expectedFailure);
+    } catch (caught) {
+      throw fail(caught.message, caught);
+    }
+    return { expected: `EXPECTED FAILURE: ${error.message}`, timings };
   }
-  if (error) throw new Error(`${test.name}: ${error.message}`, { cause: error });
-  return null;
+  if (error) throw fail(`${test.name}: ${error.message}`, error);
+  return { expected: null, timings };
 }
 
 /**
@@ -423,26 +567,50 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
  * `suite` supplies the per-suite parts: `env` merged into the app process
  * environment, and `teardown(browser)` run before the session is closed (the
  * default stops the SSH mock, which every SSH scenario starts).
+ *
+ * A scenario with `needsApp: false` asserts on helpers rather than the running
+ * app, so it skips the boot: an app launch costs more than the assertion does.
+ *
+ * Returns `{ expected, timings }`, where `timings` records every phase in
+ * milliseconds, so a slow suite can be read off its own log.
  */
 export async function runCase(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
   const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const timings = emptyTimings();
   let app;
   let error;
   let appReady = false;
   let cleanupError;
   let teardownError;
+  let runStarted = 0;
 
   try {
-    app = await bootApp(dataDir, suite);
-    appReady = true;
+    if (test.needsApp === false) {
+      appReady = true;
+    } else {
+      app = await bootApp(dataDir, suite);
+      addTimings(timings, app.timings);
+      appReady = true;
+      // A session that takes seconds to create is the app start-up, and the
+      // driver's stderr is the only place WebKitGTK explains itself. Print it
+      // where the log will be read rather than only when a boot fails.
+      if (app.timings.session > 5_000) {
+        console.log(`${test.name}: slow session ${secs(app.timings.session)}; `
+          + `driver log: ${app.driverLog() || "(empty)"}`);
+      }
+    }
+    runStarted = Date.now();
     // A wedged WebDriver session otherwise blocks the whole job until its timeout.
-    await withTimeout(test.run(app.browser, dataDir), SCENARIO_TIMEOUT_MS, test.name);
+    await withTimeout(Promise.resolve(test.run(app?.browser, dataDir)), SCENARIO_TIMEOUT_MS, test.name);
+    timings.run = Date.now() - runStarted;
   } catch (caught) {
+    if (runStarted) timings.run = Date.now() - runStarted;
     error = await describeFailure(app?.browser, caught);
   } finally {
     if (app) {
       const shut = await shutdownApp(app, teardown);
+      addTimings(timings, shut.timings);
       cleanupError = shut.cleanupError;
       teardownError = shut.teardownError;
     }
@@ -453,7 +621,7 @@ export async function runCase(test, suite = {}) {
     }
   }
 
-  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir });
+  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir, timings });
 }
 
 /**
@@ -465,6 +633,7 @@ export async function runCase(test, suite = {}) {
 export async function runBoots(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
   const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const timings = emptyTimings();
   let error;
   let appReady = false;
   let cleanupError;
@@ -473,7 +642,9 @@ export async function runBoots(test, suite = {}) {
   try {
     for (const [index, phase] of test.phases.entries()) {
       const app = await bootApp(dataDir, suite);
+      addTimings(timings, app.timings);
       appReady = true;
+      const runStarted = Date.now();
       try {
         await withTimeout(phase(app.browser, dataDir), SCENARIO_TIMEOUT_MS, `${test.name} boot ${index + 1}`);
       } catch (caught) {
@@ -482,7 +653,9 @@ export async function runBoots(test, suite = {}) {
           { cause: caught },
         ));
       } finally {
+        timings.run += Date.now() - runStarted;
         const shut = await shutdownApp(app, teardown);
+        addTimings(timings, shut.timings);
         cleanupError = shut.cleanupError ?? cleanupError;
         teardownError = shut.teardownError ?? teardownError;
       }
@@ -496,21 +669,53 @@ export async function runBoots(test, suite = {}) {
     }
   }
 
-  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir });
+  return reportCase(test, { error, cleanupError, teardownError, appReady, dataDir, timings });
 }
 
-/** Run every scenario, report pass/fail per scenario, and exit non-zero on failure. */
+/**
+ * Run every scenario, report pass/fail per scenario, and exit non-zero on failure.
+ *
+ * `suite.jobs` runs that many scenarios at once. Scenarios are independent —
+ * each boots its own driver and app on its own port against its own data
+ * directory — so a pool is safe, and on CI the per-scenario cost is mostly
+ * waiting, which overlapping recovers almost linearly. Keep it below the
+ * runner's core count: the app renders in software under Xvfb.
+ */
 export async function runSuite(tests, suite = {}) {
+  const jobs = Math.max(1, Math.min(suite.jobs ?? 1, tests.length));
+  const results = new Array(tests.length);
+  const started = Date.now();
+  let cursor = 0;
+
+  const worker = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= tests.length) return;
+      const test = tests[index];
+      const caseStarted = Date.now();
+      try {
+        const result = test.phases ? await runBoots(test, suite) : await runCase(test, suite);
+        results[index] = { ok: true, elapsed: Date.now() - caseStarted, ...result };
+      } catch (error) {
+        results[index] = { ok: false, elapsed: Date.now() - caseStarted, error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: jobs }, worker));
+
   let failures = 0;
-  for (const test of tests) {
-    try {
-      const expected = test.phases ? await runBoots(test, suite) : await runCase(test, suite);
-      console.log(`PASS ${test.name}${expected ? ` — ${expected}` : ""}`);
-    } catch (error) {
+  for (const [index, result] of results.entries()) {
+    const test = tests[index];
+    const timings = result.ok ? result.timings : result.error.timings;
+    const breakdown = formatTimings(result.elapsed, timings);
+    if (result.ok) {
+      console.log(`PASS ${test.name}${breakdown}${result.expected ? ` — ${result.expected}` : ""}`);
+    } else {
       failures += 1;
-      console.error(`FAIL ${test.name}: ${error.message}`);
+      console.error(`FAIL ${test.name}${breakdown}: ${result.error.message}`);
     }
   }
+  console.log(`${tests.length} scenario(s) with ${jobs} worker(s) in ${secs(Date.now() - started)}, ${failures} failure(s)`);
   // The driver's grandchildren can inherit its stderr pipe, so returning
   // normally leaves Node alive and the CI job hangs until its own timeout.
   process.exit(failures ? 1 : 0);

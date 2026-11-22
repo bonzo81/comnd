@@ -94,9 +94,17 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # Only main saves a Rust cache. A cache saved by a pull request is scoped
+      # to that PR's merge ref: main and other PRs can never restore it, so every
+      # PR push added another set of multi-GB caches. The repository budget is
+      # 10 GB, and when the inventory passed it GitHub evicted main's Linux Rust
+      # cache - the largest entry - which made every PR's Linux leg cold (about
+      # 8 minutes) while Windows and macOS stayed warm. One main-scoped set now
+      # serves every PR through the base-branch restore.
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Formatting is OS-independent, so one leg is enough.
       - name: cargo fmt --check
@@ -206,14 +214,20 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # The two smoke jobs build the same debug target from the same lockfile,
+      # so one shared cache covers both. Two identical caches spent most of the
+      # repository cache budget and were evicted: on this branch the cache was
+      # missing twice, and every dependency was rebuilt (~2 min each time).
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          shared-key: smoke
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: install Linux and WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb dbus
 
       - name: install frontend dependencies
         run: npm ci
@@ -229,29 +243,23 @@ jobs:
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.1.0 --locked
 
+      # Scenarios are independent (own driver, native-driver port, app, data
+      # dir and Xvfb display), and on this runner nearly all of a scenario's
+      # wall time is waiting for the app's WebView to be ready, so a small pool
+      # overlaps it. Keep it under the runner's core count.
+      #
+      # `dbus-run-session` is not optional: with no session bus, WebKitGTK's
+      # sandbox retries for ~30 seconds before every window is ready, which is
+      # where this job's time went. It costs a scenario ~30s each.
       - name: full-app SSH smoke tests
-        run: xvfb-run -a npm run smoke
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --jobs=3
 
-      - name: smoke mutation check
-        run: xvfb-run -a npm run smoke:mutation
-
-      - name: smoke mutation check (focus)
-        run: xvfb-run -a npm run smoke -- --mutation=focus
-
-      - name: smoke mutation check (name)
-        run: xvfb-run -a npm run smoke -- --mutation=name
-
-      - name: smoke mutation check (layout)
-        run: xvfb-run -a npm run smoke -- --mutation=layout
-
-      - name: smoke mutation check (suggestion)
-        run: xvfb-run -a npm run smoke -- --mutation=suggestion
-
-      - name: smoke mutation check (kb-layout)
-        run: xvfb-run -a npm run smoke -- --mutation=kb-layout
-
-      - name: smoke mutation check (terminal-sidebar-layout)
-        run: xvfb-run -a npm run smoke -- --mutation=terminal-sidebar-layout
+      # One process proves all seven mutation categories after the build above,
+      # so `--no-build` reuses that binary: a separate invocation per category
+      # re-ran the whole `tauri build` to drive a single scenario, which was
+      # most of this job's mutation time.
+      - name: smoke mutation checks (all categories)
+        run: xvfb-run -a dbus-run-session -- npm run smoke:mutation:all -- --jobs=3 --no-build
 
   smoke-netbox:
     runs-on: ubuntu-22.04
@@ -270,14 +278,20 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # The two smoke jobs build the same debug target from the same lockfile,
+      # so one shared cache covers both. Two identical caches spent most of the
+      # repository cache budget and were evicted: on this branch the cache was
+      # missing twice, and every dependency was rebuilt (~2 min each time).
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          shared-key: smoke
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: install Linux and WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb dbus
 
       - name: install frontend dependencies
         run: npm ci
@@ -294,7 +308,7 @@ jobs:
         run: cargo install tauri-driver --version 2.1.0 --locked
 
       - name: NetBox workflow smoke tests
-        run: xvfb-run -a npm run smoke:netbox
+        run: xvfb-run -a dbus-run-session -- npm run smoke:netbox -- --jobs=3
 
   commitlint:
     if: github.event_name == 'pull_request'
