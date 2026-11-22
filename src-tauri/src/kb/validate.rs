@@ -75,7 +75,10 @@ pub(crate) fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
                             issues.push(KbValidationIssue {
                                 command: name.clone(),
                                 severity: "error".into(),
-                                message: format!("tokens[{}]: numeric var '{}' has min ({}) > max ({})", i, v.var, min, max),
+                                message: format!(
+                                    "tokens[{}]: numeric var '{}' has min ({}) > max ({})",
+                                    i, v.var, min, max
+                                ),
                             });
                         }
                     }
@@ -84,7 +87,10 @@ pub(crate) fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
                     issues.push(KbValidationIssue {
                         command: name.clone(),
                         severity: "error".into(),
-                        message: format!("tokens[{}]: var '{}' source: kb requires non-empty values", i, v.var),
+                        message: format!(
+                            "tokens[{}]: var '{}' source: kb requires non-empty values",
+                            i, v.var
+                        ),
                     });
                 }
                 if matches!(v.source, VarSource::Device) && !v.values.is_empty() {
@@ -129,7 +135,10 @@ pub(crate) fn validate_command(cmd: &Command) -> Vec<KbValidationIssue> {
             issues.push(KbValidationIssue {
                 command: name.clone(),
                 severity: "warning".into(),
-                message: format!("order: {:?} but no optional tokens — order rule is meaningless", cmd.order),
+                message: format!(
+                    "order: {:?} but no optional tokens — order rule is meaningless",
+                    cmd.order
+                ),
             });
         }
     }
@@ -156,7 +165,10 @@ pub(super) fn validate_platform(commands: &[Command]) -> Vec<KbValidationIssue> 
             issues.push(KbValidationIssue {
                 command: cmd.name.clone(),
                 severity: "warning".into(),
-                message: format!("duplicate (name, mode) pair with command at index {}", prev_idx),
+                message: format!(
+                    "duplicate (name, mode) pair with command at index {}",
+                    prev_idx
+                ),
             });
         } else {
             seen.insert(key, idx);
@@ -170,196 +182,181 @@ pub(super) fn validate_platform(commands: &[Command]) -> Vec<KbValidationIssue> 
 mod tests {
     use super::*;
 
-    use CommandToken::*;
     use crate::kb::schema::{PipeFilter, PipeToken, VarToken};
     use crate::kb::store::KbStore;
     use crate::kb::test_util::{get_kb_path, mk_cmd};
+    use CommandToken::*;
 
     fn has_error(issues: &[KbValidationIssue], needle: &str) -> bool {
-        issues.iter().any(|i| i.severity == "error" && i.message.contains(needle))
+        issues
+            .iter()
+            .any(|i| i.severity == "error" && i.message.contains(needle))
     }
 
     fn has_warning(issues: &[KbValidationIssue], needle: &str) -> bool {
-        issues.iter().any(|i| i.severity == "warning" && i.message.contains(needle))
+        issues
+            .iter()
+            .any(|i| i.severity == "warning" && i.message.contains(needle))
     }
 
     #[test]
     fn test_validator_pass_lit() {
-        let cmd = mk_cmd("show version", vec![Lit { lit: "show version".into(), optional: false }]);
+        let cmd = mk_cmd(
+            "show version",
+            vec![Lit {
+                lit: "show version".into(),
+                optional: false,
+            }],
+        );
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
     }
 
     #[test]
     fn test_validator_pass_choice() {
-        let cmd = mk_cmd("show interfaces", vec![
-            Lit { lit: "show interfaces".into(), optional: false },
-            Choice { choice: vec!["status".into(), "trunk".into()], optional: true, repeatable: false, descriptions: Default::default() },
-        ]);
+        let cmd = mk_cmd(
+            "show interfaces",
+            vec![
+                Lit {
+                    lit: "show interfaces".into(),
+                    optional: false,
+                },
+                Choice {
+                    choice: vec!["status".into(), "trunk".into()],
+                    optional: true,
+                    repeatable: false,
+                    descriptions: Default::default(),
+                },
+            ],
+        );
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
     }
 
     #[test]
     fn test_validator_pass_var_numeric() {
-        let cmd = mk_cmd("vlan", vec![
-            Lit { lit: "vlan".into(), optional: false },
-            Var(VarToken {
-                var: "vlan-id".into(),
-                description: None,
-                r#type: VarType::Numeric,
-                source: VarSource::None,
-                optional: false,
-                values: vec![],
-                min: Some(1),
-                max: Some(4094),
-            }),
-        ]);
+        let cmd = mk_cmd(
+            "vlan",
+            vec![
+                Lit {
+                    lit: "vlan".into(),
+                    optional: false,
+                },
+                Var(VarToken {
+                    var: "vlan-id".into(),
+                    description: None,
+                    r#type: VarType::Numeric,
+                    source: VarSource::None,
+                    optional: false,
+                    values: vec![],
+                    min: Some(1),
+                    max: Some(4094),
+                }),
+            ],
+        );
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
     }
 
     #[test]
     fn test_validator_pass_var_kb_source() {
-        let cmd = mk_cmd("interface", vec![
-            Lit { lit: "interface".into(), optional: false },
-            Var(VarToken {
-                var: "iface".into(),
-                description: None,
-                r#type: VarType::Enumerable,
-                source: VarSource::Kb,
-                optional: false,
-                values: vec!["GigabitEthernet".into()],
-                min: None,
-                max: None,
-            }),
-        ]);
+        let cmd = mk_cmd(
+            "interface",
+            vec![
+                Lit {
+                    lit: "interface".into(),
+                    optional: false,
+                },
+                Var(VarToken {
+                    var: "iface".into(),
+                    description: None,
+                    r#type: VarType::Enumerable,
+                    source: VarSource::Kb,
+                    optional: false,
+                    values: vec!["GigabitEthernet".into()],
+                    min: None,
+                    max: None,
+                }),
+            ],
+        );
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
     }
 
     #[test]
     fn test_validator_pass_pipe() {
-        let cmd = mk_cmd("show run", vec![
-            Lit { lit: "show running-config".into(), optional: false },
-            Pipe(PipeToken {
-                pipe: true,
-                filters: vec![PipeFilter {
-                    lit: "section".into(),
-                    var: Some("regex".into()),
-                    r#type: Some(VarType::Free),
-                }],
-                optional: true,
-                repeatable: true,
-            }),
-        ]);
+        let cmd = mk_cmd(
+            "show run",
+            vec![
+                Lit {
+                    lit: "show running-config".into(),
+                    optional: false,
+                },
+                Pipe(PipeToken {
+                    pipe: true,
+                    filters: vec![PipeFilter {
+                        lit: "section".into(),
+                        var: Some("regex".into()),
+                        r#type: Some(VarType::Free),
+                    }],
+                    optional: true,
+                    repeatable: true,
+                }),
+            ],
+        );
         let issues = validate_command(&cmd);
         assert!(issues.is_empty(), "expected no issues, got {:?}", issues);
     }
 
     #[test]
     fn test_validator_fail_empty_lit() {
-        let cmd = mk_cmd("bad", vec![Lit { lit: "   ".into(), optional: false }]);
+        let cmd = mk_cmd(
+            "bad",
+            vec![Lit {
+                lit: "   ".into(),
+                optional: false,
+            }],
+        );
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "lit is empty"));
     }
 
     #[test]
     fn test_validator_fail_empty_choice() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec![], optional: false, repeatable: false, descriptions: Default::default() }]);
+        let cmd = mk_cmd(
+            "bad",
+            vec![Choice {
+                choice: vec![],
+                optional: false,
+                repeatable: false,
+                descriptions: Default::default(),
+            }],
+        );
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice list is empty"));
     }
 
     #[test]
     fn test_validator_fail_empty_choice_element() {
-        let cmd = mk_cmd("bad", vec![Choice { choice: vec!["".into()], optional: false, repeatable: false, descriptions: Default::default() }]);
+        let cmd = mk_cmd(
+            "bad",
+            vec![Choice {
+                choice: vec!["".into()],
+                optional: false,
+                repeatable: false,
+                descriptions: Default::default(),
+            }],
+        );
         let issues = validate_command(&cmd);
         assert!(has_error(&issues, "choice element is empty"));
     }
 
     #[test]
     fn test_validator_fail_empty_var_name() {
-        let cmd = mk_cmd("bad", vec![Var(VarToken {
-            var: "  ".into(),
-            description: None,
-            r#type: VarType::Free,
-            source: VarSource::None,
-            optional: false,
-            values: vec![],
-            min: None,
-            max: None,
-        })]);
-        let issues = validate_command(&cmd);
-        assert!(has_error(&issues, "var name is empty"));
-    }
-
-    #[test]
-    fn test_validator_fail_min_gt_max() {
-        let cmd = mk_cmd("bad", vec![Var(VarToken {
-            var: "n".into(),
-            description: None,
-            r#type: VarType::Numeric,
-            source: VarSource::None,
-            optional: false,
-            values: vec![],
-            min: Some(10),
-            max: Some(5),
-        })]);
-        let issues = validate_command(&cmd);
-        assert!(has_error(&issues, "min (10) > max (5)"));
-    }
-
-    #[test]
-    fn test_validator_fail_kb_source_no_values() {
-        let cmd = mk_cmd("bad", vec![Var(VarToken {
-            var: "iface".into(),
-            description: None,
-            r#type: VarType::Enumerable,
-            source: VarSource::Kb,
-            optional: false,
-            values: vec![],
-            min: None,
-            max: None,
-        })]);
-        let issues = validate_command(&cmd);
-        assert!(has_error(&issues, "source: kb requires non-empty values"));
-    }
-
-    #[test]
-    fn test_validator_warn_device_source_with_values() {
-        let cmd = mk_cmd("bad", vec![Var(VarToken {
-            var: "iface".into(),
-            description: None,
-            r#type: VarType::Enumerable,
-            source: VarSource::Device,
-            optional: false,
-            values: vec!["Gi0/1".into()],
-            min: None,
-            max: None,
-        })]);
-        let issues = validate_command(&cmd);
-        assert!(has_warning(&issues, "source: device should not carry values"));
-    }
-
-    #[test]
-    fn test_validator_fail_pipe_not_true() {
-        let cmd = mk_cmd("bad", vec![Pipe(PipeToken {
-            pipe: false,
-            filters: vec![],
-            optional: true,
-            repeatable: false,
-        })]);
-        let issues = validate_command(&cmd);
-        assert!(has_error(&issues, "pipe token must set pipe: true"));
-    }
-
-    #[test]
-    fn test_validator_warn_order_no_optional() {
-        let mut cmd = mk_cmd("ping", vec![
-            Lit { lit: "ping".into(), optional: false },
-            Var(VarToken {
-                var: "host".into(),
+        let cmd = mk_cmd(
+            "bad",
+            vec![Var(VarToken {
+                var: "  ".into(),
                 description: None,
                 r#type: VarType::Free,
                 source: VarSource::None,
@@ -367,8 +364,108 @@ mod tests {
                 values: vec![],
                 min: None,
                 max: None,
-            }),
-        ]);
+            })],
+        );
+        let issues = validate_command(&cmd);
+        assert!(has_error(&issues, "var name is empty"));
+    }
+
+    #[test]
+    fn test_validator_fail_min_gt_max() {
+        let cmd = mk_cmd(
+            "bad",
+            vec![Var(VarToken {
+                var: "n".into(),
+                description: None,
+                r#type: VarType::Numeric,
+                source: VarSource::None,
+                optional: false,
+                values: vec![],
+                min: Some(10),
+                max: Some(5),
+            })],
+        );
+        let issues = validate_command(&cmd);
+        assert!(has_error(&issues, "min (10) > max (5)"));
+    }
+
+    #[test]
+    fn test_validator_fail_kb_source_no_values() {
+        let cmd = mk_cmd(
+            "bad",
+            vec![Var(VarToken {
+                var: "iface".into(),
+                description: None,
+                r#type: VarType::Enumerable,
+                source: VarSource::Kb,
+                optional: false,
+                values: vec![],
+                min: None,
+                max: None,
+            })],
+        );
+        let issues = validate_command(&cmd);
+        assert!(has_error(&issues, "source: kb requires non-empty values"));
+    }
+
+    #[test]
+    fn test_validator_warn_device_source_with_values() {
+        let cmd = mk_cmd(
+            "bad",
+            vec![Var(VarToken {
+                var: "iface".into(),
+                description: None,
+                r#type: VarType::Enumerable,
+                source: VarSource::Device,
+                optional: false,
+                values: vec!["Gi0/1".into()],
+                min: None,
+                max: None,
+            })],
+        );
+        let issues = validate_command(&cmd);
+        assert!(has_warning(
+            &issues,
+            "source: device should not carry values"
+        ));
+    }
+
+    #[test]
+    fn test_validator_fail_pipe_not_true() {
+        let cmd = mk_cmd(
+            "bad",
+            vec![Pipe(PipeToken {
+                pipe: false,
+                filters: vec![],
+                optional: true,
+                repeatable: false,
+            })],
+        );
+        let issues = validate_command(&cmd);
+        assert!(has_error(&issues, "pipe token must set pipe: true"));
+    }
+
+    #[test]
+    fn test_validator_warn_order_no_optional() {
+        let mut cmd = mk_cmd(
+            "ping",
+            vec![
+                Lit {
+                    lit: "ping".into(),
+                    optional: false,
+                },
+                Var(VarToken {
+                    var: "host".into(),
+                    description: None,
+                    r#type: VarType::Free,
+                    source: VarSource::None,
+                    optional: false,
+                    values: vec![],
+                    min: None,
+                    max: None,
+                }),
+            ],
+        );
         cmd.order = CommandOrder::FlagsAnywhere;
         let issues = validate_command(&cmd);
         assert!(has_warning(&issues, "order rule is meaningless"));
@@ -376,7 +473,13 @@ mod tests {
 
     #[test]
     fn test_validator_warn_negatable_show() {
-        let mut cmd = mk_cmd("show interfaces", vec![Lit { lit: "show interfaces".into(), optional: false }]);
+        let mut cmd = mk_cmd(
+            "show interfaces",
+            vec![Lit {
+                lit: "show interfaces".into(),
+                optional: false,
+            }],
+        );
         cmd.negatable = true;
         let issues = validate_command(&cmd);
         assert!(has_warning(&issues, "negatable: true on a show command"));
@@ -392,15 +495,36 @@ mod tests {
 
     #[test]
     fn test_validator_platform_duplicate_name_mode() {
-        let a = mk_cmd("network", vec![Lit { lit: "network".into(), optional: false }]);
-        let mut b = mk_cmd("network", vec![Lit { lit: "network".into(), optional: false }]);
+        let a = mk_cmd(
+            "network",
+            vec![Lit {
+                lit: "network".into(),
+                optional: false,
+            }],
+        );
+        let mut b = mk_cmd(
+            "network",
+            vec![Lit {
+                lit: "network".into(),
+                optional: false,
+            }],
+        );
         b.mode = "routing-config".to_string();
-        let c = mk_cmd("network", vec![Lit { lit: "network".into(), optional: false }]);
+        let c = mk_cmd(
+            "network",
+            vec![Lit {
+                lit: "network".into(),
+                optional: false,
+            }],
+        );
         let issues = validate_platform(&[a, b, c]);
         // a and c share (network, privileged-exec) → duplicate warning
         assert!(has_warning(&issues, "duplicate (name, mode)"));
         // b differs in mode → no duplicate with a/c
-        let dup_count = issues.iter().filter(|i| i.message.contains("duplicate")).count();
+        let dup_count = issues
+            .iter()
+            .filter(|i| i.message.contains("duplicate"))
+            .count();
         assert_eq!(dup_count, 1);
     }
 
@@ -409,25 +533,37 @@ mod tests {
         // The backfilled networking.yaml should have no validator errors.
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let networking: Vec<Command> = store.commands.iter()
+        let networking: Vec<Command> = store
+            .commands
+            .iter()
             .filter(|c| c.category == "networking")
             .cloned()
             .collect();
         let issues = validate_platform(&networking);
         let errors: Vec<_> = issues.iter().filter(|i| i.severity == "error").collect();
-        assert!(errors.is_empty(), "networking.yaml validation errors: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "networking.yaml validation errors: {:?}",
+            errors
+        );
     }
 
     #[test]
     fn test_validator_real_iosxe_routing_clean() {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
-        let routing: Vec<Command> = store.commands.iter()
+        let routing: Vec<Command> = store
+            .commands
+            .iter()
             .filter(|c| c.category == "routing")
             .cloned()
             .collect();
         let issues = validate_platform(&routing);
         let errors: Vec<_> = issues.iter().filter(|i| i.severity == "error").collect();
-        assert!(errors.is_empty(), "routing.yaml validation errors: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "routing.yaml validation errors: {:?}",
+            errors
+        );
     }
 }

@@ -8,15 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use base64::Engine as _;
+use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use russh::{client, ChannelId, Disconnect};
-use russh::client::{DisconnectReason, KeyboardInteractiveAuthResponse};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
-use crate::state::AppState;
 use crate::credentials::{self, ResolvedCredentials};
 use crate::netbox;
+use crate::state::AppState;
 
 // ─── Known Hosts ────────────────────────────────────────────────────
 
@@ -84,8 +84,9 @@ fn key_type_name(key: &PublicKey) -> String {
 /// on the oneshot receiver; tofu_respond resolves the sender. std Mutex is
 /// safe: guards are dropped before every await point.
 fn pending_tofu() -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>> {
-    static MAP: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>>> =
-        std::sync::OnceLock::new();
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>>,
+    > = std::sync::OnceLock::new();
     MAP.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
@@ -104,7 +105,7 @@ fn extract_https_url(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|w| w.starts_with("https://"))
         .map(|url| {
-            url.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | '>' | ';' | '\'' | '"'))
+            url.trim_end_matches(['.', ',', ')', '>', ';', '\'', '"'])
                 .to_string()
         })
 }
@@ -114,7 +115,11 @@ fn extract_https_url(text: &str) -> Option<String> {
 /// Browser-auth rounds (a URL is present) get empty answers — the real auth
 /// happens in the browser and the server holds the reply until login completes.
 /// Credential rounds get the stored password, if we have one.
-fn responses_for_round(url_round: bool, stored_password: Option<&str>, n_prompts: usize) -> Vec<String> {
+fn responses_for_round(
+    url_round: bool,
+    stored_password: Option<&str>,
+    n_prompts: usize,
+) -> Vec<String> {
     match (url_round, stored_password) {
         (false, Some(pw)) => vec![pw.to_string(); n_prompts],
         _ => vec![String::new(); n_prompts],
@@ -142,11 +147,7 @@ fn select_agent_keys(
 /// browser itself — a server-supplied URL must not launch anything without
 /// an explicit user click (phishing surface). The frontend shows an "Open"
 /// button in the connect overlay.
-fn try_open_auth_url(
-    events: &dyn ConnectionEvents,
-    text: &str,
-    session_id: u64,
-) {
+fn try_open_auth_url(events: &dyn ConnectionEvents, text: &str, session_id: u64) {
     if let Some(url) = extract_https_url(text) {
         log::info!("Auth URL detected: {}", url);
         events.emit(ConnectionEvent::AuthUrl(SshAuthUrlPayload {
@@ -174,7 +175,8 @@ pub enum AuthControl {
 /// (`await_auth_responses`); `ssh_auth_respond` delivers answers and
 /// `ssh_disconnect` cancels. std Mutex is safe: guards are dropped before
 /// every await point.
-fn pending_auth() -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::UnboundedSender<AuthControl>>> {
+fn pending_auth(
+) -> &'static std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::UnboundedSender<AuthControl>>> {
     static MAP: std::sync::OnceLock<
         std::sync::Mutex<HashMap<u64, tokio::sync::mpsc::UnboundedSender<AuthControl>>>,
     > = std::sync::OnceLock::new();
@@ -357,7 +359,12 @@ impl client::Handler for ClientHandler {
                 log::info!("Host key verified for {} ({})", self.host_key, key_type);
                 return Ok(true);
             } else {
-                log::warn!("HOST KEY CHANGED for {} — prev: {}, new: {}", self.host_key, entry.key_type, key_type);
+                log::warn!(
+                    "HOST KEY CHANGED for {} — prev: {}, new: {}",
+                    self.host_key,
+                    entry.key_type,
+                    key_type
+                );
                 self.events.emit(ConnectionEvent::Error(SshEventPayload {
                     reason: format!(
                         "HOST KEY HAS CHANGED for {}. This could indicate a man-in-the-middle attack. \
@@ -374,36 +381,51 @@ impl client::Handler for ClientHandler {
         // The handshake parks on a oneshot until tofu_respond (or timeout).
         let fingerprint = format!(
             "SHA256:{}",
-            server_public_key.fingerprint(russh::keys::HashAlg::Sha256)
+            server_public_key
+                .fingerprint(russh::keys::HashAlg::Sha256)
                 .to_string()
                 .trim_start_matches("SHA256:")
         );
-        log::info!("TOFU: prompting user for new host key for {} ({})", self.host_key, key_type);
+        log::info!(
+            "TOFU: prompting user for new host key for {} ({})",
+            self.host_key,
+            key_type
+        );
 
         let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
         {
             let mut map = pending_tofu().lock().expect("tofu map poisoned");
             map.insert(self.session_id, tx);
         }
-        self.events.emit(ConnectionEvent::TofuPending(SshTofuPendingPayload {
-            host_key: self.host_key.clone(),
-            fingerprint: fingerprint.clone(),
-            key_type: key_type.clone(),
-            session_id: self.session_id,
-        }));
+        self.events
+            .emit(ConnectionEvent::TofuPending(SshTofuPendingPayload {
+                host_key: self.host_key.clone(),
+                fingerprint: fingerprint.clone(),
+                key_type: key_type.clone(),
+                session_id: self.session_id,
+            }));
         // Fail-safe: never hang forever on a lost/ignored dialog.
         let accepted = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
             Ok(Ok(true)) => true,
             _ => {
-                log::warn!("TOFU confirmation not accepted for {} — rejecting", self.host_key);
+                log::warn!(
+                    "TOFU confirmation not accepted for {} — rejecting",
+                    self.host_key
+                );
                 false
             }
         };
-        pending_tofu().lock().expect("tofu map poisoned").remove(&self.session_id);
+        pending_tofu()
+            .lock()
+            .expect("tofu map poisoned")
+            .remove(&self.session_id);
 
         if !accepted {
             self.events.emit(ConnectionEvent::Error(SshEventPayload {
-                reason: format!("Host key for {} was not verified — connection rejected.", self.host_key),
+                reason: format!(
+                    "Host key for {} was not verified — connection rejected.",
+                    self.host_key
+                ),
                 session_id: self.session_id,
             }));
             return Ok(false);
@@ -419,7 +441,10 @@ impl client::Handler for ClientHandler {
         );
         let _ = save_known_hosts(&known);
         self.events.emit(ConnectionEvent::Tofu(SshEventPayload {
-            reason: format!("New host key accepted for {} — fingerprint: {}", self.host_key, fingerprint),
+            reason: format!(
+                "New host key accepted for {} — fingerprint: {}",
+                self.host_key, fingerprint
+            ),
             session_id: self.session_id,
         }));
         Ok(true)
@@ -467,10 +492,11 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         log::info!("SSH channel closed for {}", self.host_key);
-        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
-            reason: "channel_closed".to_string(),
-            session_id: self.session_id,
-        }));
+        self.events
+            .emit(ConnectionEvent::Disconnected(SshEventPayload {
+                reason: "channel_closed".to_string(),
+                session_id: self.session_id,
+            }));
         self.events.evict(self.session_id).await;
         Ok(())
     }
@@ -481,10 +507,11 @@ impl client::Handler for ClientHandler {
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         log::info!("SSH channel EOF for {}", self.host_key);
-        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
-            reason: "channel_eof".to_string(),
-            session_id: self.session_id,
-        }));
+        self.events
+            .emit(ConnectionEvent::Disconnected(SshEventPayload {
+                reason: "channel_eof".to_string(),
+                session_id: self.session_id,
+            }));
         self.events.evict(self.session_id).await;
         Ok(())
     }
@@ -494,10 +521,11 @@ impl client::Handler for ClientHandler {
         reason: DisconnectReason<Self::Error>,
     ) -> Result<(), Self::Error> {
         log::info!("SSH disconnected for {}", self.host_key);
-        self.events.emit(ConnectionEvent::Disconnected(SshEventPayload {
-            reason: "connection_lost".to_string(),
-            session_id: self.session_id,
-        }));
+        self.events
+            .emit(ConnectionEvent::Disconnected(SshEventPayload {
+                reason: "connection_lost".to_string(),
+                session_id: self.session_id,
+            }));
         self.events.evict(self.session_id).await;
         match reason {
             DisconnectReason::ReceivedDisconnect(_) => Ok(()),
@@ -542,6 +570,11 @@ fn create_session_log(
 }
 
 impl SshSession {
+    // The signature mirrors everything `ssh_connect` resolves for a connection
+    // and every test fixture needs to drive it; grouping the parameters would
+    // make the call sites longer without making them clearer, so the count is
+    // accepted here rather than papered over crate-wide.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect(
         events: Arc<dyn ConnectionEvents>,
         sink: Box<dyn crate::transcript::OutputSink>,
@@ -616,11 +649,21 @@ impl SshSession {
         // the user authenticates in the browser — 20s was not enough for a human.
         let auth_success = tokio::time::timeout(
             std::time::Duration::from_secs(120),
-            Self::authenticate(events.as_ref(), &mut session, username, hostname, password, key_path, agent, session_id, &transcript, &mut auth_rx),
+            Self::authenticate(
+                events.as_ref(),
+                &mut session,
+                username,
+                hostname,
+                password,
+                key_path,
+                agent,
+                session_id,
+                &transcript,
+                &mut auth_rx,
+            ),
         )
         .await
-        .map_err(|_| format!("Authentication timed out after 120s for {}", addr))?
-        ?;
+        .map_err(|_| format!("Authentication timed out after 120s for {}", addr))??;
 
         if !auth_success {
             log::warn!(
@@ -645,15 +688,7 @@ impl SshSession {
                 .map_err(|e| format!("Failed to open session channel: {}", e))?;
 
             channel
-                .request_pty(
-                    false,
-                    "xterm-256color",
-                    cols,
-                    rows,
-                    0,
-                    0,
-                    &[],
-                )
+                .request_pty(false, "xterm-256color", cols, rows, 0, 0, &[])
                 .await
                 .map_err(|e| format!("Failed to allocate PTY: {}", e))?;
 
@@ -665,13 +700,9 @@ impl SshSession {
             Ok::<_, String>(channel)
         };
 
-        let channel = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            setup,
-        )
-        .await
-        .map_err(|_| format!("Channel setup timed out after 10s for {}", addr))?
-        ?;
+        let channel = tokio::time::timeout(std::time::Duration::from_secs(10), setup)
+            .await
+            .map_err(|_| format!("Channel setup timed out after 10s for {}", addr))??;
 
         // Take the write half and drop the read half (issue #136). russh
         // delivers inbound channel data twice: once to `Handler::data`, and
@@ -699,6 +730,9 @@ impl SshSession {
         })
     }
 
+    // Same reasoning as `connect`: each parameter is a distinct already-resolved
+    // input to the auth chain, and bundling them would only rename the list.
+    #[allow(clippy::too_many_arguments)]
     async fn authenticate(
         events: &dyn ConnectionEvents,
         session: &mut client::Handle<ClientHandler>,
@@ -739,9 +773,12 @@ impl SshSession {
                 // needed. The same agent socket signs every identity in turn.
                 // ponytail: requires a multi-thread runtime (tauri default).
                 let result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(
-                        session.authenticate_publickey_with(username, public, hash_alg, &mut client),
-                    )
+                    tokio::runtime::Handle::current().block_on(session.authenticate_publickey_with(
+                        username,
+                        public,
+                        hash_alg,
+                        &mut client,
+                    ))
                 })
                 .map_err(|e| e.to_string());
                 match result {
@@ -780,15 +817,14 @@ impl SshSession {
                 // everything else ignores it.
                 // 0.60: PrivateKeyWithHashAlg::new is infallible (it ignores
                 // the hash for non-RSA keys instead of failing).
-                let loaded = russh::keys::load_secret_key(path, None)
-                    .map(|key| {
-                        let hash = if key.algorithm().is_rsa() {
-                            Some(russh::keys::HashAlg::Sha256)
-                        } else {
-                            None
-                        };
-                        russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), hash)
-                    });
+                let loaded = russh::keys::load_secret_key(path, None).map(|key| {
+                    let hash = if key.algorithm().is_rsa() {
+                        Some(russh::keys::HashAlg::Sha256)
+                    } else {
+                        None
+                    };
+                    russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), hash)
+                });
                 match loaded {
                     Ok(key) => {
                         let auth_result = session
@@ -801,7 +837,11 @@ impl SshSession {
                         // Key auth failed, fall through to password
                     }
                     Err(e) => {
-                        log::warn!("Failed to load SSH key {}: {}. Falling back to password.", key_name, e);
+                        log::warn!(
+                            "Failed to load SSH key {}: {}. Falling back to password.",
+                            key_name,
+                            e
+                        );
                     }
                 }
             }
@@ -827,7 +867,9 @@ impl SshSession {
         // URL in the terminal. Offer an ephemeral key, mirroring `tailscale ssh`.
         // Normal servers reject the unknown key and we fall through.
         if stored_password.is_none() && key_path.is_none() {
-            log::info!("No credentials configured — trying ephemeral key auth (browser-auth gateways)");
+            log::info!(
+                "No credentials configured — trying ephemeral key auth (browser-auth gateways)"
+            );
             let key = russh::keys::PrivateKey::random(
                 &mut russh::keys::key::safe_rng(),
                 russh::keys::Algorithm::Ed25519,
@@ -837,7 +879,9 @@ impl SshSession {
             match key {
                 Ok(key) => match session.authenticate_publickey(username, key).await {
                     Ok(result) if result.success() => return Ok(true),
-                    Ok(_) => log::info!("Ephemeral key rejected — server requires configured credentials"),
+                    Ok(_) => log::info!(
+                        "Ephemeral key rejected — server requires configured credentials"
+                    ),
                     Err(e) => log::info!("Ephemeral key auth error: {}", e),
                 },
                 Err(e) => log::info!("Ephemeral key generation failed: {}", e),
@@ -864,7 +908,11 @@ impl SshSession {
         let mut saw_round = false;
         for round in 1..=5u32 {
             match current {
-                Ok(KeyboardInteractiveAuthResponse::InfoRequest { instructions, prompts, .. }) => {
+                Ok(KeyboardInteractiveAuthResponse::InfoRequest {
+                    instructions,
+                    prompts,
+                    ..
+                }) => {
                     saw_round = true;
                     // Emit any auth URL (browser-auth round detection); the
                     // user opens it from the connect overlay — never auto-open.
@@ -891,12 +939,17 @@ impl SshSession {
                     // with an empty vector instead of stalling on a user
                     // who was never asked anything.
                     let responses = match auth_rx.as_mut() {
-                        Some(rx) if !url_round && stored_password.is_none() && !prompts.is_empty() => {
+                        Some(rx)
+                            if !url_round && stored_password.is_none() && !prompts.is_empty() =>
+                        {
                             events.emit(ConnectionEvent::AuthRound(SshAuthRoundPayload {
                                 session_id,
                                 prompts: prompts
                                     .iter()
-                                    .map(|p| SshAuthPromptPayload { prompt: p.prompt.clone(), echo: p.echo })
+                                    .map(|p| SshAuthPromptPayload {
+                                        prompt: p.prompt.clone(),
+                                        echo: p.echo,
+                                    })
                                     .collect(),
                             }));
                             log::info!(
@@ -908,7 +961,9 @@ impl SshSession {
                                 Ok(responses) => responses,
                                 Err(_) => {
                                     log::info!("Interactive auth cancelled during round {}", round);
-                                    return Err("Connection cancelled during authentication".to_string());
+                                    return Err(
+                                        "Connection cancelled during authentication".to_string()
+                                    );
                                 }
                             }
                         }
@@ -917,17 +972,25 @@ impl SshSession {
                                 "Keyboard-interactive round {} ({} prompt(s), {} round) — responding",
                                 round, prompts.len(), if url_round { "browser-auth" } else { "credential" }
                             );
-                            responses_for_round(url_round, stored_password.as_deref(), prompts.len())
+                            responses_for_round(
+                                url_round,
+                                stored_password.as_deref(),
+                                prompts.len(),
+                            )
                         }
                     };
-                    current = session.authenticate_keyboard_interactive_respond(responses).await;
+                    current = session
+                        .authenticate_keyboard_interactive_respond(responses)
+                        .await;
                 }
                 Ok(KeyboardInteractiveAuthResponse::Success) => {
                     log::info!("Keyboard-interactive auth succeeded");
                     return Ok(true);
                 }
                 Ok(KeyboardInteractiveAuthResponse::Failure { .. }) => {
-                    log::info!("Keyboard-interactive auth rejected (server refused method or credentials)");
+                    log::info!(
+                        "Keyboard-interactive auth rejected (server refused method or credentials)"
+                    );
                     // Refused without a single round → the method is
                     // unavailable. Issue #12: prompt for the password
                     // client-side, like the OpenSSH CLI does.
@@ -987,18 +1050,27 @@ impl SshSession {
             crate::transcript::write_output(transcript, prompt.as_bytes());
             events.emit(ConnectionEvent::AuthRound(SshAuthRoundPayload {
                 session_id,
-                prompts: vec![SshAuthPromptPayload { prompt: prompt.clone(), echo: false }],
+                prompts: vec![SshAuthPromptPayload {
+                    prompt: prompt.clone(),
+                    echo: false,
+                }],
             }));
             let answers = match await_auth_responses(rx).await {
                 Ok(answers) => answers,
                 Err(_) => {
-                    log::info!("Interactive password prompt cancelled (attempt {})", attempt);
+                    log::info!(
+                        "Interactive password prompt cancelled (attempt {})",
+                        attempt
+                    );
                     return Err("Connection cancelled during authentication".to_string());
                 }
             };
             // Counts only — the answer itself is never logged.
             let answer = answers.into_iter().next().unwrap_or_default();
-            log::info!("Attempting password auth with typed password (attempt {})", attempt);
+            log::info!(
+                "Attempting password auth with typed password (attempt {})",
+                attempt
+            );
             match session.authenticate_password(username, &answer).await {
                 Ok(result) if result.success() => {
                     log::info!("Password auth succeeded (attempt {})", attempt);
@@ -1013,7 +1085,7 @@ impl SshSession {
 
     pub async fn send(&self, data: &[u8]) -> Result<(), String> {
         self.channel
-            .data(&data[..])
+            .data(data)
             .await
             .map_err(|e| format!("Failed to send data: {}", e))
     }
@@ -1047,7 +1119,9 @@ pub struct SessionMap<S> {
 
 impl<S> SessionMap<S> {
     pub fn new() -> Self {
-        Self { sessions: HashMap::new() }
+        Self {
+            sessions: HashMap::new(),
+        }
     }
 
     pub fn insert_with(&mut self, id: u64, s: S) {
@@ -1081,7 +1155,7 @@ pub struct SshManager {
     test_server_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Every PTY size the mock host has been asked for, in arrival order.
     #[cfg(debug_assertions)]
-    test_server_pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    test_server_pty_sizes: Option<crate::test_server::PtySizes>,
 }
 
 impl SshManager {
@@ -1140,7 +1214,7 @@ impl SshManager {
     }
 
     #[cfg(debug_assertions)]
-    pub fn test_server_pty_sizes(&self) -> Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>> {
+    pub fn test_server_pty_sizes(&self) -> Option<crate::test_server::PtySizes> {
         self.test_server_pty_sizes.clone()
     }
 
@@ -1285,7 +1359,10 @@ mod tests {
         assert_eq!(responses_for_round(false, Some("pw"), 2), vec!["pw", "pw"]);
         // No stored password on a credential round — empty best-effort answer.
         assert_eq!(responses_for_round(false, None, 1), vec![""]);
-        assert_eq!(responses_for_round(false, Some("pw"), 0), Vec::<String>::new());
+        assert_eq!(
+            responses_for_round(false, Some("pw"), 0),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -1295,10 +1372,11 @@ mod tests {
         use russh::keys::agent::AgentIdentity;
         use russh::keys::key::safe_rng;
         let key = |()| {
-            let pk = russh::keys::PrivateKey::random(&mut safe_rng(), russh::keys::Algorithm::Ed25519)
-                .unwrap()
-                .public_key()
-                .clone();
+            let pk =
+                russh::keys::PrivateKey::random(&mut safe_rng(), russh::keys::Algorithm::Ed25519)
+                    .unwrap()
+                    .public_key()
+                    .clone();
             AgentIdentity::from(pk)
         };
         let k1 = key(());
@@ -1313,7 +1391,10 @@ mod tests {
         assert_eq!(fingerprint_b64(&sel[0].public_key()), fp1);
 
         // Unknown fingerprint offers nothing — caller turns that into a clean error.
-        assert!(select_agent_keys(&AgentAuth::Fingerprint("nonexistent".into()), keys.clone()).is_empty());
+        assert!(
+            select_agent_keys(&AgentAuth::Fingerprint("nonexistent".into()), keys.clone())
+                .is_empty()
+        );
         assert!(select_agent_keys(&AgentAuth::Off, keys).is_empty());
     }
 
@@ -1330,7 +1411,9 @@ mod tests {
         let fp = crate::secrets::agent::fingerprint_b64(&key);
         assert_eq!(fp.len(), 43);
         assert!(!fp.contains(':'));
-        assert!(fp.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/'));
+        assert!(fp
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/'));
     }
 
     #[test]
@@ -1346,7 +1429,9 @@ mod tests {
     fn test_needs_interactive_auth_gate() {
         use crate::credentials::CredentialSource;
         let password = Some(CredentialSource::Password);
-        let key = Some(CredentialSource::SshKey { key_path: "k".into() });
+        let key = Some(CredentialSource::SshKey {
+            key_path: "k".into(),
+        });
         let none: Option<CredentialSource> = None;
         let with_pw = ResolvedCredentials {
             password: Some("x".into()),
@@ -1421,9 +1506,11 @@ mod tests {
     }
 
     /// Serialises the capture window: the logger is process-wide, so two
-    /// capturing tests would otherwise interleave their lines.
-    fn capture_window() -> &'static std::sync::Mutex<()> {
-        static WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// capturing tests would otherwise interleave their lines. Async-aware so
+    /// the guard can be held across the test's awaits without blocking the
+    /// runtime thread.
+    fn capture_window() -> &'static tokio::sync::Mutex<()> {
+        static WINDOW: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         &WINDOW
     }
 
@@ -1492,9 +1579,7 @@ mod tests {
         }
 
         // Unique per run, so only this connect can put these in a log line.
-        let _connect = connect_slot()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _connect = connect_slot().lock().await;
         let marker = format!(
             "{}-{}",
             std::process::id(),
@@ -1534,9 +1619,7 @@ mod tests {
         let _known_hosts_guard = KnownHostsGuard;
 
         install_capture_logger();
-        let _window = capture_window()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _window = capture_window().lock().await;
 
         let (port, server) = crate::test_server::start_password_only_mock_server(&password).await;
 
@@ -1585,15 +1668,15 @@ mod tests {
         CAPTURING.store(false, std::sync::atomic::Ordering::SeqCst);
         let lines = captured_snapshot();
 
-        let tofu_answered = tokio::time::timeout(
-            std::time::Duration::from_secs(15),
-            tofu_done_rx,
-        )
-        .await
-        .is_ok();
+        let tofu_answered = tokio::time::timeout(std::time::Duration::from_secs(15), tofu_done_rx)
+            .await
+            .is_ok();
         tofu_task.abort();
         let session = result.unwrap_or_else(|error| {
-            panic!("connect to the mock SSH server failed: {error}\ncaptured lines:\n{}", lines.join("\n"))
+            panic!(
+                "connect to the mock SSH server failed: {error}\ncaptured lines:\n{}",
+                lines.join("\n")
+            )
         });
         drop(session);
         server.abort();
@@ -1655,9 +1738,10 @@ mod tests {
 
     /// Tests that run a real connect share the process-wide
     /// `known_hosts_override()` slot and `pending_tofu()` map, so they must not
-    /// overlap.
-    fn connect_slot() -> &'static std::sync::Mutex<()> {
-        static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// overlap. Async-aware so the guard can be held across the test's awaits
+    /// without blocking the runtime thread.
+    fn connect_slot() -> &'static tokio::sync::Mutex<()> {
+        static SLOT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         &SLOT
     }
 
@@ -1717,9 +1801,7 @@ mod tests {
             async fn evict(&self, _session_id: u64) {}
         }
 
-        let _connect = connect_slot()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _connect = connect_slot().lock().await;
 
         let output = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let session_id: u64 = 0x0068_0000_0000_0002;
@@ -1922,7 +2004,11 @@ pub async fn ssh_connect(
     let (session_logging, session_log_timestamps, session_log_dir) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let c = config.get();
-        (c.session_logging, c.session_log_timestamps, c.session_log_dir.clone())
+        (
+            c.session_logging,
+            c.session_log_timestamps,
+            c.session_log_dir.clone(),
+        )
     };
 
     // Issue #12: password-auth host with no stored password. Arm interactive
@@ -1932,16 +2018,22 @@ pub async fn ssh_connect(
     let mut auth_rx = None;
     if needs_interactive_auth(credential.as_ref(), &creds) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        pending_auth().lock().map_err(|e| e.to_string())?.insert(session_id, tx);
+        pending_auth()
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(session_id, tx);
         auth_rx = Some(rx);
         log::info!(
             "Interactive auth armed for session {} (password auth, no stored password)",
             session_id
         );
-        let _ = app_handle.emit("ssh-auth-interactive", SshEventPayload {
-            reason: "password_prompt".to_string(),
-            session_id,
-        });
+        let _ = app_handle.emit(
+            "ssh-auth-interactive",
+            SshEventPayload {
+                reason: "password_prompt".to_string(),
+                session_id,
+            },
+        );
     }
 
     // Production wiring for the two connection seams, done once per connect:
@@ -1972,7 +2064,10 @@ pub async fn ssh_connect(
     // Always drop the pending-auth entry — covers success, failure, and the
     // 120s auth timeout dropping the round wait mid-flight. Late
     // ssh_auth_respond calls become no-ops.
-    pending_auth().lock().map_err(|e| e.to_string())?.remove(&session_id);
+    pending_auth()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&session_id);
 
     let session = match session {
         Ok(session) => session,
@@ -1994,7 +2089,10 @@ pub async fn ssh_connect(
     let cancelled = take_cancel_mark(session_id)?;
     if cancelled {
         drop(mgr);
-        log::info!("Session {} cancelled mid-connect — dropping before registration", session_id);
+        log::info!(
+            "Session {} cancelled mid-connect — dropping before registration",
+            session_id
+        );
         let _ = session.disconnect().await;
         return Err("Connection cancelled during authentication".to_string());
     }
@@ -2080,7 +2178,10 @@ pub async fn ssh_disconnect(
     match session {
         Some(session) => session.disconnect().await,
         None => {
-            let tx = pending_auth().lock().map_err(|e| e.to_string())?.remove(&session_id);
+            let tx = pending_auth()
+                .lock()
+                .map_err(|e| e.to_string())?
+                .remove(&session_id);
             if let Some(tx) = tx {
                 let _ = tx.send(AuthControl::Cancel);
             }
@@ -2110,7 +2211,10 @@ pub async fn ssh_resize(
 /// Unknown session_id → no-op (dialog raced a timeout/reject).
 #[tauri::command]
 pub async fn tofu_respond(session_id: u64, accept: bool) -> Result<(), String> {
-    let tx = pending_tofu().lock().map_err(|e| e.to_string())?.remove(&session_id);
+    let tx = pending_tofu()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&session_id);
     if let Some(tx) = tx {
         // Send failure just means check_server_key gave up first (timeout).
         let _ = tx.send(accept);

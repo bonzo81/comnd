@@ -5,6 +5,7 @@
 //! `Transcript::output`, which fans it out to two places:
 //!   1. the per-session log file (crate::session_log::SessionLog), and
 //!   2. the frontend terminal, via the `ssh-output` Tauri event.
+//!
 //! Before this module existed the fan-out was hand-rolled at each call site,
 //! so auth-phase output reached the screen but never the session log — the
 //! transcript silently diverged from what the user saw.
@@ -45,7 +46,10 @@ pub struct TauriOutputSink {
 
 impl TauriOutputSink {
     pub fn new(app_handle: tauri::AppHandle, session_id: u64) -> Self {
-        Self { app_handle, session_id }
+        Self {
+            app_handle,
+            session_id,
+        }
     }
 }
 
@@ -53,7 +57,10 @@ impl OutputSink for TauriOutputSink {
     fn emit_output(&self, encoded: &str) {
         let _ = self.app_handle.emit(
             "ssh-output",
-            SshOutputPayload { data: encoded.to_string(), session_id: self.session_id },
+            SshOutputPayload {
+                data: encoded.to_string(),
+                session_id: self.session_id,
+            },
         );
     }
 }
@@ -126,7 +133,8 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("comnd_transcript_{}_{}", tag, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("comnd_transcript_{}_{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -142,14 +150,21 @@ mod tests {
         let dir = temp_dir("fanout");
         let session_log = crate::session_log::SessionLog::new_in(&dir, "h:22", 1, false);
         let captured = Arc::new(CapturedSink::default());
-        let mut transcript = Transcript::new(Some(session_log), Box::new(SharedSink(captured.clone())));
+        let mut transcript =
+            Transcript::new(Some(session_log), Box::new(SharedSink(captured.clone())));
         transcript.output(b"hello ");
         transcript.output(b"world\n");
 
         let emitted = captured.0.lock().unwrap().clone();
         assert_eq!(emitted.len(), 2);
-        assert_eq!(emitted[0], base64::engine::general_purpose::STANDARD.encode(b"hello "));
-        assert_eq!(emitted[1], base64::engine::general_purpose::STANDARD.encode(b"world\n"));
+        assert_eq!(
+            emitted[0],
+            base64::engine::general_purpose::STANDARD.encode(b"hello ")
+        );
+        assert_eq!(
+            emitted[1],
+            base64::engine::general_purpose::STANDARD.encode(b"world\n")
+        );
 
         assert!(only_log_file(&dir).contains("hello world\n"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -169,7 +184,8 @@ mod tests {
         let dir = temp_dir("shared");
         let session_log = crate::session_log::SessionLog::new_in(&dir, "h:22", 7, false);
         let captured = Arc::new(CapturedSink::default());
-        let shared = Transcript::new(Some(session_log), Box::new(SharedSink(captured.clone()))).shared();
+        let shared =
+            Transcript::new(Some(session_log), Box::new(SharedSink(captured.clone()))).shared();
         write_output(&shared, b"a");
         write_output(&shared, b"b");
         assert_eq!(captured.0.lock().unwrap().len(), 2);
@@ -198,7 +214,7 @@ mod tests {
             write_output(&shared, b"first");
         }));
         assert!(result.is_err()); // first write panicked while holding the lock
-        // Recovery: poisoned lock reclaimed, second write flows.
+                                  // Recovery: poisoned lock reclaimed, second write flows.
         write_output(&shared, b"second");
     }
 }

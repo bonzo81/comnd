@@ -30,15 +30,16 @@ async fn bind() -> (TcpListener, String) {
 fn serve(listener: TcpListener, responder: Responder) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let Ok((mut socket, _)) = listener.accept().await else { break };
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
             let responder = responder.clone();
             tokio::spawn(async move {
                 let mut buf = Vec::new();
                 let mut tmp = [0u8; 4096];
                 // GET requests only — headers terminate the request.
                 loop {
-                    match tokio::time::timeout(Duration::from_secs(5), socket.read(&mut tmp))
-                        .await
+                    match tokio::time::timeout(Duration::from_secs(5), socket.read(&mut tmp)).await
                     {
                         Ok(Ok(0)) | Err(_) => return,
                         Ok(Ok(n)) => {
@@ -190,8 +191,24 @@ fn bare_device() -> serde_json::Value {
 /// Page 1: two devices, both under dc1, one per rack.
 fn devices_page1() -> Vec<serde_json::Value> {
     vec![
-        device(101, "edge-rtr-01", Some("10.10.0.1/24"), Some("cisco-ios"), Some("dc1"), Some("rack-1"), &["prod"]),
-        device(102, "edge-rtr-02", Some("10.10.0.2/24"), Some("cisco-ios"), Some("dc1"), Some("rack-2"), &["prod"]),
+        device(
+            101,
+            "edge-rtr-01",
+            Some("10.10.0.1/24"),
+            Some("cisco-ios"),
+            Some("dc1"),
+            Some("rack-1"),
+            &["prod"],
+        ),
+        device(
+            102,
+            "edge-rtr-02",
+            Some("10.10.0.2/24"),
+            Some("cisco-ios"),
+            Some("dc1"),
+            Some("rack-2"),
+            &["prod"],
+        ),
     ]
 }
 
@@ -199,9 +216,33 @@ fn devices_page1() -> Vec<serde_json::Value> {
 /// unmapped platform, and the bare device.
 fn devices_page2() -> Vec<serde_json::Value> {
     vec![
-        device(103, "core-sw-01", Some("10.20.0.1/24"), Some("nx-os"), Some("dc2"), None, &[]),
-        device(104, "no-primary-ip", None, Some("cisco-ios"), Some("dc1"), Some("rack-1"), &["prod"]),
-        device(105, "mystery-box", Some("10.30.0.5/24"), Some("juniper-junos"), Some("dc2"), None, &[]),
+        device(
+            103,
+            "core-sw-01",
+            Some("10.20.0.1/24"),
+            Some("nx-os"),
+            Some("dc2"),
+            None,
+            &[],
+        ),
+        device(
+            104,
+            "no-primary-ip",
+            None,
+            Some("cisco-ios"),
+            Some("dc1"),
+            Some("rack-1"),
+            &["prod"],
+        ),
+        device(
+            105,
+            "mystery-box",
+            Some("10.30.0.5/24"),
+            Some("juniper-junos"),
+            Some("dc2"),
+            None,
+            &[],
+        ),
         bare_device(),
     ]
 }
@@ -224,7 +265,15 @@ fn refresh_page1() -> Vec<serde_json::Value> {
 /// unchanged.
 fn refresh_page2() -> Vec<serde_json::Value> {
     vec![
-        device(103, "core-sw-01", Some("10.20.0.1/24"), Some("nx-os"), Some("dc2"), None, &[]),
+        device(
+            103,
+            "core-sw-01",
+            Some("10.20.0.1/24"),
+            Some("nx-os"),
+            Some("dc2"),
+            None,
+            &[],
+        ),
         bare_device(),
     ]
 }
@@ -370,7 +419,12 @@ fn device_tab_prefixes() -> Vec<serde_json::Value> {
     ]
 }
 
-fn device_tab_cable(id: u64, own_interface: u64, peer_id: u64, peer_name: &str) -> serde_json::Value {
+fn device_tab_cable(
+    id: u64,
+    own_interface: u64,
+    peer_id: u64,
+    peer_name: &str,
+) -> serde_json::Value {
     serde_json::json!({
         "id": id,
         "a_terminations": [{
@@ -512,9 +566,11 @@ fn choices(nodes: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Status/body/headers for the failing scenarios. `ok` and `refresh`
-/// return `None` so the caller serves fixtures.
-fn error_response(scenario: &str) -> Option<(u16, String, Vec<(String, String)>)> {
+/// Status/body/headers for the failing scenarios.
+type ErrorResponse = (u16, String, Vec<(String, String)>);
+
+/// `ok` and `refresh` return `None` so the caller serves fixtures.
+fn error_response(scenario: &str) -> Option<ErrorResponse> {
     match scenario {
         "unauthorized" => Some((401, r#"{"detail":"Invalid token"}"#.into(), vec![])),
         "forbidden" => Some((403, r#"{"detail":"Forbidden"}"#.into(), vec![])),
@@ -630,11 +686,7 @@ impl MockNetBox {
 }
 
 /// Route one request to the fixtures for the current scenario.
-fn respond(
-    state: &MockState,
-    _method: &str,
-    path: &str,
-) -> (u16, String, Vec<(String, String)>) {
+fn respond(state: &MockState, _method: &str, path: &str) -> (u16, String, Vec<(String, String)>) {
     let scenario = state.scenario();
 
     if path.starts_with("/api/dcim/devices/") {
@@ -665,7 +717,10 @@ fn respond(
         }
         // The device tab's batched peer lookup: an `id=`-filtered device list.
         if scenario == "device-tab" && path.contains("fields=") && path.contains("id=") {
-            return page(None, filter_by_requested_ids(device_tab_peer_devices(), path));
+            return page(
+                None,
+                filter_by_requested_ids(device_tab_peer_devices(), path),
+            );
         }
         let device_tab = scenario == "device-tab";
         let (first, second) = if device_tab {
@@ -679,7 +734,8 @@ fn respond(
             // Page 1 already reached the client, so the suite uses this to
             // prove a mid-sync error is never persisted as a truncated sync.
             if scenario == "second_page_error" {
-                return error_response("server_error").expect("the server_error fixture must exist");
+                return error_response("server_error")
+                    .expect("the server_error fixture must exist");
             }
             return page(None, second);
         }
@@ -744,9 +800,5 @@ fn respond(
     if path.starts_with("/api/extras/tags/") {
         return page(None, choices(tag_nodes()));
     }
-    (
-        404,
-        r#"{"detail":"Not found"}"#.to_string(),
-        vec![],
-    )
+    (404, r#"{"detail":"Not found"}"#.to_string(), vec![])
 }

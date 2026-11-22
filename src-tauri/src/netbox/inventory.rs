@@ -67,7 +67,11 @@ pub(crate) fn build_entries(
                 name: sanitize_name(&d.name, d.netbox_id),
                 address: d.address.clone(),
                 platform,
-                site: d.site_slug.as_deref().map(slugify).filter(|s| !s.is_empty()),
+                site: d
+                    .site_slug
+                    .as_deref()
+                    .map(slugify)
+                    .filter(|s| !s.is_empty()),
                 location: d
                     .location_slug
                     .as_deref()
@@ -93,10 +97,7 @@ pub(crate) fn build_entries(
 
 /// Client from resolved config + token, applying the URL and token guards.
 /// Shared with the settings commands so the guard text lives once.
-pub(crate) fn client(
-    config: &NetBoxConfig,
-    token: Option<String>,
-) -> Result<NetBoxClient, String> {
+pub(crate) fn client(config: &NetBoxConfig, token: Option<String>) -> Result<NetBoxClient, String> {
     ensure_url(config)?;
     let token = token.ok_or_else(|| ERR_NO_TOKEN.to_string())?;
     NetBoxClient::new(&config.base_url, &token, config.allow_invalid_certs)
@@ -347,10 +348,18 @@ mod tests {
             "NetBox integration is disabled — enable it in Settings → NetBox"
         );
 
-        let err = NetBoxInventory::sync(&inventory, sync_config("   "), None, PlatformPolicy::default())
-            .await
-            .unwrap_err();
-        assert_eq!(err, "No NetBox URL configured — set one in Settings → NetBox");
+        let err = NetBoxInventory::sync(
+            &inventory,
+            sync_config("   "),
+            None,
+            PlatformPolicy::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err,
+            "No NetBox URL configured — set one in Settings → NetBox"
+        );
 
         let err = NetBoxInventory::sync(
             &inventory,
@@ -536,13 +545,20 @@ mod tests {
         let dir = temp_dir();
         let mut store = NetBoxInventory::new(&dir).unwrap();
         store
-            .apply_sync(SyncReport::default(), vec![sample_entry(7, true)], NetBoxGeo::default())
+            .apply_sync(
+                SyncReport::default(),
+                vec![sample_entry(7, true)],
+                NetBoxGeo::default(),
+            )
             .unwrap();
 
         assert!(store.find_by_host_id("netbox:7").is_some());
         assert!(store.find_by_host_id("netbox:999").is_none());
         assert!(store.find_by_host_id("some-uuid").is_none());
-        assert_eq!(store.find_by_host_id("netbox:7").unwrap().address, "10.0.0.7");
+        assert_eq!(
+            store.find_by_host_id("netbox:7").unwrap().address,
+            "10.0.0.7"
+        );
 
         store.touch(7).unwrap();
         let d = store.find_by_host_id("netbox:7").unwrap();
@@ -559,11 +575,15 @@ mod tests {
         // Persisted across reopen
         let fresh = NetBoxInventory::new(&dir).unwrap();
         assert!(!fresh.find_by_host_id("netbox:7").unwrap().enabled);
-        assert!(fresh.find_by_host_id("netbox:7").unwrap().overlay.last_connected.is_some());
+        assert!(fresh
+            .find_by_host_id("netbox:7")
+            .unwrap()
+            .overlay
+            .last_connected
+            .is_some());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
-
 
     #[test]
     fn test_cache_roundtrip() {

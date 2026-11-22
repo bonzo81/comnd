@@ -151,7 +151,11 @@ fn provider_enabled(config: &crate::config::AppConfig, id: &str) -> bool {
 /// Map a failed `resolve()` to an actionable connect error (chunk 10).
 /// Re-probes status to classify: expired auth and missing binary surface
 /// their own hints; anything else falls back to the provider's message + ref.
-pub async fn resolve_error_message(p: &Arc<dyn SecretProvider>, reference: &str, msg: &str) -> String {
+pub async fn resolve_error_message(
+    p: &Arc<dyn SecretProvider>,
+    reference: &str,
+    msg: &str,
+) -> String {
     match p.status().await {
         ProviderStatus::AuthExpired { action } => action,
         ProviderStatus::NotInstalled { message } => message,
@@ -209,7 +213,12 @@ pub async fn run_cli(
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(CliError::NotInstalled),
-        Err(e) => return Err(CliError::Failed { code: None, stderr: e.to_string() }),
+        Err(e) => {
+            return Err(CliError::Failed {
+                code: None,
+                stderr: e.to_string(),
+            })
+        }
     };
 
     match tokio::time::timeout(timeout, child.wait_with_output()).await {
@@ -223,7 +232,10 @@ pub async fn run_cli(
                 })
             }
         }
-        Ok(Err(e)) => Err(CliError::Failed { code: None, stderr: e.to_string() }),
+        Ok(Err(e)) => Err(CliError::Failed {
+            code: None,
+            stderr: e.to_string(),
+        }),
         // Future dropped here → kill_on_drop terminates the process.
         Err(_) => Err(CliError::Timeout),
     }
@@ -302,11 +314,16 @@ mod tests {
         const VAR: &str = "COMND_TEST_MOCK_SECRET";
         std::env::remove_var(VAR);
 
-        let p = MockProvider { id: "mock", secret_env: VAR };
+        let p = MockProvider {
+            id: "mock",
+            secret_env: VAR,
+        };
 
         assert_eq!(
             p.status().await,
-            ProviderStatus::NotInstalled { message: "mock not configured".into() }
+            ProviderStatus::NotInstalled {
+                message: "mock not configured".into()
+            }
         );
         assert!(p.resolve("x").await.is_err());
 
@@ -365,15 +382,25 @@ mod tests {
         const VAR: &str = "COMND_TEST_RESOLVE_ERR";
         std::env::remove_var(VAR);
 
-        let p: Arc<dyn SecretProvider> = Arc::new(MockProvider { id: "mock", secret_env: VAR });
+        let p: Arc<dyn SecretProvider> = Arc::new(MockProvider {
+            id: "mock",
+            secret_env: VAR,
+        });
 
         // NotInstalled status → its install hint wins over the resolve error.
-        assert_eq!(resolve_error_message(&p, "ref", "boom").await, "mock not configured");
+        assert_eq!(
+            resolve_error_message(&p, "ref", "boom").await,
+            "mock not configured"
+        );
 
         // Ready status + resolve failure → provider message + ref.
         std::env::set_var(VAR, "fail");
         let msg = resolve_error_message(&p, "ref", "boom").await;
-        assert!(msg.contains("mock") && msg.contains("ref") && msg.contains("boom"), "{}", msg);
+        assert!(
+            msg.contains("mock") && msg.contains("ref") && msg.contains("boom"),
+            "{}",
+            msg
+        );
 
         std::env::remove_var(VAR);
     }
@@ -485,7 +512,11 @@ pub async fn list_providers(
     };
     let mut out = Vec::with_capacity(providers.len());
     for p in providers {
-        out.push(ProviderInfo { id: p.id(), status: p.status().await, can_list: p.can_list() });
+        out.push(ProviderInfo {
+            id: p.id(),
+            status: p.status().await,
+            can_list: p.can_list(),
+        });
     }
     Ok(out)
 }
@@ -541,7 +572,10 @@ pub async fn get_provider_state(
         .and_then(|b| b.as_bool())
         .unwrap_or(false);
     let has_secret = crate::config::get_provider_secret(&provider)?.is_some();
-    Ok(ProviderState { enabled, has_secret })
+    Ok(ProviderState {
+        enabled,
+        has_secret,
+    })
 }
 
 /// Persist a provider's config and rebuild the live registry (chunk 7).
@@ -562,9 +596,6 @@ pub async fn save_provider_config(
 
 /// Store or clear a provider's secret in the OS keyring (chunk 7).
 #[tauri::command]
-pub async fn save_provider_secret(
-    provider: String,
-    secret: Option<String>,
-) -> Result<(), String> {
+pub async fn save_provider_secret(provider: String, secret: Option<String>) -> Result<(), String> {
     crate::config::save_provider_secret(&provider, secret)
 }
