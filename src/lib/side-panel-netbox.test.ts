@@ -155,7 +155,15 @@ describe("NetBox side-panel tab", () => {
       if (calls === 2) throw new Error("NetBox token lacks permission");
       return summary({
         name: calls === 1 ? "first-device" : "second-device",
-        vlans: [{ id: calls === 1 ? 1 : 2, vid: 10, name: calls === 1 ? "first-vlan" : "second-vlan", group: "DC1" }],
+        vlans: [
+          {
+            id: calls === 1 ? 1 : 2,
+            vid: 10,
+            name: calls === 1 ? "first-vlan" : "second-vlan",
+            group_id: 1,
+            group: "DC1",
+          },
+        ],
       });
     });
 
@@ -276,10 +284,13 @@ describe("NetBox side-panel tab", () => {
     h.ipc.mockImpl("netbox_get_device_summary", () =>
       summary({
         vlans: [
-          { id: 1, vid: 10, name: "users", group: "DC1" },
-          { id: 2, vid: 20, name: "voice", group: "DC1" },
-          { id: 3, vid: 100, name: "mgmt", group: "MGMT" },
-          { id: 4, vid: 200, name: "native", group: null },
+          { id: 1, vid: 10, name: "users", group_id: 1, group: "DC1" },
+          { id: 2, vid: 20, name: "voice", group_id: 1, group: "DC1" },
+          // Same group name, different group id: NetBox only makes names
+          // unique within a scope, so these must stay two sections.
+          { id: 3, vid: 30, name: "same-name", group_id: 2, group: "DC1" },
+          { id: 4, vid: 100, name: "mgmt", group_id: 3, group: "MGMT" },
+          { id: 5, vid: 200, name: "native", group_id: null, group: null },
         ],
       }),
     );
@@ -293,15 +304,17 @@ describe("NetBox side-panel tab", () => {
     const groups = [...root.querySelectorAll(".nbd-vlan-group")];
     expect(
       groups.map((group) => group.querySelector(".nbd-vlan-group-name")?.textContent),
-    ).toEqual(["DC1", "MGMT", "No group"]);
-    const firstGroup = [...groups[0].querySelectorAll(".nbd-vlan")].map((vlan) => [
-      vlan.querySelector(".nbd-vlan-vid")?.textContent,
-      vlan.querySelector(".nbd-vlan-name")?.textContent,
-    ]);
-    expect(firstGroup).toEqual([
+    ).toEqual(["DC1", "DC1", "MGMT", "No group"]);
+    const groupVlans = (group: Element) =>
+      [...group.querySelectorAll(".nbd-vlan")].map((vlan) => [
+        vlan.querySelector(".nbd-vlan-vid")?.textContent,
+        vlan.querySelector(".nbd-vlan-name")?.textContent,
+      ]);
+    expect(groupVlans(groups[0])).toEqual([
       ["10", "users"],
       ["20", "voice"],
     ]);
+    expect(groupVlans(groups[1])).toEqual([["30", "same-name"]]);
   });
 
   it("renders the deduplicated subnet union as one list", async () => {

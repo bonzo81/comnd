@@ -50,8 +50,8 @@ function netboxSummary(): NetBoxResolvedSummary {
     primary_ip: "127.0.0.1/32",
     interfaces: [],
     vlans: [
-      { id: 1, vid: 10, name: "users", group: "DC1" },
-      { id: 3, vid: 100, name: "mgmt", group: "MGMT" },
+      { id: 1, vid: 10, name: "users", group_id: 1, group: "DC1" },
+      { id: 3, vid: 100, name: "mgmt", group_id: 2, group: "MGMT" },
     ],
     subnets: [{ id: 601, prefix: "10.0.0.0/24", vrf: null }],
     peers: [

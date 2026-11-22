@@ -360,7 +360,11 @@ fn summary_vlans(results: &[serde_json::Value]) -> Vec<DeviceSummaryVlan> {
         else {
             continue;
         };
-        let group = vlan.get("group").and_then(|group| {
+        let group = vlan.get("group").filter(|group| !group.is_null());
+        let group_id = group
+            .and_then(|group| group.get("id"))
+            .and_then(|id| id.as_u64());
+        let group = group.and_then(|group| {
             summary_text(group.get("name")).or_else(|| summary_text(group.get("display")))
         });
         let name = summary_text(vlan.get("name")).unwrap_or_else(|| format!("VLAN {}", vid));
@@ -368,6 +372,7 @@ fn summary_vlans(results: &[serde_json::Value]) -> Vec<DeviceSummaryVlan> {
             id,
             vid,
             name,
+            group_id,
             group,
         });
     }
@@ -378,6 +383,7 @@ fn summary_vlans(results: &[serde_json::Value]) -> Vec<DeviceSummaryVlan> {
             .unwrap_or("")
             .to_lowercase()
             .cmp(&b.group.as_deref().unwrap_or("").to_lowercase())
+            .then(a.group_id.cmp(&b.group_id))
             .then(a.vid.cmp(&b.vid))
             .then(a.id.cmp(&b.id))
     });
@@ -2022,15 +2028,31 @@ mod tests {
             // depend on that.
             serde_json::json!({ "id": 1, "vid": 10, "name": "users", "group": { "id": 1, "name": "DC1" } }),
             serde_json::json!({ "id": 4, "vid": 30, "name": "orphan", "group": null }),
+            // Group names are only unique within a scope: this group shares
+            // the DC1 name but has a different id, so both ids must survive.
+            serde_json::json!({ "id": 5, "vid": 40, "name": "same-name", "group": { "id": 3, "name": "DC1" } }),
         ];
         let vlans = summary_vlans(&results);
-        assert_eq!(vlans.len(), 4);
-        // Group name, then VID; a null group sorts first.
-        assert_eq!(vlans.iter().map(|vlan| vlan.id).collect::<Vec<_>>(), vec![4, 1, 2, 3]);
+        assert_eq!(vlans.len(), 5);
+        // Group name, then group id, then VID; a null group sorts first.
+        assert_eq!(
+            vlans.iter().map(|vlan| vlan.id).collect::<Vec<_>>(),
+            vec![4, 1, 2, 5, 3]
+        );
         assert_eq!(vlans[0].group, None);
+        assert_eq!(vlans[0].group_id, None);
         assert_eq!(vlans[1].group.as_deref(), Some("DC1"));
+        assert_eq!(vlans[1].group_id, Some(1));
         assert_eq!(vlans[2].vid, 20);
-        assert_eq!(vlans[3].group.as_deref(), Some("MGMT"));
+        assert_eq!(vlans[2].group_id, Some(1));
+        assert_eq!(
+            vlans[3].group_id,
+            Some(3),
+            "a same-named group must keep its own id"
+        );
+        assert_eq!(vlans[3].group.as_deref(), Some("DC1"));
+        assert_eq!(vlans[4].group.as_deref(), Some("MGMT"));
+        assert_eq!(vlans[4].group_id, Some(2));
     }
 
     #[test]

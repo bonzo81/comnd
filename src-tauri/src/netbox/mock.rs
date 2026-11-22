@@ -402,7 +402,7 @@ fn device_tab_peer_devices() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({
             "id": 202, "name": "peer-switch", "display": "peer-switch",
-            "primary_ip4": { "address": "127.0.0.1/32" }, "primary_ip6": null
+            "primary_ip4": { "address": "10.99.0.1/24" }, "primary_ip6": null
         }),
         serde_json::json!({
             "id": 203, "name": "peer-by-name", "display": "peer-by-name",

@@ -229,13 +229,16 @@ pub struct DeviceSummaryInterface {
 }
 
 /// One VLAN the device is a member of, from the union of `untagged_vlan` and
-/// `tagged_vlans` across its own interfaces. `group` is the VLAN group's name
-/// (null when the VLAN has no group), so the panel can group the list.
+/// `tagged_vlans` across its own interfaces. `group_id` is the grouping key
+/// (group names are only unique within a scope); `group` is the group's name,
+/// used as the displayed label.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceSummaryVlan {
     pub id: u64,
     pub vid: u16,
     pub name: String,
+    #[serde(default)]
+    pub group_id: Option<u64>,
     #[serde(default)]
     pub group: Option<String>,
 }

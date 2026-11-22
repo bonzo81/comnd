@@ -821,11 +821,13 @@ export interface NetBoxDeviceInterface {
   addresses: NetBoxDeviceAddress[];
 }
 
-/** One VLAN the device is a member of; `group` is the VLAN group's name. */
+/** One VLAN the device is a member of; `group_id` is the grouping key and
+ *  `group` the label (group names are only unique within a scope). */
 export interface NetBoxDeviceVlan {
   id: number;
   vid: number;
   name: string;
+  group_id: number | null;
   group: string | null;
 }
 

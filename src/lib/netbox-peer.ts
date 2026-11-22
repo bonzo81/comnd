@@ -29,10 +29,49 @@ export interface NetBoxResolvedPeer extends NetBoxDevicePeer {
   label: string | null;
 }
 
-/** An address without its CIDR mask, lowercased for IPv6 comparison. */
+/**
+ * An address without its CIDR mask, made comparable. IPv6 literals are
+ * canonicalised (expanded, lowercased, brackets and any zone suffix removed)
+ * because host validation accepts `[2001:db8::1]` and
+ * `2001:0db8:0:0:0:0:0:1` as well as the compressed form. Anything that is not
+ * an IPv6 literal - a DNS name, an IPv4 address - is only trimmed and
+ * lowercased.
+ */
 export function bareAddress(value: string): string {
   const slash = value.indexOf("/");
-  return (slash === -1 ? value : value.slice(0, slash)).trim().toLowerCase();
+  let address = (slash === -1 ? value : value.slice(0, slash)).trim();
+  if (address.startsWith("[") && address.endsWith("]")) {
+    address = address.slice(1, -1).trim();
+  }
+  // A zone index is part of the link-local literal, not of the host.
+  const zone = address.indexOf("%");
+  if (zone !== -1) address = address.slice(0, zone).trim();
+  return canonicalIpv6(address) ?? address.toLowerCase();
+}
+
+/**
+ * Expand an IPv6 literal to eight hex groups with leading zeros dropped.
+ * Returns null for anything that is not a valid IPv6 literal (a DNS name, an
+ * IPv4 address, an IPv4-mapped form). Comparing the expanded forms makes
+ * `2001:db8::1` and `2001:0db8:0:0:0:0:0:1` equal.
+ */
+function canonicalIpv6(value: string): string | null {
+  if (!value.includes(":")) return null;
+  const halves = value.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const groups = [...head, ...tail];
+  if (groups.some((group) => !/^[0-9a-fA-F]{1,4}$/.test(group))) return null;
+  if (halves.length === 2) {
+    if (groups.length >= 8) return null;
+    const missing = 8 - groups.length;
+    return [...head, ...Array<string>(missing).fill("0"), ...tail]
+      .map((group) => parseInt(group, 16).toString(16))
+      .join(":");
+  }
+  if (groups.length !== 8) return null;
+  return groups.map((group) => parseInt(group, 16).toString(16)).join(":");
 }
 
 function match(host: PeerHostRef): NetBoxPeerMatch {

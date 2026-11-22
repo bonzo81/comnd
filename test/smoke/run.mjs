@@ -2701,21 +2701,18 @@ async function main() {
       async run(browser) {
         await installSmokeHelpers(browser);
         const { sshPort } = await installNetboxTabHost(browser);
-        // Two Comnd hosts, each matching exactly one peer: one by primary IP,
-        // one by display name. Different host ids keep the second Connect out
-        // of the duplicate-session prompt.
-        await createHost(browser, {
-          display_name: "ip-matched",
-          hostname: "127.0.0.1",
-          port: sshPort,
-        });
-        await createHost(browser, {
+        // One Comnd host, matched only by the unique display name of peer 203.
+        // Neither peer primary IP belongs to a host, so the IP pass cannot match
+        // the NetBox host or this one: the result does not depend on the order
+        // the backend returns hosts in. The first session is closed before the
+        // second Connect so the duplicate-session prompt cannot interfere.
+        const nameHost = await createHost(browser, {
           display_name: "peer-by-name",
           hostname: "127.0.0.1",
           port: sshPort,
         });
-        // The sync and the host saves ran through IPC, so reload to give the
-        // host screen the materialized NetBox host and both user hosts.
+        // The sync and the host save ran through IPC, so reload to give the
+        // host screen the materialized NetBox host and the user host.
         await browser.refresh();
         await installSmokeHelpers(browser);
 
@@ -2769,17 +2766,22 @@ async function main() {
           sections.peers,
           [
             { name: "peer-by-name", connect: true },
-            { name: "peer-switch", connect: true },
+            { name: "peer-switch", connect: false },
             { name: "unmatched-peer", connect: false },
           ],
           `NetBox sections: wrong peer rows ${JSON.stringify(sections.peers)}`,
+        );
+        assert.equal(
+          await browser.execute(() => document.querySelectorAll(".nbd-connect").length),
+          1,
+          "NetBox sections: only the name-matched peer should offer Connect",
         );
         assert(
           !sections.text.includes("sibling-only") && !sections.text.includes("999"),
           "NetBox sections: a virtual-chassis sibling's VLAN leaked into the device",
         );
 
-        // Docked Connect: opens the existing connect flow for the name match.
+        // Docked Connect: peer 203 resolves to the only host by display name.
         await actOn(browser, '.nbd-peer[data-peer-id="203"] .nbd-connect');
         await waitForActiveConnection(browser, "NetBox sections (docked Connect)");
         await browser.waitUntil(
@@ -2788,9 +2790,18 @@ async function main() {
           { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the docked Connect did not open a second session" },
         );
 
-        // Back to the NetBox session, reselect its tab, then Connect from the
-        // undocked window. The panel follows the active session (ADR-013).
-        await actOn(browser, '.session-tab[data-host-id="netbox:201"]');
+        // Close the session before the second Connect: a live session on the
+        // matched host is what would open the duplicate-session prompt.
+        await actOn(browser, `.session-tab[data-host-id="${nameHost.id}"] .session-tab-close`);
+        await actOn(browser, ".confirm-ok");
+        await browser.waitUntil(
+          async () => browser.execute(() =>
+            (document.querySelector(".sb-sessions")?.textContent ?? "").includes("1 session")),
+          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: closing the docked session did not return to one session" },
+        );
+
+        // The NetBox session is active again; reselect its tab and Connect
+        // from the undocked window. The panel follows the active session.
         await waitForActiveConnection(browser, "NetBox sections (back to the NetBox session)");
         await actOn(browser, ".sb-toggle-netbox");
         await panelShortcut(browser);
@@ -2803,13 +2814,13 @@ async function main() {
           2,
           "NetBox sections: the undocked window rendered different sections",
         );
-        await actOn(browser, '.nbd-peer[data-peer-id="202"] .nbd-connect');
+        await actOn(browser, '.nbd-peer[data-peer-id="203"] .nbd-connect');
         await browser.switchToWindow(panelTarget.previous);
         await waitForActiveConnection(browser, "NetBox sections (undocked Connect)");
         await browser.waitUntil(
           async () => browser.execute(() =>
-            (document.querySelector(".sb-sessions")?.textContent ?? "").includes("3 sessions")),
-          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the undocked Connect did not open a third session" },
+            (document.querySelector(".sb-sessions")?.textContent ?? "").includes("2 sessions")),
+          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the undocked Connect did not open a second session" },
         );
 
         // Leave the app docked for teardown.

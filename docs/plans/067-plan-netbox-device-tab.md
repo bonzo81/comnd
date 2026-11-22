@@ -431,7 +431,7 @@ the endpoint set is seven distinct paths, each fetched exactly once.
 | UI fact | Source |
 |---|---|
 | Device VLAN set | Request 3: `untagged_vlan.id` plus every `tagged_vlans[].id`, for interfaces whose brief `device.id` equals `{id}` |
-| VLAN row | Request 4: `vid`, `name`, `group.name` (nullable → "No group"), deduped by `id` |
+| VLAN row | Request 4: `vid`, `name`, `group.id` (grouping key) and `group.name` (display label; nullable → "No group"), deduped by `id` |
 | Subnet, source (a) | Request 5: prefix whose `vlan.id` is in the device VLAN id set |
 | Subnet, source (b) | Request 5: prefix whose network contains an IP from request 2 and whose `vrf.id` equals that IP's `vrf.id` (both null → global table). Containment is computed in Rust from the CIDR (`std::net` only — no new crate) |
 | Subnet row | Prefix `prefix` (CIDR) and `vrf.name` when set; deduped by `id`; sorted by family then network |
@@ -460,8 +460,9 @@ request.
 
 ## Section behaviour
 
-- VLANs are grouped by `group.name` (nullable group renders as "No group"), VLAN rows sorted
-  by VID within a group; groups sorted by name.
+- VLANs are grouped by `group.id`, labelled with `group.name` (a null group renders as
+  "No group"), because NetBox makes group names unique only within a scope; VLAN rows are
+  sorted by VID within a group.
 - Subnets render as one list of `prefix` + optional VRF badge, sorted by family then prefix.
 - Peers render in one list. A matched peer shows its name and a **Connect** button whose
   accessible name is `Connect to <host display name>`; the button carries `nbd-connect` and
@@ -498,9 +499,12 @@ request.
   request, never from the sync list, so `report.fetched` stays 1.
 - Add one smoke scenario, `netbox-device-sections`, that reuses `installNetboxTabHost` +
   `connectNetboxTabHost`: opens the docked panel, asserts the VLAN groups/subnets/peer rows,
-  presses a matched peer's Connect and asserts a session tab opens, then undocks and repeats
-  the Connect from the panel window. The existing `keyboard-focus` NetBox assertions and the
-  `--mutation=focus` target are unchanged; `smoke:netbox` keeps its 7 scenarios.
+  presses a matched peer's Connect and asserts a session tab opens, closes that session, then
+  undocks and repeats the Connect from the panel window. The match is by a unique display
+  name, and no host uses a peer primary IP, so the result does not depend on host-list order;
+  closing the first session keeps the duplicate-session prompt out of the path. The existing
+  `keyboard-focus` NetBox assertions and the `--mutation=focus` target are unchanged;
+  `smoke:netbox` keeps its 7 scenarios.
 
 ## Files touched (phase 2)
 
@@ -552,13 +556,28 @@ request.
 - Name matching is case-insensitive and trimmed; two hosts with the same display name make
   the first in the loaded host list win, after the id and IP passes have failed.
 
+## Review fixes (phase 2)
+
+- **IPv6 literals are canonicalised before the primary-IP comparison.** Host validation
+  accepts `[2001:db8::1]` and `2001:0db8:0:0:0:0:0:1`, which did not equal NetBox's
+  compressed form. `bareAddress` now expands IPv6 to eight hex groups and strips brackets
+  and any zone suffix, leaving DNS names and IPv4 addresses unchanged.
+- **VLAN groups are keyed by `group.id`, not by name.** NetBox only makes group names unique
+  within a scope, so two groups sharing a name were merged into one section. The summary now
+  carries `group_id` (the key) and `group` (the label); a component test spans two groups
+  with the same name.
+- **The smoke scenario's peer match is deterministic.** It matches one peer by a unique
+  display name, and no host has a peer primary IP, so the IP pass cannot reach the user host
+  or the NetBox host whichever order the backend returns. The first session is closed before
+  the second Connect, so the duplicate-session prompt never enters the path.
+
 ## Verification (phase 2, this branch)
 
 Run on Windows with PowerShell. Exit codes are the command's own code.
 
 - `npm run build` — exit 0 (`tsc` + Vite; the >500 kB chunk advisory is pre-existing).
-- `npm run test` — exit 0, 55 files, 1014 tests.
-- `npm run test:coverage` — exit 0; `src/lib` 87.79% lines (floor 78%), `src/components`
+- `npm run test` — exit 0, 55 files, 1016 tests.
+- `npm run test:coverage` — exit 0; `src/lib` 87.88% lines (floor 78%), `src/components`
   38.22% lines (floor 29%).
 - `npm run lint:css` — exit 0, 82 tokens across 126 files.
 - `git add -A && npm run lint:eol` — exit 0, 377 text files checked in the index.

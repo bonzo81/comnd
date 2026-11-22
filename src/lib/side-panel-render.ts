@@ -199,21 +199,23 @@ function interfaceMarkup(iface: NetBoxDeviceInterface): string {
   `;
 }
 
-/** VLANs grouped by their VLAN group, preserving the server's order. */
+/** VLANs grouped by their VLAN group id, labelled with the group name. */
 function vlanMarkup(vlans: NetBoxDeviceVlan[]): string {
   if (vlans.length === 0) return `<p class="sb-placeholder">No VLANs.</p>`;
-  const groups = new Map<string, NetBoxDeviceVlan[]>();
+  // Names are only unique within a scope, so the id is the key. Two groups
+  // that happen to share a name stay two sections.
+  const groups = new Map<string, { label: string; vlans: NetBoxDeviceVlan[] }>();
   for (const vlan of vlans) {
-    const key = vlan.group ?? "";
-    const list = groups.get(key) ?? [];
-    list.push(vlan);
-    groups.set(key, list);
+    const key = vlan.group_id != null ? `id:${vlan.group_id}` : "none";
+    const entry = groups.get(key) ?? { label: vlan.group ?? "No group", vlans: [] };
+    entry.vlans.push(vlan);
+    groups.set(key, entry);
   }
-  const markup = [...groups.entries()]
+  const markup = [...groups.values()]
     .map(
-      ([group, items]) => `
+      ({ label, vlans: items }) => `
       <div class="nbd-vlan-group">
-        <div class="nbd-vlan-group-name">${escHtml(group || "No group")}</div>
+        <div class="nbd-vlan-group-name">${escHtml(label)}</div>
         <ul class="nbd-vlans">
           ${items
             .map(
