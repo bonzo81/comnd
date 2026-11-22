@@ -1201,7 +1201,7 @@ function panelUndockRelaunchScenario() {
         const requested = { x: main.x + 48, y: main.y + 48, width: 560, height: 460 };
         await invoke(browser, "test_panel_set_geometry", requested);
         const placed = await waitForPanelGeometry(
-          browser, requested, "Panel relaunch (placed)",
+          browser, requested, "Panel relaunch (placed)", ["x", "y", "width", "height"],
         );
         for (const key of ["width", "height"]) {
           assert(
