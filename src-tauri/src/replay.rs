@@ -139,6 +139,8 @@ pub async fn replay_delete(id: String) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    use crate::fixtures::TempDir;
+
     fn sample() -> ReplayCommand {
         ReplayCommand {
             id: String::new(),
@@ -248,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_validate_custom_platform_when_in_registry() {
-        let dir = std::env::temp_dir().join(format!("comnd_replay_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("replay-platform");
         std::fs::create_dir_all(dir.join("my-custom")).unwrap();
         std::fs::write(dir.join("my-custom/index.yaml"), "platform: my-custom\n").unwrap();
         let platforms = PlatformRegistry::scan(&dir, None::<&std::path::Path>);
@@ -272,20 +274,15 @@ mod tests {
 
     // ─── replay.json round-trip (coverage gap R3) ──────────────────
 
-    fn temp_replay_path() -> (std::path::PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd-replay-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
+    fn temp_replay_path() -> (TempDir, PathBuf) {
+        let dir = TempDir::new("replay");
         let path = dir.join("replay.json");
         (dir, path)
     }
 
     #[test]
     fn test_upsert_assigns_id_and_round_trips_through_disk() {
-        let (dir, path) = temp_replay_path();
+        let (_dir, path) = temp_replay_path();
         let mut c = sample();
         // An entry with no variables still round-trips.
         c.variables.clear();
@@ -313,13 +310,11 @@ mod tests {
         assert_eq!(stored[0].id, edited.id);
         assert_eq!(stored[0].command, "show version");
         assert_eq!(stored[0].created_at, edited.created_at);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_upsert_and_delete_unknown_id_error() {
-        let (dir, path) = temp_replay_path();
+        let (_dir, path) = temp_replay_path();
 
         let mut ghost = sample();
         ghost.id = "ghost".to_string();
@@ -340,7 +335,5 @@ mod tests {
         let id = load_at(&path)[0].id.clone();
         delete_at(&path, &id).unwrap();
         assert!(load_at(&path).is_empty(), "delete persists the removal");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
