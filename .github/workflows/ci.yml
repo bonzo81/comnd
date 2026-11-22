@@ -147,7 +147,7 @@ jobs:
       - name: cache cargo-llvm-cov
         if: matrix.platform == 'ubuntu-22.04'
         id: llvm-cov-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: cargo-llvm-cov-0.9.1-${{ runner.os }}-${{ runner.arch }}
@@ -234,7 +234,7 @@ jobs:
 
       - name: cache tauri-driver
         id: tauri-driver-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/tauri-driver
           key: tauri-driver-2.1.0-${{ runner.os }}-${{ runner.arch }}
@@ -298,7 +298,7 @@ jobs:
 
       - name: cache tauri-driver
         id: tauri-driver-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/tauri-driver
           key: tauri-driver-2.1.0-${{ runner.os }}-${{ runner.arch }}
