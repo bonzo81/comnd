@@ -41,7 +41,7 @@ simplelog = { version = "0.12", features = ["local-offset"] }
 # Direct dep: simplelog's format_description! macro emits `use ::time::...`, so it must resolve here.
 time = "0.3"
 async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 scraper = "0.19"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 # 9.x clears the zip path-traversal alerts (Dependabot #94/#95/#96) and resolves to a
