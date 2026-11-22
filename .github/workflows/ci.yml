@@ -222,11 +222,12 @@ jobs:
       - name: full-app SSH smoke tests
         run: xvfb-run -a dbus-run-session -- npm run smoke -- --jobs=3
 
-      # One process proves all seven mutation categories after the build above.
-      # A separate invocation per category re-ran the whole `tauri build` to
-      # drive a single scenario, which was most of this job's mutation time.
+      # One process proves all seven mutation categories after the build above,
+      # so `--no-build` reuses that binary: a separate invocation per category
+      # re-ran the whole `tauri build` to drive a single scenario, which was
+      # most of this job's mutation time.
       - name: smoke mutation checks (all categories)
-        run: xvfb-run -a dbus-run-session -- npm run smoke:mutation:all
+        run: xvfb-run -a dbus-run-session -- npm run smoke:mutation:all -- --jobs=3 --no-build
 
   smoke-netbox:
     runs-on: ubuntu-22.04

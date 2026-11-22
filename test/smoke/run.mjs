@@ -67,6 +67,11 @@ function parseMutation(argv) {
 
 const mutationCategories = parseMutation(process.argv);
 
+// CI runs the full suite and then the mutation sweep as two steps of one job,
+// so the second step starts from the binary the first one built. Rebuilding
+// there recompiles the crate for nothing.
+const skipBuild = process.argv.includes("--no-build");
+
 // Each frontend mutation category must break exactly one scenario, and the
 // failure it produces must also prove the mutation was applied. A category
 // whose scenario passes is a regression in the assertion, not a pass.
@@ -1962,7 +1967,7 @@ async function commandRoundTrip(browser, dataDir) {
 async function main() {
   if (runUnderXvfb(import.meta.url)) return;
 
-  buildApp();
+  if (!skipBuild) buildApp();
 
   const tests = [
     {
@@ -4167,21 +4172,46 @@ async function main() {
   // build, so proving all seven costs seven scenario boots rather than seven
   // full `tauri build` runs.
   if (mutationCategories) {
-    const failures = [];
-    for (const category of mutationCategories) {
-      try {
-        const result = await runMutation(category, tests);
-        console.log(`PASS ${result.name} — ${result.expected}`);
-      } catch (error) {
-        failures.push(error.message);
-        console.error(`FAIL ${error.message}`);
-      }
-    }
+    const failures = await runMutations(tests, parseJobs(process.argv));
     if (failures.length) throw new Error(failures.join("\n"));
     return;
   }
 
   await runSuite(tests, { ...sshSuite, jobs: parseJobs(process.argv) });
+}
+
+/**
+ * Prove each requested mutation category, `jobs` at a time.
+ *
+ * Categories are as independent as scenarios are (own app, data directory and
+ * display), and each still has to fail on its own named assertion.
+ */
+async function runMutations(tests, jobs) {
+  const results = new Array(mutationCategories.length);
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= mutationCategories.length) return;
+      try {
+        results[index] = { ok: true, ...(await runMutation(mutationCategories[index], tests)) };
+      } catch (error) {
+        results[index] = { ok: false, error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(jobs, mutationCategories.length) }, worker));
+
+  const failures = [];
+  for (const result of results) {
+    if (result.ok) {
+      console.log(`PASS ${result.name} — ${result.expected}`);
+    } else {
+      failures.push(result.error.message);
+      console.error(`FAIL ${result.error.message}`);
+    }
+  }
+  return failures;
 }
 
 /** Prove one mutation category breaks exactly the scenario it is meant to. */
