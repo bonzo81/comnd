@@ -1,0 +1,25 @@
+# Dependency update PRs for Cargo, npm and GitHub Actions.
+# Anything Dependabot cannot fix is disposed of under docs/adr/009-dependabot-alert-disposition-policy.md
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
