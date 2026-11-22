@@ -94,9 +94,17 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # Only main saves a Rust cache. A cache saved by a pull request is scoped
+      # to that PR's merge ref: main and other PRs can never restore it, so every
+      # PR push added another set of multi-GB caches. The repository budget is
+      # 10 GB, and when the inventory passed it GitHub evicted main's Linux Rust
+      # cache - the largest entry - which made every PR's Linux leg cold (about
+      # 8 minutes) while Windows and macOS stayed warm. One main-scoped set now
+      # serves every PR through the base-branch restore.
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Formatting is OS-independent, so one leg is enough.
       - name: cargo fmt --check
@@ -214,6 +222,7 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
           shared-key: smoke
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: install Linux and WebDriver dependencies
         run: |
@@ -277,6 +286,7 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
           shared-key: smoke
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: install Linux and WebDriver dependencies
         run: |
