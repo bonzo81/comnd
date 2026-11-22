@@ -18,6 +18,7 @@ const hosts = [
   { id: "user-access", hostname: "access.example", display_name: "Access-SW" },
   { id: "user-v6", hostname: "2001:0db8:0:0:0:0:0:2", display_name: "v6-peer" },
   { id: "user-v6-bracketed", hostname: "[2001:db8::3]", display_name: "v6-bracketed" },
+  { id: "user-mapped", hostname: "::ffff:c000:201", display_name: "mapped" },
 ];
 
 describe("NetBox peer → host matching", () => {
@@ -36,6 +37,12 @@ describe("NetBox peer → host matching", () => {
     expect(bareAddress("10.0.0.1")).toBe("10.0.0.1");
   });
 
+  it("canonicalises IPv4-mapped IPv6 literals", () => {
+    const mapped = "0:0:0:0:0:ffff:c000:201";
+    expect(bareAddress("::ffff:192.0.2.1/128")).toBe(mapped);
+    expect(bareAddress("::ffff:c000:201")).toBe(mapped);
+  });
+
   it("matches an expanded or bracketed IPv6 hostname by primary IP", () => {
     expect(
       resolvePeerHost(peer({ netbox_id: 210, primary_ip: "2001:db8::2/64" }), hosts)?.hostId,
@@ -43,6 +50,10 @@ describe("NetBox peer → host matching", () => {
     expect(
       resolvePeerHost(peer({ netbox_id: 211, primary_ip: "2001:DB8::3/64" }), hosts)?.hostId,
     ).toBe("user-v6-bracketed");
+    expect(
+      resolvePeerHost(peer({ netbox_id: 212, primary_ip: "::ffff:192.0.2.1/128" }), hosts)
+        ?.hostId,
+    ).toBe("user-mapped");
   });
 
   it("matches by NetBox id first", () => {

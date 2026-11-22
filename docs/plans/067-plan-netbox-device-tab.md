@@ -559,9 +559,11 @@ request.
 ## Review fixes (phase 2)
 
 - **IPv6 literals are canonicalised before the primary-IP comparison.** Host validation
-  accepts `[2001:db8::1]` and `2001:0db8:0:0:0:0:0:1`, which did not equal NetBox's
-  compressed form. `bareAddress` now expands IPv6 to eight hex groups and strips brackets
-  and any zone suffix, leaving DNS names and IPv4 addresses unchanged.
+  accepts `[2001:db8::1]`, `2001:0db8:0:0:0:0:0:1` and an embedded IPv4 form such as
+  `::ffff:192.0.2.1`, none of which equal NetBox's compressed form as strings. `bareAddress`
+  expands IPv6 to eight hex groups (turning an embedded IPv4 tail into its two groups),
+  strips brackets and any zone suffix, and leaves DNS names and plain IPv4 addresses
+  unchanged. Tests cover all of those forms.
 - **VLAN groups are keyed by `group.id`, not by name.** NetBox only makes group names unique
   within a scope, so two groups sharing a name were merged into one section. The summary now
   carries `group_id` (the key) and `group` (the label); a component test spans two groups
@@ -576,8 +578,8 @@ request.
 Run on Windows with PowerShell. Exit codes are the command's own code.
 
 - `npm run build` — exit 0 (`tsc` + Vite; the >500 kB chunk advisory is pre-existing).
-- `npm run test` — exit 0, 55 files, 1016 tests.
-- `npm run test:coverage` — exit 0; `src/lib` 87.88% lines (floor 78%), `src/components`
+- `npm run test` — exit 0, 55 files, 1017 tests.
+- `npm run test:coverage` — exit 0; `src/lib` 87.87% lines (floor 78%), `src/components`
   38.22% lines (floor 29%).
 - `npm run lint:css` — exit 0, 82 tokens across 126 files.
 - `git add -A && npm run lint:eol` — exit 0, 377 text files checked in the index.
