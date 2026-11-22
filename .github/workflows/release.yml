@@ -143,7 +143,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # P1.4 â€” signs updater artifacts (latest.json + .sig) during `tauri build`.
+          # P1.4: `tauri build` signs the updater bundles (.sig); tauri-action
+          # embeds those signatures in latest.json, which is not itself signed.
           # Stored as a repo secret; the key itself is never checked in.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
