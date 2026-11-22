@@ -9,6 +9,8 @@ mod ssh;
 // profile (`cargo test --release` compiles tests with `debug_assertions` off).
 mod config;
 mod credentials;
+#[cfg(test)]
+mod fixtures;
 mod hosts;
 mod import;
 mod kb;
