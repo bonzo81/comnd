@@ -142,6 +142,7 @@ src-tauri/              # Rust backend
     session_log.rs      # Session logging
     transcript.rs       # Terminal output seam: session log + ssh-output fan-out
     paths/              # Data/log directory resolution (mod + commands)
+    fixtures.rs         # Crate-level #[cfg(test)] fixtures: temp dir guard + builders
     test_server.rs      # Mock SSH server for testing
   Cargo.toml            # Rust dependencies
   tauri.conf.json       # Tauri configuration
