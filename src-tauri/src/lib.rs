@@ -7,33 +7,33 @@ mod ssh;
 // The mock SSH server backs the debug-only smoke commands and the unit tests
 // that drive a real connect, so it has to exist in test builds of either
 // profile (`cargo test --release` compiles tests with `debug_assertions` off).
-#[cfg(any(debug_assertions, test))]
-pub mod test_server;
-mod kb;
-mod hosts;
-mod credentials;
-mod netbox;
 mod config;
-mod llm;
+mod credentials;
+mod hosts;
 mod import;
+mod kb;
+mod llm;
+mod netbox;
+mod panel;
 mod paths;
-mod session_log;
-mod transcript;
+mod platform;
 mod replay;
 mod secrets;
-mod platform;
+mod session_log;
 mod state;
-mod panel;
+#[cfg(any(debug_assertions, test))]
+pub mod test_server;
+mod transcript;
 
+use config::{parse_log_level_filter, ConfigStore};
+use hosts::HostStore;
+use kb::KbManager;
+use platform::PlatformRegistry;
+use ssh::SshManager;
+use state::AppState;
 use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tauri::Manager;
-use kb::KbManager;
-use hosts::HostStore;
-use ssh::SshManager;
-use config::{ConfigStore, parse_log_level_filter};
-use platform::PlatformRegistry;
-use state::AppState;
 
 // â”€â”€â”€ Log MultiWriter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -70,7 +70,12 @@ struct SizeCapWriter {
 impl SizeCapWriter {
     fn new(file: std::fs::File, path: std::path::PathBuf, max_bytes: u64) -> Self {
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Self { inner: file, path, max_bytes, size }
+        Self {
+            inner: file,
+            path,
+            max_bytes,
+            size,
+        }
     }
 }
 
@@ -265,7 +270,9 @@ async fn test_smoke_mock_auth_url() -> Result<String, String> {
 /// Every PTY size the mock host has been asked for, oldest first.
 #[cfg(debug_assertions)]
 #[tauri::command]
-async fn test_smoke_pty_sizes(state: tauri::State<'_, AppState>) -> Result<Vec<(u32, u32)>, String> {
+async fn test_smoke_pty_sizes(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<(u32, u32)>, String> {
     let mgr = state.ssh.lock().await;
     let sizes = mgr
         .test_server_pty_sizes()
@@ -391,8 +398,16 @@ fn open_log_file(
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
-    let cap_bytes = if max_mb == 0 { u64::MAX } else { max_mb as u64 * 1024 * 1024 };
-    writers.push(Box::new(SizeCapWriter::new(file, path.to_path_buf(), cap_bytes)));
+    let cap_bytes = if max_mb == 0 {
+        u64::MAX
+    } else {
+        max_mb as u64 * 1024 * 1024
+    };
+    writers.push(Box::new(SizeCapWriter::new(
+        file,
+        path.to_path_buf(),
+        cap_bytes,
+    )));
     Ok(())
 }
 
@@ -460,10 +475,11 @@ pub fn run() {
     // local time so app log matches session logs; falls back to UTC if unreadable
     let _ = cfg.set_time_offset_to_local();
     let config = cfg
-        .set_time_format_custom(simplelog::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"))
+        .set_time_format_custom(simplelog::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second]"
+        ))
         .build();
-    let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> =
-        vec![Box::new(std::io::stderr())];
+    let mut writers: Vec<Box<dyn std::io::Write + Send + Sync>> = vec![Box::new(std::io::stderr())];
     // File logging Ã”Ã‡Ã¶ always on (dev + release). A user who sets a custom
     // path expects it to work regardless of build mode.
     let mut log_fallback_reason: Option<String> = None;
@@ -496,7 +512,8 @@ pub fn run() {
     // hook to preserve the default unwind/backtrace behaviour.
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let location = info.location()
+        let location = info
+            .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
             .unwrap_or_else(|| "<unknown>".to_string());
         let payload = info.payload();
@@ -778,7 +795,7 @@ mod tests {
         // the previous hook. We can't easily test the log output without a
         // test logger, but we can verify the hook doesn't double-panic and
         // that the chained hook runs. Use catch_unwind to isolate.
-        use std::panic::{catch_unwind, take_hook, set_hook};
+        use std::panic::{catch_unwind, set_hook, take_hook};
 
         // Save and restore the current hook so this test doesn't pollute
         // other tests.
@@ -797,8 +814,10 @@ mod tests {
             panic!("test panic from test_panic_hook_logs_and_chains");
         });
         assert!(result.is_err());
-        assert!(flag.load(std::sync::atomic::Ordering::SeqCst),
-            "chained hook should have run");
+        assert!(
+            flag.load(std::sync::atomic::Ordering::SeqCst),
+            "chained hook should have run"
+        );
 
         // Restore
         let _ = take_hook();
@@ -829,15 +848,30 @@ mod tests {
                 "{} info should be capped",
                 target
             );
-            assert!(!log::Log::enabled(&logger, &meta(target, log::Level::Debug)));
-            assert!(!log::Log::enabled(&logger, &meta(target, log::Level::Trace)));
+            assert!(!log::Log::enabled(
+                &logger,
+                &meta(target, log::Level::Debug)
+            ));
+            assert!(!log::Log::enabled(
+                &logger,
+                &meta(target, log::Level::Trace)
+            ));
         }
         // Warnings and errors from dependencies still get through.
         assert!(log::Log::enabled(&logger, &meta("russh", log::Level::Warn)));
-        assert!(log::Log::enabled(&logger, &meta("russh", log::Level::Error)));
+        assert!(log::Log::enabled(
+            &logger,
+            &meta("russh", log::Level::Error)
+        ));
         // App crates are not capped.
-        assert!(log::Log::enabled(&logger, &meta("comnd_lib", log::Level::Trace)));
-        assert!(log::Log::enabled(&logger, &meta("comnd", log::Level::Debug)));
+        assert!(log::Log::enabled(
+            &logger,
+            &meta("comnd_lib", log::Level::Trace)
+        ));
+        assert!(log::Log::enabled(
+            &logger,
+            &meta("comnd", log::Level::Debug)
+        ));
 
         // The cap is enforced on the write path too, not only in enabled():
         // a dependency record must never reach the file, an app record must.

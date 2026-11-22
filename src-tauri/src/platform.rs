@@ -85,7 +85,11 @@ mod tests {
     use std::fs;
 
     fn tmp(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("comnd_platform_{}_{}", prefix, uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "comnd_platform_{}_{}",
+            prefix,
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -162,7 +166,10 @@ mod tests {
     #[test]
     fn builtin_has_four() {
         let reg = PlatformRegistry::builtin();
-        assert_eq!(reg.all(), vec!["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"]);
+        assert_eq!(
+            reg.all(),
+            vec!["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"]
+        );
         assert!(reg.is_valid("cisco-nxos"));
         assert!(!reg.is_valid("unknown"));
     }
@@ -180,9 +187,7 @@ pub async fn load_platform_index(
 }
 
 #[tauri::command]
-pub async fn list_kb_platforms(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+pub async fn list_kb_platforms(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
     Ok(platforms.all())
 }

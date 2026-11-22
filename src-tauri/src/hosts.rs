@@ -2,7 +2,7 @@
 //! Host groups — separate JSON file, hierarchical (parent_id for nesting).
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Credential types live in credentials.rs (Phase 0 of the host-source
 // plan); re-exported here so existing `hosts::...` paths keep compiling.
@@ -55,9 +55,15 @@ pub struct Host {
     pub source: Option<String>,
 }
 
-fn default_port() -> u16 { 22 }
-fn default_auth_type() -> String { "password".to_string() }
-fn default_platform() -> String { "cisco-iosxe".to_string() }
+fn default_port() -> u16 {
+    22
+}
+fn default_auth_type() -> String {
+    "password".to_string()
+}
+fn default_platform() -> String {
+    "cisco-iosxe".to_string()
+}
 
 // ─── Validation ─────────────────────────────────────────────────────
 
@@ -76,7 +82,10 @@ pub fn validate_host(host: &Host, platforms: &PlatformRegistry) -> Result<(), St
         return Err("Display name is required".to_string());
     }
     if host.display_name.len() > MAX_DISPLAY_NAME {
-        return Err(format!("Display name is too long (max {} chars)", MAX_DISPLAY_NAME));
+        return Err(format!(
+            "Display name is too long (max {} chars)",
+            MAX_DISPLAY_NAME
+        ));
     }
     if host.display_name.chars().any(|c| c.is_control()) {
         return Err("Display name contains control characters".to_string());
@@ -110,7 +119,10 @@ pub fn validate_host(host: &Host, platforms: &PlatformRegistry) -> Result<(), St
 
     if let Some(ref ver) = host.os_version {
         if ver.len() > MAX_OS_VERSION {
-            return Err(format!("OS version is too long (max {} chars)", MAX_OS_VERSION));
+            return Err(format!(
+                "OS version is too long (max {} chars)",
+                MAX_OS_VERSION
+            ));
         }
         if ver.chars().any(|c| c.is_control()) {
             return Err("OS version contains control characters".to_string());
@@ -121,7 +133,10 @@ pub fn validate_host(host: &Host, platforms: &PlatformRegistry) -> Result<(), St
         if notes.len() > MAX_NOTES {
             return Err(format!("Notes are too long (max {} chars)", MAX_NOTES));
         }
-        if notes.chars().any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t') {
+        if notes
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+        {
             return Err("Notes contain invalid control characters".to_string());
         }
     }
@@ -242,7 +257,12 @@ impl HostStore {
         host.id = uuid::Uuid::new_v4().to_string();
         host.created_at = chrono::Utc::now().to_rfc3339();
         host.sort_order = self.hosts.len() as u32;
-        log::info!("Host created: '{}' ({}:{})", host.display_name, host.hostname, host.port);
+        log::info!(
+            "Host created: '{}' ({}:{})",
+            host.display_name,
+            host.hostname,
+            host.port
+        );
         self.hosts.push(host.clone());
         self.save()?;
         Ok(host)
@@ -252,7 +272,10 @@ impl HostStore {
     pub fn update(&mut self, mut host: Host, platforms: &PlatformRegistry) -> Result<Host, String> {
         validate_host(&host, platforms)?;
         host.normalize_credential();
-        let pos = self.hosts.iter().position(|h| h.id == host.id)
+        let pos = self
+            .hosts
+            .iter()
+            .position(|h| h.id == host.id)
             .ok_or_else(|| format!("Host not found: {}", host.id))?;
         self.hosts[pos] = host.clone();
         self.save()?;
@@ -261,7 +284,10 @@ impl HostStore {
 
     /// Delete a host by id.
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
-        let pos = self.hosts.iter().position(|h| h.id == id)
+        let pos = self
+            .hosts
+            .iter()
+            .position(|h| h.id == id)
             .ok_or_else(|| format!("Host not found: {}", id))?;
         log::info!("Host deleted: '{}' ({})", self.hosts[pos].display_name, id);
         self.hosts.remove(pos);
@@ -316,7 +342,10 @@ impl HostStore {
     }
 
     pub fn update_group(&mut self, group: HostGroup) -> Result<HostGroup, String> {
-        let pos = self.groups.iter().position(|g| g.id == group.id)
+        let pos = self
+            .groups
+            .iter()
+            .position(|g| g.id == group.id)
             .ok_or_else(|| format!("Host group not found: {}", group.id))?;
         self.groups[pos] = group.clone();
         self.save()?;
@@ -324,7 +353,10 @@ impl HostStore {
     }
 
     pub fn delete_group(&mut self, id: &str) -> Result<(), String> {
-        let pos = self.groups.iter().position(|g| g.id == id)
+        let pos = self
+            .groups
+            .iter()
+            .position(|g| g.id == id)
             .ok_or_else(|| format!("Host group not found: {}", id))?;
         log::info!("Host group deleted: '{}' ({})", self.groups[pos].name, id);
         self.groups.remove(pos);
@@ -334,7 +366,7 @@ impl HostStore {
 }
 
 /// Load hosts from JSON file, returning empty vec on any error.
-fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
+fn load_hosts_from_file(path: &Path) -> Vec<Host> {
     let mut hosts = crate::paths::load_json_or_preserve::<Vec<Host>>(path);
     for h in &mut hosts {
         h.normalize_credential();
@@ -342,16 +374,14 @@ fn load_hosts_from_file(path: &PathBuf) -> Vec<Host> {
     hosts
 }
 
-fn load_groups_from_file(path: &PathBuf) -> Vec<HostGroup> {
+fn load_groups_from_file(path: &Path) -> Vec<HostGroup> {
     crate::paths::load_json_or_preserve::<Vec<HostGroup>>(path)
 }
 
 // ─── Tauri Commands (host + group, plan: lib.rs domain split) ───────
 
 #[tauri::command]
-pub async fn get_hosts(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<Host>, String> {
+pub async fn get_hosts(state: tauri::State<'_, AppState>) -> Result<Vec<Host>, String> {
     let mut all = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         hosts.get_all()?
@@ -375,12 +405,12 @@ pub async fn get_hosts(
 }
 
 #[tauri::command]
-pub async fn save_host(
-    host: Host,
-    state: tauri::State<'_, AppState>,
-) -> Result<Host, String> {
+pub async fn save_host(host: Host, state: tauri::State<'_, AppState>) -> Result<Host, String> {
     if host.source.as_deref() == Some("netbox") || netbox::is_netbox_host_id(&host.id) {
-        log::warn!("Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)", host.id);
+        log::warn!(
+            "Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)",
+            host.id
+        );
         return Err("Cannot edit NetBox-sourced hosts".to_string());
     }
     let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
@@ -393,12 +423,12 @@ pub async fn save_host(
 }
 
 #[tauri::command]
-pub async fn delete_host(
-    id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn delete_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     if netbox::is_netbox_host_id(&id) {
-        log::warn!("Rejected delete_host on NetBox-sourced host {} (plan §8.4 guard)", id);
+        log::warn!(
+            "Rejected delete_host on NetBox-sourced host {} (plan §8.4 guard)",
+            id
+        );
         return Err(
             "Cannot delete NetBox-sourced hosts — disable the device in Settings → NetBox or remove it in NetBox"
                 .to_string(),
@@ -412,10 +442,7 @@ pub async fn delete_host(
 }
 
 #[tauri::command]
-pub async fn touch_host(
-    id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn touch_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     if netbox::is_netbox_host_id(&id) {
         let netbox_id: u64 = id
             .strip_prefix("netbox:")
@@ -429,9 +456,7 @@ pub async fn touch_host(
 }
 
 #[tauri::command]
-pub async fn get_host_groups(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<HostGroup>, String> {
+pub async fn get_host_groups(state: tauri::State<'_, AppState>) -> Result<Vec<HostGroup>, String> {
     let mut groups = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         hosts.get_groups()?
@@ -462,7 +487,11 @@ pub async fn get_host_groups(
 /// `State<'_, AppState>`.
 fn reject_synthetic_group(handler: &str, id: &str) -> Result<(), String> {
     if netbox::is_synthetic_group_id(id) {
-        log::warn!("Rejected {} on synthetic NetBox group {} (plan §8.4 guard)", handler, id);
+        log::warn!(
+            "Rejected {} on synthetic NetBox group {} (plan §8.4 guard)",
+            handler,
+            id
+        );
         return Err("NetBox groups are managed by the NetBox integration".to_string());
     }
     Ok(())
@@ -484,7 +513,10 @@ pub async fn save_host_group(
 
     if let Some(group_id) = id {
         // Update existing
-        let existing = hosts.get_groups()?.into_iter().find(|g| g.id == group_id)
+        let existing = hosts
+            .get_groups()?
+            .into_iter()
+            .find(|g| g.id == group_id)
             .ok_or_else(|| format!("Group not found: {}", group_id))?;
         hosts.update_group(HostGroup {
             id: group_id,
@@ -625,7 +657,12 @@ mod tests {
         let mut hosts: Vec<Host> = serde_json::from_str(json).unwrap();
         hosts.iter_mut().for_each(|h| h.normalize_credential());
         assert_eq!(hosts.remove(0).credential, Some(CredentialSource::Password));
-        assert_eq!(hosts.remove(0).credential, Some(CredentialSource::SshKey { key_path: "~/.ssh/id_rsa".to_string() }));
+        assert_eq!(
+            hosts.remove(0).credential,
+            Some(CredentialSource::SshKey {
+                key_path: "~/.ssh/id_rsa".to_string()
+            })
+        );
     }
 
     #[test]
@@ -633,9 +670,21 @@ mod tests {
         let mut host = make_host("R1", "10.0.0.1");
         host.normalize_credential();
         let json = serde_json::to_string(&host).unwrap();
-        assert!(json.contains("\"credential\""), "credential must serialize: {}", json);
-        assert!(!json.contains("auth_type"), "legacy field must not serialize: {}", json);
-        assert!(!json.contains("ssh_key_path"), "legacy field must not serialize: {}", json);
+        assert!(
+            json.contains("\"credential\""),
+            "credential must serialize: {}",
+            json
+        );
+        assert!(
+            !json.contains("auth_type"),
+            "legacy field must not serialize: {}",
+            json
+        );
+        assert!(
+            !json.contains("ssh_key_path"),
+            "legacy field must not serialize: {}",
+            json
+        );
         // Reload roundtrip keeps the variant
         let reloaded: Host = serde_json::from_str(&json).unwrap();
         assert_eq!(reloaded.credential, Some(CredentialSource::Password));
@@ -786,7 +835,9 @@ mod tests {
     fn test_update_rejects_invalid_host() {
         let mut store = HostStore::in_memory();
         let platforms = PlatformRegistry::builtin();
-        let created = store.create(make_host("R1", "10.0.0.1"), &platforms).unwrap();
+        let created = store
+            .create(make_host("R1", "10.0.0.1"), &platforms)
+            .unwrap();
         let mut updated = created;
         updated.username = "".to_string();
         assert!(store.update(updated, &platforms).is_err());
@@ -843,23 +894,25 @@ mod tests {
         };
         std::fs::write(
             dir.join("groups.json"),
-            serde_json::to_string_pretty(&[group.clone()]).unwrap(),
+            serde_json::to_string_pretty(std::slice::from_ref(&group)).unwrap(),
         )
         .unwrap();
         std::fs::write(dir.join("hosts.json"), "{ not valid json ").unwrap();
 
         let store = HostStore::new(&dir).unwrap();
-        assert!(store.get_all().unwrap().is_empty(), "corrupt hosts -> empty");
+        assert!(
+            store.get_all().unwrap().is_empty(),
+            "corrupt hosts -> empty"
+        );
         let groups = store.get_groups().unwrap();
         assert_eq!(groups.len(), 1, "valid groups preserved");
         assert_eq!(groups[0].id, "g1");
 
         // A later save must persist the surviving group, not wipe it.
         store.save().unwrap();
-        let reloaded: Vec<HostGroup> = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
-        )
-        .unwrap();
+        let reloaded: Vec<HostGroup> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
+                .unwrap();
         assert_eq!(reloaded.len(), 1);
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -893,17 +946,19 @@ mod tests {
         assert!(!stamp.is_empty());
 
         // Written through to disk, not just held in memory.
-        let on_disk: Vec<Host> = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("hosts.json")).unwrap(),
-        )
-        .unwrap();
+        let on_disk: Vec<Host> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("hosts.json")).unwrap())
+                .unwrap();
         assert_eq!(on_disk[0].last_connected, Some(stamp));
 
         // An unknown id is a silent no-op: no error, no new host, no write.
         let before = std::fs::read_to_string(dir.join("hosts.json")).unwrap();
         store.touch("no-such-id").unwrap();
         assert_eq!(store.get_all().unwrap().len(), 1);
-        assert_eq!(std::fs::read_to_string(dir.join("hosts.json")).unwrap(), before);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("hosts.json")).unwrap(),
+            before
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -923,7 +978,10 @@ mod tests {
 
         let core = store.create_group(blank_group("Core", None)).unwrap();
         assert!(!core.id.is_empty(), "create_group assigns an id");
-        assert!(!core.created_at.is_empty(), "create_group stamps created_at");
+        assert!(
+            !core.created_at.is_empty(),
+            "create_group stamps created_at"
+        );
         assert_eq!(core.sort_order, 0);
 
         let edge = store
@@ -936,10 +994,9 @@ mod tests {
         renamed.name = "Core Renamed".to_string();
         store.update_group(renamed).unwrap();
 
-        let on_disk: Vec<HostGroup> = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
-        )
-        .unwrap();
+        let on_disk: Vec<HostGroup> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
+                .unwrap();
         assert_eq!(on_disk.len(), 2);
         assert_eq!(on_disk[0].name, "Core Renamed");
         assert_eq!(on_disk[0].id, core.id);
@@ -948,10 +1005,9 @@ mod tests {
         let remaining = store.get_groups().unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, core.id);
-        let on_disk: Vec<HostGroup> = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("groups.json")).unwrap(),
-        )
-        .unwrap();
+        let on_disk: Vec<HostGroup> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
+                .unwrap();
         assert_eq!(on_disk.len(), 1, "delete_group persists the removal");
 
         let _ = std::fs::remove_dir_all(&dir);

@@ -67,7 +67,10 @@ pub struct MonitorRect {
 fn contains(rect: &MonitorRect, x: i32, y: i32) -> bool {
     let right = rect.x as i64 + rect.width as i64;
     let bottom = rect.y as i64 + rect.height as i64;
-    (x as i64) >= rect.x as i64 && (x as i64) < right && (y as i64) >= rect.y as i64 && (y as i64) < bottom
+    (x as i64) >= rect.x as i64
+        && (x as i64) < right
+        && (y as i64) >= rect.y as i64
+        && (y as i64) < bottom
 }
 
 /// Squared distance from a point to the nearest edge of a monitor rect, 0 when
@@ -124,7 +127,10 @@ pub fn clamp_position(
         .expect("monitors is non-empty");
     let max_x = nearest.x + nearest.width as i32 - width.min(nearest.width) as i32;
     let max_y = nearest.y + nearest.height as i32 - height.min(nearest.height) as i32;
-    (saved_x.clamp(nearest.x, max_x), saved_y.clamp(nearest.y, max_y))
+    (
+        saved_x.clamp(nearest.x, max_x),
+        saved_y.clamp(nearest.y, max_y),
+    )
 }
 
 fn monitor_rects(app: &AppHandle) -> Vec<MonitorRect> {
@@ -269,7 +275,11 @@ impl GeometrySaver {
                 persist(geometry);
             }
         });
-        GeometrySaver { pending, stop, writes }
+        GeometrySaver {
+            pending,
+            stop,
+            writes,
+        }
     }
 
     fn record(&self, geometry: PanelWindowGeometry) {
@@ -324,7 +334,12 @@ pub struct PanelGeometryWriter {
     /// suite can start both close paths while a write is genuinely in flight. The
     /// worker sends the rectangle it actually took, not one the test guessed.
     #[cfg(debug_assertions)]
-    gate: Mutex<Option<(std::sync::mpsc::Sender<PanelWindowGeometry>, std::sync::mpsc::Receiver<()>)>>,
+    gate: Mutex<
+        Option<(
+            std::sync::mpsc::Sender<PanelWindowGeometry>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
     /// Debug-only: closes blocked acquiring `closing`.
     #[cfg(debug_assertions)]
     waiting: AtomicUsize,
@@ -489,7 +504,8 @@ fn current_geometry(window: &WebviewWindow, fallback: PanelWindowGeometry) -> Pa
 
 fn attach_geometry_tracking(app: &AppHandle, window: &WebviewWindow, initial: PanelWindowGeometry) {
     let saver = Arc::new(GeometrySaver::start(app));
-    app.state::<PanelGeometryWriter>().install(Arc::clone(&saver));
+    app.state::<PanelGeometryWriter>()
+        .install(Arc::clone(&saver));
     // The latest known rectangle: a move event carries only the position and a
     // resize event only the size, so the two are merged here.
     let latest = Arc::new(Mutex::new(initial));
@@ -614,8 +630,16 @@ pub async fn panel_open(app: AppHandle) -> Result<PanelWindowGeometry, String> {
         return Ok(current_geometry(&window, fallback));
     }
 
-    let saved = read_panel_config(&app).window.unwrap_or_else(|| default_geometry(&app));
-    let (x, y) = clamp_position(saved.x, saved.y, saved.width, saved.height, &monitor_rects(&app));
+    let saved = read_panel_config(&app)
+        .window
+        .unwrap_or_else(|| default_geometry(&app));
+    let (x, y) = clamp_position(
+        saved.x,
+        saved.y,
+        saved.width,
+        saved.height,
+        &monitor_rects(&app),
+    );
 
     // Built hidden, then placed with physical pixels, then shown: setting the
     // builder's position/size means logical pixels, which at 150% scale would
@@ -655,7 +679,12 @@ pub async fn panel_open(app: AppHandle) -> Result<PanelWindowGeometry, String> {
             .map_err(|e| e.to_string())?;
     }
 
-    let geometry = PanelWindowGeometry { x, y, width: saved.width, height: saved.height };
+    let geometry = PanelWindowGeometry {
+        x,
+        y,
+        width: saved.width,
+        height: saved.height,
+    };
     attach_geometry_tracking(&app, &window, geometry);
     Ok(geometry)
 }
@@ -835,8 +864,10 @@ pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceRepor
     }
 
     let _ = release_tx.send(());
-    a.join().map_err(|_| "The first close panicked".to_string())??;
-    b.join().map_err(|_| "The second close panicked".to_string())??;
+    a.join()
+        .map_err(|_| "The first close panicked".to_string())??;
+    b.join()
+        .map_err(|_| "The second close panicked".to_string())??;
     let saved = read_panel_config(&app)
         .window
         .ok_or_else(|| "The close paths saved no geometry".to_string())?;
@@ -867,11 +898,21 @@ mod tests {
     use super::*;
 
     fn rect(x: i32, y: i32, width: u32, height: u32) -> MonitorRect {
-        MonitorRect { x, y, width, height }
+        MonitorRect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     fn geometry(x: i32, y: i32, width: u32, height: u32) -> PanelWindowGeometry {
-        PanelWindowGeometry { x, y, width, height }
+        PanelWindowGeometry {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// A saver whose writes land in `sink`, so the ordering rules can be driven
@@ -913,7 +954,10 @@ mod tests {
         };
         // stop() cannot return while a write holds the lock.
         std::thread::sleep(Duration::from_millis(100));
-        assert!(!stopper.is_finished(), "stop() returned with a write in flight");
+        assert!(
+            !stopper.is_finished(),
+            "stop() returned with a write in flight"
+        );
 
         drop(blocked);
         stopper.join().unwrap();
@@ -960,7 +1004,10 @@ mod tests {
         let ran = rx
             .recv_timeout(Duration::from_secs(10))
             .expect("the second close never ran after the first released");
-        assert!(!ran, "the second close claimed a window the first had closed");
+        assert!(
+            !ran,
+            "the second close claimed a window the first had closed"
+        );
         second.join().unwrap();
     }
 
@@ -1033,7 +1080,10 @@ mod tests {
         // Its bottom edge is y = 0, so a 640-high panel has to sit at y <= -640 to
         // be fully on it: the corner moves in, the size is kept.
         let monitors = [rect(0, 0, 1920, 1080), rect(-1920, -1080, 1920, 1080)];
-        assert_eq!(clamp_position(-2400, -300, 420, 640, &monitors), (-1920, -640));
+        assert_eq!(
+            clamp_position(-2400, -300, 420, 640, &monitors),
+            (-1920, -640)
+        );
     }
 
     #[test]

@@ -15,6 +15,10 @@ Closes #
 - [ ] `npm run lint:eol` — `.editorconfig` rules on committed content; run `git add` first,
       the check reads the index rather than the working tree
 - [ ] `cargo check --all-targets` (in `src-tauri/`)
+- [ ] `cargo fmt --all -- --check` (in `src-tauri/`) — CI runs it on one leg, formatting is
+      OS-independent
+- [ ] `cargo clippy --all-targets -- -D warnings` (in `src-tauri/`) — CI runs it on every
+      leg; fix diagnostics rather than adding `#[allow]`
 - [ ] `cargo test` (in `src-tauri/`)
 - [ ] `cargo test --release --lib` (in `src-tauri/`) — required when adding or changing a
       test around debug-only (`debug_assertions`) code

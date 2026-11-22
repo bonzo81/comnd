@@ -88,14 +88,27 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       # The Rust version lives in rust-toolchain.toml at the repo root, and
-      # `rustup toolchain install` installs the toolchain that file pins.
-      # Bump the pin deliberately, in its own PR.
+      # `rustup toolchain install` installs the toolchain that file pins,
+      # including the `rustfmt` and `clippy` components it declares. Bump the
+      # pin deliberately, in its own PR.
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
+      # Formatting is OS-independent, so one leg is enough.
+      - name: cargo fmt --check
+        if: matrix.platform == 'ubuntu-22.04'
+        run: cargo fmt --all -- --check
+        working-directory: src-tauri
+
+      # Every leg: `#[cfg(windows)]` / `#[cfg(unix)]` arms differ, so one leg
+      # cannot see the other platforms' code.
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
 
       - name: cargo check
         run: cargo check
@@ -131,9 +144,14 @@ jobs:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: cargo-llvm-cov-0.9.1-${{ runner.os }}-${{ runner.arch }}
 
+      # `swatinem/rust-cache` also caches `~/.cargo/bin`, so it can restore this
+      # binary while the dedicated cache above misses. A plain install then exits
+      # 101 with "binary already exists in destination", so `--force` makes the
+      # step idempotent; the version pin stays authoritative because a forced
+      # install replaces whatever binary the file cache restored.
       - name: install cargo-llvm-cov
         if: matrix.platform == 'ubuntu-22.04' && steps.llvm-cov-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-llvm-cov --version 0.9.1 --locked
+        run: cargo install cargo-llvm-cov --version 0.9.1 --locked --force
 
       - name: rust test coverage (llvm-cov)
         if: matrix.platform == 'ubuntu-22.04'

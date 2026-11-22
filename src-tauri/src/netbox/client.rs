@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     DeviceSummary, DeviceSummaryAddress, DeviceSummaryInterface, DeviceSummaryPeer,
-    DeviceSummarySubnet, DeviceSummaryVlan, NetBoxChoice, NetBoxFilters, NetBoxGeo,
-    NetBoxGeoNode,
+    DeviceSummarySubnet, DeviceSummaryVlan, NetBoxChoice, NetBoxFilters, NetBoxGeo, NetBoxGeoNode,
 };
 
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
@@ -66,15 +65,13 @@ fn parse_device(v: &serde_json::Value) -> Option<RawNetBoxDevice> {
     // Rule 4: status is a choice object; .value if string, else .label lowercase
     let status = v
         .get("status")
-        .map(|s| {
-            match s.get("value").and_then(|x| x.as_str()) {
-                Some(val) => val.to_string(),
-                None => s
-                    .get("label")
-                    .and_then(|l| l.as_str())
-                    .map(|l| l.to_lowercase())
-                    .unwrap_or_default(),
-            }
+        .map(|s| match s.get("value").and_then(|x| x.as_str()) {
+            Some(val) => val.to_string(),
+            None => s
+                .get("label")
+                .and_then(|l| l.as_str())
+                .map(|l| l.to_lowercase())
+                .unwrap_or_default(),
         })
         .unwrap_or_default();
 
@@ -128,7 +125,8 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
 /// Top-level fields for the device-detail request. Nested serializers default
 /// to their brief shape, so this keeps the payload to the facts the tab shows.
 /// `display` is requested because it is the fallback for an unnamed device.
-const SUMMARY_DEVICE_FIELDS: &str = "id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
+const SUMMARY_DEVICE_FIELDS: &str =
+    "id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
 /// Top-level fields for the IP request. `assigned_object` is brief (interface
 /// plus brief device), which is all the grouping needs.
 const SUMMARY_IP_FIELDS: &str =
@@ -186,9 +184,9 @@ fn summary_face(v: &serde_json::Value) -> Option<String> {
 /// Primary IPv4 first, then IPv6. The CIDR suffix is kept: it is useful in the
 /// panel even though the SSH host address strips it.
 fn summary_primary_ip(v: &serde_json::Value) -> Option<String> {
-    ["primary_ip4", "primary_ip6"].iter().find_map(|key| {
-        summary_text(v.get(*key)?.get("address"))
-    })
+    ["primary_ip4", "primary_ip6"]
+        .iter()
+        .find_map(|key| summary_text(v.get(*key)?.get("address")))
 }
 
 /// Compose `manufacturer.name` and `model`. NetBox's `DeviceType.__str__`
@@ -219,10 +217,7 @@ fn summary_device_type(v: &serde_json::Value) -> Option<String> {
 /// whose owner device is the requested one: NetBox's IP `device_id` filter
 /// includes virtual-chassis siblings. A missing nested device passes, because
 /// the interfaces list's own `device_id` filter is exact.
-fn summary_ip_owner<'a>(
-    ip: &'a serde_json::Value,
-    device_id: u64,
-) -> Option<&'a serde_json::Value> {
+fn summary_ip_owner(ip: &serde_json::Value, device_id: u64) -> Option<&serde_json::Value> {
     if summary_text(ip.get("assigned_object_type")).as_deref() != Some("dcim.interface") {
         return None;
     }
@@ -268,9 +263,9 @@ fn summary_interfaces(
         let name = summary_text(owner.get("name"))
             .or_else(|| summary_text(owner.get("display")))
             .unwrap_or_else(|| format!("interface-{}", interface_id));
-        let vrf = ip.get("vrf").and_then(|v| {
-            summary_text(v.get("name")).or_else(|| summary_text(v.get("display")))
-        });
+        let vrf = ip
+            .get("vrf")
+            .and_then(|v| summary_text(v.get("name")).or_else(|| summary_text(v.get("display"))));
         by_id
             .entry(interface_id)
             .or_insert_with(|| DeviceSummaryInterface {
@@ -284,7 +279,9 @@ fn summary_interfaces(
 
     let mut interfaces: Vec<DeviceSummaryInterface> = by_id.into_values().collect();
     for interface in &mut interfaces {
-        interface.addresses.sort_by(|a, b| a.address.cmp(&b.address));
+        interface
+            .addresses
+            .sort_by(|a, b| a.address.cmp(&b.address));
     }
     interfaces.sort_by(|a, b| {
         a.name
@@ -477,9 +474,7 @@ fn summary_subnets(
     let mut subnets: Vec<DeviceSummarySubnet> = by_id.into_values().collect();
     subnets.sort_by(|a, b| {
         let key = |subnet: &DeviceSummarySubnet| match parse_cidr(&subnet.prefix) {
-            Some((std::net::IpAddr::V4(ip), length)) => {
-                (0u8, u128::from(u32::from(ip)), length)
-            }
+            Some((std::net::IpAddr::V4(ip), length)) => (0u8, u128::from(u32::from(ip)), length),
             Some((std::net::IpAddr::V6(ip), length)) => (1u8, u128::from(ip), length),
             None => (2u8, 0u128, 0u8),
         };
@@ -559,10 +554,7 @@ fn attach_peer_primary_ips(peers: &mut [DeviceSummaryPeer], devices: &[serde_jso
 
 /// Build the summary from the device-detail response. Addresses are filled in
 /// by the caller from the separate IP request.
-fn parse_summary_device(
-    device: &serde_json::Value,
-    netbox_id: u64,
-) -> DeviceSummary {
+fn parse_summary_device(device: &serde_json::Value, netbox_id: u64) -> DeviceSummary {
     let name = summary_text(device.get("name"))
         .or_else(|| summary_text(device.get("display")))
         .unwrap_or_else(|| format!("device-{}", netbox_id));
@@ -589,7 +581,6 @@ fn parse_summary_device(
         peers: Vec::new(),
     }
 }
-
 
 // ─── Client (plan §7.1, ollama.rs structure) ────────────────────────
 
@@ -764,21 +755,28 @@ impl NetBoxClient {
             query.push(("tag", t));
         }
 
-        let mut url = reqwest::Url::parse_with_params(
-            &format!("{}/api/dcim/devices/", self.base_url),
-            query,
-        )
-        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        let mut url =
+            reqwest::Url::parse_with_params(&format!("{}/api/dcim/devices/", self.base_url), query)
+                .map_err(|e| format!("Failed to build request URL: {}", e))?;
 
-        log::info!("NetBox fetch_devices -> {} (status={:?} sites={:?} roles={:?} tags={:?})",
-            url, filters.status, filters.sites, filters.roles, filters.tags);
+        log::info!(
+            "NetBox fetch_devices -> {} (status={:?} sites={:?} roles={:?} tags={:?})",
+            url,
+            filters.status,
+            filters.sites,
+            filters.roles,
+            filters.tags
+        );
 
         let mut result = FetchResult::default();
         let mut pages = 0;
         loop {
             pages += 1;
             if pages > MAX_PAGES {
-                log::error!("NetBox fetch_devices exceeded {} pages — aborting", MAX_PAGES);
+                log::error!(
+                    "NetBox fetch_devices exceeded {} pages — aborting",
+                    MAX_PAGES
+                );
                 return Err(format!(
                     "NetBox pagination did not terminate after {} pages",
                     MAX_PAGES
@@ -786,8 +784,16 @@ impl NetBoxClient {
             }
 
             let body = self.get_json(&url).await?;
-            let page_count = body.get("results").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0);
-            log::debug!("NetBox fetch_devices page {} — {} devices", pages, page_count);
+            let page_count = body
+                .get("results")
+                .and_then(|r| r.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            log::debug!(
+                "NetBox fetch_devices page {} — {} devices",
+                pages,
+                page_count
+            );
             if let Some(items) = body.get("results").and_then(|r| r.as_array()) {
                 for item in items {
                     match parse_device(item) {
@@ -1092,7 +1098,11 @@ impl NetBoxClient {
                 })
                 .unwrap_or_default(),
             Err(e) => {
-                log::warn!("NetBox geo {} unavailable: {} — tree degrades for this model", path, e);
+                log::warn!(
+                    "NetBox geo {} unavailable: {} — tree degrades for this model",
+                    path,
+                    e
+                );
                 Vec::new()
             }
         }
@@ -1172,7 +1182,10 @@ impl NetBoxClient {
     /// Friendly mapping for transport-level failures.
     fn map_request_error(&self, e: &reqwest::Error) -> String {
         if e.is_timeout() {
-            format!("NetBox at {} timed out — instance unreachable or slow", self.base_url)
+            format!(
+                "NetBox at {} timed out — instance unreachable or slow",
+                self.base_url
+            )
         } else if e.is_connect() {
             format!(
                 "Could not connect to NetBox at {} — check the URL and that the instance is running",
@@ -1217,6 +1230,9 @@ fn map_status_error_for(
 mod tests {
     use super::*;
     use crate::netbox::*;
+
+    /// One mocked HTTP response: status, body and headers.
+    type MockResponse = (u16, String, Vec<(String, String)>);
 
     // ─── Device parsing (plan §4.1) ────────────────────────────────
 
@@ -1325,7 +1341,10 @@ mod tests {
         let mock = crate::netbox::mock::MockNetBox::start().await;
         let client = NetBoxClient::new(&mock.base_url, "nbt_v2.ro", false).unwrap();
 
-        let first = client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        let first = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         // Six fixtures, one of which has no primary IP.
         assert_eq!(first.devices.len(), 5);
         assert_eq!(first.no_primary_ip, 1);
@@ -1349,7 +1368,10 @@ mod tests {
 
         // Switching the scenario keeps the base URL and changes the data.
         mock.set_scenario("refresh").unwrap();
-        let refreshed = client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        let refreshed = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         assert_eq!(refreshed.devices.len(), 3);
         assert_eq!(refreshed.devices[0].name, "edge-rtr-01-renamed");
         assert_eq!(refreshed.devices[0].address, "10.10.1.1");
@@ -1391,7 +1413,10 @@ mod tests {
         // token typed into the UI, not the environment's, reached the backend.
         mock.set_scenario("ok").unwrap();
         let legacy = NetBoxClient::new(&mock.base_url, "smoke-legacy-token", false).unwrap();
-        legacy.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        legacy
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         assert_eq!(mock.requests().last().unwrap().auth_scheme, "Token");
 
         mock.stop();
@@ -1402,7 +1427,10 @@ mod tests {
         let (base, server) = start_mock(|base| {
             Arc::new(move |_, path, _| {
                 if path.contains("offset=100") {
-                    page(None, vec![device_json(2, Some("sw-02"), Some("10.0.0.2/24"))])
+                    page(
+                        None,
+                        vec![device_json(2, Some("sw-02"), Some("10.0.0.2/24"))],
+                    )
                 } else {
                     page(
                         Some(format!(
@@ -1417,7 +1445,10 @@ mod tests {
         .await;
 
         let client = NetBoxClient::new(&base, "nbt_v2.token", false).unwrap();
-        let result = client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        let result = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         assert_eq!(result.devices.len(), 2);
         assert_eq!(result.no_primary_ip, 0);
         assert_eq!(result.devices[0].address, "10.0.0.1");
@@ -1442,7 +1473,10 @@ mod tests {
         .await;
 
         let client = NetBoxClient::new(&base, "t", false).unwrap();
-        let result = client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        let result = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         assert_eq!(result.devices.len(), 1);
         assert_eq!(result.no_primary_ip, 2);
         server.abort();
@@ -1488,17 +1522,22 @@ mod tests {
         })
         .await;
         let client = NetBoxClient::new(&base, "bad", false).unwrap();
-        let err = client.fetch_devices(&NetBoxFilters::default()).await.unwrap_err();
+        let err = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap_err();
         assert!(err.contains("Invalid or expired"), "{}", err);
         server.abort();
 
         // 403
-        let (base, server) = start_mock(|_| {
-            Arc::new(|_, _, _| (403, r#"{"detail":"Forbidden"}"#.into(), vec![]))
-        })
-        .await;
+        let (base, server) =
+            start_mock(|_| Arc::new(|_, _, _| (403, r#"{"detail":"Forbidden"}"#.into(), vec![])))
+                .await;
         let client = NetBoxClient::new(&base, "t", false).unwrap();
-        let err = client.fetch_devices(&NetBoxFilters::default()).await.unwrap_err();
+        let err = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap_err();
         assert!(err.contains("lacks permission"), "{}", err);
         server.abort();
 
@@ -1514,17 +1553,20 @@ mod tests {
         })
         .await;
         let client = NetBoxClient::new(&base, "t", false).unwrap();
-        let err = client.fetch_devices(&NetBoxFilters::default()).await.unwrap_err();
+        let err = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap_err();
         assert!(err.contains("42"), "{}", err);
         server.abort();
 
         // 500
-        let (base, server) = start_mock(|_| {
-            Arc::new(|_, _, _| (500, "boom".into(), vec![]))
-        })
-        .await;
+        let (base, server) = start_mock(|_| Arc::new(|_, _, _| (500, "boom".into(), vec![]))).await;
         let client = NetBoxClient::new(&base, "t", false).unwrap();
-        let err = client.fetch_devices(&NetBoxFilters::default()).await.unwrap_err();
+        let err = client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap_err();
         assert!(err.contains("server error"), "{}", err);
         server.abort();
     }
@@ -1641,7 +1683,7 @@ mod tests {
         })
     }
 
-    fn summary_empty_endpoint(path: &str) -> Option<(u16, String, Vec<(String, String)>)> {
+    fn summary_empty_endpoint(path: &str) -> Option<MockResponse> {
         if path.starts_with("/api/dcim/interfaces/")
             || path.starts_with("/api/ipam/vlans/")
             || path.starts_with("/api/ipam/prefixes/")
@@ -1789,11 +1831,8 @@ mod tests {
                     }
                 }
                 // 1 interface / 2 VLANs / 2 peers vs 48 / 40 / 40.
-                let (interfaces, vlans, peers): (u64, u64, u64) = if device == 1 {
-                    (1, 2, 2)
-                } else {
-                    (48, 40, 40)
-                };
+                let (interfaces, vlans, peers): (u64, u64, u64) =
+                    if device == 1 { (1, 2, 2) } else { (48, 40, 40) };
                 if path.starts_with("/api/ipam/ip-addresses/") {
                     let results = (0..interfaces)
                         .map(|index| {
@@ -2082,7 +2121,10 @@ mod tests {
             },
         ];
         let subnets = summary_subnets(&prefixes, &[1, 2], &ips);
-        assert_eq!(subnets.iter().map(|s| s.id).collect::<Vec<_>>(), vec![11, 10, 12]);
+        assert_eq!(
+            subnets.iter().map(|s| s.id).collect::<Vec<_>>(),
+            vec![11, 10, 12]
+        );
         assert_eq!(subnets[0].prefix, "10.0.0.0/16");
         assert_eq!(subnets[1].prefix, "10.0.0.0/24");
         assert_eq!(subnets[2].vrf.as_deref(), Some("blue"));
@@ -2206,8 +2248,7 @@ mod tests {
                     seen.lock().unwrap().push(format!("{} {}", method, path));
                     (
                         200,
-                        r#"{"count": 0, "next": null, "previous": null, "results": []}"#
-                            .into(),
+                        r#"{"count": 0, "next": null, "previous": null, "results": []}"#.into(),
                         vec![],
                     )
                 })
@@ -2217,7 +2258,10 @@ mod tests {
 
         let client = NetBoxClient::new(&base, "nbt_v2.ro", false).unwrap();
         client.test_connection().await.unwrap();
-        client.fetch_devices(&NetBoxFilters::default()).await.unwrap();
+        client
+            .fetch_devices(&NetBoxFilters::default())
+            .await
+            .unwrap();
         client.fetch_geo().await;
         client.fetch_sites().await.unwrap();
         client.fetch_device_roles().await.unwrap();
@@ -2276,8 +2320,8 @@ mod tests {
         // source never matches itself.
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/netbox");
         let mut scanned = 0_usize;
-        for entry in std::fs::read_dir(dir)
-            .expect("src/netbox/ must be readable for the read-only tripwire")
+        for entry in
+            std::fs::read_dir(dir).expect("src/netbox/ must be readable for the read-only tripwire")
         {
             let path = entry.unwrap().path();
             if path.extension().and_then(|e| e.to_str()) != Some("rs") {

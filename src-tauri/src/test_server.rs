@@ -41,6 +41,9 @@ pub const BURST_PACKETS: usize = 300;
 /// value (issue #107).
 pub const MOCK_AUTH_URL: &str = "https://login.tailscale.com/a/test123";
 
+/// Every PTY size the client has asked the mock for, in arrival order.
+pub type PtySizes = Arc<std::sync::Mutex<Vec<(u32, u32)>>>;
+
 // ─── Mock Server Handler ─────────────────────────────────────────────
 
 /// Per-connection state for one SSH connection. Lives on the handler
@@ -77,7 +80,7 @@ struct MockHandler {
     /// Every PTY size the client has asked for: the initial `pty_request`
     /// and each `window_change_request`. Lets the smoke suite prove the
     /// sidebar resize reaches the remote instead of only the DOM.
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     /// Mutation-test mode: accept input but suppress all shell responses.
     mute_output: bool,
 }
@@ -111,7 +114,12 @@ impl MockHandler {
     fn start_top(&mut self, out: &mut Vec<u8>) {
         for i in 0..30u32 {
             out.extend_from_slice(
-                format!("top - {}s up 1 day, load averages: 10.0.0.1 {}\r\n", i, i % 100).as_bytes(),
+                format!(
+                    "top - {}s up 1 day, load averages: 10.0.0.1 {}\r\n",
+                    i,
+                    i % 100
+                )
+                .as_bytes(),
             );
         }
         self.state.in_top = true;
@@ -287,7 +295,7 @@ struct MockServer {
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     mute_output: bool,
 }
 
@@ -313,11 +321,7 @@ impl server::Handler for MockHandler {
     /// password and any publickey (check mode); the password-round persona
     /// forces keyboard-interactive; the password-only persona (Linux-style,
     /// issue #12) accepts only the right password via the `password` method.
-    async fn auth_password(
-        &mut self,
-        user: &str,
-        password: &str,
-    ) -> Result<Auth, Self::Error> {
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         self.state.user = user.to_string();
         match &self.kbd_int {
             KbdIntPersona::BrowserAuth => Ok(Auth::Accept),
@@ -350,9 +354,7 @@ impl server::Handler for MockHandler {
             KbdIntPersona::BrowserAuth => Ok(Auth::Accept),
             KbdIntPersona::Password { .. }
             | KbdIntPersona::PasswordOnly { .. }
-            | KbdIntPersona::PasswordInfoRound { .. } => {
-                Ok(Auth::reject())
-            }
+            | KbdIntPersona::PasswordInfoRound { .. } => Ok(Auth::reject()),
         }
     }
 
@@ -512,7 +514,10 @@ impl server::Handler for MockHandler {
         self.state.prompt = prompt.into();
         // 0.60: Session::data takes `impl Into<Bytes>` — a plain Vec<u8>
         // converts without the old `.into()` dance.
-        session.data(channel, format!("\r\n{}\r\n{}", banner, prompt).as_bytes().to_vec())?;
+        session.data(
+            channel,
+            format!("\r\n{}\r\n{}", banner, prompt).as_bytes().to_vec(),
+        )?;
         Ok(())
     }
 
@@ -578,7 +583,10 @@ pub async fn start_mock_server() -> (u16, tokio::task::JoinHandle<()>) {
 /// publickey and password methods are rejected so keyboard-interactive is
 /// the only route in — mirroring a device the user must log into manually.
 pub async fn start_credential_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
-    start_mock_server_with(KbdIntPersona::Password { expected: expected.to_string() }).await
+    start_mock_server_with(KbdIntPersona::Password {
+        expected: expected.to_string(),
+    })
+    .await
 }
 
 /// Start a mock SSH server with no keyboard-interactive at all — only the
@@ -586,7 +594,10 @@ pub async fn start_credential_mock_server(expected: &str) -> (u16, tokio::task::
 /// box with `KbdInteractiveAuthentication no`; pins the client-side
 /// password prompt fallback.
 pub async fn start_password_only_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
-    start_mock_server_with(KbdIntPersona::PasswordOnly { expected: expected.to_string() }).await
+    start_mock_server_with(KbdIntPersona::PasswordOnly {
+        expected: expected.to_string(),
+    })
+    .await
 }
 
 /// Start a mock SSH server whose first keyboard-interactive round is
@@ -594,7 +605,10 @@ pub async fn start_password_only_mock_server(expected: &str) -> (u16, tokio::tas
 /// (issue #12 review). Pins that empty rounds never stall auth: the
 /// client answers them automatically with an empty response vector.
 pub async fn start_info_round_mock_server(expected: &str) -> (u16, tokio::task::JoinHandle<()>) {
-    start_mock_server_with(KbdIntPersona::PasswordInfoRound { expected: expected.to_string() }).await
+    start_mock_server_with(KbdIntPersona::PasswordInfoRound {
+        expected: expected.to_string(),
+    })
+    .await
 }
 
 /// Start the debug-app smoke-test server. `reject_auth` makes its password
@@ -641,7 +655,7 @@ async fn start_mock_server_inner(
     kbd_int: KbdIntPersona,
     received: Option<Arc<std::sync::Mutex<Vec<u8>>>>,
     closed: Option<Arc<AtomicBool>>,
-    pty_sizes: Option<Arc<std::sync::Mutex<Vec<(u32, u32)>>>>,
+    pty_sizes: Option<PtySizes>,
     mute_output: bool,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     // Generate an ephemeral Ed25519 key pair
@@ -706,20 +720,20 @@ mod tests {
         let (port, server) = start_mock_server().await;
 
         let config = Arc::new(client::Config::default());
-        let mut session = client::connect(
-            config,
-            format!("127.0.0.1:{}", port),
-            NoopHandler,
-        )
-        .await
-        .expect("connect");
+        let mut session = client::connect(config, format!("127.0.0.1:{}", port), NoopHandler)
+            .await
+            .expect("connect");
 
         let first = session
             .authenticate_keyboard_interactive_start("andy", None::<String>)
             .await
             .expect("kbd-int start");
         match first {
-            KeyboardInteractiveAuthResponse::InfoRequest { ref instructions, ref prompts, .. } => {
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                ref instructions,
+                ref prompts,
+                ..
+            } => {
                 assert!(instructions.contains(MOCK_AUTH_URL));
                 assert_eq!(prompts.len(), 1);
                 assert!(prompts[0].prompt.contains("https://"));
@@ -747,20 +761,20 @@ mod tests {
 
         // Connection 1: the device surfaces the prompt…
         let config = Arc::new(client::Config::default());
-        let mut session = client::connect(
-            config,
-            format!("127.0.0.1:{}", port),
-            NoopHandler,
-        )
-        .await
-        .expect("connect");
+        let mut session = client::connect(config, format!("127.0.0.1:{}", port), NoopHandler)
+            .await
+            .expect("connect");
 
         let first = session
             .authenticate_keyboard_interactive_start("andy", None::<String>)
             .await
             .expect("kbd-int start");
         match first {
-            KeyboardInteractiveAuthResponse::InfoRequest { ref instructions, ref prompts, .. } => {
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                ref instructions,
+                ref prompts,
+                ..
+            } => {
                 // Credential round: no URL (that would be browser-auth),
                 // one password prompt, echo off.
                 assert!(!instructions.contains("https://"));
@@ -777,7 +791,10 @@ mod tests {
             .authenticate_keyboard_interactive_respond(vec!["not-the-password".to_string()])
             .await
             .expect("kbd-int respond (wrong password)");
-        assert!(matches!(wrong, KeyboardInteractiveAuthResponse::Failure { .. }));
+        assert!(matches!(
+            wrong,
+            KeyboardInteractiveAuthResponse::Failure { .. }
+        ));
 
         // …and the right answer on a fresh connection completes auth.
         let mut session = client::connect(
@@ -811,20 +828,19 @@ mod tests {
         let (port, server) = start_password_only_mock_server("secret-pw").await;
 
         let config = Arc::new(client::Config::default());
-        let mut session = client::connect(
-            config,
-            format!("127.0.0.1:{}", port),
-            NoopHandler,
-        )
-        .await
-        .expect("connect");
+        let mut session = client::connect(config, format!("127.0.0.1:{}", port), NoopHandler)
+            .await
+            .expect("connect");
 
         // The server refuses keyboard-interactive outright — no round.
         let kbd = session
             .authenticate_keyboard_interactive_start("andy", None::<String>)
             .await
             .expect("kbd-int start (refused)");
-        assert!(matches!(kbd, KeyboardInteractiveAuthResponse::Failure { .. }));
+        assert!(matches!(
+            kbd,
+            KeyboardInteractiveAuthResponse::Failure { .. }
+        ));
 
         // …so the client prompts locally and the typed answer completes
         // auth via the single-shot password method.
@@ -883,7 +899,10 @@ mod tests {
             .authenticate_keyboard_interactive_respond(vec![])
             .await
             .expect("kbd-int respond (empty answer)");
-        assert!(matches!(second, KeyboardInteractiveAuthResponse::InfoRequest { .. }));
+        assert!(matches!(
+            second,
+            KeyboardInteractiveAuthResponse::InfoRequest { .. }
+        ));
 
         // …and the real password round answers normally.
         let third = session
@@ -903,13 +922,9 @@ mod tests {
         let (port, server) = start_mock_server().await;
 
         let config = Arc::new(client::Config::default());
-        let mut session = client::connect(
-            config,
-            format!("127.0.0.1:{}", port),
-            NoopHandler,
-        )
-        .await
-        .expect("connect");
+        let mut session = client::connect(config, format!("127.0.0.1:{}", port), NoopHandler)
+            .await
+            .expect("connect");
 
         let key = PrivateKey::random(&mut safe_rng(), Algorithm::Ed25519).expect("keygen");
         let key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key), None);
@@ -927,7 +942,11 @@ mod tests {
     #[test]
     fn mock_shell_line_editing_redraws() {
         let mut h = MockHandler {
-            state: ConnState { user: "cisco".into(), prompt: "Router>".into(), ..Default::default() },
+            state: ConnState {
+                user: "cisco".into(),
+                prompt: "Router>".into(),
+                ..Default::default()
+            },
             kbd_int: KbdIntPersona::BrowserAuth,
             received: None,
             closed: None,
@@ -937,7 +956,9 @@ mod tests {
         let e = MockHandler::ESC;
 
         let mut out = Vec::new();
-        for b in b"enable" { h.handle_byte(*b, &mut out); }
+        for b in b"enable" {
+            h.handle_byte(*b, &mut out);
+        }
         assert_eq!(out, b"enable");
 
         out.clear();
@@ -952,7 +973,9 @@ mod tests {
         expect_w.extend_from_slice(b"Router>");
         assert_eq!(out, expect_w);
 
-        for b in b"enable" { h.handle_byte(*b, &mut out); }
+        for b in b"enable" {
+            h.handle_byte(*b, &mut out);
+        }
         out.clear();
         h.handle_byte(0x0d, &mut out);
         assert_eq!(out, b"\r\nRouter#");
@@ -964,7 +987,11 @@ mod tests {
     #[test]
     fn mock_shell_top_burst_and_quit() {
         let mut h = MockHandler {
-            state: ConnState { user: "root".into(), prompt: "user@host:~$ ".into(), ..Default::default() },
+            state: ConnState {
+                user: "root".into(),
+                prompt: "user@host:~$ ".into(),
+                ..Default::default()
+            },
             kbd_int: KbdIntPersona::BrowserAuth,
             received: None,
             closed: None,
@@ -973,7 +1000,9 @@ mod tests {
         };
 
         let mut out = Vec::new();
-        for b in b"top" { h.handle_byte(*b, &mut out); }
+        for b in b"top" {
+            h.handle_byte(*b, &mut out);
+        }
         out.clear();
         h.handle_byte(0x0d, &mut out);
         assert!(h.state.in_top);

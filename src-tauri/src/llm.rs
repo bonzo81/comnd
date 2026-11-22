@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 // Reuse the KB token schema so the LLM's JSON output maps directly to the
 // structs `kb/schema.rs` serialises to YAML. Phase 5.1.
-use crate::kb::{CommandToken, CommandOrder};
+use crate::kb::{CommandOrder, CommandToken};
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -157,7 +157,8 @@ impl LlmClient {
         existing_categories: &[String],
         on_output: impl Fn(usize, &str) + Send + Sync,
     ) -> Result<Vec<ExtractedCommand>, String> {
-        let system_prompt = build_system_prompt(platform, category, platform_index, existing_categories);
+        let system_prompt =
+            build_system_prompt(platform, category, platform_index, existing_categories);
         let user_prompt = build_user_prompt(content, platform, category);
 
         // The full JSON schema goes into the system prompt — this works on
@@ -171,9 +172,11 @@ impl LlmClient {
         );
 
         let content_text = if self.is_anthropic() {
-            self.anthropic_chat(&system_prompt, &user_prompt, &on_output).await?
+            self.anthropic_chat(&system_prompt, &user_prompt, &on_output)
+                .await?
         } else {
-            self.openai_chat(&system_prompt, &user_prompt, &on_output).await?
+            self.openai_chat(&system_prompt, &user_prompt, &on_output)
+                .await?
         };
 
         // Parse the LLM's JSON output (strip markdown fences some models add)
@@ -283,10 +286,12 @@ impl LlmClient {
             .await?;
         } else {
             log::info!("LLM server ignored stream request — falling back to non-streaming read");
-            content = response
-                .text()
-                .await
-                .map_err(|e| format!("LLM stream read failed: {} — connection may have dropped", e))?;
+            content = response.text().await.map_err(|e| {
+                format!(
+                    "LLM stream read failed: {} — connection may have dropped",
+                    e
+                )
+            })?;
         }
 
         // Final flush: guarantee the UI sees the output even for short
@@ -307,12 +312,23 @@ impl LlmClient {
 
     /// Chat via an OpenAI-compatible server: `POST {base}/v1/chat/completions`.
     /// Streams SSE deltas and reports received-output size via `on_output`.
-    async fn openai_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
+    async fn openai_chat(
+        &self,
+        system: &str,
+        user: &str,
+        on_output: &impl Fn(usize, &str),
+    ) -> Result<String, String> {
         let url = format!("{}/v1/chat/completions", self.base_url);
 
         let messages = vec![
-            ChatMessage { role: "system".to_string(), content: system.to_string() },
-            ChatMessage { role: "user".to_string(), content: user.to_string() },
+            ChatMessage {
+                role: "system".to_string(),
+                content: system.to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user.to_string(),
+            },
         ];
         let request = serde_json::json!({
             "model": self.model,
@@ -322,36 +338,40 @@ impl LlmClient {
             // Output cap. Servers that need more ignore or clamp it; servers
             // with smaller limits accept it as a no-op ceiling. Without this,
             // server defaults apply (e.g. Ollama) or generation is unbounded.
-            "max_tokens": self.context_length.min(8192).max(1024),
+            "max_tokens": self.context_length.clamp(1024, 8192),
         });
 
-        log::info!("LLM request: format=openai model={} url={} (streaming)", self.model, url);
+        log::info!(
+            "LLM request: format=openai model={} url={} (streaming)",
+            self.model,
+            url
+        );
 
         let mut http_req = self.http_client.post(&url).json(&request);
         if let Some(ref key) = self.api_key {
             http_req = http_req.header("Authorization", format!("Bearer {}", key));
         }
 
-        let response = http_req
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    format!("Connection refused at {} — is the LLM server running?", self.base_url)
-                } else if e.is_timeout() {
-                    "LLM connection timed out after 30s — server not accepting connections".to_string()
-                } else {
-                    // Include the source chain: reqwest hides the real cause
-                    // (DNS, TLS, reset) below the generic "error sending request".
-                    let mut msg = format!("LLM request failed: {}", e);
-                    let mut src = std::error::Error::source(&e);
-                    while let Some(s) = src {
-                        msg.push_str(&format!(" — caused by: {}", s));
-                        src = s.source();
-                    }
-                    msg
+        let response = http_req.send().await.map_err(|e| {
+            if e.is_connect() {
+                format!(
+                    "Connection refused at {} — is the LLM server running?",
+                    self.base_url
+                )
+            } else if e.is_timeout() {
+                "LLM connection timed out after 30s — server not accepting connections".to_string()
+            } else {
+                // Include the source chain: reqwest hides the real cause
+                // (DNS, TLS, reset) below the generic "error sending request".
+                let mut msg = format!("LLM request failed: {}", e);
+                let mut src = std::error::Error::source(&e);
+                while let Some(s) = src {
+                    msg.push_str(&format!(" — caused by: {}", s));
+                    src = s.source();
                 }
-            })?;
+                msg
+            }
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -379,7 +399,12 @@ impl LlmClient {
                 content: Option<String>,
             }
             if let Ok(chunk) = serde_json::from_str::<OpenAiChunk>(data) {
-                if let Some(text) = chunk.choices.into_iter().next().and_then(|c| c.delta.content) {
+                if let Some(text) = chunk
+                    .choices
+                    .into_iter()
+                    .next()
+                    .and_then(|c| c.delta.content)
+                {
                     content.push_str(&text);
                 }
             }
@@ -391,7 +416,12 @@ impl LlmClient {
 
     /// Chat via the Anthropic wire format: `POST {base}/v1/messages`.
     /// Streams SSE deltas and reports received-output size via `on_output`.
-    async fn anthropic_chat(&self, system: &str, user: &str, on_output: &impl Fn(usize, &str)) -> Result<String, String> {
+    async fn anthropic_chat(
+        &self,
+        system: &str,
+        user: &str,
+        on_output: &impl Fn(usize, &str),
+    ) -> Result<String, String> {
         let url = format!("{}/v1/messages", self.base_url);
 
         let request = serde_json::json!({
@@ -399,7 +429,7 @@ impl LlmClient {
             // Output cap, NOT the context window. Bounded to common model
             // limits — larger values (e.g. the full context length) are
             // rejected by models with smaller output caps (e.g. Claude).
-            "max_tokens": self.context_length.min(8192).max(1024),
+            "max_tokens": self.context_length.clamp(1024, 8192),
             "system": system,
             "messages": [
                 { "role": "user", "content": user }
@@ -407,9 +437,14 @@ impl LlmClient {
             "stream": true,
         });
 
-        log::info!("LLM request: format=anthropic model={} url={} (streaming)", self.model, url);
+        log::info!(
+            "LLM request: format=anthropic model={} url={} (streaming)",
+            self.model,
+            url
+        );
 
-        let mut http_req = self.http_client
+        let mut http_req = self
+            .http_client
             .post(&url)
             .json(&request)
             .header("anthropic-version", "2023-06-01");
@@ -417,18 +452,18 @@ impl LlmClient {
             http_req = http_req.header("x-api-key", key);
         }
 
-        let response = http_req
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    format!("Connection refused at {} — is the LLM server running?", self.base_url)
-                } else if e.is_timeout() {
-                    "LLM connection timed out after 30s — server not accepting connections".to_string()
-                } else {
-                    format!("LLM request failed: {}", e)
-                }
-            })?;
+        let response = http_req.send().await.map_err(|e| {
+            if e.is_connect() {
+                format!(
+                    "Connection refused at {} — is the LLM server running?",
+                    self.base_url
+                )
+            } else if e.is_timeout() {
+                "LLM connection timed out after 30s — server not accepting connections".to_string()
+            } else {
+                format!("LLM request failed: {}", e)
+            }
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -449,9 +484,17 @@ impl LlmClient {
                 }
                 Some("message_stop") => return Ok(false),
                 Some("error") => {
-                    return Err(format!("LLM stream error: {}", v["error"].as_object()
-                        .map(|o| o.iter().map(|(k, val)| format!("{}: {}", k, val)).collect::<Vec<_>>().join(", "))
-                        .unwrap_or_else(|| data.to_string())));
+                    return Err(format!(
+                        "LLM stream error: {}",
+                        v["error"]
+                            .as_object()
+                            .map(|o| o
+                                .iter()
+                                .map(|(k, val)| format!("{}: {}", k, val))
+                                .collect::<Vec<_>>()
+                                .join(", "))
+                            .unwrap_or_else(|| data.to_string())
+                    ));
                 }
                 _ => {}
             }
@@ -464,9 +507,7 @@ impl LlmClient {
     pub async fn list_models(&self) -> Result<Vec<String>, String> {
         let url = format!("{}/v1/models", self.base_url);
 
-        let mut http_req = self.http_client
-            .get(&url)
-            .timeout(Duration::from_secs(5));
+        let mut http_req = self.http_client.get(&url).timeout(Duration::from_secs(5));
 
         if self.is_anthropic() {
             if let Some(ref key) = self.api_key {
@@ -543,7 +584,11 @@ fn build_system_prompt(
     platform_index: &crate::kb::PlatformIndex,
     existing_categories: &[String],
 ) -> String {
-    let modes: Vec<&str> = platform_index.prompt_patterns.keys().map(|s| s.as_str()).collect();
+    let modes: Vec<&str> = platform_index
+        .prompt_patterns
+        .keys()
+        .map(|s| s.as_str())
+        .collect();
     let modes_list = if modes.is_empty() {
         platform_index.default_mode.clone()
     } else {
@@ -739,16 +784,24 @@ fn build_user_prompt(content: &str, platform: &str, category: &str) -> String {
     // but leave room for system prompt and output
     let max_content_chars = 180_000;
     let truncated_content = if content.len() > max_content_chars {
-        log::warn!("Content truncated from {} to {} chars", content.len(), max_content_chars);
+        log::warn!(
+            "Content truncated from {} to {} chars",
+            content.len(),
+            max_content_chars
+        );
         // Truncate by character count, not byte index, to avoid splitting UTF-8 multi-byte chars
-        let cut = content.char_indices().nth(max_content_chars).map(|(i, _)| i).unwrap_or(content.len());
+        let cut = content
+            .char_indices()
+            .nth(max_content_chars)
+            .map(|(i, _)| i)
+            .unwrap_or(content.len());
         &content[..cut]
     } else {
         content
     };
 
     format!(
-r#"Extract all {platform} {category} commands from the following documentation page.
+        r#"Extract all {platform} {category} commands from the following documentation page.
 
 Return a JSON object with a "commands" array containing each command found.
 
@@ -778,8 +831,7 @@ pub(crate) mod sse_test_mock {
     pub fn sse_mock_n(responses: Vec<Option<String>>) -> std::net::SocketAddr {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let queue: Arc<Mutex<VecDeque<Option<String>>>> =
-            Arc::new(Mutex::new(responses.into()));
+        let queue: Arc<Mutex<VecDeque<Option<String>>>> = Arc::new(Mutex::new(responses.into()));
 
         let accept_queue = Arc::clone(&queue);
         // Nonblocking accept: poll for connections so the accept thread can
@@ -814,10 +866,7 @@ pub(crate) mod sse_test_mock {
     /// Serve HTTP requests on one connection: read a request, pop the next
     /// queued response, repeat until the client disconnects or the queue
     /// runs dry (an extra request gets a connection close).
-    fn serve_connection(
-        mut stream: std::net::TcpStream,
-        queue: &Mutex<VecDeque<Option<String>>>,
-    ) {
+    fn serve_connection(mut stream: std::net::TcpStream, queue: &Mutex<VecDeque<Option<String>>>) {
         use std::io::{Read, Write};
 
         let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
@@ -878,7 +927,9 @@ pub(crate) mod sse_test_mock {
                     let mut r = Vec::new();
                     r.extend_from_slice(b"HTTP/1.1 500 Internal Server Error\r\n");
                     r.extend_from_slice(b"Content-Type: text/plain\r\n");
-                    r.extend_from_slice(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes());
+                    r.extend_from_slice(
+                        format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes(),
+                    );
                     r.extend_from_slice(body);
                     r
                 }
@@ -905,7 +956,10 @@ mod tests {
     fn iosxe_platform_index() -> crate::kb::PlatformIndex {
         let mut prompt_patterns = std::collections::HashMap::new();
         prompt_patterns.insert("privileged-exec".to_string(), "^[\\w\\-]+#".to_string());
-        prompt_patterns.insert("global-config".to_string(), "^[\\w\\-]+\\(config\\)#".to_string());
+        prompt_patterns.insert(
+            "global-config".to_string(),
+            "^[\\w\\-]+\\(config\\)#".to_string(),
+        );
         crate::kb::PlatformIndex {
             id: "cisco-iosxe".to_string(),
             name: "Cisco IOS-XE".to_string(),
@@ -993,14 +1047,35 @@ mod tests {
     fn test_normalize_base_url_variants() {
         // Bare host (existing users) and full API roots (preset paste / manual)
         // must all resolve to the same endpoint base.
-        assert_eq!(normalize_base_url("http://localhost:11434"), "http://localhost:11434");
-        assert_eq!(normalize_base_url("http://localhost:11434/v1"), "http://localhost:11434");
-        assert_eq!(normalize_base_url("http://localhost:11434/v1/"), "http://localhost:11434");
-        assert_eq!(normalize_base_url("https://api.openai.com/v1"), "https://api.openai.com");
-        assert_eq!(normalize_base_url("https://api.openai.com"), "https://api.openai.com");
-        assert_eq!(normalize_base_url("  https://api.x.ai/v1  "), "https://api.x.ai");
+        assert_eq!(
+            normalize_base_url("http://localhost:11434"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_base_url("http://localhost:11434/v1"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_base_url("http://localhost:11434/v1/"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            normalize_base_url("https://api.openai.com/v1"),
+            "https://api.openai.com"
+        );
+        assert_eq!(
+            normalize_base_url("https://api.openai.com"),
+            "https://api.openai.com"
+        );
+        assert_eq!(
+            normalize_base_url("  https://api.x.ai/v1  "),
+            "https://api.x.ai"
+        );
         // Only the trailing /v1 is stripped — a /v1 nested deeper stays intact.
-        assert_eq!(normalize_base_url("https://gw.example.com/v1/proxy"), "https://gw.example.com/v1/proxy");
+        assert_eq!(
+            normalize_base_url("https://gw.example.com/v1/proxy"),
+            "https://gw.example.com/v1/proxy"
+        );
     }
 
     #[test]
@@ -1027,7 +1102,12 @@ mod tests {
         assert_eq!(cmd.tokens.len(), 3);
         // Tag round-trips through the kb::CommandToken variants.
         match &cmd.tokens[1] {
-            CommandToken::Choice { choice, optional, repeatable, .. } => {
+            CommandToken::Choice {
+                choice,
+                optional,
+                repeatable,
+                ..
+            } => {
                 assert_eq!(choice, &vec!["brief".to_string()]);
                 assert!(optional);
                 assert!(!repeatable);
@@ -1108,42 +1188,47 @@ mod tests {
 
         let output_chars = std::sync::atomic::AtomicUsize::new(0);
         let oc = &output_chars;
-        let result = client.extract_commands(
-            "some documentation text",
-            "linux-bash",
-            "networking",
-            &index,
-            &[],
-            |n, _| { oc.fetch_add(n, std::sync::atomic::Ordering::Relaxed); },
-        ).await.unwrap();
+        let result = client
+            .extract_commands(
+                "some documentation text",
+                "linux-bash",
+                "networking",
+                &index,
+                &[],
+                |n, _| {
+                    oc.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+                },
+            )
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "show ip");
         assert_eq!(result[0].description.as_deref(), Some("Show IP config"));
-        assert!(output_chars.load(std::sync::atomic::Ordering::Relaxed) > 0, "on_output should have been called");
+        assert!(
+            output_chars.load(std::sync::atomic::Ordering::Relaxed) > 0,
+            "on_output should have been called"
+        );
     }
 }
 
 // Tauri Commands (moved from lib.rs)
 
 #[tauri::command]
-pub async fn test_llm_connection(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+pub async fn test_llm_connection(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let (api_format, base_url, model, context_length) = {
         let config = state.config.lock().map_err(|e| e.to_string())?;
         let cfg = config.get();
-        (cfg.llm_api_format.clone(), cfg.llm_base_url.clone(), cfg.llm_model.clone(), cfg.llm_context_length)
+        (
+            cfg.llm_api_format.clone(),
+            cfg.llm_base_url.clone(),
+            cfg.llm_model.clone(),
+            cfg.llm_context_length,
+        )
     };
     let api_key = crate::config::get_llm_api_key()?;
 
-    let llm = LlmClient::new(
-        base_url,
-        model,
-        api_key,
-        context_length,
-        api_format,
-    );
+    let llm = LlmClient::new(base_url, model, api_key, context_length, api_format);
 
     llm.list_models().await
 }

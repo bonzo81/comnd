@@ -4,7 +4,7 @@
 //! what a sync may overwrite live in `inventory` — a device's `enabled` and
 //! `overlay` are the only user-owned fields and survive a sync there.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -70,11 +70,10 @@ impl NetBoxCacheStore {
         if let Some(ref path) = self.cache_path {
             let json = serde_json::to_string_pretty(&self.cache)
                 .map_err(|e| format!("Failed to serialize netbox cache: {}", e))?;
-            crate::paths::secure_write(path, json.as_bytes())
-                .map_err(|e| {
-                    log::error!("Failed to write netbox cache to {}: {}", path.display(), e);
-                    format!("Failed to write netbox cache: {}", e)
-                })?;
+            crate::paths::secure_write(path, json.as_bytes()).map_err(|e| {
+                log::error!("Failed to write netbox cache to {}: {}", path.display(), e);
+                format!("Failed to write netbox cache: {}", e)
+            })?;
         }
         Ok(())
     }
@@ -82,7 +81,7 @@ impl NetBoxCacheStore {
 
 /// Load the cache from disk; corrupt files are preserved as `.corrupt-<ts>`
 /// and an empty cache is returned (mirrors `load_hosts_from_file`).
-fn load_cache_from_file(path: &PathBuf) -> NetBoxCache {
+fn load_cache_from_file(path: &Path) -> NetBoxCache {
     crate::paths::load_json_or_preserve::<NetBoxCache>(path)
 }
 

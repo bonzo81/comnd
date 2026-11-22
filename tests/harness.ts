@@ -9,7 +9,7 @@
  *                   unmocked commands, plus fixture factories and a DOM
  *                   mount helper. Auto-restored when the test ends.
  *
- * Design: docs/plans/plan-test-harness.md · term: CONTEXT.md ("Test harness").
+ * Design: docs/plans/054-plan-test-harness.md · term: CONTEXT.md ("Test harness").
  */
 import { afterEach } from "vitest";
 import type { AppConfig, Command, Host, HostGroup } from "../src/lib/tauri-api";
@@ -109,66 +109,79 @@ export interface FixtureFactories {
   appConfig(overrides?: Partial<AppConfig>): AppConfig;
 }
 
-function makeFactories(): FixtureFactories {
+/** Exported on their own so a test can take a fixture without swapping the
+ *  IPC dispatcher. They are the only fixture literals in the suite. */
+export function host(overrides: Partial<Host> = {}): Host {
   return {
-    host: (overrides: Partial<Host> = {}): Host => ({
-      id: "h-1",
-      display_name: "Test Host",
-      hostname: "10.0.0.1",
-      port: 22,
-      username: "admin",
-      credential: { type: "password" },
-      platform: "linux-bash",
-      os_version: null,
-      highlight_profile: null,
-      notes: null,
-      last_connected: null,
-      created_at: "2026-01-01T00:00:00.000Z",
-      sort_order: 0,
-      tags: [],
-      group_id: null,
-      source: null,
-      ...overrides,
-    }),
-    hostGroup: (overrides: Partial<HostGroup> = {}): HostGroup => ({
-      id: "g-1",
-      name: "Test Group",
-      parent_id: null,
-      sort_order: 0,
-      color: null,
-      icon: null,
-      created_at: "2026-01-01T00:00:00.000Z",
-      ...overrides,
-    }),
-    command: (name: string, overrides: Partial<Command> = {}): Command => ({
-      name,
-      syntax: name,
-      description: `${name} — harness fixture`,
-      category: "test",
-      mode: "bash",
-      aliases: [],
-      examples: [],
-      versions: { introduced: null, deprecated: null, notes: null },
-      tags: [],
-      ...overrides,
-    }),
-    appConfig: (overrides: Partial<AppConfig> = {}): AppConfig => ({
-      llm_api_format: "ollama",
-      llm_base_url: "http://localhost:11434",
-      llm_model: "llama3.2",
-      llm_api_key: null,
-      llm_context_length: 64000,
-      log_level: "info",
-      log_max_size_mb: 10,
-      log_file_path: null,
-      max_sessions: 6,
-      duplicate_session_policy: "ask",
-      session_logging: true,
-      session_log_timestamps: false,
-      session_log_dir: null,
-      ...overrides,
-    }),
+    id: "h-1",
+    display_name: "Test Host",
+    hostname: "10.0.0.1",
+    port: 22,
+    username: "admin",
+    credential: { type: "password" },
+    platform: "linux-bash",
+    os_version: null,
+    highlight_profile: null,
+    notes: null,
+    last_connected: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    sort_order: 0,
+    tags: [],
+    group_id: null,
+    source: null,
+    ...overrides,
   };
+}
+
+export function hostGroup(overrides: Partial<HostGroup> = {}): HostGroup {
+  return {
+    id: "g-1",
+    name: "Test Group",
+    parent_id: null,
+    sort_order: 0,
+    color: null,
+    icon: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+export function command(name: string, overrides: Partial<Command> = {}): Command {
+  return {
+    name,
+    syntax: name,
+    description: `${name} — harness fixture`,
+    category: "test",
+    mode: "bash",
+    aliases: [],
+    examples: [],
+    versions: { introduced: null, deprecated: null, notes: null },
+    tags: [],
+    ...overrides,
+  };
+}
+
+export function appConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    llm_api_format: "ollama",
+    llm_base_url: "http://localhost:11434",
+    llm_model: "llama3.2",
+    llm_api_key: null,
+    llm_context_length: 64000,
+    log_level: "info",
+    log_max_size_mb: 10,
+    log_file_path: null,
+    max_sessions: 6,
+    duplicate_session_policy: "ask",
+    session_logging: true,
+    session_log_timestamps: false,
+    session_log_dir: null,
+    ...overrides,
+  };
+}
+
+function makeFactories(): FixtureFactories {
+  return { host, hostGroup, command, appConfig };
 }
 
 // ─── Harness ──────────────────────────────────────────────────────────────

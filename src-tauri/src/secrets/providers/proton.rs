@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::secrets::{CliError, CredentialItem, ProviderStatus, SecretProvider, run_cli};
+use crate::secrets::{run_cli, CliError, CredentialItem, ProviderStatus, SecretProvider};
 
 const CLI: &str = "pass-cli";
 const PAT_ENV: &str = "PROTON_PASS_PERSONAL_ACCESS_TOKEN";
@@ -48,9 +48,14 @@ fn env_refs(envs: &[(String, String)]) -> Vec<(&str, &str)> {
 async fn item_view(reference: &str) -> Result<String, String> {
     let env = pat_env();
     let refs = env_refs(&env);
-    run_cli(CLI, &["item".into(), "view".into(), reference.to_string()], &refs, TIMEOUT)
-        .await
-        .map_err(|e| e.to_string())
+    run_cli(
+        CLI,
+        &["item".into(), "view".into(), reference.to_string()],
+        &refs,
+        TIMEOUT,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Parse a `vault list` line: `- [<share_id>]: <name>` → (share_id, name).
@@ -212,19 +217,23 @@ mod tests {
     fn test_parse_ref_valid() {
         assert_eq!(
             parse_ref("pass://main/router-lab/password").unwrap(),
-            ("main".to_string(), "router-lab".to_string(), "password".to_string())
+            (
+                "main".to_string(),
+                "router-lab".to_string(),
+                "password".to_string()
+            )
         );
     }
 
     #[test]
     fn test_parse_ref_rejects_malformed() {
         for bad in [
-            "pass:main/item/field", // wrong scheme separator
-            "pass://",              // empty
-            "pass://main/item",     // missing field
-            "pass://main//password",// empty item
+            "pass:main/item/field",            // wrong scheme separator
+            "pass://",                         // empty
+            "pass://main/item",                // missing field
+            "pass://main//password",           // empty item
             "pass://main/item/password/extra", // too many segments
-            "vault/item/password",  // no scheme
+            "vault/item/password",             // no scheme
         ] {
             assert!(parse_ref(bad).is_err(), "should reject: {}", bad);
         }

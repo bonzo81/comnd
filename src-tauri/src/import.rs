@@ -11,8 +11,8 @@
 
 use crate::config::AppConfig;
 use crate::kb::{
-    get_target_yaml_path, write_commands_to_yaml, validate_command, KbStore,
-    KbManager, Command, CommandExample, CommandOrder, CommandVersions, PlatformIndex,
+    get_target_yaml_path, validate_command, write_commands_to_yaml, Command, CommandExample,
+    CommandOrder, CommandVersions, KbManager, KbStore, PlatformIndex,
 };
 use crate::llm::{ExtractedCommand, LlmClient};
 use serde::{Deserialize, Serialize};
@@ -39,20 +39,40 @@ pub struct ImportRequest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "stage", content = "detail")]
 pub enum ImportProgress {
-    Fetching { url: String },
-    ExtractingText { content_length: usize },
-    SendingToLlm { },
+    Fetching {
+        url: String,
+    },
+    ExtractingText {
+        content_length: usize,
+    },
+    SendingToLlm {},
     /// Streaming: chars of LLM output received so far + rolling tail of the
     /// raw output text (live view in the job modal).
-    LlmOutput { chars: usize, tail: String },
+    LlmOutput {
+        chars: usize,
+        tail: String,
+    },
     /// Chunked extraction progress for large source pages.
-    ExtractingChunk { chunk: usize, total: usize },
-    ExtractingCommands { },
-    Validating { command_count: usize },
-    WritingYaml { command_count: usize, target_file: String },
-    ReloadingKb { },
-    Complete { commands_imported: usize, target_file: String },
-    Error { message: String },
+    ExtractingChunk {
+        chunk: usize,
+        total: usize,
+    },
+    ExtractingCommands {},
+    Validating {
+        command_count: usize,
+    },
+    WritingYaml {
+        command_count: usize,
+        target_file: String,
+    },
+    ReloadingKb {},
+    Complete {
+        commands_imported: usize,
+        target_file: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Preview of an extracted command before it is written to YAML (Phase 5.6).
@@ -161,12 +181,23 @@ pub async fn extract_from_url(
     allowed_categories: &[String],
     bundled_kb_path: &Path,
 ) -> Result<ExtractPreview, String> {
-    progress(&ImportProgress::Fetching { url: request.url.clone() });
+    progress(&ImportProgress::Fetching {
+        url: request.url.clone(),
+    });
     let html_content = real_http_fetch(&request.url).await?;
 
     // Stage 2: Extract text from HTML (Phase 5.2: preserves <pre>/<code> fences)
     let text_content = extract_text_from_html(&html_content);
-    extract_from_text(request, text_content, config, progress, platform_index, allowed_categories, bundled_kb_path).await
+    extract_from_text(
+        request,
+        text_content,
+        config,
+        progress,
+        platform_index,
+        allowed_categories,
+        bundled_kb_path,
+    )
+    .await
 }
 
 /// Variant of `extract_from_url` for pre-fetched text (paste-text import):
@@ -182,14 +213,16 @@ pub async fn extract_from_text(
 ) -> Result<ExtractPreview, String> {
     let mut errors: Vec<String> = Vec::new();
 
-    progress(&ImportProgress::ExtractingText { content_length: text_content.len() });
+    progress(&ImportProgress::ExtractingText {
+        content_length: text_content.len(),
+    });
 
     if text_content.trim().is_empty() {
         return Err("No text content was provided. Paste the page text (Ctrl+A, Ctrl+C in your browser, then paste here) and try again.".to_string());
     }
 
     // Stage 3: Send to the configured LLM for extraction (Phase 5.1: token-aware)
-    progress(&ImportProgress::SendingToLlm { });
+    progress(&ImportProgress::SendingToLlm {});
 
     let llm = LlmClient::new(
         config.llm_base_url.clone(),
@@ -205,7 +238,10 @@ pub async fn extract_from_text(
 
     // Streaming: report received LLM output so the UI shows liveness.
     let on_output = |chars: usize, tail: &str| {
-        progress(&ImportProgress::LlmOutput { chars, tail: tail.to_string() });
+        progress(&ImportProgress::LlmOutput {
+            chars,
+            tail: tail.to_string(),
+        });
     };
 
     // Chunked extraction (docs/10): large pages produce oversized JSON that
@@ -215,17 +251,19 @@ pub async fn extract_from_text(
     let mut extracted: Vec<ExtractedCommand> = Vec::new();
 
     if chunks.len() == 1 {
-        extracted = llm.extract_commands(
-            &chunks[0],
-            &request.platform,
-            &request.category,
-            platform_index,
-            &existing_categories,
-            &on_output,
-        ).await.map_err(|e| {
-            progress(&ImportProgress::Error { message: e.clone() });
-            e
-        })?;
+        extracted = llm
+            .extract_commands(
+                &chunks[0],
+                &request.platform,
+                &request.category,
+                platform_index,
+                &existing_categories,
+                &on_output,
+            )
+            .await
+            .inspect_err(|e| {
+                progress(&ImportProgress::Error { message: e.clone() });
+            })?;
     } else {
         // One failing chunk doesn't kill the import — collect its error and
         // continue; the user still gets the commands the other chunks found.
@@ -233,21 +271,30 @@ pub async fn extract_from_text(
         let mut chunk_errors: Vec<String> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (i, chunk) in chunks.iter().enumerate() {
-            progress(&ImportProgress::ExtractingChunk { chunk: i + 1, total });
-            match llm.extract_commands(
-                chunk,
-                &request.platform,
-                &request.category,
-                platform_index,
-                &existing_categories,
-                &on_output,
-            ).await {
+            progress(&ImportProgress::ExtractingChunk {
+                chunk: i + 1,
+                total,
+            });
+            match llm
+                .extract_commands(
+                    chunk,
+                    &request.platform,
+                    &request.category,
+                    platform_index,
+                    &existing_categories,
+                    &on_output,
+                )
+                .await
+            {
                 Ok(cmds) => {
                     for cmd in cmds {
                         if seen.insert(cmd.name.clone()) {
                             extracted.push(cmd);
                         } else {
-                            log::info!("Chunk {}: deduped duplicate command from earlier chunk", i + 1);
+                            log::info!(
+                                "Chunk {}: deduped duplicate command from earlier chunk",
+                                i + 1
+                            );
                         }
                     }
                 }
@@ -263,7 +310,9 @@ pub async fn extract_from_text(
                 total,
                 chunk_errors.last().map(|s| s.as_str()).unwrap_or("unknown")
             );
-            progress(&ImportProgress::Error { message: msg.clone() });
+            progress(&ImportProgress::Error {
+                message: msg.clone(),
+            });
             return Err(msg);
         }
         if !chunk_errors.is_empty() {
@@ -274,7 +323,11 @@ pub async fn extract_from_text(
                 chunk_errors.join("; ")
             ));
         }
-        log::info!("Chunked extraction: {} chunks, {} deduped commands", total, extracted.len());
+        log::info!(
+            "Chunked extraction: {} chunks, {} deduped commands",
+            total,
+            extracted.len()
+        );
     }
 
     progress(&ImportProgress::ExtractingCommands {});
@@ -283,15 +336,23 @@ pub async fn extract_from_text(
     }
 
     // Stage 4: Validate extracted commands (Phase 5.3: drop bad tokens, keep cmd)
-    progress(&ImportProgress::Validating { command_count: extracted.len() });
+    progress(&ImportProgress::Validating {
+        command_count: extracted.len(),
+    });
     let mut previews: Vec<CommandPreview> = Vec::with_capacity(extracted.len());
     for cmd in extracted {
-        match validate_extracted_command(cmd, platform_index, allowed_categories, &request.category) {
+        match validate_extracted_command(cmd, platform_index, allowed_categories, &request.category)
+        {
             Ok((command, issues)) => {
-                let has_token_error = issues.iter().any(|i| i.contains("tokens[") && i.contains("error"));
+                let has_token_error = issues
+                    .iter()
+                    .any(|i| i.contains("tokens[") && i.contains("error"));
                 let status = if has_token_error { "warn" } else { "ok" };
                 if has_token_error {
-                    let warn = format!("Command '{}' imported with token issues: tokens dropped", command.name);
+                    let warn = format!(
+                        "Command '{}' imported with token issues: tokens dropped",
+                        command.name
+                    );
                     errors.push(warn);
                 }
                 previews.push(CommandPreview {
@@ -310,7 +371,9 @@ pub async fn extract_from_text(
     }
 
     if previews.is_empty() {
-        return Err("All extracted commands failed validation. Check the LLM output quality.".to_string());
+        return Err(
+            "All extracted commands failed validation. Check the LLM output quality.".to_string(),
+        );
     }
 
     // Flag which names already exist in the bundled-only KB (docs/10 § 4.1)
@@ -347,8 +410,8 @@ pub async fn extract_from_text(
 /// bundled KB; see docs/specs/10-custom-knowledge-base.md.
 pub async fn commit_import(
     commands: Vec<Command>,
-    bundled_kb_path: &PathBuf,
-    user_kb_path: &PathBuf,
+    bundled_kb_path: &Path,
+    user_kb_path: &Path,
     platform: &str,
     category: &str,
     progress: &ProgressFn<'_>,
@@ -360,9 +423,14 @@ pub async fn commit_import(
 
     // Commands may carry different categories (LLM per-command picks) —
     // group them so each lands in its own category YAML file.
-    let mut by_category: std::collections::BTreeMap<String, Vec<Command>> = std::collections::BTreeMap::new();
+    let mut by_category: std::collections::BTreeMap<String, Vec<Command>> =
+        std::collections::BTreeMap::new();
     for cmd in &commands {
-        let cat = if cmd.category.trim().is_empty() { category.to_string() } else { cmd.category.clone() };
+        let cat = if cmd.category.trim().is_empty() {
+            category.to_string()
+        } else {
+            cmd.category.clone()
+        };
         by_category.entry(cat).or_default().push(cmd.clone());
     }
 
@@ -372,7 +440,11 @@ pub async fn commit_import(
         if primary_target.is_none() {
             primary_target = Some(target_file.clone());
         }
-        log::info!("Import commit: writing {} command(s) to {}", cmds.len(), target_file.display());
+        log::info!(
+            "Import commit: writing {} command(s) to {}",
+            cmds.len(),
+            target_file.display()
+        );
         // write_commands_to_yaml now upgrades legacy entries with tokens (5.4).
         write_commands_to_yaml(cmds, &target_file)?;
     }
@@ -383,7 +455,13 @@ pub async fn commit_import(
         target_file: target_file.display().to_string(),
     });
 
-    ensure_kb_structure(bundled_kb_path, user_kb_path, platform, category, platform_name)?;
+    ensure_kb_structure(
+        bundled_kb_path,
+        user_kb_path,
+        platform,
+        category,
+        platform_name,
+    )?;
 
     progress(&ImportProgress::ReloadingKb {});
 
@@ -404,10 +482,12 @@ pub async fn commit_import(
 /// IP passes. Accepted risk: the URL is user-supplied and the response only
 /// feeds the LLM. Add post-redirect IP re-checks if SSRF becomes a real vector.
 fn validate_fetch_url(url: &str) -> Result<(), String> {
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
     if parsed.scheme() != "https" {
-        return Err(format!("Only HTTPS URLs are allowed (got '{}')", parsed.scheme()));
+        return Err(format!(
+            "Only HTTPS URLs are allowed (got '{}')",
+            parsed.scheme()
+        ));
     }
     if let Some(host) = parsed.host_str() {
         // IPv6 hosts serialize as "[...]" — strip the brackets before parsing.
@@ -415,8 +495,11 @@ fn validate_fetch_url(url: &str) -> Result<(), String> {
         if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
             let disallowed = match ip {
                 std::net::IpAddr::V4(v4) => {
-                    v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                        || v4.is_unspecified() || v4.is_broadcast()
+                    v4.is_loopback()
+                        || v4.is_private()
+                        || v4.is_link_local()
+                        || v4.is_unspecified()
+                        || v4.is_broadcast()
                 }
                 std::net::IpAddr::V6(v6) => {
                     // ULA fc00::/7 and link-local fe80::/10 — std has no
@@ -428,8 +511,11 @@ fn validate_fetch_url(url: &str) -> Result<(), String> {
                     let mapped_private = v6
                         .to_ipv4_mapped()
                         .map(|v4| {
-                            v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                                || v4.is_unspecified() || v4.is_broadcast()
+                            v4.is_loopback()
+                                || v4.is_private()
+                                || v4.is_link_local()
+                                || v4.is_unspecified()
+                                || v4.is_broadcast()
                         })
                         .unwrap_or(false);
                     v6.is_loopback() || v6.is_unspecified() || ula || link_local || mapped_private
@@ -448,7 +534,12 @@ async fn real_http_fetch(url: &str) -> Result<String, String> {
     log::info!("Fetching URL: {}", url);
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".parse().unwrap());
+    headers.insert(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            .parse()
+            .unwrap(),
+    );
     headers.insert("Accept-Language", "en-US,en;q=0.5".parse().unwrap());
 
     let client = reqwest::Client::builder()
@@ -465,7 +556,12 @@ async fn real_http_fetch(url: &str) -> Result<String, String> {
 
     if !response.status().is_success() {
         let status = response.status();
-        log::warn!("HTTP {} for {}: {}", status, url, status.canonical_reason().unwrap_or("Unknown"));
+        log::warn!(
+            "HTTP {} for {}: {}",
+            status,
+            url,
+            status.canonical_reason().unwrap_or("Unknown")
+        );
         let friendly = match status.as_u16() {
             403 => format!(
                 "HTTP 403 Forbidden — The server at '{}' blocked this request. This often happens with Cisco and other vendor documentation sites. Try a different URL (e.g., a raw GitHub-hosted doc or a different vendor page), or wait and retry later.",
@@ -479,15 +575,14 @@ async fn real_http_fetch(url: &str) -> Result<String, String> {
                 "HTTP {} — This URL requires authentication or a proxy. Try a different publicly accessible URL.",
                 status
             ),
-            429 => format!(
-                "HTTP 429 Too Many Requests — You've been rate-limited. Wait a minute and try again, or use a different URL."
-            ),
+            429 => "HTTP 429 Too Many Requests — You've been rate-limited. Wait a minute and try again, or use a different URL.".to_string(),
             _ => format!("HTTP {}: {}", status, status.canonical_reason().unwrap_or("Unknown")),
         };
         return Err(friendly);
     }
 
-    let content = response.text()
+    let content = response
+        .text()
         .await
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
@@ -511,7 +606,15 @@ fn extract_text_from_html(html: &str) -> String {
     let mut text_parts: Vec<String> = Vec::new();
 
     // Try to find main content area first
-    let main_selectors = ["main", "article", "[role='main']", ".content", "#content", ".documentation", "#main"];
+    let main_selectors = [
+        "main",
+        "article",
+        "[role='main']",
+        ".content",
+        "#content",
+        ".documentation",
+        "#main",
+    ];
 
     for selector_str in &main_selectors {
         if let Ok(selector) = Selector::parse(selector_str) {
@@ -554,7 +657,10 @@ fn clean_element_text(element: &scraper::ElementRef, remove_tags: &[&str]) -> St
     // Phase 5.2: `<pre>` and `<code>` blocks emit fenced text so the LLM sees
     // command syntax as distinct monospace blocks (Cisco/F5/Juniper docs put
     // command syntax in `<pre>`).
-    fn collect_text(element: &scraper::ElementRef, skip_tags: &std::collections::HashSet<&str>) -> String {
+    fn collect_text(
+        element: &scraper::ElementRef,
+        skip_tags: &std::collections::HashSet<&str>,
+    ) -> String {
         let tag = element.value().name();
         if skip_tags.contains(tag) {
             return String::new();
@@ -648,10 +754,14 @@ fn validate_extracted_command(
         category: category.clone(),
         mode,
         aliases: extracted.aliases,
-        examples: extracted.examples.into_iter().map(|ex| CommandExample {
-            command: ex.command,
-            description: ex.description,
-        }).collect(),
+        examples: extracted
+            .examples
+            .into_iter()
+            .map(|ex| CommandExample {
+                command: ex.command,
+                description: ex.description,
+            })
+            .collect(),
         versions: CommandVersions {
             introduced: None,
             deprecated: None,
@@ -670,17 +780,23 @@ fn validate_extracted_command(
     // legacy entry (still valid for name-prefix matching). Keep the command;
     // surface a warning so the review dialog can flag it.
     let issues = validate_command(&command);
-    let token_errors: Vec<String> = issues.iter()
+    let token_errors: Vec<String> = issues
+        .iter()
         .filter(|i| i.severity == "error" && i.message.contains("tokens["))
         .map(|i| i.message.clone())
         .collect();
 
     let final_issues: Vec<String> = if !token_errors.is_empty() {
-        log::warn!("Command '{}' had token errors; dropping tokens: {:?}", command.name, token_errors);
+        log::warn!(
+            "Command '{}' had token errors; dropping tokens: {:?}",
+            command.name,
+            token_errors
+        );
         command.tokens.clear();
         command.order = CommandOrder::Fixed;
         command.negatable = false;
-        issues.into_iter()
+        issues
+            .into_iter()
             .filter(|i| !(i.severity == "error" && i.message.contains("tokens[")))
             .map(|i| i.message)
             .chain(token_errors.iter().cloned())
@@ -695,12 +811,23 @@ fn validate_extracted_command(
 // ─── File Operations ────────────────────────────────────────────────
 
 /// Ensure the KB directory structure exists for a platform/category.
-fn ensure_kb_structure(bundled_kb_path: &PathBuf, user_kb_path: &PathBuf, platform: &str, _category: &str, platform_name: Option<&str>) -> Result<(), String> {
+fn ensure_kb_structure(
+    bundled_kb_path: &Path,
+    user_kb_path: &Path,
+    platform: &str,
+    _category: &str,
+    platform_name: Option<&str>,
+) -> Result<(), String> {
     let platform_dir = user_kb_path.join(platform);
     let commands_dir = platform_dir.join("commands");
 
-    std::fs::create_dir_all(&commands_dir)
-        .map_err(|e| format!("Failed to create KB directory {}: {}", commands_dir.display(), e))?;
+    std::fs::create_dir_all(&commands_dir).map_err(|e| {
+        format!(
+            "Failed to create KB directory {}: {}",
+            commands_dir.display(),
+            e
+        )
+    })?;
 
     // Ensure index.yaml exists for the platform
     let index_path = platform_dir.join("index.yaml");
@@ -736,11 +863,21 @@ pub fn new_platform_index(id: &str, name: &str) -> PlatformIndex {
 /// platforms (user's other software, docs/10 § Part 5) get the
 /// `new_platform_index` scaffold; no prompt-pattern authoring UI this phase —
 /// users who want modes edit `index.yaml` by hand.
-fn create_platform_index(bundled_kb_path: &PathBuf, platform: &str, path: &PathBuf, platform_name: Option<&str>) -> Result<(), String> {
+fn create_platform_index(
+    bundled_kb_path: &Path,
+    platform: &str,
+    path: &Path,
+    platform_name: Option<&str>,
+) -> Result<(), String> {
     let bundled_index = bundled_kb_path.join(platform).join("index.yaml");
     let content: Vec<u8> = if bundled_index.exists() {
-        std::fs::read(&bundled_index)
-            .map_err(|e| format!("Failed to read bundled index {}: {}", bundled_index.display(), e))?
+        std::fs::read(&bundled_index).map_err(|e| {
+            format!(
+                "Failed to read bundled index {}: {}",
+                bundled_index.display(),
+                e
+            )
+        })?
     } else {
         let index = new_platform_index(platform, platform_name.unwrap_or(platform));
         yaml_serde::to_string(&index)
@@ -782,10 +919,16 @@ mod tests {
 
             let expected = std::fs::read(bundled.join(platform).join("index.yaml")).unwrap();
             let actual = std::fs::read(&user_index).unwrap();
-            assert_eq!(actual, expected, "scaffold for {platform} diverged from bundled index");
+            assert_eq!(
+                actual, expected,
+                "scaffold for {platform} diverged from bundled index"
+            );
             let index: PlatformIndex = yaml_serde::from_slice(&actual).unwrap();
             assert!(
-                index.secret_prompt_patterns.as_ref().is_some_and(|patterns| !patterns.is_empty()),
+                index
+                    .secret_prompt_patterns
+                    .as_ref()
+                    .is_some_and(|patterns| !patterns.is_empty()),
                 "bundled index for {platform} must define secret prompts"
             );
 
@@ -801,10 +944,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("knowledge-base");
-        let tmp = std::env::temp_dir().join(format!(
-            "comnd-idx-new-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("comnd-idx-new-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -879,7 +1019,10 @@ mod tests {
     fn iosxe_index() -> PlatformIndex {
         let mut prompt_patterns = std::collections::HashMap::new();
         prompt_patterns.insert("privileged-exec".to_string(), "^[\\w\\-]+#".to_string());
-        prompt_patterns.insert("global-config".to_string(), "^[\\w\\-]+\\(config\\)#".to_string());
+        prompt_patterns.insert(
+            "global-config".to_string(),
+            "^[\\w\\-]+\\(config\\)#".to_string(),
+        );
         PlatformIndex {
             id: "cisco-iosxe".to_string(),
             name: "Cisco IOS-XE".to_string(),
@@ -944,7 +1087,8 @@ mod tests {
             negatable: false,
         };
 
-        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
+        let (cmd, issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         assert_eq!(cmd.name, "show ip route");
         assert_eq!(cmd.mode, "privileged-exec");
         assert_eq!(cmd.category, "networking");
@@ -962,7 +1106,8 @@ mod tests {
     #[test]
     fn test_validate_extracted_command_minimal() {
         let extracted = mk_extracted("show version", None);
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
+        let (cmd, _issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         assert_eq!(cmd.name, "show version");
         // Missing mode falls back to the platform default
         assert_eq!(cmd.mode, "privileged-exec");
@@ -973,7 +1118,8 @@ mod tests {
         // LLM returned a Cisco mode for a linux command — must be coerced to
         // the platform default, or the mode filter hides it from suggestions.
         let extracted = mk_extracted("ip addr", Some("privileged-exec"));
-        let (cmd, _issues) = validate_extracted_command(extracted, &linux_index(), &[], "networking").unwrap();
+        let (cmd, _issues) =
+            validate_extracted_command(extracted, &linux_index(), &[], "networking").unwrap();
         assert_eq!(cmd.mode, "shell");
     }
 
@@ -983,7 +1129,8 @@ mod tests {
         let mut extracted = mk_extracted("show ip route", None);
         extracted.category = Some("routing".to_string());
         let allowed = vec!["networking".to_string(), "routing".to_string()];
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
+        let (cmd, _issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
         assert_eq!(cmd.category, "routing");
     }
 
@@ -993,7 +1140,8 @@ mod tests {
         let mut extracted = mk_extracted("show ip route", None);
         extracted.category = Some("made-up".to_string());
         let allowed = vec!["networking".to_string(), "routing".to_string()];
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
+        let (cmd, _issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &allowed, "networking").unwrap();
         assert_eq!(cmd.category, "networking");
     }
 
@@ -1011,21 +1159,31 @@ mod tests {
             aliases: vec![],
             examples: vec![],
             tags: vec![],
-            tokens: vec![
-                CommandToken::Lit { lit: " ".to_string(), optional: false },
-            ],
+            tokens: vec![CommandToken::Lit {
+                lit: " ".to_string(),
+                optional: false,
+            }],
             order: CommandOrder::Fixed,
             negatable: false,
         };
 
-        let (cmd, issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
+        let (cmd, issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
         // Command kept
         assert_eq!(cmd.name, "show ip route");
         // Tokens dropped (downgraded to legacy)
-        assert!(cmd.tokens.is_empty(), "tokens should be dropped, got {:?}", cmd.tokens);
+        assert!(
+            cmd.tokens.is_empty(),
+            "tokens should be dropped, got {:?}",
+            cmd.tokens
+        );
         assert!(matches!(cmd.order, CommandOrder::Fixed));
         // Issue surfaced
-        assert!(issues.iter().any(|m| m.contains("tokens[")), "expected token issue in {:?}", issues);
+        assert!(
+            issues.iter().any(|m| m.contains("tokens[")),
+            "expected token issue in {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1041,15 +1199,29 @@ mod tests {
             examples: vec![],
             tags: vec![],
             tokens: vec![
-                CommandToken::Lit { lit: "show ip interface".to_string(), optional: false },
-                CommandToken::Choice { choice: vec!["brief".to_string()], optional: true, repeatable: false, descriptions: Default::default() },
+                CommandToken::Lit {
+                    lit: "show ip interface".to_string(),
+                    optional: false,
+                },
+                CommandToken::Choice {
+                    choice: vec!["brief".to_string()],
+                    optional: true,
+                    repeatable: false,
+                    descriptions: Default::default(),
+                },
             ],
             order: CommandOrder::Fixed,
             negatable: false,
         };
 
-        let (cmd, _issues) = validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
-        assert_eq!(cmd.tokens.len(), 2, "good tokens should survive, got {:?}", cmd.tokens);
+        let (cmd, _issues) =
+            validate_extracted_command(extracted, &iosxe_index(), &[], "networking").unwrap();
+        assert_eq!(
+            cmd.tokens.len(),
+            2,
+            "good tokens should survive, got {:?}",
+            cmd.tokens
+        );
     }
 
     #[test]
@@ -1063,13 +1235,22 @@ mod tests {
     #[test]
     fn test_split_text_chunks_respects_limit() {
         let line = "show ip route — displays the routing table and forwarding state"; // ~64 chars
-        let text = std::iter::repeat(line).take(300).collect::<Vec<_>>().join("\n");
-        assert!(text.chars().count() > 12_000, "test text must exceed the chunk limit");
+        let text = std::iter::repeat_n(line, 300)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.chars().count() > 12_000,
+            "test text must exceed the chunk limit"
+        );
 
         let chunks = split_text_chunks(&text, 12_000);
         assert!(chunks.len() >= 2);
         for c in &chunks {
-            assert!(c.chars().count() <= 12_000, "chunk is {} chars, exceeds limit", c.chars().count());
+            assert!(
+                c.chars().count() <= 12_000,
+                "chunk is {} chars, exceeds limit",
+                c.chars().count()
+            );
             assert!(!c.trim().is_empty());
         }
         // No content lost: every line appears across the chunks.
@@ -1171,19 +1352,21 @@ mod tests {
     fn sse_json(commands: &[&str]) -> String {
         let cmds: Vec<serde_json::Value> = commands
             .iter()
-            .map(|name| serde_json::json!({
-                "name": name,
-                "syntax": null,
-                "description": format!("Desc for {}", name),
-                "mode": null,
-                "category": null,
-                "aliases": [],
-                "examples": [],
-                "tags": [],
-                "tokens": [],
-                "order": "fixed",
-                "negatable": false
-            }))
+            .map(|name| {
+                serde_json::json!({
+                    "name": name,
+                    "syntax": null,
+                    "description": format!("Desc for {}", name),
+                    "mode": null,
+                    "category": null,
+                    "aliases": [],
+                    "examples": [],
+                    "tags": [],
+                    "tokens": [],
+                    "order": "fixed",
+                    "negatable": false
+                })
+            })
             .collect();
         let payload = serde_json::json!({"commands": cmds});
         let chunk = serde_json::json!({"choices":[{"delta":{"content": payload.to_string()}}]});
@@ -1191,9 +1374,10 @@ mod tests {
     }
 
     fn test_config(base_url: &str) -> AppConfig {
-        let mut cfg = AppConfig::default();
-        cfg.llm_base_url = base_url.to_string();
-        cfg
+        AppConfig {
+            llm_base_url: base_url.to_string(),
+            ..Default::default()
+        }
     }
 
     #[tokio::test]
@@ -1213,7 +1397,16 @@ mod tests {
         let progress: &ProgressFn<'_> = &|_| {};
 
         let bundled = crate::paths::bundled_kb_path(Path::new(""));
-        let result = extract_from_text(request, text.to_string(), &config, progress, &index, &[], &bundled).await;
+        let result = extract_from_text(
+            request,
+            text.to_string(),
+            &config,
+            progress,
+            &index,
+            &[],
+            &bundled,
+        )
+        .await;
         assert!(result.is_ok(), "extract failed: {:?}", result.err());
         let preview = result.unwrap();
         assert_eq!(preview.previews.len(), 2);
@@ -1226,7 +1419,7 @@ mod tests {
     async fn test_extract_multi_chunk_partial_failure() {
         // 3 chunks: need text > 24K chars (CHUNK_EXTRACTION_CHARS = 12_000)
         let filler = "lorem ipsum dolor sit amet ";
-        let text = std::iter::repeat(filler).take(1000).collect::<String>();
+        let text = std::iter::repeat_n(filler, 1000).collect::<String>();
         assert!(text.len() > 24_000, "text too short: {}", text.len());
 
         let sse_a = sse_json(&["show ip route"]);
@@ -1245,7 +1438,8 @@ mod tests {
         let progress: &ProgressFn<'_> = &|_| {};
 
         let bundled = crate::paths::bundled_kb_path(Path::new(""));
-        let result = extract_from_text(request, text, &config, progress, &index, &[], &bundled).await;
+        let result =
+            extract_from_text(request, text, &config, progress, &index, &[], &bundled).await;
         assert!(result.is_ok(), "extract failed: {:?}", result.err());
         let preview = result.unwrap();
         // Commands from chunks 1 and 3 survive; chunk 2 error is surfaced
@@ -1253,7 +1447,11 @@ mod tests {
         assert_eq!(preview.previews[0].command.name, "show ip route");
         assert_eq!(preview.previews[1].command.name, "show version");
         assert_eq!(preview.errors.len(), 1);
-        assert!(preview.errors[0].contains("chunk 2/3"), "unexpected error: {}", preview.errors[0]);
+        assert!(
+            preview.errors[0].contains("chunk 2/3"),
+            "unexpected error: {}",
+            preview.errors[0]
+        );
     }
 }
 
@@ -1283,7 +1481,10 @@ fn resolve_index_and_categories(
         Ok(idx) => idx,
         Err(e) => match platform_name {
             Some(name) => {
-                log::info!("Import: using placeholder single-mode index for new platform '{}'", platform);
+                log::info!(
+                    "Import: using placeholder single-mode index for new platform '{}'",
+                    platform
+                );
                 new_platform_index(platform, name)
             }
             None => return Err(e),
@@ -1314,9 +1515,18 @@ pub async fn extract_kb_preview(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExtractPreview, String> {
-    let request = ImportRequest { url, platform, category };
+    let request = ImportRequest {
+        url,
+        platform,
+        category,
+    };
 
-    let config_ref = state.config.lock().map_err(|e| e.to_string())?.get().clone();
+    let config_ref = state
+        .config
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get()
+        .clone();
 
     let (platform_index, allowed_categories) = {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
@@ -1338,7 +1548,8 @@ pub async fn extract_kb_preview(
         &platform_index,
         &allowed_categories,
         &bundled_kb_path,
-    ).await?;
+    )
+    .await?;
 
     Ok(preview)
 }
@@ -1362,7 +1573,12 @@ pub async fn extract_kb_preview_from_text(
         category,
     };
 
-    let config_ref = state.config.lock().map_err(|e| e.to_string())?.get().clone();
+    let config_ref = state
+        .config
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get()
+        .clone();
 
     let (platform_index, allowed_categories) = {
         let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
@@ -1377,7 +1593,16 @@ pub async fn extract_kb_preview_from_text(
     let progress = tauri_progress(&app_handle);
 
     let bundled_kb_path = bundled_kb_root(&app_handle);
-    extract_from_text(request, text, &config_ref, &progress, &platform_index, &allowed_categories, &bundled_kb_path).await
+    extract_from_text(
+        request,
+        text,
+        &config_ref,
+        &progress,
+        &platform_index,
+        &allowed_categories,
+        &bundled_kb_path,
+    )
+    .await
 }
 
 /// Phase 5.6: Stage 2 of the two-stage import ÔÇö write the user-approved
@@ -1414,7 +1639,8 @@ pub async fn commit_kb_import(
         &category,
         &progress,
         platform_name.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     // Reload KB stores so new commands are immediately available
     {

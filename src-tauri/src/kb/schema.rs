@@ -92,7 +92,11 @@ pub(crate) struct CommandVersions {
 #[serde(untagged)]
 pub(crate) enum CommandToken {
     /// Fixed literal keyword(s). May be multi-word.
-    Lit { lit: String, #[serde(default)] optional: bool },
+    Lit {
+        lit: String,
+        #[serde(default)]
+        optional: bool,
+    },
     /// One of a fixed set of keywords. `repeatable` (Phase 4) allows the same
     /// choice token to match more than once — used for repeatable flags such
     /// as `ls -l -a`. The engine honours it; the validator accepts it.
@@ -172,7 +176,9 @@ pub(crate) struct PipeFilter {
     pub r#type: Option<VarType>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) enum CommandOrder {
@@ -207,13 +213,40 @@ mod contract {
                 category: "interfaces".into(),
                 mode: "privileged-exec".into(),
                 aliases: vec!["sh ip int b".into()],
-                examples: vec![CommandExample { command: "show ip interface brief".into(), description: "Brief view of all interfaces".into() }],
-                versions: CommandVersions { introduced: Some("12.0(0)".into()), deprecated: None, notes: None },
+                examples: vec![CommandExample {
+                    command: "show ip interface brief".into(),
+                    description: "Brief view of all interfaces".into(),
+                }],
+                versions: CommandVersions {
+                    introduced: Some("12.0(0)".into()),
+                    deprecated: None,
+                    notes: None,
+                },
                 tags: vec!["interface".into()],
                 tokens: vec![
-                    CommandToken::Lit { lit: "show ip interface".into(), optional: false },
-                    CommandToken::Choice { choice: vec!["brief".into(), "detail".into()], optional: true, repeatable: false, descriptions: HashMap::from([("brief".to_string(), "One line per interface".to_string())]) },
-                    CommandToken::Var(VarToken { var: "interface-name".into(), description: Some("Interface to inspect".into()), r#type: VarType::Enumerable, source: VarSource::Device, optional: true, values: vec![], min: None, max: None }),
+                    CommandToken::Lit {
+                        lit: "show ip interface".into(),
+                        optional: false,
+                    },
+                    CommandToken::Choice {
+                        choice: vec!["brief".into(), "detail".into()],
+                        optional: true,
+                        repeatable: false,
+                        descriptions: HashMap::from([(
+                            "brief".to_string(),
+                            "One line per interface".to_string(),
+                        )]),
+                    },
+                    CommandToken::Var(VarToken {
+                        var: "interface-name".into(),
+                        description: Some("Interface to inspect".into()),
+                        r#type: VarType::Enumerable,
+                        source: VarSource::Device,
+                        optional: true,
+                        values: vec![],
+                        min: None,
+                        max: None,
+                    }),
                 ],
                 order: CommandOrder::Fixed,
                 negatable: false,
@@ -231,10 +264,36 @@ mod contract {
                 versions: CommandVersions::default(),
                 tags: vec![],
                 tokens: vec![
-                    CommandToken::Lit { lit: "ls".into(), optional: false },
-                    CommandToken::Choice { choice: vec!["-l".into(), "-a".into(), "-h".into()], optional: true, repeatable: true, descriptions: HashMap::new() },
-                    CommandToken::Var(VarToken { var: "count".into(), description: None, r#type: VarType::Numeric, source: VarSource::None, optional: true, values: vec![], min: Some(1), max: Some(99) }),
-                    CommandToken::Pipe(PipeToken { pipe: true, filters: vec![PipeFilter { lit: "grep".into(), var: Some("pattern".into()), r#type: Some(VarType::Free) }], optional: true, repeatable: false }),
+                    CommandToken::Lit {
+                        lit: "ls".into(),
+                        optional: false,
+                    },
+                    CommandToken::Choice {
+                        choice: vec!["-l".into(), "-a".into(), "-h".into()],
+                        optional: true,
+                        repeatable: true,
+                        descriptions: HashMap::new(),
+                    },
+                    CommandToken::Var(VarToken {
+                        var: "count".into(),
+                        description: None,
+                        r#type: VarType::Numeric,
+                        source: VarSource::None,
+                        optional: true,
+                        values: vec![],
+                        min: Some(1),
+                        max: Some(99),
+                    }),
+                    CommandToken::Pipe(PipeToken {
+                        pipe: true,
+                        filters: vec![PipeFilter {
+                            lit: "grep".into(),
+                            var: Some("pattern".into()),
+                            r#type: Some(VarType::Free),
+                        }],
+                        optional: true,
+                        repeatable: false,
+                    }),
                 ],
                 order: CommandOrder::FlagsAnywhere,
                 negatable: false,
@@ -252,9 +311,24 @@ mod contract {
                 versions: CommandVersions::default(),
                 tags: vec![],
                 tokens: vec![
-                    CommandToken::Lit { lit: "set".into(), optional: false },
-                    CommandToken::Var(VarToken { var: "profile-type".into(), description: None, r#type: VarType::Choice, source: VarSource::Kb, optional: true, values: vec!["blue".into(), "green".into()], min: None, max: None }),
-                    CommandToken::Lit { lit: "commit".into(), optional: true },
+                    CommandToken::Lit {
+                        lit: "set".into(),
+                        optional: false,
+                    },
+                    CommandToken::Var(VarToken {
+                        var: "profile-type".into(),
+                        description: None,
+                        r#type: VarType::Choice,
+                        source: VarSource::Kb,
+                        optional: true,
+                        values: vec!["blue".into(), "green".into()],
+                        min: None,
+                        max: None,
+                    }),
+                    CommandToken::Lit {
+                        lit: "commit".into(),
+                        optional: true,
+                    },
                 ],
                 order: CommandOrder::Free,
                 negatable: true,
@@ -272,10 +346,34 @@ mod contract {
                 versions: CommandVersions::default(),
                 tags: vec![],
                 tokens: vec![
-                    CommandToken::Lit { lit: "copy".into(), optional: false },
-                    CommandToken::Var(VarToken { var: "src".into(), description: None, r#type: VarType::Free, source: VarSource::None, optional: false, values: vec![], min: None, max: None }),
-                    CommandToken::Var(VarToken { var: "dst".into(), description: None, r#type: VarType::Free, source: VarSource::None, optional: false, values: vec![], min: None, max: None }),
-                    CommandToken::Lit { lit: "force".into(), optional: true },
+                    CommandToken::Lit {
+                        lit: "copy".into(),
+                        optional: false,
+                    },
+                    CommandToken::Var(VarToken {
+                        var: "src".into(),
+                        description: None,
+                        r#type: VarType::Free,
+                        source: VarSource::None,
+                        optional: false,
+                        values: vec![],
+                        min: None,
+                        max: None,
+                    }),
+                    CommandToken::Var(VarToken {
+                        var: "dst".into(),
+                        description: None,
+                        r#type: VarType::Free,
+                        source: VarSource::None,
+                        optional: false,
+                        values: vec![],
+                        min: None,
+                        max: None,
+                    }),
+                    CommandToken::Lit {
+                        lit: "force".into(),
+                        optional: true,
+                    },
                 ],
                 order: CommandOrder::Fixed,
                 negatable: false,
@@ -286,8 +384,10 @@ mod contract {
     }
 
     fn load_fixture() -> serde_json::Value {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/kb-schema.fixture.json");
-        let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("fixture missing at {:?}: {}", path, e));
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/kb-schema.fixture.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("fixture missing at {:?}: {}", path, e));
         serde_json::from_str(&raw).expect("fixture is valid JSON")
     }
 
@@ -295,7 +395,10 @@ mod contract {
     fn contract_ipc_json_matches_fixture() {
         let actual = serde_json::to_value(fixture_commands()).expect("fixture commands serialize");
         let expected = load_fixture()["expected_ipc_json"].clone();
-        assert_eq!(actual, expected, "wire shape drifted — update tests/kb-schema.fixture.json in the same commit");
+        assert_eq!(
+            actual, expected,
+            "wire shape drifted — update tests/kb-schema.fixture.json in the same commit"
+        );
     }
 
     #[test]
@@ -324,13 +427,28 @@ mod contract {
             for t in &cmd.tokens {
                 match t {
                     CommandToken::Lit { lit, optional } => {
-                        if lit.contains(' ') { multi_word_lit += 1; }
-                        if *optional { optional_lit += 1; }
+                        if lit.contains(' ') {
+                            multi_word_lit += 1;
+                        }
+                        if *optional {
+                            optional_lit += 1;
+                        }
                     }
-                    CommandToken::Choice { optional, repeatable, descriptions, .. } => {
-                        if *optional { choice_optional += 1; }
-                        if *repeatable { choice_repeatable += 1; }
-                        if !descriptions.is_empty() { choice_descriptions += 1; }
+                    CommandToken::Choice {
+                        optional,
+                        repeatable,
+                        descriptions,
+                        ..
+                    } => {
+                        if *optional {
+                            choice_optional += 1;
+                        }
+                        if *repeatable {
+                            choice_repeatable += 1;
+                        }
+                        if !descriptions.is_empty() {
+                            choice_descriptions += 1;
+                        }
                     }
                     CommandToken::Var(v) => {
                         match v.r#type {
@@ -344,13 +462,24 @@ mod contract {
                             VarSource::Device => var_sources[1] += 1,
                             VarSource::Kb => var_sources[2] += 1,
                         }
-                        if matches!(v.r#type, VarType::Numeric) && v.min.is_some() && v.max.is_some() { numeric_bounds += 1; }
-                        if matches!(v.source, VarSource::Kb) && !v.values.is_empty() { kb_values += 1; }
-                        if v.optional { optional_var += 1; }
+                        if matches!(v.r#type, VarType::Numeric)
+                            && v.min.is_some()
+                            && v.max.is_some()
+                        {
+                            numeric_bounds += 1;
+                        }
+                        if matches!(v.source, VarSource::Kb) && !v.values.is_empty() {
+                            kb_values += 1;
+                        }
+                        if v.optional {
+                            optional_var += 1;
+                        }
                     }
                     CommandToken::Pipe(p) => {
                         pipe_filters += p.filters.len();
-                        if p.optional { optional_pipe += 1; }
+                        if p.optional {
+                            optional_pipe += 1;
+                        }
                     }
                 }
             }
@@ -361,31 +490,53 @@ mod contract {
         assert!(choice_optional >= 1, "need an optional choice");
         assert!(choice_repeatable >= 1, "need a repeatable choice");
         assert!(choice_descriptions >= 1, "need a choice with descriptions");
-        assert!(var_types.iter().all(|&n| n >= 1), "need all four var types: {:?}", var_types);
-        assert!(var_sources.iter().all(|&n| n >= 1), "need none/device/kb var sources: {:?}", var_sources);
+        assert!(
+            var_types.iter().all(|&n| n >= 1),
+            "need all four var types: {:?}",
+            var_types
+        );
+        assert!(
+            var_sources.iter().all(|&n| n >= 1),
+            "need none/device/kb var sources: {:?}",
+            var_sources
+        );
         assert!(numeric_bounds >= 1, "need a numeric var with min+max");
         assert!(kb_values >= 1, "need a kb-source var with values");
         assert!(optional_var >= 1, "need an optional var");
         assert!(pipe_filters >= 1, "need pipe filters");
         assert!(optional_pipe >= 1, "need an optional pipe");
-        assert!(orders.iter().all(|&n| n >= 1), "need all three order modes: {:?}", orders);
+        assert!(
+            orders.iter().all(|&n| n >= 1),
+            "need all three order modes: {:?}",
+            orders
+        );
     }
 
     #[test]
     fn contract_llm_shape_round_trip() {
         let fixture = load_fixture();
-        let expected = fixture["expected_ipc_json"].as_array().expect("fixture has expected_ipc_json array").clone();
+        let expected = fixture["expected_ipc_json"]
+            .as_array()
+            .expect("fixture has expected_ipc_json array")
+            .clone();
 
         // LLM import parse path: ExtractionResult must accept the same token shapes.
-        serde_json::from_value::<crate::llm::ExtractionResult>(serde_json::json!({ "commands": expected }))
-            .expect("LLM import shape must accept fixture commands");
+        serde_json::from_value::<crate::llm::ExtractionResult>(
+            serde_json::json!({ "commands": expected }),
+        )
+        .expect("LLM import shape must accept fixture commands");
 
         // validate_command on the IPC-shape deserialization — zero issues for valid entries.
         let cmds: Vec<Command> = serde_json::from_value(fixture["expected_ipc_json"].clone())
             .expect("IPC JSON must deserialize to Command");
         for cmd in &cmds {
             let issues = validate_command(cmd);
-            assert!(issues.is_empty(), "fixture command '{}' must be validation-clean: {:?}", cmd.name, issues);
+            assert!(
+                issues.is_empty(),
+                "fixture command '{}' must be validation-clean: {:?}",
+                cmd.name,
+                issues
+            );
         }
     }
 
@@ -408,7 +559,9 @@ default_mode: default
             "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
         );
         let index: PlatformIndex = yaml_serde::from_str(&extended).unwrap();
-        assert_eq!(index.secret_prompt_patterns, Some(vec!["^Password:$".into()]));
+        assert_eq!(
+            index.secret_prompt_patterns,
+            Some(vec!["^Password:$".into()])
+        );
     }
-
 }

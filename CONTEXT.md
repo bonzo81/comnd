@@ -48,5 +48,7 @@ terms; keep them current as concepts crystallize.
 - **Test harness** — the single test-owned module that stands in for everything
   the app talks to — the Tauri IPC seam, shared wire fixtures, and DOM
   scaffolding — behind one narrow interface (`tests/harness.ts`,
-  `docs/plans/plan-test-harness.md`). Strict by default: an unmocked IPC
-  command throws. Not "test utils", "testkit", or a "fake backend".
+  `docs/plans/054-plan-test-harness.md`). Its fixture factories are exported on
+  their own, so a test can take a `Command` or a `Host` without swapping the IPC
+  dispatcher. Strict by default: an unmocked IPC command throws. Not "test
+  utils", "testkit", or a "fake backend".
