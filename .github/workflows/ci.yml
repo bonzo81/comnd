@@ -144,9 +144,14 @@ jobs:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: cargo-llvm-cov-0.9.1-${{ runner.os }}-${{ runner.arch }}
 
+      # `swatinem/rust-cache` also caches `~/.cargo/bin`, so it can restore this
+      # binary while the dedicated cache above misses. A plain install then exits
+      # 101 with "binary already exists in destination", so `--force` makes the
+      # step idempotent; the version pin stays authoritative because a forced
+      # install replaces whatever binary the file cache restored.
       - name: install cargo-llvm-cov
         if: matrix.platform == 'ubuntu-22.04' && steps.llvm-cov-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-llvm-cov --version 0.9.1 --locked
+        run: cargo install cargo-llvm-cov --version 0.9.1 --locked --force
 
       - name: rust test coverage (llvm-cov)
         if: matrix.platform == 'ubuntu-22.04'
