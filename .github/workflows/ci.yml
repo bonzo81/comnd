@@ -188,9 +188,14 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # The two smoke jobs build the same debug target from the same lockfile,
+      # so one shared cache covers both. Two identical caches spent most of the
+      # repository cache budget and were evicted: on this branch the cache was
+      # missing twice, and every dependency was rebuilt (~2 min each time).
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          shared-key: smoke
 
       - name: install Linux and WebDriver dependencies
         run: |
@@ -246,9 +251,14 @@ jobs:
       - name: install the pinned Rust toolchain
         run: rustup toolchain install
 
+      # The two smoke jobs build the same debug target from the same lockfile,
+      # so one shared cache covers both. Two identical caches spent most of the
+      # repository cache budget and were evicted: on this branch the cache was
+      # missing twice, and every dependency was rebuilt (~2 min each time).
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          shared-key: smoke
 
       - name: install Linux and WebDriver dependencies
         run: |

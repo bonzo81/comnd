@@ -72,6 +72,33 @@ New `smoke` job in `.github/workflows/ci.yml`:
 
 Needs a passing run recorded before the task is done.
 
+## Amendments to CI placement
+
+Amended 2026-11-22, after measuring a 25-minute job:
+
+- **Linux steps that launch the app need a D-Bus session.** With no session bus,
+  WebKitGTK spends about 30 seconds retrying its sandbox setup before every window
+  is ready. The app logs its own first line within a second, so the cost is invisible
+  unless the runner times the WebDriver session (the suite now prints `driver`,
+  `session`, `run`, `stop`, `close` and `kill` per scenario). CI runs the smoke steps
+  under `dbus-run-session`; that alone moved session creation from 30.5s to 0.4s.
+- **One build, then reuse it.** Seven separate mutation invocations recompiled the
+  crate under `tauri build` (~20s each) to drive a single scenario. One
+  `--mutation=all` process, started with `--no-build` on the second CI step, proves
+  every category after the build the step above it made.
+- **Scenarios are independent, so run them in a pool.** `--jobs=N` runs N at once.
+  Two things must stay per scenario: the native WebDriver port (`--native-port`),
+  because the platform default is shared and parallel drivers invalidate each
+  other's sessions, and on Linux the Xvfb display, because two windows on one
+  display cannot both hold keyboard focus, which is what the focus-ring assertions
+  check. Each job's step log carries per-step times, and each PASS line carries the
+  phase breakdown, so the next regression is measurable rather than guessed.
+
+Measured on the same job definitions: the `smoke` job went from 25.2 to 3.0 minutes
+(the suite from 952s to 48s, the mutation checks from 489s to 39s) and `smoke-netbox`
+from 5.8 to 2.0 minutes.
+
+
 ## Verification gates
 
 - `npm run build`
