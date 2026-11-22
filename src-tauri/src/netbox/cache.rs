@@ -70,11 +70,10 @@ impl NetBoxCacheStore {
         if let Some(ref path) = self.cache_path {
             let json = serde_json::to_string_pretty(&self.cache)
                 .map_err(|e| format!("Failed to serialize netbox cache: {}", e))?;
-            crate::paths::secure_write(path, json.as_bytes())
-                .map_err(|e| {
-                    log::error!("Failed to write netbox cache to {}: {}", path.display(), e);
-                    format!("Failed to write netbox cache: {}", e)
-                })?;
+            crate::paths::secure_write(path, json.as_bytes()).map_err(|e| {
+                log::error!("Failed to write netbox cache to {}: {}", path.display(), e);
+                format!("Failed to write netbox cache: {}", e)
+            })?;
         }
         Ok(())
     }

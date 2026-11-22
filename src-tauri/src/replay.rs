@@ -5,9 +5,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::paths::{app_data_dir, secure_write};
 use crate::platform::PlatformRegistry;
 use crate::state::AppState;
-use crate::paths::{app_data_dir, secure_write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayVariable {
@@ -160,27 +160,42 @@ mod tests {
     fn test_validate_rejects() {
         let mut c = sample();
         c.command = "  ".to_string();
-        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "empty command rejected");
+        assert!(
+            validate(&c, &PlatformRegistry::builtin()).is_err(),
+            "empty command rejected"
+        );
 
         let mut c = sample();
         c.platform = "not-a-platform".to_string();
-        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "bad platform rejected");
+        assert!(
+            validate(&c, &PlatformRegistry::builtin()).is_err(),
+            "bad platform rejected"
+        );
 
         let mut c = sample();
         c.variables.push(ReplayVariable {
             name: "interface".to_string(),
         });
-        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "duplicate names rejected");
+        assert!(
+            validate(&c, &PlatformRegistry::builtin()).is_err(),
+            "duplicate names rejected"
+        );
 
         let mut c = sample();
         c.variables.clear();
-        assert!(validate(&c, &PlatformRegistry::builtin()).is_ok(), "no variables is fine");
+        assert!(
+            validate(&c, &PlatformRegistry::builtin()).is_ok(),
+            "no variables is fine"
+        );
 
         let mut c = sample();
         c.variables.push(ReplayVariable {
             name: "ghost".to_string(),
         });
-        assert!(validate(&c, &PlatformRegistry::builtin()).is_err(), "declared var missing from template rejected");
+        assert!(
+            validate(&c, &PlatformRegistry::builtin()).is_err(),
+            "declared var missing from template rejected"
+        );
     }
 
     #[test]
@@ -280,7 +295,10 @@ mod tests {
         let stored = load_at(&path);
         assert_eq!(stored.len(), 1);
         assert!(!stored[0].id.is_empty(), "new entry gets an id");
-        assert!(!stored[0].created_at.is_empty(), "new entry gets created_at");
+        assert!(
+            !stored[0].created_at.is_empty(),
+            "new entry gets created_at"
+        );
         assert_eq!(stored[0].command, c.command);
         assert_eq!(stored[0].platform, "cisco-iosxe");
 

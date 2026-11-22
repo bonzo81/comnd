@@ -57,7 +57,9 @@ pub async fn connect_agent() -> Result<DynAgent, String> {
 /// `Err` carries a human-readable "no agent" reason for the UI.
 pub async fn list_identities() -> Result<Vec<AgentIdentity>, String> {
     let client = connect_agent().await?;
-    identities(client).await.map_err(|e| format!("No SSH agent detected — no identities from agent: {e}"))
+    identities(client)
+        .await
+        .map_err(|e| format!("No SSH agent detected — no identities from agent: {e}"))
 }
 
 async fn identities(mut client: DynAgent) -> Result<Vec<AgentIdentity>, String> {

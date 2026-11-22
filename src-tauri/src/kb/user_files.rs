@@ -26,7 +26,10 @@ fn read_name_list(platform_dir: &Path, filename: &str, key: &str) -> HashSet<Str
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Ok(value) = yaml_serde::from_str::<yaml_serde::Value>(&content) {
                 if let Some(yaml_serde::Value::Sequence(seq)) = value.get(key) {
-                    return seq.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                    return seq
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
                 }
             }
         }
@@ -101,7 +104,8 @@ pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String>
 fn valid_kb_slug(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// Get the target YAML file path for commands.
@@ -109,14 +113,21 @@ fn valid_kb_slug(s: &str) -> bool {
 /// Invariant: this always resolves inside the user (custom) KB path. LLM
 /// import writes ONLY to the custom (user) KB — never the bundled KB; see
 /// docs/specs/10-custom-knowledge-base.md.
-pub(crate) fn get_target_yaml_path(user_kb_path: &Path, platform: &str, category: &str) -> Result<PathBuf, String> {
+pub(crate) fn get_target_yaml_path(
+    user_kb_path: &Path,
+    platform: &str,
+    category: &str,
+) -> Result<PathBuf, String> {
     if !valid_kb_slug(platform) {
         return Err(format!("Invalid platform id '{}'", platform));
     }
     if !valid_kb_slug(category) {
         return Err(format!("Invalid category id '{}'", category));
     }
-    Ok(user_kb_path.join(platform).join("commands").join(format!("{}.yaml", category)))
+    Ok(user_kb_path
+        .join(platform)
+        .join("commands")
+        .join(format!("{}.yaml", category)))
 }
 
 /// Write commands to a YAML file, merging with existing content if the file already exists.
@@ -126,19 +137,29 @@ pub(crate) fn write_commands_to_yaml(commands: &[Command], path: &Path) -> Resul
     // Load existing commands if file exists
     if path.exists() {
         match std::fs::read_to_string(path) {
-            Ok(content) => {
-                match yaml_serde::from_str::<CommandFile>(&content) {
-                    Ok(file) => {
-                        existing_commands = file.commands;
-                        log::info!("Loaded {} existing commands from {}", existing_commands.len(), path.display());
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse existing YAML at {}, will overwrite: {}", path.display(), e);
-                    }
+            Ok(content) => match yaml_serde::from_str::<CommandFile>(&content) {
+                Ok(file) => {
+                    existing_commands = file.commands;
+                    log::info!(
+                        "Loaded {} existing commands from {}",
+                        existing_commands.len(),
+                        path.display()
+                    );
                 }
-            }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to parse existing YAML at {}, will overwrite: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            },
             Err(e) => {
-                log::warn!("Failed to read existing file at {}, will create new: {}", path.display(), e);
+                log::warn!(
+                    "Failed to read existing file at {}, will create new: {}",
+                    path.display(),
+                    e
+                );
             }
         }
     }
@@ -192,7 +213,13 @@ pub(crate) fn write_commands_to_yaml(commands: &[Command], path: &Path) -> Resul
     // Sort alphabetically
     merged.sort_by(|a, b| a.name.cmp(&b.name));
 
-    log::info!("KB merge: {} added, {} updated, {} total commands in {}", added, updated, merged.len(), path.display());
+    log::info!(
+        "KB merge: {} added, {} updated, {} total commands in {}",
+        added,
+        updated,
+        merged.len(),
+        path.display()
+    );
 
     let yaml_content = serialize_commands(&merged)?;
 
@@ -230,7 +257,11 @@ pub(super) fn upsert_command(
     let mut names = read_deleted_list(&platform_dir);
     if names.remove(&command.name) {
         write_deleted_list(&deleted_path, &names)?;
-        log::info!("Removed '{}' from deleted list in {}", command.name, deleted_path.display());
+        log::info!(
+            "Removed '{}' from deleted list in {}",
+            command.name,
+            deleted_path.display()
+        );
     }
 
     log::info!("Saved command '{}' to {}", command.name, path.display());
@@ -347,7 +378,11 @@ pub(super) fn mark_disabled(
     let mut names = read_disabled_list(&platform_dir);
     if names.insert(command_name.to_string()) {
         write_disabled_list(&disabled_path, &names)?;
-        log::info!("Disabled command '{}' (recorded in {})", command_name, disabled_path.display());
+        log::info!(
+            "Disabled command '{}' (recorded in {})",
+            command_name,
+            disabled_path.display()
+        );
     }
     Ok(())
 }
@@ -386,8 +421,8 @@ mod tests {
     use super::*;
 
     use crate::kb::schema::{
-        CommandExample, CommandToken, CommandVersions, PipeFilter, PipeToken, VarSource,
-        VarToken, VarType,
+        CommandExample, CommandToken, CommandVersions, PipeFilter, PipeToken, VarSource, VarToken,
+        VarType,
     };
     use crate::kb::test_util::*;
 
@@ -395,7 +430,10 @@ mod tests {
     fn test_get_target_yaml_path() {
         let kb_path = PathBuf::from("/data/kb");
         let path = get_target_yaml_path(&kb_path, "cisco-iosxe", "networking").unwrap();
-        assert_eq!(path, PathBuf::from("/data/kb/cisco-iosxe/commands/networking.yaml"));
+        assert_eq!(
+            path,
+            PathBuf::from("/data/kb/cisco-iosxe/commands/networking.yaml")
+        );
     }
 
     #[test]
@@ -429,7 +467,10 @@ mod tests {
             versions: CommandVersions::default(),
             tags: vec!["test".to_string()],
             tokens: vec![
-                CommandToken::Lit { lit: "round-trip".to_string(), optional: false },
+                CommandToken::Lit {
+                    lit: "round-trip".to_string(),
+                    optional: false,
+                },
                 CommandToken::Var(VarToken {
                     var: "n".to_string(),
                     description: Some("a number".to_string()),
@@ -444,7 +485,9 @@ mod tests {
                     choice: vec!["opt".to_string()],
                     optional: true,
                     repeatable: false,
-                    descriptions: [("opt".to_string(), "optional flag".to_string())].into_iter().collect(),
+                    descriptions: [("opt".to_string(), "optional flag".to_string())]
+                        .into_iter()
+                        .collect(),
                 },
                 CommandToken::Pipe(PipeToken {
                     pipe: true,
@@ -549,9 +592,10 @@ mod tests {
             examples: vec![],
             versions: CommandVersions::default(),
             tags: vec![],
-            tokens: vec![
-                CommandToken::Lit { lit: "show ip route".to_string(), optional: false },
-            ],
+            tokens: vec![CommandToken::Lit {
+                lit: "show ip route".to_string(),
+                optional: false,
+            }],
             order: CommandOrder::Free,
             negatable: true,
             source: None,
@@ -564,8 +608,16 @@ mod tests {
         let file: CommandFile = yaml_serde::from_str(&content).unwrap();
         assert_eq!(file.commands.len(), 1);
         let merged = &file.commands[0];
-        assert_eq!(merged.tokens.len(), 1, "tokens should be upgraded, got {:?}", merged.tokens);
-        assert!(matches!(merged.order, CommandOrder::Free), "order should be upgraded");
+        assert_eq!(
+            merged.tokens.len(),
+            1,
+            "tokens should be upgraded, got {:?}",
+            merged.tokens
+        );
+        assert!(
+            matches!(merged.order, CommandOrder::Free),
+            "order should be upgraded"
+        );
         assert!(merged.negatable, "negatable should be upgraded");
         // Existing description preserved (the new one was empty).
         assert_eq!(merged.description, "old");
@@ -585,13 +637,24 @@ mod tests {
         bundled.merge_from(user);
 
         let yaml = serialize_commands(&bundled.commands).unwrap();
-        assert!(!yaml.contains("source:"), "source leaked into YAML: {}", yaml);
-        assert!(!yaml.contains("overrides:"), "overrides leaked into YAML: {}", yaml);
+        assert!(
+            !yaml.contains("source:"),
+            "source leaked into YAML: {}",
+            yaml
+        );
+        assert!(
+            !yaml.contains("overrides:"),
+            "overrides leaked into YAML: {}",
+            yaml
+        );
 
         // Reload from the YAML — commands load cleanly with no provenance.
         let file: CommandFile = yaml_serde::from_str(&yaml).unwrap();
         assert_eq!(file.commands.len(), 2);
-        assert!(file.commands.iter().all(|c| c.source.is_none() && !c.overrides));
+        assert!(file
+            .commands
+            .iter()
+            .all(|c| c.source.is_none() && !c.overrides));
     }
 
     // ─── Delete / disable / enable (docs/plans/plan-kb-ignore-disable.md) ──────
@@ -611,9 +674,14 @@ mod tests {
         remove_command(&user, "test-plat", "test", "show version", true).unwrap();
 
         // Bundled copy reappears with no provenance; no tombstone left behind.
-        let post = loaded_cmd(&bundled, &user, "show version").expect("bundled command must reappear");
+        let post =
+            loaded_cmd(&bundled, &user, "show version").expect("bundled command must reappear");
         assert!(!post.overrides);
-        assert!(post.source.is_none(), "must be the bundled copy, got {:?}", post.source);
+        assert!(
+            post.source.is_none(),
+            "must be the bundled copy, got {:?}",
+            post.source
+        );
         assert!(!read_deleted_list(&user.join("test-plat")).contains("show version"));
 
         drop_fixture(&bundled);

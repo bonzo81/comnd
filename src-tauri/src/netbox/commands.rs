@@ -82,7 +82,10 @@ pub async fn netbox_save_config(
 #[tauri::command]
 pub async fn netbox_save_token(token: Option<String>) -> Result<(), String> {
     save_optional_secret(TOKEN_KEY, token.clone())?;
-    log::info!("NetBox API token {}", if token.is_some() { "saved" } else { "cleared" });
+    log::info!(
+        "NetBox API token {}",
+        if token.is_some() { "saved" } else { "cleared" }
+    );
     Ok(())
 }
 
@@ -107,9 +110,7 @@ pub async fn netbox_test_connection(
 }
 
 #[tauri::command]
-pub async fn netbox_sync(
-    state: tauri::State<'_, AppState>,
-) -> Result<SyncReport, String> {
+pub async fn netbox_sync(state: tauri::State<'_, AppState>) -> Result<SyncReport, String> {
     let config = {
         let store = state.config.lock().map_err(|e| e.to_string())?;
         NetBoxConfig::from_json(store.host_source_config("netbox"))
@@ -236,7 +237,11 @@ pub async fn netbox_get_status(
         let store = state.config.lock().map_err(|e| e.to_string())?;
         let enabled = store.host_source_enabled("netbox");
         let netbox = state.netbox.lock().map_err(|e| e.to_string())?;
-        (enabled, netbox.get().last_synced.clone(), netbox.get().devices.len())
+        (
+            enabled,
+            netbox.get().last_synced.clone(),
+            netbox.get().devices.len(),
+        )
     };
     let has_token = credentials::get_secret(TOKEN_KEY)?.is_some();
     let has_default_pw = credentials::get_secret(DEFAULT_PW_KEY)?.is_some();
@@ -248,4 +253,3 @@ pub async fn netbox_get_status(
         "device_count": device_count,
     }))
 }
-

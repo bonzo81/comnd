@@ -22,7 +22,11 @@ pub enum CredentialSource {
     Agent { identity: Option<String> },
     /// Secret-manager item. `provider` = provider id (e.g. "proton"),
     /// `reference` = item reference pasted by the user, `label` = cached display name.
-    SecretRef { provider: String, reference: String, label: Option<String> },
+    SecretRef {
+        provider: String,
+        reference: String,
+        label: Option<String>,
+    },
 }
 
 /// How agent publickey auth should offer identities.
@@ -67,7 +71,11 @@ pub async fn resolve(
         }),
         CredentialSource::SshKey { key_path } => Ok(ResolvedCredentials {
             password: None,
-            key_path: if key_path.is_empty() { None } else { Some(key_path.clone()) },
+            key_path: if key_path.is_empty() {
+                None
+            } else {
+                Some(key_path.clone())
+            },
             agent: AgentAuth::Off,
         }),
         CredentialSource::Agent { identity } => Ok(ResolvedCredentials {
@@ -78,15 +86,17 @@ pub async fn resolve(
                 _ => AgentAuth::All,
             },
         }),
-        CredentialSource::SecretRef { provider, reference, .. } => {
-            let p = registry
-                .get(provider)
-                .ok_or_else(|| {
-                    format!(
-                        "Provider '{}' is not enabled — enable it in Settings → Auth Integrations",
-                        provider
-                    )
-                })?;
+        CredentialSource::SecretRef {
+            provider,
+            reference,
+            ..
+        } => {
+            let p = registry.get(provider).ok_or_else(|| {
+                format!(
+                    "Provider '{}' is not enabled — enable it in Settings → Auth Integrations",
+                    provider
+                )
+            })?;
             match p.resolve(reference).await {
                 Ok(secret) => Ok(ResolvedCredentials {
                     password: Some(secret),
@@ -143,7 +153,9 @@ fn netbox_test_store(
     }
     static STORE: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> =
         std::sync::Mutex::new(None);
-    let mut store = STORE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut store = STORE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if store.is_none() {
         let mut secrets = std::collections::HashMap::new();
         if let Some(token) = test_mock_netbox_token() {
@@ -215,11 +227,13 @@ pub fn get_secret(key: &str) -> Result<Option<String>, String> {
     match keyring::Entry::new("comnd", key).and_then(|e| e.get_password()) {
         Ok(pw) => Ok(Some(pw)),
         Err(keyring::Error::NoEntry) => match legacy_key(key) {
-            Some(legacy) => match keyring::Entry::new("comnd", legacy).and_then(|e| e.get_password()) {
-                Ok(pw) => Ok(Some(pw)),
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(e) => Err(e.to_string()),
-            },
+            Some(legacy) => {
+                match keyring::Entry::new("comnd", legacy).and_then(|e| e.get_password()) {
+                    Ok(pw) => Ok(Some(pw)),
+                    Err(keyring::Error::NoEntry) => Ok(None),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
             None => Ok(None),
         },
         Err(e) => Err(e.to_string()),
@@ -246,7 +260,11 @@ fn delete_entry(key: &str) -> Result<(), String> {
         .and_then(|e| e.delete_credential())
         .or_else(|e| {
             // Deleting a non-existent entry is not an error.
-            if matches!(e, keyring::Error::NoEntry) { Ok(()) } else { Err(e) }
+            if matches!(e, keyring::Error::NoEntry) {
+                Ok(())
+            } else {
+                Err(e)
+            }
         })
         .map_err(|e| e.to_string())
 }
@@ -298,7 +316,9 @@ pub(crate) fn keychain_available_or_skip(test: &str) -> bool {
         Ok(()) => true,
         Err(e) => {
             println!("SKIP {test}: OS keychain unavailable ({e})");
-            println!("::warning title=Keychain test skipped::{test}: OS keychain unavailable ({e})");
+            println!(
+                "::warning title=Keychain test skipped::{test}: OS keychain unavailable ({e})"
+            );
             false
         }
     }
@@ -313,12 +333,27 @@ mod tests {
         let with_label = r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":"Lab Router"}"#;
         assert_eq!(
             serde_json::from_str::<CredentialSource>(with_label).unwrap(),
-            CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: Some("Lab Router".into()) }
+            CredentialSource::SecretRef {
+                provider: "proton".into(),
+                reference: "abc123".into(),
+                label: Some("Lab Router".into())
+            }
         );
-        let json = serde_json::to_string(&CredentialSource::SecretRef { provider: "proton".into(), reference: "abc123".into(), label: None }).unwrap();
-        assert_eq!(json, r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":null}"#);
+        let json = serde_json::to_string(&CredentialSource::SecretRef {
+            provider: "proton".into(),
+            reference: "abc123".into(),
+            label: None,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"secret_ref","provider":"proton","reference":"abc123","label":null}"#
+        );
         // Old files without the variant still parse
-        assert_eq!(serde_json::from_str::<CredentialSource>(r#"{"type":"password"}"#).unwrap(), CredentialSource::Password);
+        assert_eq!(
+            serde_json::from_str::<CredentialSource>(r#"{"type":"password"}"#).unwrap(),
+            CredentialSource::Password
+        );
     }
 
     #[test]
@@ -355,7 +390,9 @@ mod tests {
         // every write; that cleanup must not need a keychain either.
         save_secret(crate::netbox::DEFAULT_PW_KEY, "ignored").unwrap();
         assert_eq!(
-            get_secret(crate::netbox::DEFAULT_PW_KEY).unwrap().as_deref(),
+            get_secret(crate::netbox::DEFAULT_PW_KEY)
+                .unwrap()
+                .as_deref(),
             Some("ignored")
         );
         delete_secret(crate::netbox::DEFAULT_PW_KEY).unwrap();
@@ -375,7 +412,9 @@ mod tests {
     async fn test_resolve_ssh_key() {
         let registry = empty_registry();
         let creds = resolve(
-            &CredentialSource::SshKey { key_path: "~/.ssh/id_rsa".into() },
+            &CredentialSource::SshKey {
+                key_path: "~/.ssh/id_rsa".into(),
+            },
             "host:h1",
             &registry,
         )
@@ -386,9 +425,15 @@ mod tests {
         assert_eq!(creds.agent, AgentAuth::Off);
 
         // Empty key path → no key auth
-        let creds = resolve(&CredentialSource::SshKey { key_path: String::new() }, "host:h1", &registry)
-            .await
-            .unwrap();
+        let creds = resolve(
+            &CredentialSource::SshKey {
+                key_path: String::new(),
+            },
+            "host:h1",
+            &registry,
+        )
+        .await
+        .unwrap();
         assert_eq!(creds.key_path, None);
     }
 
@@ -396,13 +441,19 @@ mod tests {
     async fn test_resolve_agent() {
         let registry = empty_registry();
         // No identity → offer all
-        let creds = resolve(&CredentialSource::Agent { identity: None }, "host:h1", &registry)
-            .await
-            .unwrap();
+        let creds = resolve(
+            &CredentialSource::Agent { identity: None },
+            "host:h1",
+            &registry,
+        )
+        .await
+        .unwrap();
         assert_eq!(creds.agent, AgentAuth::All);
         // Empty identity → offer all
         let creds = resolve(
-            &CredentialSource::Agent { identity: Some(String::new()) },
+            &CredentialSource::Agent {
+                identity: Some(String::new()),
+            },
             "host:h1",
             &registry,
         )
@@ -411,7 +462,9 @@ mod tests {
         assert_eq!(creds.agent, AgentAuth::All);
         // Fingerprint → only that identity
         let creds = resolve(
-            &CredentialSource::Agent { identity: Some("SHA256:abc".into()) },
+            &CredentialSource::Agent {
+                identity: Some("SHA256:abc".into()),
+            },
             "host:h1",
             &registry,
         )
@@ -426,7 +479,11 @@ mod tests {
     async fn test_resolve_secret_ref_disabled_provider() {
         let registry = empty_registry();
         let err = resolve(
-            &CredentialSource::SecretRef { provider: "proton".into(), reference: "ref".into(), label: None },
+            &CredentialSource::SecretRef {
+                provider: "proton".into(),
+                reference: "ref".into(),
+                label: None,
+            },
             "host:h1",
             &registry,
         )
@@ -438,14 +495,18 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_password_reads_keyring() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if !crate::credentials::keychain_available_or_skip("credentials::test_resolve_password_reads_keyring") {
+        if !crate::credentials::keychain_available_or_skip(
+            "credentials::test_resolve_password_reads_keyring",
+        ) {
             return;
         }
         let key = host_key(&format!("comnd_cred_test_{}", uuid::Uuid::new_v4()));
         save_secret(&key, "pw-123").unwrap();
 
         let registry = empty_registry();
-        let creds = resolve(&CredentialSource::Password, &key, &registry).await.unwrap();
+        let creds = resolve(&CredentialSource::Password, &key, &registry)
+            .await
+            .unwrap();
         // Windows Credential Manager has a session-scoping quirk where a
         // credential written by one Entry instance may not be visible from a
         // subsequent Entry instance in the same process (see config.rs
@@ -459,7 +520,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_secret_falls_back_to_legacy_bare_id() {
-        if !crate::credentials::keychain_available_or_skip("credentials::test_get_secret_falls_back_to_legacy_bare_id") {
+        if !crate::credentials::keychain_available_or_skip(
+            "credentials::test_get_secret_falls_back_to_legacy_bare_id",
+        ) {
             return;
         }
         let id = format!("comnd_legacy_{}", uuid::Uuid::new_v4());
@@ -470,7 +533,10 @@ mod tests {
         match get_secret(&host_key(&id)) {
             Ok(Some(pw)) if pw == "old-pw" => {}
             Ok(None) if cfg!(target_os = "windows") => {} // keychain quirk, see above
-            other => panic!("expected legacy fallback, got {:?}", other.map(|p| p.is_some())),
+            other => panic!(
+                "expected legacy fallback, got {:?}",
+                other.map(|p| p.is_some())
+            ),
         }
 
         let _ = delete_secret(&host_key(&id));

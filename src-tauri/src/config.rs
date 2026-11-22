@@ -3,10 +3,10 @@
 //! Config lives in the app data directory as `config.json`,
 //! alongside `hosts.json` and `credentials.json`.
 
+use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::Emitter;
-use crate::state::AppState;
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -25,7 +25,10 @@ pub struct AppConfig {
     /// to config.json.
     #[serde(skip)]
     pub llm_api_key: Option<String>,
-    #[serde(default = "default_llm_context_length", alias = "ollama_context_length")]
+    #[serde(
+        default = "default_llm_context_length",
+        alias = "ollama_context_length"
+    )]
     pub llm_context_length: u32,
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -203,7 +206,11 @@ pub fn save_llm_api_key(key: Option<String>) -> Result<(), String> {
             .and_then(|e| e.delete_credential())
             .or_else(|e| {
                 // Deleting a non-existent entry is not an error.
-                if matches!(e, keyring::Error::NoEntry) { Ok(()) } else { Err(e) }
+                if matches!(e, keyring::Error::NoEntry) {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
             })
             .map_err(|e| e.to_string()),
     }
@@ -231,7 +238,11 @@ pub fn save_provider_secret(id: &str, secret: Option<String>) -> Result<(), Stri
             .delete_credential()
             .or_else(|e| {
                 // Deleting a non-existent entry is not an error.
-                if matches!(e, keyring::Error::NoEntry) { Ok(()) } else { Err(e) }
+                if matches!(e, keyring::Error::NoEntry) {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
             })
             .map_err(|e| e.to_string()),
     }
@@ -378,7 +389,10 @@ impl ConfigStore {
     /// on purpose: the geometry worker, the dock write and the width write run
     /// independently, and replacing the whole panel would let whichever lands
     /// last resurrect the others' previous values.
-    pub fn save_panel_geometry(&mut self, window: Option<PanelWindowGeometry>) -> Result<(), String> {
+    pub fn save_panel_geometry(
+        &mut self,
+        window: Option<PanelWindowGeometry>,
+    ) -> Result<(), String> {
         self.apply_and_persist(|config| config.panel.window = window)
     }
 
@@ -393,7 +407,8 @@ impl ConfigStore {
     }
 
     /// Update session logging enabled/disabled and persist.
-    pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {        self.apply_and_persist(|config| config.session_logging = enabled)
+    pub fn save_session_logging(&mut self, enabled: bool) -> Result<(), String> {
+        self.apply_and_persist(|config| config.session_logging = enabled)
     }
 
     /// Update session log timestamps enabled/disabled and persist.
@@ -426,7 +441,11 @@ impl ConfigStore {
     }
 
     /// Replace a provider's non-secret config and persist.
-    pub fn save_provider_config(&mut self, id: String, value: serde_json::Value) -> Result<(), String> {
+    pub fn save_provider_config(
+        &mut self,
+        id: String,
+        value: serde_json::Value,
+    ) -> Result<(), String> {
         self.apply_and_persist(|config| {
             config.providers.insert(id, value);
         })
@@ -450,7 +469,11 @@ impl ConfigStore {
     }
 
     /// Replace a host source's non-secret config and persist.
-    pub fn save_host_source_config(&mut self, id: &str, value: serde_json::Value) -> Result<(), String> {
+    pub fn save_host_source_config(
+        &mut self,
+        id: &str,
+        value: serde_json::Value,
+    ) -> Result<(), String> {
         self.apply_and_persist(|config| {
             config.host_sources.insert(id.to_string(), value);
         })
@@ -522,7 +545,10 @@ fn migrate_plaintext_api_key(config_path: &std::path::Path) {
     if get_llm_api_key().ok().flatten().is_none() {
         match save_llm_api_key(Some(key.to_string())) {
             Ok(()) => log::info!("Migrated ollama_api_key from config.json to keychain"),
-            Err(e) => log::warn!("Failed to migrate ollama_api_key to keychain: {} (re-enter in Settings)", e),
+            Err(e) => log::warn!(
+                "Failed to migrate ollama_api_key to keychain: {} (re-enter in Settings)",
+                e
+            ),
         }
     }
 }
@@ -565,9 +591,7 @@ pub async fn save_llm_settings(
 }
 
 #[tauri::command]
-pub async fn get_log_level(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn get_log_level(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
     Ok(config.get().log_level.clone())
 }
@@ -612,13 +636,17 @@ pub async fn set_log_max_size(
 }
 
 #[tauri::command]
-pub async fn set_max_sessions(
-    max: u32,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_max_sessions(max: u32, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.save_max_sessions(max)?;
-    log::info!("Max sessions set to {}", if max == 0 { "unlimited".into() } else { max.to_string() });
+    log::info!(
+        "Max sessions set to {}",
+        if max == 0 {
+            "unlimited".into()
+        } else {
+            max.to_string()
+        }
+    );
     Ok(())
 }
 
@@ -682,9 +710,7 @@ pub async fn set_session_log_dir(
 }
 
 #[tauri::command]
-pub async fn get_log_status(
-    state: tauri::State<'_, AppState>,
-) -> Result<Option<String>, String> {
+pub async fn get_log_status(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
     let status = state.log_status.lock().map_err(|e| e.to_string())?;
     Ok(status.clone())
 }
@@ -704,7 +730,12 @@ pub async fn set_log_file_path(
 }
 
 #[tauri::command]
-pub async fn log_frontend(level: String, tag: String, msg: String, args: Option<String>) -> Result<(), String> {
+pub async fn log_frontend(
+    level: String,
+    tag: String,
+    msg: String,
+    args: Option<String>,
+) -> Result<(), String> {
     let line = match args.as_deref() {
         Some(a) if !a.is_empty() => format!("{} {}", msg, a),
         _ => msg.clone(),
@@ -754,16 +785,22 @@ mod tests {
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
 
-        store.save_duplicate_session_policy("allow".to_string()).unwrap();
+        store
+            .save_duplicate_session_policy("allow".to_string())
+            .unwrap();
         let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
         assert_eq!(fresh.get().duplicate_session_policy, "allow");
 
-        store.save_duplicate_session_policy("focus".to_string()).unwrap();
+        store
+            .save_duplicate_session_policy("focus".to_string())
+            .unwrap();
         let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
         assert_eq!(fresh.get().duplicate_session_policy, "focus");
 
         // Unknown values are rejected and leave the stored policy alone.
-        assert!(store.save_duplicate_session_policy("bogus".to_string()).is_err());
+        assert!(store
+            .save_duplicate_session_policy("bogus".to_string())
+            .is_err());
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert_eq!(fresh.get().duplicate_session_policy, "focus");
 
@@ -810,7 +847,10 @@ mod tests {
         custom.log_file_path = Some("/var/log/comnd/comnd.log".to_string());
         let json = serde_json::to_string(&custom).unwrap();
         let parsed: AppConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.log_file_path.as_deref(), Some("/var/log/comnd/comnd.log"));
+        assert_eq!(
+            parsed.log_file_path.as_deref(),
+            Some("/var/log/comnd/comnd.log")
+        );
     }
 
     #[test]
@@ -818,7 +858,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
-        store.save_log_file_path(Some("/var/log/comnd/comnd.log".to_string())).unwrap();
+        store
+            .save_log_file_path(Some("/var/log/comnd/comnd.log".to_string()))
+            .unwrap();
 
         let fresh = ConfigStore::new_with_path(config_path.clone()).unwrap();
         assert_eq!(
@@ -846,7 +888,8 @@ mod tests {
     #[test]
     fn test_save_and_get_llm_api_key() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if !crate::credentials::keychain_available_or_skip("config::test_save_and_get_llm_api_key") {
+        if !crate::credentials::keychain_available_or_skip("config::test_save_and_get_llm_api_key")
+        {
             return;
         }
         let test_key = "test-llm-key-123";
@@ -912,7 +955,10 @@ mod tests {
 
         assert_eq!(store.config.log_level, "info");
         assert_eq!(store.config.llm_base_url, "http://localhost:11434");
-        assert!(!config_path.exists(), "corrupt config should be moved aside");
+        assert!(
+            !config_path.exists(),
+            "corrupt config should be moved aside"
+        );
 
         let preserved: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
@@ -1057,7 +1103,9 @@ mod tests {
         );
 
         // Restore-all-defaults: an empty map replaces the overrides.
-        store.save_shortcuts(std::collections::HashMap::new()).unwrap();
+        store
+            .save_shortcuts(std::collections::HashMap::new())
+            .unwrap();
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert!(fresh.get().shortcuts.is_empty());
 
@@ -1078,7 +1126,9 @@ mod tests {
     #[test]
     fn test_save_and_get_provider_secret() {
         // Best-effort: skip when the OS keychain is unavailable (e.g. CI).
-        if !crate::credentials::keychain_available_or_skip("config::test_save_and_get_provider_secret") {
+        if !crate::credentials::keychain_available_or_skip(
+            "config::test_save_and_get_provider_secret",
+        ) {
             return;
         }
         let id = format!("test_{}", uuid::Uuid::new_v4());

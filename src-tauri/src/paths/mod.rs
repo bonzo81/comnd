@@ -95,7 +95,12 @@ pub fn migrate_data_dir(new_dir: &Path) {
         old_dir.display(),
         new_dir.display()
     );
-    for name in ["hosts.json", "groups.json", "config.json", "known_hosts.json"] {
+    for name in [
+        "hosts.json",
+        "groups.json",
+        "config.json",
+        "known_hosts.json",
+    ] {
         let src = old_dir.join(name);
         if src.exists() {
             if let Err(e) = std::fs::copy(&src, new_dir.join(name)) {
@@ -183,7 +188,8 @@ pub fn load_json_or_preserve<T: serde::de::DeserializeOwned + Default>(path: &Pa
         Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
             log::error!(
                 "Failed to parse {}. Preserving as .corrupt: {}",
-                path.display(), e
+                path.display(),
+                e
             );
             preserve_corrupt(path);
             T::default()
@@ -208,11 +214,11 @@ const BACKUP_ENTRIES: &[&str] = &[
 /// (ephemeral, potentially large, contains hostnames/usernames).
 pub fn export_data(dest: &Path) -> Result<(), String> {
     let data_dir = app_data_dir()?;
-    let file = std::fs::File::create(dest)
-        .map_err(|e| format!("Failed to create export file: {}", e))?;
+    let file =
+        std::fs::File::create(dest).map_err(|e| format!("Failed to create export file: {}", e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options: zip::write::SimpleFileOptions = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options: zip::write::SimpleFileOptions =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     for &name in BACKUP_ENTRIES {
         let path = data_dir.join(name);
@@ -309,7 +315,9 @@ pub fn scan_merge(src: &Path) -> Result<MergeScan, String> {
     let temp_dir = extract_zip_to_temp(src)?;
 
     // Validate: at least one expected file must be present.
-    let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
+    let has_valid = BACKUP_ENTRIES
+        .iter()
+        .any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Err("Import file does not contain any recognizable Comnd data files".to_string());
@@ -324,7 +332,12 @@ pub fn scan_merge(src: &Path) -> Result<MergeScan, String> {
         &temp_dir.join("hosts.json"),
         "hosts",
         |h| h.id.clone(),
-        |h| format!("{} ({}@{}:{})", h.display_name, h.username, h.hostname, h.port),
+        |h| {
+            format!(
+                "{} ({}@{}:{})",
+                h.display_name, h.username, h.hostname, h.port
+            )
+        },
         &mut conflicts,
     );
 
@@ -389,7 +402,10 @@ pub fn apply_merge(
     let data_dir = app_data_dir()?;
 
     // Back up current data first.
-    let backup_dir = data_dir.with_extension(format!("backup-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    let backup_dir = data_dir.with_extension(format!(
+        "backup-{}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%S")
+    ));
     ensure_data_dir(&backup_dir)?;
     for &name in BACKUP_ENTRIES {
         let current = data_dir.join(name);
@@ -502,18 +518,17 @@ fn copy_capped<R: std::io::Read, W: std::io::Write>(
         if *total > cap {
             return Err("Import file exceeds the 512 MB extraction limit".to_string());
         }
-        dest
-            .write_all(&buf[..n])
+        dest.write_all(&buf[..n])
             .map_err(|e| format!("Failed to extract zip entry: {}", e))?;
     }
 }
 
 /// Extract a zip to a temp dir and return the path. Shared by scan and apply.
 fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
-    let file = std::fs::File::open(src)
-        .map_err(|e| format!("Failed to open import file: {}", e))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip: {}", e))?;
+    let file =
+        std::fs::File::open(src).map_err(|e| format!("Failed to open import file: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip: {}", e))?;
 
     let temp_dir = std::env::temp_dir().join(format!(
         "comnd-import-{}",
@@ -522,7 +537,8 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
     ensure_data_dir(&temp_dir)?;
     let mut total: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
         let outpath = match entry.enclosed_name() {
             Some(p) => temp_dir.join(p),
@@ -533,12 +549,18 @@ fn extract_zip_to_temp(src: &Path) -> Result<PathBuf, String> {
                 .map_err(|e| format!("Failed to create dir {}: {}", outpath.display(), e))?;
         } else {
             if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent dir: {}: {}", parent.display(), e))?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!("Failed to create parent dir: {}: {}", parent.display(), e)
+                })?;
             }
             let mut outfile = std::fs::File::create(&outpath)
                 .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
-            if let Err(e) = copy_capped(&mut entry, &mut outfile, &mut total, MAX_IMPORT_UNCOMPRESSED) {
+            if let Err(e) = copy_capped(
+                &mut entry,
+                &mut outfile,
+                &mut total,
+                MAX_IMPORT_UNCOMPRESSED,
+            ) {
                 let _ = std::fs::remove_dir_all(&temp_dir);
                 return Err(e);
             }
@@ -722,7 +744,8 @@ fn scan_config_conflicts(
         return 0;
     }
 
-    let current: serde_json::Value = read_json_file(current_path).unwrap_or(serde_json::Value::Null);
+    let current: serde_json::Value =
+        read_json_file(current_path).unwrap_or(serde_json::Value::Null);
     let backup: serde_json::Value = read_json_file(backup_path).unwrap_or(serde_json::Value::Null);
 
     let empty = serde_json::Map::new();
@@ -758,7 +781,8 @@ fn merge_config(
         return Ok(());
     }
 
-    let mut current: serde_json::Value = read_json_file(current_path).unwrap_or(serde_json::Value::Null);
+    let mut current: serde_json::Value =
+        read_json_file(current_path).unwrap_or(serde_json::Value::Null);
     let backup: serde_json::Value = read_json_file(backup_path).unwrap_or(serde_json::Value::Null);
 
     if let (Some(current_obj), Some(backup_obj)) = (current.as_object_mut(), backup.as_object()) {
@@ -809,17 +833,21 @@ fn summarize_json(v: &serde_json::Value) -> String {
 /// in-memory state reloads from the new files.
 pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     let data_dir = app_data_dir()?;
-    let file = std::fs::File::open(src)
-        .map_err(|e| format!("Failed to open import file: {}", e))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip: {}", e))?;
+    let file =
+        std::fs::File::open(src).map_err(|e| format!("Failed to open import file: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip: {}", e))?;
 
     // Extract to a temp dir first — validate before replacing live data.
-    let temp_dir = std::env::temp_dir().join(format!("comnd-import-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "comnd-import-{}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%S")
+    ));
     ensure_data_dir(&temp_dir)?;
     let mut total: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
         let outpath = match entry.enclosed_name() {
             Some(p) => temp_dir.join(p),
@@ -830,12 +858,18 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
                 .map_err(|e| format!("Failed to create dir {}: {}", outpath.display(), e))?;
         } else {
             if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent dir: {}: {}", parent.display(), e))?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!("Failed to create parent dir: {}: {}", parent.display(), e)
+                })?;
             }
             let mut outfile = std::fs::File::create(&outpath)
                 .map_err(|e| format!("Failed to create {}: {}", outpath.display(), e))?;
-            if let Err(e) = copy_capped(&mut entry, &mut outfile, &mut total, MAX_IMPORT_UNCOMPRESSED) {
+            if let Err(e) = copy_capped(
+                &mut entry,
+                &mut outfile,
+                &mut total,
+                MAX_IMPORT_UNCOMPRESSED,
+            ) {
                 let _ = std::fs::remove_dir_all(&temp_dir);
                 return Err(e);
             }
@@ -843,7 +877,9 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     }
 
     // Validate: at least one expected file must be present.
-    let has_valid = BACKUP_ENTRIES.iter().any(|name| temp_dir.join(name).exists());
+    let has_valid = BACKUP_ENTRIES
+        .iter()
+        .any(|name| temp_dir.join(name).exists());
     if !has_valid {
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Err("Import file does not contain any recognizable Comnd data files".to_string());
@@ -853,7 +889,10 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
     // because the running app holds open handles (log file, config store)
     // — Windows blocks the rename with "Access is denied". Instead, copy
     // each backed-up entry to a sibling .backup-<ts> directory.
-    let backup_dir = data_dir.with_extension(format!("backup-{}", chrono::Utc::now().format("%Y%m%dT%H%M%S")));
+    let backup_dir = data_dir.with_extension(format!(
+        "backup-{}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%S")
+    ));
     ensure_data_dir(&backup_dir)?;
     for &name in BACKUP_ENTRIES {
         let current = data_dir.join(name);
@@ -935,7 +974,11 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
         let _ = std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700));
     }
 
-    log::info!("Imported app data from {} (backup at {})", src.display(), backup_dir.display());
+    log::info!(
+        "Imported app data from {} (backup at {})",
+        src.display(),
+        backup_dir.display()
+    );
     Ok(())
 }
 
@@ -943,7 +986,9 @@ pub fn import_data(src: &Path, mode: ImportMode) -> Result<(), String> {
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest)
         .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
-    for entry in std::fs::read_dir(src).map_err(|e| format!("Failed to read {}: {}", src.display(), e))? {
+    for entry in
+        std::fs::read_dir(src).map_err(|e| format!("Failed to read {}: {}", src.display(), e))?
+    {
         let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
         let src_path = entry.path();
         let dest_path = dest.join(entry.file_name());
@@ -1038,7 +1083,11 @@ mod tests {
         let preserved = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().starts_with("x.json.corrupt-"));
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("x.json.corrupt-")
+            });
         assert!(preserved, "expected a .corrupt-<ts> backup file");
 
         // clean roundtrip
@@ -1053,7 +1102,10 @@ mod tests {
     #[test]
     fn test_apply_merge_rejects_paths_outside_temp() {
         let res = apply_merge(std::path::Path::new("/"), &std::collections::HashMap::new());
-        assert!(res.is_err(), "apply_merge must reject staging dirs outside the OS temp dir");
+        assert!(
+            res.is_err(),
+            "apply_merge must reject staging dirs outside the OS temp dir"
+        );
     }
 
     #[test]
@@ -1068,9 +1120,13 @@ mod tests {
     fn test_bundled_kb_path_prefers_resource_dir_over_dev() {
         // The real repo KB (CARGO_MANIFEST_DIR/../knowledge-base) exists at test
         // time, so returning the temp resource_dir proves release is checked first.
-        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir =
+            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
-        assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
+        assert_eq!(
+            bundled_kb_path(&resource_dir),
+            resource_dir.join("knowledge-base")
+        );
         let _ = std::fs::remove_dir_all(&resource_dir);
     }
 
@@ -1080,7 +1136,8 @@ mod tests {
         // KB lands under resource_dir/_up_/knowledge-base. Only that layout exists
         // here (the dev fallback also exists at test time), so returning the _up_
         // path proves it is checked before the dev location.
-        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir =
+            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(
             bundled_kb_path(&resource_dir),
@@ -1093,10 +1150,14 @@ mod tests {
     fn test_bundled_kb_path_prefers_release_over_up_dir() {
         // Both layouts present (a rebuild that changed the form, or a partial
         // install): the canonical release path must win over the _up_ fallback.
-        let resource_dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir =
+            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
-        assert_eq!(bundled_kb_path(&resource_dir), resource_dir.join("knowledge-base"));
+        assert_eq!(
+            bundled_kb_path(&resource_dir),
+            resource_dir.join("knowledge-base")
+        );
         let _ = std::fs::remove_dir_all(&resource_dir);
     }
 
@@ -1116,11 +1177,23 @@ mod tests {
         std::fs::create_dir_all(&dst_dir).unwrap();
 
         let files = [
-            ("hosts.json", "{\"hosts\":[{\"id\":\"h1\",\"name\":\"router\"}]}"),
-            ("groups.json", "{\"groups\":[{\"id\":\"g1\",\"name\":\"core\"}]}"),
+            (
+                "hosts.json",
+                "{\"hosts\":[{\"id\":\"h1\",\"name\":\"router\"}]}",
+            ),
+            (
+                "groups.json",
+                "{\"groups\":[{\"id\":\"g1\",\"name\":\"core\"}]}",
+            ),
             ("config.json", "{\"theme\":\"dark\"}"),
-            ("known_hosts.json", "{\"hosts\":[{\"fingerprint\":\"SHA256:abc\"}]}"),
-            ("knowledge-base/linux-bash/net.yaml", "commands:\n  - show version\n"),
+            (
+                "known_hosts.json",
+                "{\"hosts\":[{\"fingerprint\":\"SHA256:abc\"}]}",
+            ),
+            (
+                "knowledge-base/linux-bash/net.yaml",
+                "commands:\n  - show version\n",
+            ),
         ];
         for (rel, body) in files {
             std::fs::write(src_dir.join(rel), body).unwrap();

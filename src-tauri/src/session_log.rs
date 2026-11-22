@@ -26,7 +26,12 @@ impl SessionLog {
     }
 
     /// Create a session log in a specific directory.
-    pub fn new_in(dir: &std::path::Path, host_key: &str, session_id: u64, timestamps: bool) -> Self {
+    pub fn new_in(
+        dir: &std::path::Path,
+        host_key: &str,
+        session_id: u64,
+        timestamps: bool,
+    ) -> Self {
         let host = sanitize_filename(host_key);
         let now = chrono::Utc::now();
         let ts = now.format("%Y%m%d-%H%M%S");
@@ -56,8 +61,12 @@ impl SessionLog {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(&self.file_path, std::fs::Permissions::from_mode(0o600));
-                        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+                        let _ = std::fs::set_permissions(
+                            &self.file_path,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
+                        let _ =
+                            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
                     }
                     let mut w = BufWriter::new(f);
                     use std::io::Write;
@@ -73,7 +82,11 @@ impl SessionLog {
                     self.writer = Some(w);
                 }
                 Err(e) => {
-                    log::warn!("session-log: failed to open file {}: {}", self.file_path.display(), e);
+                    log::warn!(
+                        "session-log: failed to open file {}: {}",
+                        self.file_path.display(),
+                        e
+                    );
                     return;
                 }
             }
@@ -88,7 +101,10 @@ impl SessionLog {
         if self.timestamps {
             // Skip leading newlines so the stamp lands on the first content
             // line, not orphaned on its own line (chunks often start with \r\n).
-            let lead = data.iter().take_while(|&&b| b == b'\r' || b == b'\n').count();
+            let lead = data
+                .iter()
+                .take_while(|&&b| b == b'\r' || b == b'\n')
+                .count();
             if lead < data.len() {
                 let _ = writer.write_all(&data[..lead]);
                 let stamp = format!("[{}] ", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
@@ -133,7 +149,8 @@ mod tests {
 
     #[test]
     fn test_write_and_read() {
-        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("comnd_session_log_test_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "test-host:22", 1, true);
@@ -152,7 +169,10 @@ mod tests {
 
     #[test]
     fn test_timestamp_not_orphaned_on_leading_newline() {
-        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_lead_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "comnd_session_log_test_lead_{}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "host:22", 3, true);
@@ -162,7 +182,10 @@ mod tests {
 
         let content = fs::read_to_string(log.path()).unwrap();
         // no "[HH:MM:SS] " immediately followed by a newline (the orphan bug)
-        assert!(!content.contains("] \r\n") && !content.contains("] \n"), "orphaned timestamp found:\n{content}");
+        assert!(
+            !content.contains("] \r\n") && !content.contains("] \n"),
+            "orphaned timestamp found:\n{content}"
+        );
         assert!(content.contains("line2"));
 
         let _ = fs::remove_dir_all(&dir);
@@ -170,7 +193,10 @@ mod tests {
 
     #[test]
     fn test_write_no_timestamps() {
-        let dir = std::env::temp_dir().join(format!("comnd_session_log_test_notime_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "comnd_session_log_test_notime_{}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).unwrap();
 
         let mut log = SessionLog::new_in(&dir, "host:22", 2, false);

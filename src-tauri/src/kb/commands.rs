@@ -139,8 +139,9 @@ pub(crate) async fn get_disabled_commands(
 /// present-but-malformed → Err so the caller can surface the exact failure.
 fn parse_tokens(tokens_json: Option<&str>) -> Result<Vec<CommandToken>, String> {
     match tokens_json {
-        Some(s) if !s.trim().is_empty() => serde_json::from_str(s)
-            .map_err(|e| format!("Invalid tokens JSON: {}", e)),
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(s).map_err(|e| format!("Invalid tokens JSON: {}", e))
+        }
         _ => Ok(Vec::new()),
     }
 }

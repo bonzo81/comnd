@@ -87,7 +87,9 @@ impl KbStore {
         let disabled_commands = read_disabled_list(&platform_dir);
 
         // Filter out deleted and disabled commands
-        commands.retain(|c| !deleted_commands.contains(&c.name) && !disabled_commands.contains(&c.name));
+        commands.retain(|c| {
+            !deleted_commands.contains(&c.name) && !disabled_commands.contains(&c.name)
+        });
 
         // Sort alphabetically by name
         commands.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -98,8 +100,18 @@ impl KbStore {
         let errors = issues.iter().filter(|i| i.severity == "error").count();
         let warnings = issues.len() - errors;
         for issue in &issues {
-            let level = if issue.severity == "error" { log::Level::Error } else { log::Level::Warn };
-            log::log!(level, "KB validation [{}] {}: {}", issue.severity, issue.command, issue.message);
+            let level = if issue.severity == "error" {
+                log::Level::Error
+            } else {
+                log::Level::Warn
+            };
+            log::log!(
+                level,
+                "KB validation [{}] {}: {}",
+                issue.severity,
+                issue.command,
+                issue.message
+            );
         }
         log::info!(
             "KB loaded platform '{}': {} commands ({} deleted, {} validation errors, {} warnings)",
@@ -133,7 +145,6 @@ impl KbStore {
         self.commands
             .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     }
-
 }
 
 // ─── Global KB Manager ─────────────────────────────────────────────
@@ -161,7 +172,9 @@ impl KbManager {
 
     /// The user KB path, or an error if not configured.
     fn user_path(&self) -> Result<&Path, String> {
-        self.user_kb_path.as_deref().ok_or_else(|| "No user KB path configured".to_string())
+        self.user_kb_path
+            .as_deref()
+            .ok_or_else(|| "No user KB path configured".to_string())
     }
 
     /// Get or load a platform's KB store.
@@ -264,7 +277,10 @@ impl KbManager {
     }
 
     /// Get a platform's index.
-    pub(crate) fn get_platform_index(&mut self, platform_id: &str) -> Result<PlatformIndex, String> {
+    pub(crate) fn get_platform_index(
+        &mut self,
+        platform_id: &str,
+    ) -> Result<PlatformIndex, String> {
         let store = self.get_or_load(platform_id)?;
         Ok(store.platform.clone())
     }
@@ -371,8 +387,16 @@ mod tests {
         let kb_path = get_kb_path();
         let store = KbStore::load("cisco-iosxe", &kb_path).unwrap();
         for cmd in &store.commands {
-            assert!(!cmd.name.contains("(OSPF)"), "found (OSPF) hack in '{}'", cmd.name);
-            assert!(!cmd.name.contains("(BGP)"), "found (BGP) hack in '{}'", cmd.name);
+            assert!(
+                !cmd.name.contains("(OSPF)"),
+                "found (OSPF) hack in '{}'",
+                cmd.name
+            );
+            assert!(
+                !cmd.name.contains("(BGP)"),
+                "found (BGP) hack in '{}'",
+                cmd.name
+            );
         }
     }
 
@@ -434,11 +458,19 @@ mod tests {
         let user = mk_test_store(vec![mk_full_cmd("my-command", "user only")]);
         bundled.merge_from(user);
         assert_eq!(bundled.commands.len(), 2);
-        let mine = bundled.commands.iter().find(|c| c.name == "my-command").unwrap();
+        let mine = bundled
+            .commands
+            .iter()
+            .find(|c| c.name == "my-command")
+            .unwrap();
         assert_eq!(mine.source.as_deref(), Some("custom"));
         assert!(!mine.overrides);
         // Bundled command untouched, no provenance.
-        let theirs = bundled.commands.iter().find(|c| c.name == "show version").unwrap();
+        let theirs = bundled
+            .commands
+            .iter()
+            .find(|c| c.name == "show version")
+            .unwrap();
         assert_eq!(theirs.source, None);
         assert!(!theirs.overrides);
     }
@@ -459,7 +491,9 @@ mod tests {
 
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
         assert_eq!(
-            mgr.get_platform_index("test-plat").unwrap().secret_prompt_patterns,
+            mgr.get_platform_index("test-plat")
+                .unwrap()
+                .secret_prompt_patterns,
             Some(vec!["^Password:$".into()]),
         );
         drop(mgr);
@@ -471,7 +505,9 @@ mod tests {
         std::fs::write(user.join("test-plat/index.yaml"), user_index).unwrap();
         let mut mgr = KbManager::with_user_path(bundled.clone(), user);
         assert_eq!(
-            mgr.get_platform_index("test-plat").unwrap().secret_prompt_patterns,
+            mgr.get_platform_index("test-plat")
+                .unwrap()
+                .secret_prompt_patterns,
             Some(vec![]),
         );
 
@@ -497,7 +533,8 @@ mod tests {
         std::fs::write(
             user.join("test-plat/_deleted.yaml"),
             "deleted:\n  - show version\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut mgr = KbManager::with_user_path(bundled, user);
         let store = mgr.get_or_load("test-plat").unwrap();
@@ -540,9 +577,15 @@ mod tests {
         let (bundled, user) = kb_fixture("mgr-del", &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
-        assert!(mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+        assert!(mgr
+            .get_or_load("test-plat")
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c.name == "show version"));
 
-        mgr.delete_user_command("test-plat", "test", "show version", false).unwrap();
+        mgr.delete_user_command("test-plat", "test", "show version", false)
+            .unwrap();
 
         let after = mgr.get_or_load("test-plat").unwrap();
         assert!(!after.commands.iter().any(|c| c.name == "show version"));
@@ -555,13 +598,20 @@ mod tests {
         let (bundled, user) = kb_fixture("mgr-dis", &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
-        assert!(mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+        assert!(mgr
+            .get_or_load("test-plat")
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c.name == "show version"));
 
         mgr.disable_command("test-plat", "show version").unwrap();
 
         let after = mgr.get_or_load("test-plat").unwrap();
         assert!(!after.commands.iter().any(|c| c.name == "show version"));
-        assert!(mgr.disabled_commands("test-plat").contains(&"show version".to_string()));
+        assert!(mgr
+            .disabled_commands("test-plat")
+            .contains(&"show version".to_string()));
 
         drop_fixture(&bundled);
     }
@@ -572,20 +622,28 @@ mod tests {
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         mgr.disable_command("test-plat", "show version").unwrap();
-        assert!(!mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "show version"));
+        assert!(!mgr
+            .get_or_load("test-plat")
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c.name == "show version"));
 
         mgr.enable_command("test-plat", "show version").unwrap();
 
         let after = mgr.get_or_load("test-plat").unwrap();
         assert!(after.commands.iter().any(|c| c.name == "show version"));
-        assert!(!mgr.disabled_commands("test-plat").contains(&"show version".to_string()));
+        assert!(!mgr
+            .disabled_commands("test-plat")
+            .contains(&"show version".to_string()));
 
         drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_disabled_commands_empty_when_none() {
-        let (bundled, user) = kb_fixture("mgr-dis-none", &cmd_yaml("show version", "bundled"), None);
+        let (bundled, user) =
+            kb_fixture("mgr-dis-none", &cmd_yaml("show version", "bundled"), None);
         let mgr = KbManager::with_user_path(bundled.clone(), user.clone());
         assert!(mgr.disabled_commands("test-plat").is_empty());
         drop_fixture(&bundled);
@@ -596,14 +654,25 @@ mod tests {
         let (bundled, user) = kb_fixture("mgr-val", &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
-        let bad = mk_cmd("bad cmd", vec![CommandToken::Lit { lit: String::new(), optional: false }]);
+        let bad = mk_cmd(
+            "bad cmd",
+            vec![CommandToken::Lit {
+                lit: String::new(),
+                optional: false,
+            }],
+        );
 
         match mgr.save_user_command("test-plat", "test", &bad).unwrap() {
             Ok(()) => panic!("expected validation issues"),
             Err(issues) => assert!(!issues.is_empty(), "must report the empty-literal issue"),
         }
 
-        assert!(!mgr.get_or_load("test-plat").unwrap().commands.iter().any(|c| c.name == "bad cmd"));
+        assert!(!mgr
+            .get_or_load("test-plat")
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c.name == "bad cmd"));
 
         drop_fixture(&bundled);
     }
