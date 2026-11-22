@@ -113,7 +113,7 @@ jobs:
             https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
           chmod +x "$linuxdeploy_dir/linuxdeploy-x86_64.AppImage"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
