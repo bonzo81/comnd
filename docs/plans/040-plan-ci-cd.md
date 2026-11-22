@@ -9,7 +9,7 @@ Implements **P0.2a** of `plan-production-readiness-phase2a-no-signing.md`: test 
 Runs on every PR, push to `main`, and manual dispatch. Two jobs, each a matrix over `ubuntu-22.04`, `windows-latest`, `macos-latest` (`fail-fast: false`, no `continue-on-error`), so each OS reports its own required check, e.g. `frontend (windows-latest)`:
 
 - **frontend**: `npm ci` → `npm run build` (tsc + vite) → `npm run test` (vitest)
-- **rust**: Linux only: WebKitGTK 4.1 system deps (Windows and macOS need no extra system packages) → `cargo check` → `cargo test -- --nocapture`
+- **rust**: Linux only: WebKitGTK 4.1 system deps (Windows and macOS need no extra system packages) → `cargo fmt --all -- --check` (Linux leg only; formatting is OS-independent) → `cargo clippy --all-targets -- -D warnings` (every leg; `#[cfg]` arms differ per OS) → `cargo check` → `cargo test -- --nocapture`
 
 This is exactly the local verification contract in `AGENTS.md`, so a green local run predicts a green CI run.
 
@@ -83,11 +83,12 @@ When the repo becomes public:
 
 ### 5. Optional CI extensions — *as pain appears*
 
-- `cargo clippy` + `cargo fmt --check` jobs (only when the codebase adopts the lint gate)
 - Nightly build from `main` (P0.2a optional item; only if beta testers want fresh builds)
 - MSRV check if a minimum supported Rust version is ever declared
 
 None of these block anything today.
+
+**Adopted: `cargo fmt --check` + `cargo clippy` (issue #187).** Both were listed here as "only when the codebase adopts the lint gate". The gate is now adopted: the `rust` job runs `cargo fmt --all -- --check` on the Linux leg (formatting is OS-independent) and `cargo clippy --all-targets -- -D warnings` on every leg (`#[cfg(windows)]` / `#[cfg(unix)]` arms differ per OS). The toolchain install is still a single `rustup show`, which installs the `rustfmt` and `clippy` components that `rust-toolchain.toml` now declares. The existing clippy diagnostics were fixed in the same PR rather than silenced, and `AGENTS.md` plus `.github/pull_request_template.md` carry both commands.
 
 ## Verification
 
