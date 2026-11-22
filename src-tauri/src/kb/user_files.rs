@@ -551,9 +551,7 @@ mod tests {
         // A legacy entry (empty tokens) already on disk; re-importing the
         // same command with tokens should upgrade the entry, not silently
         // discard the new tokens.
-        let dir = std::env::temp_dir().join("comnd-test-merge");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("kb-merge");
         let path = dir.join("test.yaml");
 
         let legacy = Command {
@@ -594,8 +592,6 @@ mod tests {
         assert!(merged.negatable, "negatable should be upgraded");
         // Existing description preserved (the new one was empty).
         assert_eq!(merged.description, "old");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
