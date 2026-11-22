@@ -20,7 +20,7 @@ jobs:
       # while a merged one is still untagged, so tagging has to clear that state
       # before the PR step below looks at it. It also keeps tagging working when
       # the App token is broken.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -45,7 +45,7 @@ jobs:
       # keeps tagging out of this step, because a tag created by the App fires
       # release.yml's `on: create` trigger and would double-build alongside the
       # explicit dispatch below.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release-pr
         with:
           token: ${{ steps.app-token.outputs.token }}
