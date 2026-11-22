@@ -195,7 +195,7 @@ jobs:
       - name: install Linux and WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb dbus
 
       - name: install frontend dependencies
         run: npm ci
@@ -211,17 +211,22 @@ jobs:
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.1.0 --locked
 
-      # Scenarios are independent (own driver, port and data dir), and on this
-      # runner most of a scenario's wall time is waiting on the app and driver,
-      # so a small pool overlaps it. Keep it under the runner's core count.
+      # Scenarios are independent (own driver, native-driver port, app, data
+      # dir and Xvfb display), and on this runner nearly all of a scenario's
+      # wall time is waiting for the app's WebView to be ready, so a small pool
+      # overlaps it. Keep it under the runner's core count.
+      #
+      # `dbus-run-session` is not optional: with no session bus, WebKitGTK's
+      # sandbox retries for ~30 seconds before every window is ready, which is
+      # where this job's time went. It costs a scenario ~30s each.
       - name: full-app SSH smoke tests
-        run: xvfb-run -a npm run smoke -- --jobs=3
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --jobs=3
 
       # One process proves all seven mutation categories after the build above.
       # A separate invocation per category re-ran the whole `tauri build` to
       # drive a single scenario, which was most of this job's mutation time.
       - name: smoke mutation checks (all categories)
-        run: xvfb-run -a npm run smoke:mutation:all
+        run: xvfb-run -a dbus-run-session -- npm run smoke:mutation:all
 
   smoke-netbox:
     runs-on: ubuntu-22.04
@@ -247,7 +252,7 @@ jobs:
       - name: install Linux and WebDriver dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb dbus
 
       - name: install frontend dependencies
         run: npm ci
@@ -264,7 +269,7 @@ jobs:
         run: cargo install tauri-driver --version 2.1.0 --locked
 
       - name: NetBox workflow smoke tests
-        run: xvfb-run -a npm run smoke:netbox -- --jobs=3
+        run: xvfb-run -a dbus-run-session -- npm run smoke:netbox -- --jobs=3
 
   commitlint:
     if: github.event_name == 'pull_request'
