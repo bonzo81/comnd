@@ -62,6 +62,7 @@ import { GhostText } from "./ghost-text";
 import { Dropdown } from "./dropdown";
 import { StreamingTextDecoder } from "./stream-decoder";
 import type { Command, PlatformIndex } from "./tauri-api";
+import { command } from "../../tests/harness";
 
 // ─── Steps ──────────────────────────────────────────────────────────────────
 
@@ -181,19 +182,6 @@ function platform(
   } as unknown as PlatformIndex;
 }
 
-function command(name: string, mode: string, platformId: string): Command {
-  return {
-    id: `${platformId}:${name}`,
-    name,
-    mode,
-    category: "test",
-    description: "",
-    usage: name,
-    platforms: [platformId],
-    aliases: [],
-  } as unknown as Command;
-}
-
 const BASH_INDEX = platform(
   "linux-bash",
   // knowledge-base/linux-bash/index.yaml — `prompt_patterns: {}`. Bash ships no
@@ -263,7 +251,7 @@ const TMOS_INDEX = platform(
 const LINUX_BASH: Fixture = {
   label: "linux-bash",
   index: BASH_INDEX,
-  commands: [command("df -h", "shell", "linux-bash"), command("journalctl -u nginx", "shell", "linux-bash")],
+  commands: [command("df -h", { mode: "shell" }), command("journalctl -u nginx", { mode: "shell" })],
   steps: [
     // Banner as a single event: OSC window title (BEL-terminated) then an SGR
     // colour run, then the prompt, which ends in a space.
@@ -332,11 +320,11 @@ const CISCO_IOSXE: Fixture = {
   label: "cisco-iosxe",
   index: IOSXE_INDEX,
   commands: [
-    command("show ip interface brief", "privileged-exec", "cisco-iosxe"),
-    command("show clock", "privileged-exec", "cisco-iosxe"),
-    command("interface GigabitEthernet0/1", "global-config", "cisco-iosxe"),
-    command("description lab-uplink", "interface-config", "cisco-iosxe"),
-    command("ip address 192.0.2.1 255.255.255.0", "interface-config", "cisco-iosxe"),
+    command("show ip interface brief", { mode: "privileged-exec" }),
+    command("show clock", { mode: "privileged-exec" }),
+    command("interface GigabitEthernet0/1", { mode: "global-config" }),
+    command("description lab-uplink", { mode: "interface-config" }),
+    command("ip address 192.0.2.1 255.255.255.0", { mode: "interface-config" }),
   ],
   steps: [
     // Banner (OSC title + bold) ending in the user-exec prompt: the tracker
@@ -421,10 +409,10 @@ const CISCO_NXOS: Fixture = {
   label: "cisco-nxos",
   index: NXOS_INDEX,
   commands: [
-    command("show interface brief", "privileged-exec", "cisco-nxos"),
-    command("show version", "privileged-exec", "cisco-nxos"),
-    command("shutdown", "interface-config", "cisco-nxos"),
-    command("description lab-uplink", "interface-config", "cisco-nxos"),
+    command("show interface brief", { mode: "privileged-exec" }),
+    command("show version", { mode: "privileged-exec" }),
+    command("shutdown", { mode: "interface-config" }),
+    command("description lab-uplink", { mode: "interface-config" }),
   ],
   steps: [
     out("\x1b]0;sw1-lab\x07\r\nCisco Nexus Operating System (NX-OS) Software\r\n\r\nsw1-lab>"),
@@ -491,7 +479,7 @@ const CISCO_NXOS: Fixture = {
 const F5_TMOS: Fixture = {
   label: "f5-tmos",
   index: TMOS_INDEX,
-  commands: [command("show sys version", "tmsh", "f5-tmos"), command("list auth user", "tmsh", "f5-tmos")],
+  commands: [command("show sys version", { mode: "tmsh" }), command("list auth user", { mode: "tmsh" })],
   steps: [
     // Banner ending in the bash prompt: `default_mode` is tmsh, so mode
     // change 1.

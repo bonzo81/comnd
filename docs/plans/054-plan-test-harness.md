@@ -72,7 +72,8 @@ are currently untested largely because of that setup cost).
 - No device transport work (`SessionTransport` adapters) — review
   candidate 3. `session-channel.test.ts`'s `InMemoryTransport` stays.
 - No fixture-contract extension across Rust↔TS schemas — review candidate
-  2. `suggestion-controller.test.ts`'s fake `Command` factory stays.
+  2. (`suggestion-controller.test.ts`'s fake `Command` factory was later
+  replaced by the shared harness factory — issue #181.)
 - No migration of the other 18 test files; they keep the baseline bus until
   they are touched.
 - No `vitest.config.ts` changes (`setupFiles` still points at

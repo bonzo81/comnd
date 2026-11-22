@@ -13,23 +13,18 @@ import {
 } from "./suggestion-engine";
 import { ghostPayloadAcceptText } from "./ghost-text";
 import type { Command } from "./tauri-api";
+import { command } from "../../tests/harness";
 
-function mkCmd(partial: Partial<Command>): Command {
-  return {
-    name: "",
-    syntax: "",
+/** These fixtures default to an IOS-XE privileged-exec command, not bash. */
+function mkCmd(partial: Partial<Command> = {}): Command {
+  return command("", {
     description: "",
-    category: "test",
     mode: "privileged-exec",
-    aliases: [],
-    examples: [],
-    versions: { introduced: null, deprecated: null, notes: null },
-    tags: [],
     tokens: [],
     order: "fixed",
     negatable: false,
     ...partial,
-  };
+  });
 }
 
 const showIpIntBrief: Command = mkCmd({

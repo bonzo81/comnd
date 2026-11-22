@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { mountPanelWindow, applyPanelPreferences, type PanelWindowBridge } from "./panel-window";
 import { ariaKeyShortcuts, platformMod, setOverrides } from "../lib/shortcuts";
 import type { NetBoxResolvedSummary, SidePanelAction, SidePanelState } from "../lib/side-panel";
-import type { Command } from "../lib/tauri-api";
+import { command } from "../../tests/harness";
 
 /**
  * The undocked panel is the only window the user can close, dock or navigate
@@ -10,20 +10,13 @@ import type { Command } from "../lib/tauri-api";
  * them with. These tests drive it through a fake bridge: no Tauri, no window.
  */
 
-function makeCommand(over: Partial<Command> = {}): Command {
-  return {
-    name: "show",
-    syntax: "show version",
-    description: "Device version",
-    category: "show",
-    mode: "exec",
-    aliases: [],
-    examples: [{ command: "show version", description: "IOS version" }],
-    versions: { introduced: null, deprecated: null, notes: null },
-    tags: [],
-    ...over,
-  };
-}
+const detailCommand = command("show", {
+  syntax: "show version",
+  description: "Device version",
+  category: "show",
+  mode: "exec",
+  examples: [{ command: "show version", description: "IOS version" }],
+});
 
 const state = (over: Partial<SidePanelState> = {}): SidePanelState => ({
   open: true,
@@ -391,7 +384,7 @@ describe("undocked panel window", () => {
 
   it("sends example commands to the main window, which owns the session", () => {
     const { root, b } = mount();
-    b.push(state({ snapshot: { kind: "detail", command: makeCommand(), referenceUrl: null } }));
+    b.push(state({ snapshot: { kind: "detail", command: detailCommand, referenceUrl: null } }));
     const example = root.querySelector<HTMLElement>(".example-item");
     expect(example?.dataset.command).toBe("show version");
     example!.click();
