@@ -7,6 +7,10 @@
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
+use crate::kb::{
+    Command, CommandOrder, CommandToken, CommandVersions, KbManager, KbStore, PlatformIndex,
+};
+
 // ─── Temp directory guard ─────────────────────────────────────────────────
 
 /// A uniquely named temp tree that removes itself when it drops, so a failing
@@ -58,6 +62,104 @@ impl Drop for TempDir {
         // handle on Windows, must not turn teardown into a failure.
         let _ = std::fs::remove_dir_all(&self.path);
     }
+}
+
+// ─── Command and KB builders (folded in from kb/test_util.rs) ─────────────
+
+pub(crate) fn get_kb_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("knowledge-base")
+}
+
+pub(crate) fn mk_cmd(name: &str, tokens: Vec<CommandToken>) -> Command {
+    Command {
+        name: name.to_string(),
+        syntax: String::new(),
+        description: String::new(),
+        category: "test".to_string(),
+        mode: "privileged-exec".to_string(),
+        aliases: vec![],
+        examples: vec![],
+        versions: CommandVersions::default(),
+        tags: vec![],
+        tokens,
+        order: CommandOrder::Fixed,
+        negatable: false,
+        source: None,
+        overrides: false,
+    }
+}
+
+pub(crate) fn mk_full_cmd(name: &str, description: &str) -> Command {
+    Command {
+        name: name.to_string(),
+        syntax: name.to_string(),
+        description: description.to_string(),
+        ..mk_cmd(name, vec![])
+    }
+}
+
+pub(crate) fn mk_test_store(cmds: Vec<Command>) -> KbStore {
+    KbStore {
+        platform: PlatformIndex {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            reference_url: String::new(),
+            versions: vec![],
+            prompt_patterns: std::collections::HashMap::new(),
+            secret_prompt_patterns: None,
+            default_mode: "privileged-exec".to_string(),
+            negation_prefix: None,
+            prefix_commands: std::collections::HashMap::new(),
+        },
+        commands: cmds,
+    }
+}
+
+pub(crate) const INDEX_YAML: &str = "id: test-plat\nname: Test\ndescription: \"\"\nreference_url: \"\"\nversions: []\nprompt_patterns: {}\ndefault_mode: default\n";
+
+pub(crate) fn cmd_yaml(name: &str, desc: &str) -> String {
+    format!(
+        "commands:\n  - name: {name}\n    syntax: {name}\n    description: {desc}\n    category: test\n    mode: default\n"
+    )
+}
+
+/// Isolated bundled + user KB fixture under `root`. Returns (bundled_path, user_path).
+pub(crate) fn kb_fixture(
+    root: &TempDir,
+    bundled_cmds: &str,
+    user_cmds: Option<&str>,
+) -> (PathBuf, PathBuf) {
+    let bundled = root.join("bundled");
+    let user = root.join("user");
+    std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
+    std::fs::write(bundled.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+    std::fs::write(bundled.join("test-plat/commands/test.yaml"), bundled_cmds).unwrap();
+
+    if let Some(yaml) = user_cmds {
+        std::fs::create_dir_all(user.join("test-plat/commands")).unwrap();
+        std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+        std::fs::write(user.join("test-plat/commands/test.yaml"), yaml).unwrap();
+    } else {
+        std::fs::create_dir_all(user.join("test-plat")).unwrap();
+    }
+    (bundled, user)
+}
+
+/// Fresh manager per call so the store reloads from disk.
+pub(crate) fn loaded_names(bundled: &Path, user: &Path) -> Vec<String> {
+    let mut mgr = KbManager::with_user_path(bundled.to_path_buf(), user.to_path_buf());
+    let store = mgr.get_or_load("test-plat").unwrap();
+    store.commands.iter().map(|c| c.name.clone()).collect()
+}
+
+pub(crate) fn loaded_cmd(bundled: &Path, user: &Path, name: &str) -> Option<Command> {
+    let mut mgr = KbManager::with_user_path(bundled.to_path_buf(), user.to_path_buf());
+    let store = mgr.get_or_load("test-plat").unwrap();
+    store.commands.iter().find(|c| c.name == name).cloned()
 }
 
 #[cfg(test)]

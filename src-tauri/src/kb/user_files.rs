@@ -420,11 +420,10 @@ pub(super) fn list_disabled(user_kb_path: &Path, platform: &str) -> Vec<String> 
 mod tests {
     use super::*;
 
+    use crate::fixtures::*;
     use crate::kb::schema::{
-        CommandExample, CommandToken, CommandVersions, PipeFilter, PipeToken, VarSource, VarToken,
-        VarType,
+        CommandExample, CommandToken, PipeFilter, PipeToken, VarSource, VarToken, VarType,
     };
-    use crate::kb::test_util::*;
 
     #[test]
     fn test_get_target_yaml_path() {
@@ -454,17 +453,12 @@ mod tests {
     #[test]
     fn test_command_yaml_round_trip_all_token_kinds() {
         let cmd = Command {
-            name: "round-trip".to_string(),
             syntax: "round-trip <n> [opt] | section <r>".to_string(),
-            description: "test".to_string(),
-            category: "test".to_string(),
-            mode: "privileged-exec".to_string(),
             aliases: vec!["rt".to_string()],
             examples: vec![CommandExample {
                 command: "round-trip 5".to_string(),
                 description: "example".to_string(),
             }],
-            versions: CommandVersions::default(),
             tags: vec!["test".to_string()],
             tokens: vec![
                 CommandToken::Lit {
@@ -509,8 +503,7 @@ mod tests {
             ],
             order: CommandOrder::FlagsAnywhere,
             negatable: true,
-            source: None,
-            overrides: false,
+            ..mk_full_cmd("round-trip", "test")
         };
 
         let yaml = serialize_commands(std::slice::from_ref(&cmd)).unwrap();
@@ -564,42 +557,22 @@ mod tests {
         let path = dir.join("test.yaml");
 
         let legacy = Command {
-            name: "show ip route".to_string(),
-            syntax: String::new(),
             description: "old".to_string(),
             category: "networking".to_string(),
-            mode: "privileged-exec".to_string(),
-            aliases: vec![],
-            examples: vec![],
-            versions: CommandVersions::default(),
-            tags: vec![],
-            tokens: vec![], // legacy
-            order: CommandOrder::Fixed,
-            negatable: false,
-            source: None,
-            overrides: false,
+            ..mk_cmd("show ip route", vec![]) // legacy: no tokens
         };
         write_commands_to_yaml(&[legacy], &path).unwrap();
 
         // Re-import with tokens + non-default order + negatable.
         let upgraded = Command {
-            name: "show ip route".to_string(),
-            syntax: "show ip route".to_string(),
-            description: String::new(),
             category: String::new(),
-            mode: "privileged-exec".to_string(),
-            aliases: vec![],
-            examples: vec![],
-            versions: CommandVersions::default(),
-            tags: vec![],
             tokens: vec![CommandToken::Lit {
                 lit: "show ip route".to_string(),
                 optional: false,
             }],
             order: CommandOrder::Free,
             negatable: true,
-            source: None,
-            overrides: false,
+            ..mk_full_cmd("show ip route", "")
         };
         write_commands_to_yaml(&[upgraded], &path).unwrap();
 
@@ -661,8 +634,9 @@ mod tests {
 
     #[test]
     fn test_delete_override_restores_bundled() {
+        let dir = TempDir::new("kb-del-override");
         let (bundled, user) = kb_fixture(
-            "del-override",
+            &dir,
             &cmd_yaml("show version", "bundled"),
             Some(&cmd_yaml("show version", "user override")),
         );
@@ -683,14 +657,13 @@ mod tests {
             post.source
         );
         assert!(!read_deleted_list(&user.join("test-plat")).contains("show version"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_delete_user_only_no_tombstone() {
+        let dir = TempDir::new("kb-del-useronly");
         let (bundled, user) = kb_fixture(
-            "del-useronly",
+            &dir,
             &cmd_yaml("other cmd", "bundled"),
             Some(&cmd_yaml("my-command", "user only")),
         );
@@ -701,44 +674,39 @@ mod tests {
         assert!(!names.contains(&"my-command".to_string()));
         assert!(names.contains(&"other cmd".to_string()));
         assert!(!read_deleted_list(&user.join("test-plat")).contains("my-command"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_delete_bundled_only_tombstones() {
-        let (bundled, user) = kb_fixture("del-bundled", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-del-bundled");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
 
         remove_command(&user, "test-plat", "test", "show version", false).unwrap();
 
         assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(read_deleted_list(&user.join("test-plat")).contains("show version"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_disable_hides_command() {
-        let (bundled, user) = kb_fixture("disable", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-disable");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
 
         mark_disabled(&user, "test-plat", "show version").unwrap();
 
         assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(read_disabled_list(&user.join("test-plat")).contains("show version"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_enable_after_disable_restores() {
-        let (bundled, user) = kb_fixture("enable", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-enable");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
 
         mark_disabled(&user, "test-plat", "show version").unwrap();
         mark_enabled(&user, "test-plat", "show version").unwrap();
 
         assert!(loaded_names(&bundled, &user).contains(&"show version".to_string()));
         assert!(!read_disabled_list(&user.join("test-plat")).contains("show version"));
-
-        drop_fixture(&bundled);
     }
 }
