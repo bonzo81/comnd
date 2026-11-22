@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { Terminal } from "@xterm/xterm";
 import { SuggestionController } from "./suggestion-controller";
 import { LineTracker } from "./line-tracker";
 import { GhostText } from "./ghost-text";
@@ -7,20 +6,10 @@ import { Dropdown } from "./dropdown";
 import type { SuggestionResult } from "./suggestion-engine";
 import type { Command, CommandToken, PlatformIndex } from "./tauri-api";
 import { resetSinks, setLogLevel, setSinks, type LogRecord } from "./logger";
-import { command } from "../../tests/harness";
+import { command, createTerminalFake } from "../../tests/harness";
 
 const cmd = (name: string, mode = "bash"): Command =>
   command(name, { description: "", mode });
-
-function terminalStub(): Terminal {
-  return {
-    write: vi.fn(),
-    buffer: { active: { cursorX: 0, cursorY: 0 } },
-    rows: 10,
-    cols: 80,
-    options: {},
-  } as unknown as Terminal;
-}
 
 const cleanups: Array<() => void> = [];
 
@@ -29,7 +18,7 @@ function makeController(opts: { suggestionsToggleByte?: () => string | null } = 
   const inputAtSend: string[] = [];
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const ghost = new GhostText(terminalStub(), container);
+  const ghost = new GhostText(createTerminalFake().terminal, container);
   let c!: SuggestionController;
   const dropdown = new Dropdown(container, (command, payload) => c.acceptFromDropdown(command, payload));
   const detail = vi.fn();

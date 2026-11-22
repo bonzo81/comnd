@@ -8,10 +8,15 @@
  * createHarness() — per test: swaps in a strict dispatcher that throws on
  *                   unmocked commands, plus fixture factories and a DOM
  *                   mount helper. Auto-restored when the test ends.
+ * createTerminalFake() — the single test-owned stand-in for xterm's
+ *                   `Terminal`: the members src uses, plus the buffer
+ *                   geometry ghost text and timestamps read. Holds the
+ *                   module's one cast past xterm's interface (issue #182).
  *
  * Design: docs/plans/054-plan-test-harness.md · term: CONTEXT.md ("Test harness").
  */
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
+import type { ITerminalOptions, Terminal } from "@xterm/xterm";
 import type { AppConfig, Command, Host, HostGroup } from "../src/lib/tauri-api";
 
 // ─── Tauri internals plumbing ─────────────────────────────────────────────
@@ -386,4 +391,320 @@ export function install(): void {
 export function createHarness(): Harness {
   install();
   return new HarnessImpl();
+}
+
+// ─── Terminal fake ────────────────────────────────────────────────────────
+
+/** Every `Terminal` member the app touches (derived from `src`, not from the
+ *  xterm interface, which is hundreds wide). `tests/harness.test.ts`
+ *  re-derives the list from `src`, so a member added to the app fails there
+ *  instead of drifting silently. */
+export const TERMINAL_MEMBERS = [
+  "attachCustomKeyEventHandler",
+  "buffer",
+  "clear",
+  "clearSelection",
+  "cols",
+  "dispose",
+  "element",
+  "focus",
+  "getSelection",
+  "loadAddon",
+  "onData",
+  "onResize",
+  "onScroll",
+  "onSelectionChange",
+  "open",
+  "options",
+  "registerDecoration",
+  "registerMarker",
+  "rows",
+  "write",
+] as const;
+
+/** The parts of `terminal.buffer.active` the app reads. */
+export interface TerminalBufferState {
+  cursorX: number;
+  cursorY: number;
+  baseY: number;
+}
+
+export interface TerminalFakeOptions {
+  rows?: number;
+  cols?: number;
+  cursorX?: number;
+  cursorY?: number;
+  baseY?: number;
+  options?: ITerminalOptions;
+}
+
+interface Disposable {
+  dispose(): void;
+}
+
+export interface TerminalFake {
+  /** The terminal as the app sees it — pass to code typed against `Terminal`
+   *  with no cast at the call site. */
+  readonly terminal: Terminal;
+  /** The live `terminal.buffer.active`; mutate it to move the cursor. */
+  readonly buffer: TerminalBufferState;
+  rows: number;
+  cols: number;
+  options: ITerminalOptions;
+  /** Everything written through the terminal, in order. */
+  readonly written: string[];
+  /** Addons passed to `loadAddon`, in order. */
+  readonly addons: readonly unknown[];
+  emitData(data: string): void;
+  emitResize(cols: number, rows: number): void;
+  emitScroll(y: number): void;
+  emitSelectionChange(): void;
+  /** Run the handler registered through `attachCustomKeyEventHandler`
+   *  (defaults to `true`, i.e. xterm would handle the key). */
+  handleKey(e: KeyboardEvent): boolean;
+}
+
+type DataHandler = (data: string) => void;
+type ResizeHandler = (size: { cols: number; rows: number }) => void;
+type ScrollHandler = (newPosition: number) => void;
+type SelectionHandler = () => void;
+
+function subscribe<T>(handlers: Set<T>, handler: T): Disposable {
+  handlers.add(handler);
+  return { dispose: () => handlers.delete(handler) };
+}
+
+/** One fake for every test that needs a screen; see issue #182. The repo's
+ *  single cast past xterm's interface lives here. */
+export function createTerminalFake(init: TerminalFakeOptions = {}): TerminalFake {
+  const buffer: TerminalBufferState = {
+    cursorX: init.cursorX ?? 0,
+    cursorY: init.cursorY ?? 0,
+    baseY: init.baseY ?? 0,
+  };
+  let rows = init.rows ?? 24;
+  let cols = init.cols ?? 80;
+  let options: ITerminalOptions = init.options ?? {};
+
+  const written: string[] = [];
+  const addons: unknown[] = [];
+  const dataHandlers = new Set<DataHandler>();
+  const resizeHandlers = new Set<ResizeHandler>();
+  const scrollHandlers = new Set<ScrollHandler>();
+  const selectionHandlers = new Set<SelectionHandler>();
+
+  let customKeyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+  let selection = "";
+  let root: HTMLElement | null = null;
+  const decorationElements: HTMLElement[] = [];
+
+  const lineFeed = (): void => {
+    if (buffer.cursorY < rows - 1) buffer.cursorY++;
+    else buffer.baseY++;
+  };
+
+  /** xterm defers the wrap of a full last column until the next printable
+   *  character, so a CR/LF after an exactly-full line advances one row, not
+   *  two. Reset by CR/LF/BS. */
+  let wrapPending = false;
+
+  /** Advance the cursor the way xterm's parser would for the constructs the
+   *  app writes: printable text, CR/LF/BS/TAB and ANSI escapes (which are
+   *  control sequences, not text — the cursor-hide/show writes must not move
+   *  it). */
+  const advanceCursor = (text: string): void => {
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === "\x1b") {
+        const next = text[i + 1];
+        if (next === "[") {
+          i += 2;
+          while (i < text.length) {
+            const code = text.charCodeAt(i);
+            if (code >= 0x40 && code <= 0x7e) break; // CSI final byte
+            i++;
+          }
+        } else if (next === "]") {
+          i += 2;
+          while (i < text.length && text[i] !== "\x07" && !(text[i] === "\x1b" && text[i + 1] === "\\")) i++;
+          if (text[i] === "\x1b") i++;
+        } else {
+          i++; // two-character escape
+        }
+        continue;
+      }
+      if (ch === "\r") {
+        buffer.cursorX = 0;
+        wrapPending = false;
+      } else if (ch === "\n") {
+        lineFeed();
+        wrapPending = false;
+      } else if (ch === "\b") {
+        if (buffer.cursorX > 0) buffer.cursorX--;
+        wrapPending = false;
+      } else if (ch === "\t") {
+        buffer.cursorX = Math.min(cols - 1, (Math.floor(buffer.cursorX / 8) + 1) * 8);
+        wrapPending = buffer.cursorX === cols - 1;
+      } else if (text.charCodeAt(i) >= 0x20 && text.charCodeAt(i) !== 0x7f) {
+        if (wrapPending) {
+          buffer.cursorX = 0;
+          lineFeed();
+          wrapPending = false;
+        }
+        if (buffer.cursorX === cols - 1) {
+          wrapPending = true; // the last column is filled; the wrap waits
+        } else {
+          buffer.cursorX++;
+        }
+      }
+    }
+  };
+
+  const write = vi.fn((data: string | Uint8Array, callback?: () => void): void => {
+    const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+    written.push(text);
+    advanceCursor(text);
+    callback?.();
+  });
+
+  const open = (parent: HTMLElement): void => {
+    root = document.createElement("div");
+    root.className = "xterm";
+    parent.appendChild(root);
+  };
+
+  const disposeDecorations = (): void => {
+    for (const el of decorationElements.splice(0)) el.remove();
+  };
+
+  const clear = (): void => {
+    disposeDecorations();
+    selection = "";
+  };
+
+  const registerMarker = (_cursorYOffset: number) => ({
+    dispose: () => {},
+    isDisposed: false,
+  });
+
+  const registerDecoration = (_decorationOptions: unknown) => {
+    const element = document.createElement("div");
+    (root ?? document.body).appendChild(element);
+    decorationElements.push(element);
+    let disposed = false;
+    return {
+      element,
+      get isDisposed(): boolean {
+        return disposed;
+      },
+      onRender(listener: (el: HTMLElement) => void): Disposable {
+        listener(element);
+        return { dispose: () => {} };
+      },
+      dispose(): void {
+        if (disposed) return;
+        disposed = true;
+        element.remove();
+      },
+    };
+  };
+
+  const dispose = (): void => {
+    disposeDecorations();
+    root?.remove();
+    root = null;
+    dataHandlers.clear();
+    resizeHandlers.clear();
+    scrollHandlers.clear();
+    selectionHandlers.clear();
+    selection = "";
+  };
+
+  const target = {
+    buffer: { active: buffer },
+    get rows(): number {
+      return rows;
+    },
+    set rows(value: number) {
+      rows = value;
+    },
+    get cols(): number {
+      return cols;
+    },
+    set cols(value: number) {
+      cols = value;
+    },
+    get options(): ITerminalOptions {
+      return options;
+    },
+    set options(value: ITerminalOptions) {
+      options = value;
+    },
+    get element(): HTMLElement | undefined {
+      return root ?? undefined;
+    },
+    write,
+    open,
+    focus: () => {},
+    loadAddon: (addon: unknown): void => {
+      addons.push(addon);
+    },
+    onData: (handler: DataHandler) => subscribe(dataHandlers, handler),
+    onResize: (handler: ResizeHandler) => subscribe(resizeHandlers, handler),
+    onScroll: (handler: ScrollHandler) => subscribe(scrollHandlers, handler),
+    onSelectionChange: (handler: SelectionHandler) => subscribe(selectionHandlers, handler),
+    attachCustomKeyEventHandler: (handler: (e: KeyboardEvent) => boolean): void => {
+      customKeyHandler = handler;
+    },
+    getSelection: (): string => selection,
+    clearSelection: (): void => {
+      selection = "";
+    },
+    clear,
+    registerMarker,
+    registerDecoration,
+    dispose,
+  };
+
+  // The one cast: xterm's interface is hundreds of members wide, and only the
+  // ones above are real. Everything else is left absent on purpose.
+  const terminal = target as unknown as Terminal;
+
+  return {
+    terminal,
+    buffer,
+    get rows(): number {
+      return rows;
+    },
+    set rows(value: number) {
+      rows = value;
+    },
+    get cols(): number {
+      return cols;
+    },
+    set cols(value: number) {
+      cols = value;
+    },
+    get options(): ITerminalOptions {
+      return options;
+    },
+    set options(value: ITerminalOptions) {
+      options = value;
+    },
+    written,
+    addons,
+    emitData: (data: string): void => {
+      for (const handler of [...dataHandlers]) handler(data);
+    },
+    emitResize: (nextCols: number, nextRows: number): void => {
+      for (const handler of [...resizeHandlers]) handler({ cols: nextCols, rows: nextRows });
+    },
+    emitScroll: (y: number): void => {
+      for (const handler of [...scrollHandlers]) handler(y);
+    },
+    emitSelectionChange: (): void => {
+      for (const handler of [...selectionHandlers]) handler();
+    },
+    handleKey: (e: KeyboardEvent): boolean => (customKeyHandler ? customKeyHandler(e) : true),
+  };
 }

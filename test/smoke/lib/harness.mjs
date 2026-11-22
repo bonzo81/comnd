@@ -493,7 +493,11 @@ async function shutdownApp({ driver, browser, display }, teardown) {
     } catch (caught) {
       // Ending the session on a window the app has already destroyed is not a
       // leak: the driver is killed below either way, and the data dir is removed.
-      if (!/no such window/i.test(String(caught?.message ?? caught))) cleanupError = caught;
+      // Neither is a closed transport: undici can lose the keep-alive socket
+      // between the teardown command and this DELETE (UND_ERR_CLOSED), and the
+      // driver kill that follows ends any session that was still open.
+      const alreadyGone = /no such window|no such session|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up/i;
+      if (!alreadyGone.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
     timings.close = Date.now() - closeStarted;
   }

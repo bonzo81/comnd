@@ -95,6 +95,7 @@ createHarness()           // per test; auto-restored via global afterEach
   h.fixtures.hostGroup(partial?)
   h.fixtures.command(name, partial?)
   h.fixtures.appConfig(partial?) // current AppConfig shape (llm_*, log_*, session_*)
+createTerminalFake(init?) // one Terminal fake: the members src uses (issue #182)
 ```
 
 ### Dispatchers
