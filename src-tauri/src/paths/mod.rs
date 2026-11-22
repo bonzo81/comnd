@@ -1041,7 +1041,9 @@ mod tests {
     #[cfg(unix)]
     fn test_log_dir_created_with_secure_perms() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = TempDir::new("logperm");
+        // The tree must not exist beforehand: ensure_data_dir only tightens
+        // permissions on the directory it creates itself.
+        let dir = TempDir::absent("logperm");
         ensure_data_dir(&dir).unwrap();
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "log/data dir must be owner-only");

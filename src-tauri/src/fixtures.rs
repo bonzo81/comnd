@@ -31,7 +31,8 @@ impl TempDir {
     }
 
     /// Same unique naming, but the tree is never created. For tests that assert
-    /// a code path creates no directory at all.
+    /// a code path creates no directory, and for tests where the code path under
+    /// test must create the directory itself (e.g. with owner-only permissions).
     pub(crate) fn absent(prefix: &str) -> Self {
         Self {
             path: Self::unique_path(prefix),
