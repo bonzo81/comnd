@@ -821,9 +821,32 @@ export interface NetBoxDeviceInterface {
   addresses: NetBoxDeviceAddress[];
 }
 
+/** One VLAN the device is a member of; `group` is the VLAN group's name. */
+export interface NetBoxDeviceVlan {
+  id: number;
+  vid: number;
+  name: string;
+  group: string | null;
+}
+
+/** One subnet: a VLAN's prefix or a prefix containing an interface address. */
+export interface NetBoxDeviceSubnet {
+  id: number;
+  prefix: string;
+  vrf: string | null;
+}
+
+/** A cabled peer device, before the main window resolves a Comnd host for it. */
+export interface NetBoxDevicePeer {
+  netbox_id: number;
+  name: string;
+  display: string | null;
+  primary_ip: string | null;
+}
+
 /**
- * Live NetBox summary for one device (issue #177 phase 1). Fetched fresh when
- * the side panel's NetBox tab is selected; never read from the sync cache.
+ * Live NetBox summary for one device (issue #177). Fetched fresh when the side
+ * panel's NetBox tab is selected; never read from the sync cache.
  */
 export interface NetBoxDeviceSummary {
   netbox_id: number;
@@ -838,6 +861,9 @@ export interface NetBoxDeviceSummary {
   face: string | null;
   primary_ip: string | null;
   interfaces: NetBoxDeviceInterface[];
+  vlans: NetBoxDeviceVlan[];
+  subnets: NetBoxDeviceSubnet[];
+  peers: NetBoxDevicePeer[];
 }
 
 /** `hostId` is the `netbox:<id>` host id; the backend rejects any other form. */

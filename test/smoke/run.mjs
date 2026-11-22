@@ -1329,7 +1329,7 @@ async function installNetboxTabHost(browser) {
     `NetBox tab: expected one synced device, got ${JSON.stringify(report)}`,
   );
   await invoke(browser, "touch_host", { id: "netbox:201" });
-  return baseUrl;
+  return { baseUrl, sshPort };
 }
 
 async function connectNetboxTabHost(browser) {
@@ -1683,6 +1683,33 @@ async function waitForConnection(browser) {
     timeoutMsg: "SSH connection did not reach the connected state",
   });
   await waitForTerminal(browser, "user@host:~$");
+}
+
+/**
+ * Wait for the *active* session to connect, accepting its host key. The
+ * global helper above is single-session (its `.tv-sb-dot` lookup is strict),
+ * and "any connected dot" would pass on a session left running in the
+ * background. Only the wrapper that is not `display: none` is the active one.
+ */
+async function waitForActiveConnection(browser, label) {
+  await browser.waitUntil(async () =>
+    browser.execute(() => {
+      // The host-key confirmation is a document-level modal.
+      const accept = [...document.querySelectorAll("button")]
+        .find((button) => button.textContent?.trim() === "Accept and save");
+      if (accept) {
+        accept.click();
+        return false;
+      }
+      const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
+        .find((element) => element.style.display !== "none");
+      const dot = wrapper?.querySelector(".tv-sb-dot");
+      return dot?.classList.contains("sb-connected") ?? false;
+    }), {
+    timeout: 20_000,
+    interval: 100,
+    timeoutMsg: `${label}: the active session did not reach the connected state`,
+  });
 }
 
 async function waitForSessionCleanup(browser, label) {
@@ -2667,6 +2694,130 @@ async function main() {
           await browser.execute(() => document.activeElement?.classList.contains("rsm-add") ?? false),
           "Keyboard focus: closing the replay dialog must restore focus to the button that opened it",
         );
+      },
+    },
+    {
+      name: "netbox-device-sections",
+      async run(browser) {
+        await installSmokeHelpers(browser);
+        const { sshPort } = await installNetboxTabHost(browser);
+        // Two Comnd hosts, each matching exactly one peer: one by primary IP,
+        // one by display name. Different host ids keep the second Connect out
+        // of the duplicate-session prompt.
+        await createHost(browser, {
+          display_name: "ip-matched",
+          hostname: "127.0.0.1",
+          port: sshPort,
+        });
+        await createHost(browser, {
+          display_name: "peer-by-name",
+          hostname: "127.0.0.1",
+          port: sshPort,
+        });
+        // The sync and the host saves ran through IPC, so reload to give the
+        // host screen the materialized NetBox host and both user hosts.
+        await browser.refresh();
+        await installSmokeHelpers(browser);
+
+        await connectNetboxTabHost(browser);
+        await browser.execute(() => document.querySelector(".tv-panel-btn")?.focus());
+        await browser.keys("\uE007");
+        await waitFor(browser, () => {
+          const panel = document.querySelector("#tv-sidebar");
+          return !!panel && panel.getClientRects().length > 0 && !panel.classList.contains("hidden");
+        }, "NetBox sections: the side panel did not open");
+        await actOn(browser, ".sb-toggle-netbox");
+        await browser.waitUntil(
+          async () => browser.execute(() => {
+            const name = document.querySelector(".nbd-name")?.textContent ?? "";
+            return name === "tab-device"
+              && document.querySelectorAll(".nbd-vlan-group").length === 2
+              && document.querySelectorAll(".nbd-peer").length === 3;
+          }),
+          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the phase 2 sections did not render" },
+        );
+
+        const sections = await browser.execute(() => ({
+          groups: [...document.querySelectorAll(".nbd-vlan-group")].map((group) => ({
+            name: group.querySelector(".nbd-vlan-group-name")?.textContent ?? "",
+            vlans: [...group.querySelectorAll(".nbd-vlan")].map((vlan) => [
+              vlan.querySelector(".nbd-vlan-vid")?.textContent ?? "",
+              vlan.querySelector(".nbd-vlan-name")?.textContent ?? "",
+            ]),
+          })),
+          subnets: [...document.querySelectorAll(".nbd-subnet-prefix")]
+            .map((prefix) => prefix.textContent ?? ""),
+          peers: [...document.querySelectorAll(".nbd-peer")].map((peer) => ({
+            name: peer.querySelector(".nbd-peer-name")?.textContent ?? "",
+            connect: !!peer.querySelector(".nbd-connect"),
+          })),
+          text: document.querySelector(".sb-content")?.textContent ?? "",
+        }));
+        assert.deepEqual(
+          sections.groups.map((group) => group.name),
+          ["DC1", "DC1-MGMT"],
+          `NetBox sections: wrong VLAN groups ${JSON.stringify(sections.groups)}`,
+        );
+        assert.deepEqual(sections.groups[0].vlans, [["10", "users"], ["20", "voice"]]);
+        assert.deepEqual(sections.groups[1].vlans, [["100", "mgmt"], ["200", "servers"]]);
+        assert.deepEqual(
+          sections.subnets,
+          ["10.0.0.0/24", "10.0.20.0/24", "2001:db8::/32"],
+          `NetBox sections: wrong subnet union ${JSON.stringify(sections.subnets)}`,
+        );
+        assert.deepEqual(
+          sections.peers,
+          [
+            { name: "peer-by-name", connect: true },
+            { name: "peer-switch", connect: true },
+            { name: "unmatched-peer", connect: false },
+          ],
+          `NetBox sections: wrong peer rows ${JSON.stringify(sections.peers)}`,
+        );
+        assert(
+          !sections.text.includes("sibling-only") && !sections.text.includes("999"),
+          "NetBox sections: a virtual-chassis sibling's VLAN leaked into the device",
+        );
+
+        // Docked Connect: opens the existing connect flow for the name match.
+        await actOn(browser, '.nbd-peer[data-peer-id="203"] .nbd-connect');
+        await waitForActiveConnection(browser, "NetBox sections (docked Connect)");
+        await browser.waitUntil(
+          async () => browser.execute(() =>
+            (document.querySelector(".sb-sessions")?.textContent ?? "").includes("2 sessions")),
+          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the docked Connect did not open a second session" },
+        );
+
+        // Back to the NetBox session, reselect its tab, then Connect from the
+        // undocked window. The panel follows the active session (ADR-013).
+        await actOn(browser, '.session-tab[data-host-id="netbox:201"]');
+        await waitForActiveConnection(browser, "NetBox sections (back to the NetBox session)");
+        await actOn(browser, ".sb-toggle-netbox");
+        await panelShortcut(browser);
+        const panelTarget = await switchToWindow(browser, "panel",
+          "NetBox sections: the undocked panel window never became scriptable");
+        await waitFor(browser, () => !!document.querySelector(".nbd-peer"),
+          "NetBox sections: the undocked window did not render the peers");
+        assert.equal(
+          await browser.execute(() => document.querySelectorAll(".nbd-vlan-group").length),
+          2,
+          "NetBox sections: the undocked window rendered different sections",
+        );
+        await actOn(browser, '.nbd-peer[data-peer-id="202"] .nbd-connect');
+        await browser.switchToWindow(panelTarget.previous);
+        await waitForActiveConnection(browser, "NetBox sections (undocked Connect)");
+        await browser.waitUntil(
+          async () => browser.execute(() =>
+            (document.querySelector(".sb-sessions")?.textContent ?? "").includes("3 sessions")),
+          { timeout: WAIT_MS, interval: 100, timeoutMsg: "NetBox sections: the undocked Connect did not open a third session" },
+        );
+
+        // Leave the app docked for teardown.
+        await panelShortcut(browser);
+        await waitForNoWindow(browser, "panel",
+          "NetBox sections: the final dock did not close the panel window");
+        await waitForWindowCount(browser, 1,
+          "NetBox sections: the final dock left an extra window behind");
       },
     },
     {

@@ -310,6 +310,140 @@ fn device_tab_ips() -> Vec<serde_json::Value> {
     ]
 }
 
+/// The device's own interfaces with their VLAN membership, plus one virtual
+/// chassis sibling whose VLAN must not join this device's set.
+fn device_tab_interfaces() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "id": 11,
+            "name": "GigabitEthernet1/0/1",
+            "device": { "id": 201, "display": "tab-device", "name": "tab-device" },
+            "untagged_vlan": { "id": 501, "vid": 10, "name": "users" },
+            "tagged_vlans": [
+                { "id": 502, "vid": 20, "name": "voice" },
+                { "id": 503, "vid": 100, "name": "mgmt" }
+            ]
+        }),
+        serde_json::json!({
+            "id": 12,
+            "name": "TenGigabitEthernet1/1/1",
+            "device": { "id": 201, "display": "tab-device", "name": "tab-device" },
+            "untagged_vlan": null,
+            "tagged_vlans": [
+                { "id": 503, "vid": 100, "name": "mgmt" },
+                { "id": 504, "vid": 200, "name": "servers" }
+            ]
+        }),
+        serde_json::json!({
+            "id": 21,
+            "name": "GigabitEthernet2/0/1",
+            "device": { "id": 202, "display": "peer-switch", "name": "peer-switch" },
+            "untagged_vlan": { "id": 599, "vid": 999, "name": "sibling-only" },
+            "tagged_vlans": []
+        }),
+    ]
+}
+
+fn device_tab_vlans() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({ "id": 501, "vid": 10, "name": "users", "group": { "id": 1, "name": "DC1" } }),
+        serde_json::json!({ "id": 502, "vid": 20, "name": "voice", "group": { "id": 1, "name": "DC1" } }),
+        serde_json::json!({ "id": 503, "vid": 100, "name": "mgmt", "group": { "id": 2, "name": "DC1-MGMT" } }),
+        serde_json::json!({ "id": 504, "vid": 200, "name": "servers", "group": { "id": 2, "name": "DC1-MGMT" } }),
+        serde_json::json!({ "id": 599, "vid": 999, "name": "sibling-only", "group": null }),
+    ]
+}
+
+/// One prefix from both sources (VLAN 501 and contains 10.0.0.10/24), one from
+/// the VLAN source only, one containing the IPv6 address, and one unrelated.
+fn device_tab_prefixes() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({ "id": 601, "prefix": "10.0.0.0/24", "vrf": null, "vlan": { "id": 501 } }),
+        serde_json::json!({ "id": 602, "prefix": "10.0.20.0/24", "vrf": null, "vlan": { "id": 502 } }),
+        serde_json::json!({
+            "id": 603,
+            "prefix": "2001:db8::/32",
+            "vrf": { "id": 1, "name": "blue" },
+            "vlan": null
+        }),
+        serde_json::json!({ "id": 604, "prefix": "192.0.2.0/24", "vrf": null, "vlan": null }),
+    ]
+}
+
+fn device_tab_cable(id: u64, own_interface: u64, peer_id: u64, peer_name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "a_terminations": [{
+            "object_type": "dcim.interface",
+            "object_id": own_interface,
+            "object": {
+                "device": { "id": 201, "display": "tab-device", "name": "tab-device" }
+            }
+        }],
+        "b_terminations": [{
+            "object_type": "dcim.interface",
+            "object_id": 31,
+            "object": {
+                "device": { "id": peer_id, "display": peer_name, "name": peer_name }
+            }
+        }]
+    })
+}
+
+fn device_tab_cables() -> Vec<serde_json::Value> {
+    vec![
+        device_tab_cable(701, 11, 202, "peer-switch"),
+        device_tab_cable(702, 12, 203, "peer-by-name"),
+        device_tab_cable(703, 11, 204, "unmatched-peer"),
+    ]
+}
+
+fn device_tab_peer_devices() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "id": 202, "name": "peer-switch", "display": "peer-switch",
+            "primary_ip4": { "address": "127.0.0.1/32" }, "primary_ip6": null
+        }),
+        serde_json::json!({
+            "id": 203, "name": "peer-by-name", "display": "peer-by-name",
+            "primary_ip4": { "address": "10.99.0.2/24" }, "primary_ip6": null
+        }),
+        serde_json::json!({
+            "id": 204, "name": "unmatched-peer", "display": "unmatched-peer",
+            "primary_ip4": { "address": "10.99.0.3/24" }, "primary_ip6": null
+        }),
+    ]
+}
+
+/// Repeated `?id=` values from a request path.
+fn requested_ids(path: &str) -> Vec<u64> {
+    path.split_once('?')
+        .map(|(_, query)| {
+            query
+                .split('&')
+                .filter_map(|pair| pair.strip_prefix("id="))
+                .filter_map(|value| value.parse().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn filter_by_requested_ids(items: Vec<serde_json::Value>, path: &str) -> Vec<serde_json::Value> {
+    let ids = requested_ids(path);
+    if ids.is_empty() {
+        return items;
+    }
+    items
+        .into_iter()
+        .filter(|item| {
+            item.get("id")
+                .and_then(|id| id.as_u64())
+                .map(|id| ids.contains(&id))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
 /// Device id from a detail path (`/api/dcim/devices/201/?fields=...`), never
 /// from the list path (`/api/dcim/devices/?limit=100`).
 fn device_detail_id(path: &str) -> Option<u64> {
@@ -529,6 +663,10 @@ fn respond(
             }
             return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
         }
+        // The device tab's batched peer lookup: an `id=`-filtered device list.
+        if scenario == "device-tab" && path.contains("fields=") && path.contains("id=") {
+            return page(None, filter_by_requested_ids(device_tab_peer_devices(), path));
+        }
         let device_tab = scenario == "device-tab";
         let (first, second) = if device_tab {
             (device_tab_devices(), vec![])
@@ -558,6 +696,32 @@ fn respond(
     if path.starts_with("/api/ipam/ip-addresses/") {
         if scenario == "device-tab" {
             return page(None, device_tab_ips());
+        }
+        return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
+    }
+    if path.starts_with("/api/dcim/interfaces/") {
+        if scenario == "device-tab" {
+            return page(None, device_tab_interfaces());
+        }
+        return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
+    }
+    if path.starts_with("/api/ipam/vlans/") {
+        if scenario == "device-tab" {
+            // Only the ids the client asked for: a sibling VLAN must not appear
+            // unless the parser wrongly requested it.
+            return page(None, filter_by_requested_ids(device_tab_vlans(), path));
+        }
+        return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
+    }
+    if path.starts_with("/api/ipam/prefixes/") {
+        if scenario == "device-tab" {
+            return page(None, device_tab_prefixes());
+        }
+        return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
+    }
+    if path.starts_with("/api/dcim/cables/") {
+        if scenario == "device-tab" {
+            return page(None, device_tab_cables());
         }
         return (404, r#"{"detail":"Not found"}"#.to_string(), vec![]);
     }

@@ -228,10 +228,47 @@ pub struct DeviceSummaryInterface {
     pub addresses: Vec<DeviceSummaryAddress>,
 }
 
-/// Live NetBox summary for one device (issue #177 phase 1): identity and
-/// status, device type, geography, rack/U position and interface addresses.
-/// Built per fetch and never cached; VLANs, prefixes and connected devices are
-/// phase 2 and are deliberately absent.
+/// One VLAN the device is a member of, from the union of `untagged_vlan` and
+/// `tagged_vlans` across its own interfaces. `group` is the VLAN group's name
+/// (null when the VLAN has no group), so the panel can group the list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummaryVlan {
+    pub id: u64,
+    pub vid: u16,
+    pub name: String,
+    #[serde(default)]
+    pub group: Option<String>,
+}
+
+/// One subnet related to the device: either a prefix assigned to one of its
+/// VLANs or a prefix containing one of its interface addresses (same VRF).
+/// Deduplicated by NetBox prefix id, so a prefix reachable from both sources
+/// appears once.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummarySubnet {
+    pub id: u64,
+    pub prefix: String,
+    #[serde(default)]
+    pub vrf: Option<String>,
+}
+
+/// A device cabled to this one. The panel resolves the NetBox id, primary IP
+/// and name against Comnd's host list; the summary only carries the NetBox
+/// facts (the renderer and the undocked window never see the host list).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSummaryPeer {
+    pub netbox_id: u64,
+    pub name: String,
+    #[serde(default)]
+    pub display: Option<String>,
+    /// Primary IPv4 first, then IPv6, CIDR retained. Matching strips the mask.
+    #[serde(default)]
+    pub primary_ip: Option<String>,
+}
+
+/// Live NetBox summary for one device (issue #177): identity and status,
+/// device type, geography, rack/U position, interface addresses, VLANs,
+/// subnets and cabled peers. Built per fetch and never cached.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceSummary {
     pub netbox_id: u64,
@@ -255,6 +292,12 @@ pub struct DeviceSummary {
     pub primary_ip: Option<String>,
     #[serde(default)]
     pub interfaces: Vec<DeviceSummaryInterface>,
+    #[serde(default)]
+    pub vlans: Vec<DeviceSummaryVlan>,
+    #[serde(default)]
+    pub subnets: Vec<DeviceSummarySubnet>,
+    #[serde(default)]
+    pub peers: Vec<DeviceSummaryPeer>,
 }
 
 /// Sanitize a device name for display: drop control chars, trim, cap at the

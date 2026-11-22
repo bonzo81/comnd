@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness } from "../../tests/harness";
 import {
+  __configureSidePanel,
   __resetSidePanel,
   clearSidePanelNetboxHost,
   getSidePanelState,
@@ -10,6 +11,7 @@ import {
   setSidePanelNetboxHost,
 } from "./side-panel";
 import { renderSidePanel, type SidePanelHandlers } from "./side-panel-render";
+import { resolvePeerHost } from "./netbox-peer";
 import type { NetBoxDeviceSummary } from "./tauri-api";
 
 beforeEach(() => __resetSidePanel());
@@ -29,6 +31,9 @@ function summary(over: Partial<NetBoxDeviceSummary> = {}): NetBoxDeviceSummary {
     face: "front",
     primary_ip: "127.0.0.1/32",
     interfaces: [],
+    vlans: [],
+    subnets: [],
+    peers: [],
     ...over,
   };
 }
@@ -39,6 +44,7 @@ function handlers(over: Partial<SidePanelHandlers> = {}): SidePanelHandlers {
     add: vi.fn(),
     runExample: vi.fn(),
     retryNetbox: () => retrySidePanelNetbox(),
+    connect: vi.fn(),
     ...over,
   };
 }
@@ -147,7 +153,10 @@ describe("NetBox side-panel tab", () => {
     h.ipc.mockImpl("netbox_get_device_summary", () => {
       calls += 1;
       if (calls === 2) throw new Error("NetBox token lacks permission");
-      return summary({ name: calls === 1 ? "first-device" : "second-device" });
+      return summary({
+        name: calls === 1 ? "first-device" : "second-device",
+        vlans: [{ id: calls === 1 ? 1 : 2, vid: 10, name: calls === 1 ? "first-vlan" : "second-vlan", group: "DC1" }],
+      });
     });
 
     setSidePanelNetboxHost("netbox:201", {});
@@ -157,6 +166,7 @@ describe("NetBox side-panel tab", () => {
     );
     const root = renderCurrent();
     expect(root.textContent).toContain("first-device");
+    expect(root.textContent).toContain("first-vlan");
 
     // Selecting the tab again is a new selection: it clears the pane first and
     // then fails. No value from the first fetch may survive.
@@ -164,6 +174,7 @@ describe("NetBox side-panel tab", () => {
     expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "loading" });
     renderSidePanel(root, getSidePanelState().snapshot, handlers());
     expect(root.textContent).not.toContain("first-device");
+    expect(root.textContent).not.toContain("first-vlan");
 
     await vi.waitFor(() =>
       expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "error" }),
@@ -172,6 +183,7 @@ describe("NetBox side-panel tab", () => {
     expect(root.textContent).toContain("Failed to load NetBox device details");
     expect(root.textContent).not.toContain("first-device");
     expect(root.textContent).not.toContain("second-device");
+    expect(root.querySelector(".nbd-vlan-group")).toBeNull();
 
     root.querySelector<HTMLButtonElement>(".nbd-retry")!.click();
     await vi.waitFor(() =>
@@ -180,7 +192,9 @@ describe("NetBox side-panel tab", () => {
     expect(calls).toBe(3);
     renderSidePanel(root, getSidePanelState().snapshot, handlers());
     expect(root.textContent).toContain("second-device");
+    expect(root.textContent).toContain("second-vlan");
     expect(root.textContent).not.toContain("first-device");
+    expect(root.textContent).not.toContain("first-vlan");
   });
 
   it("drops the tab and falls back to KB when the active host is a user host", async () => {
@@ -255,5 +269,127 @@ describe("NetBox side-panel tab", () => {
       expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
     );
     expect(h.ipc.calls("netbox_get_device_summary")).toHaveLength(2);
+  });
+
+  it("groups the device's VLANs by VLAN group", async () => {
+    const h = createHarness();
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        vlans: [
+          { id: 1, vid: 10, name: "users", group: "DC1" },
+          { id: 2, vid: 20, name: "voice", group: "DC1" },
+          { id: 3, vid: 100, name: "mgmt", group: "MGMT" },
+          { id: 4, vid: 200, name: "native", group: null },
+        ],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = renderCurrent();
+    const groups = [...root.querySelectorAll(".nbd-vlan-group")];
+    expect(
+      groups.map((group) => group.querySelector(".nbd-vlan-group-name")?.textContent),
+    ).toEqual(["DC1", "MGMT", "No group"]);
+    const firstGroup = [...groups[0].querySelectorAll(".nbd-vlan")].map((vlan) => [
+      vlan.querySelector(".nbd-vlan-vid")?.textContent,
+      vlan.querySelector(".nbd-vlan-name")?.textContent,
+    ]);
+    expect(firstGroup).toEqual([
+      ["10", "users"],
+      ["20", "voice"],
+    ]);
+  });
+
+  it("renders the deduplicated subnet union as one list", async () => {
+    // The Rust side dedupes by prefix id before the summary reaches the
+    // snapshot; this prefix was reachable from both sources and arrives once.
+    const h = createHarness();
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        subnets: [
+          { id: 601, prefix: "10.0.0.0/24", vrf: null },
+          { id: 603, prefix: "2001:db8::/32", vrf: "blue" },
+        ],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = renderCurrent();
+    const rows = [...root.querySelectorAll(".nbd-subnet")];
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector(".nbd-subnet-prefix")?.textContent).toBe("10.0.0.0/24");
+    expect(rows[1].querySelector(".nbd-subnet-prefix")?.textContent).toBe("2001:db8::/32");
+    expect(rows[1].querySelector(".nbd-vrf")?.textContent).toBe("blue");
+  });
+
+  it("resolves peers in the main window before publishing and connects from the button", async () => {
+    const h = createHarness();
+    const hosts = [
+      { id: "netbox:201", hostname: "10.0.0.1", display_name: "core" },
+      { id: "user-ip", hostname: "10.0.0.2", display_name: "ip-peer" },
+      { id: "user-name", hostname: "10.0.0.3", display_name: "Access-SW" },
+    ];
+    __configureSidePanel({
+      resolvePeerHost: (peer) => resolvePeerHost(peer, hosts),
+    });
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        peers: [
+          { netbox_id: 201, name: "ignored", display: null, primary_ip: null },
+          { netbox_id: 202, name: "ip-peer", display: null, primary_ip: "10.0.0.2/24" },
+          { netbox_id: 203, name: "access-sw", display: null, primary_ip: "10.9.9.9/24" },
+          { netbox_id: 204, name: "ghost", display: null, primary_ip: "10.9.9.9/24" },
+        ],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const snapshot = getSidePanelState().snapshot;
+    expect(snapshot.kind).toBe("netbox");
+    if (snapshot.kind === "netbox" && snapshot.phase === "ready") {
+      expect(snapshot.summary.peers.map((peer) => peer.hostId)).toEqual([
+        "netbox:201",
+        "user-ip",
+        "user-name",
+        null,
+      ]);
+    }
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const connect = vi.fn();
+    renderSidePanel(root, snapshot, handlers({ connect }));
+
+    const peers = [...root.querySelectorAll(".nbd-peer")];
+    expect(peers.map((peer) => peer.querySelector(".nbd-peer-name")?.textContent)).toEqual([
+      "ignored",
+      "ip-peer",
+      "access-sw",
+      "ghost",
+    ]);
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>(".nbd-connect")];
+    expect(buttons).toHaveLength(3);
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Connect to core",
+      "Connect to ip-peer",
+      "Connect to Access-SW",
+    ]);
+    // The unmatched peer is plain text: no button in its row.
+    expect(peers[3].querySelector(".nbd-connect")).toBeNull();
+
+    buttons[2].click();
+    expect(connect).toHaveBeenCalledWith("user-name");
   });
 });

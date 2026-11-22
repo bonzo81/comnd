@@ -19,6 +19,7 @@ function makeView() {
     () => calls.push({ cb: "disconnect" }),
     () => calls.push({ cb: "session-died" }),
     () => calls.push({ cb: "request-close" }),
+    () => calls.push({ cb: "connect-host" }),
   );
   const container = document.createElement("div");
   view.mount(container);

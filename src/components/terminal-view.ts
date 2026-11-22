@@ -169,6 +169,8 @@ export class TerminalView {
   private onDisconnectCb: () => void;
   private onSessionDiedCb: () => void;
   private onRequestCloseCb: () => void;
+  /** Open a session to a cabled peer the NetBox tab matched to a host. */
+  private onConnectHostCb: (hostId: string) => void;
   private replayItems: ReplayCommand[] = [];
   /** True only for the tab whose session owns the app-wide panel (ADR-013):
    *  every tab stays mounted, so exactly one may publish panel content. */
@@ -236,11 +238,13 @@ export class TerminalView {
     onDisconnect: () => void,
     onSessionDied: () => void,
     onRequestClose: () => void,
+    onConnectHost: (hostId: string) => void,
   ) {
     this.onDetachCb = onDetach;
     this.onDisconnectCb = onDisconnect;
     this.onSessionDiedCb = onSessionDied;
     this.onRequestCloseCb = onRequestClose;
+    this.onConnectHostCb = onConnectHost;
     this.channel = new SessionChannel(new TauriTransport());
     this.channel.on((e) => this.handleSessionEvent(e));
     this.tracker = new LineTracker(
@@ -770,6 +774,7 @@ export class TerminalView {
       add: () => this.openReplaySaveDialog(),
       runExample: (command) => this.runExampleCommand(command),
       retryNetbox: () => retrySidePanelNetbox(),
+      connect: (hostId) => this.onConnectHostCb(hostId),
     };
     this.panelUnsubscribe = subscribeSidePanel((state) => this.applyPanelState(state));
     this.applyPanelState(getSidePanelState());

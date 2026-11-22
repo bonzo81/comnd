@@ -174,3 +174,119 @@
   line-height: var(--font-leading-body);
   overflow-wrap: anywhere;
 }
+
+/* ─── VLANs, subnets and connected devices (phase 2) ─────────────── */
+
+.nbd-vlan-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.nbd-vlan-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-primary);
+}
+
+.nbd-vlan-group-name {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-tracking-label);
+  line-height: var(--font-leading-meta);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.nbd-vlans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nbd-vlan {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-vlan-vid {
+  min-width: var(--space-8);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  text-align: right;
+}
+
+.nbd-vlan-name {
+  font-family: var(--font-mono);
+}
+
+.nbd-subnets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nbd-subnet {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-subnet-prefix {
+  color: var(--color-text-primary);
+}
+
+.nbd-peers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nbd-peer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-primary);
+}
+
+.nbd-peer-name {
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-leading-meta);
+  overflow-wrap: anywhere;
+}
+
+.nbd-connect {
+  flex: none;
+}

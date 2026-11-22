@@ -89,6 +89,7 @@ describe("app startup", () => {
       () => {},
       () => {},
       () => {},
+      () => {},
     );
     const container = document.createElement("div");
     view.mount(container);
@@ -154,6 +155,7 @@ describe("app startup with blocked storage", () => {
       () => {},
       () => {},
       () => {},
+      () => {},
     );
     const container = document.createElement("div");
     view.mount(container);
@@ -203,6 +205,7 @@ describe("app startup with blocked storage", () => {
     startApp(() => {});
 
     const view = new TerminalView(
+      () => {},
       () => {},
       () => {},
       () => {},

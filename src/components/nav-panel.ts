@@ -421,6 +421,11 @@ export class NavPanel {
     return this.hosts.find((h) => h.id === hostId);
   }
 
+  /** The loaded host list, for read-only lookups such as NetBox peer matching. */
+  getHosts(): readonly Host[] {
+    return this.hosts;
+  }
+
   /** Clear the search box (global Escape). */
   clearSearch() {
     const input = this.container.querySelector<HTMLInputElement>("#nav-host-search");
