@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
-          key: cargo-llvm-cov-0.9.1-${{ runner.os }}-${{ runner.arch }}-probe-temp
+          key: cargo-llvm-cov-0.9.1-${{ runner.os }}-${{ runner.arch }}
 
       # `swatinem/rust-cache` also caches `~/.cargo/bin`, so it can restore this
       # binary while the dedicated cache above misses. A plain install then exits
