@@ -88,7 +88,7 @@ When the repo becomes public:
 
 None of these block anything today.
 
-**Adopted: `cargo fmt --check` + `cargo clippy` (issue #187).** Both were listed here as "only when the codebase adopts the lint gate". The gate is now adopted: the `rust` job runs `cargo fmt --all -- --check` on the Linux leg (formatting is OS-independent) and `cargo clippy --all-targets -- -D warnings` on every leg (`#[cfg(windows)]` / `#[cfg(unix)]` arms differ per OS). The toolchain install is still a single `rustup show`, which installs the `rustfmt` and `clippy` components that `rust-toolchain.toml` now declares. The existing clippy diagnostics were fixed in the same PR rather than silenced, and `AGENTS.md` plus `.github/pull_request_template.md` carry both commands.
+**Adopted: `cargo fmt --check` + `cargo clippy` (issue #187).** Both were listed here as "only when the codebase adopts the lint gate". The gate is now adopted: the `rust` job runs `cargo fmt --all -- --check` on the Linux leg (formatting is OS-independent) and `cargo clippy --all-targets -- -D warnings` on every leg (`#[cfg(windows)]` / `#[cfg(unix)]` arms differ per OS). The toolchain install is still a single `rustup toolchain install`, which installs the `rustfmt` and `clippy` components that `rust-toolchain.toml` now declares. The existing clippy diagnostics were fixed in the same PR rather than silenced, and `AGENTS.md` plus `.github/pull_request_template.md` carry both commands.
 
 ## Verification
 
