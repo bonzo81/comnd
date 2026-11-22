@@ -10,13 +10,16 @@
  * HTML string that crossed a window boundary.
  */
 
-import { escHtml } from "./format";
+import { escAttr, escHtml } from "./format";
 import { renderReplayTemplate } from "./replay";
 import { SidebarContent, wireExampleCopy } from "./sidebar-content";
 import type { SidePanelSnapshot } from "./side-panel";
+import type { NetBoxResolvedPeer } from "./netbox-peer";
 import type {
   NetBoxDeviceInterface,
+  NetBoxDeviceSubnet,
   NetBoxDeviceSummary,
+  NetBoxDeviceVlan,
   ReplayCommand,
 } from "./tauri-api";
 
@@ -29,6 +32,8 @@ export interface SidePanelHandlers {
   runExample: (command: string) => void;
   /** Fetch the NetBox summary again after a failed load. */
   retryNetbox: () => void;
+  /** Open a session to a cabled peer that matches a Comnd host. */
+  connect: (hostId: string) => void;
 }
 
 const sidebarContent = new SidebarContent();
@@ -70,6 +75,12 @@ export function renderSidePanel(
   if (snapshot.kind === "netbox") {
     root.innerHTML = netboxMarkup(snapshot);
     root.querySelector(".nbd-retry")?.addEventListener("click", () => handlers.retryNetbox());
+    root.querySelectorAll<HTMLButtonElement>(".nbd-connect").forEach((button) => {
+      button.addEventListener("click", () => {
+        const hostId = button.dataset.hostId;
+        if (hostId) handlers.connect(hostId);
+      });
+    });
     return;
   }
 
@@ -84,10 +95,11 @@ export function renderSidePanel(
 type NetboxSnapshot = Extract<SidePanelSnapshot, { kind: "netbox" }>;
 
 /**
- * The NetBox tab's pane: identity and status, the facts phase 1 covers, and
- * interface addresses grouped by the interface that owns them. A loading
- * snapshot replaces the values before every fetch, so the error state never
- * sits below stale device facts.
+ * The NetBox tab's pane: identity and status, the device facts, interface
+ * addresses grouped by interface, VLANs grouped by VLAN group, the deduped
+ * subnet list and the cabled peers (resolved against Comnd's hosts upstream).
+ * A loading snapshot replaces the values before every fetch, so the error state
+ * never sits below stale device facts.
  */
 function netboxMarkup(snapshot: NetboxSnapshot): string {
   if (snapshot.phase === "loading") {
@@ -136,6 +148,18 @@ function netboxMarkup(snapshot: NetboxSnapshot): string {
         <h4 class="nbd-section-label">Interfaces</h4>
         ${interfaces}
       </section>
+      <section class="nbd-section" aria-label="VLANs">
+        <h4 class="nbd-section-label">VLANs</h4>
+        ${vlanMarkup(summary.vlans)}
+      </section>
+      <section class="nbd-section" aria-label="Subnets">
+        <h4 class="nbd-section-label">Subnets</h4>
+        ${subnetMarkup(summary.subnets)}
+      </section>
+      <section class="nbd-section" aria-label="Connected devices">
+        <h4 class="nbd-section-label">Connected devices</h4>
+        ${peerMarkup(summary.peers)}
+      </section>
     </div>
   `;
 }
@@ -172,6 +196,82 @@ function interfaceMarkup(iface: NetBoxDeviceInterface): string {
       <div class="nbd-iface-name">${escHtml(iface.name)}</div>
       <ul class="nbd-addresses">${addresses}</ul>
     </div>
+  `;
+}
+
+/** VLANs grouped by their VLAN group id, labelled with the group name. */
+function vlanMarkup(vlans: NetBoxDeviceVlan[]): string {
+  if (vlans.length === 0) return `<p class="sb-placeholder">No VLANs.</p>`;
+  // Names are only unique within a scope, so the id is the key. Two groups
+  // that happen to share a name stay two sections.
+  const groups = new Map<string, { label: string; vlans: NetBoxDeviceVlan[] }>();
+  for (const vlan of vlans) {
+    const key = vlan.group_id != null ? `id:${vlan.group_id}` : "none";
+    const entry = groups.get(key) ?? { label: vlan.group ?? "No group", vlans: [] };
+    entry.vlans.push(vlan);
+    groups.set(key, entry);
+  }
+  const markup = [...groups.values()]
+    .map(
+      ({ label, vlans: items }) => `
+      <div class="nbd-vlan-group">
+        <div class="nbd-vlan-group-name">${escHtml(label)}</div>
+        <ul class="nbd-vlans">
+          ${items
+            .map(
+              (vlan) => `
+            <li class="nbd-vlan" data-vlan-id="${vlan.id}">
+              <span class="nbd-vlan-vid">${vlan.vid}</span>
+              <span class="nbd-vlan-name">${escHtml(vlan.name)}</span>
+            </li>`,
+            )
+            .join("")}
+        </ul>
+      </div>`,
+    )
+    .join("");
+  return `<div class="nbd-vlan-groups">${markup}</div>`;
+}
+
+/** One list: both sources are already deduplicated by prefix id. */
+function subnetMarkup(subnets: NetBoxDeviceSubnet[]): string {
+  if (subnets.length === 0) return `<p class="sb-placeholder">No subnets.</p>`;
+  return `
+    <ul class="nbd-subnets">
+      ${subnets
+        .map(
+          (subnet) => `
+        <li class="nbd-subnet" data-subnet-id="${subnet.id}">
+          <span class="nbd-subnet-prefix">${escHtml(subnet.prefix)}</span>
+          ${subnet.vrf ? `<span class="nbd-vrf">${escHtml(subnet.vrf)}</span>` : ""}
+        </li>`,
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+/**
+ * Matched peers get a Connect button; unmatched peers are plain text. Both the
+ * host id and its label came from the main window, so neither home looks
+ * anything up here.
+ */
+function peerMarkup(peers: NetBoxResolvedPeer[]): string {
+  if (peers.length === 0) return `<p class="sb-placeholder">No connected devices.</p>`;
+  return `
+    <ul class="nbd-peers">
+      ${peers
+        .map(
+          (peer) => `
+        <li class="nbd-peer" data-peer-id="${peer.netbox_id}">
+          <span class="nbd-peer-name">${escHtml(peer.name)}</span>
+          ${peer.hostId
+            ? `<button type="button" class="btn-secondary btn-small nbd-connect" data-host-id="${escAttr(peer.hostId)}" aria-label="Connect to ${escAttr(peer.label ?? peer.name)}">Connect</button>`
+            : ""}
+        </li>`,
+        )
+        .join("")}
+    </ul>
   `;
 }
 

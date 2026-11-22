@@ -2,14 +2,15 @@
 //! guard. Every request the app makes to a NetBox instance goes through
 //! `ReadOnlyHttp` below.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    DeviceSummary, DeviceSummaryAddress, DeviceSummaryInterface, NetBoxChoice, NetBoxFilters,
-    NetBoxGeo, NetBoxGeoNode,
+    DeviceSummary, DeviceSummaryAddress, DeviceSummaryInterface, DeviceSummaryPeer,
+    DeviceSummarySubnet, DeviceSummaryVlan, NetBoxChoice, NetBoxFilters, NetBoxGeo,
+    NetBoxGeoNode,
 };
 
 // ─── Raw device (API response shape, plan §4.1) ─────────────────────
@@ -132,6 +133,22 @@ const SUMMARY_DEVICE_FIELDS: &str = "id,name,display,status,device_type,site,loc
 /// plus brief device), which is all the grouping needs.
 const SUMMARY_IP_FIELDS: &str =
     "id,address,vrf,status,assigned_object,assigned_object_type,assigned_object_id";
+/// Interface fields for the VLAN membership request. `device` is requested so
+/// the parser can drop a virtual-chassis sibling's interface; the two VLAN
+/// fields are absent from the brief serializer and are only present because
+/// they are listed here.
+const SUMMARY_INTERFACE_FIELDS: &str = "id,name,device,untagged_vlan,tagged_vlans";
+/// Top-level fields for the VLAN-details request. A nested VLAN is brief and
+/// therefore has no `group`, which is why this second request exists.
+const SUMMARY_VLAN_FIELDS: &str = "id,vid,name,group";
+/// Prefix fields for the subnet request. `vrf` and `vlan` are nested brief.
+const SUMMARY_PREFIX_FIELDS: &str = "id,prefix,vrf,vlan";
+/// Cable fields: both ends, each a `GenericObjectSerializer` whose `object`
+/// is the nested brief termination (an interface carries its brief device).
+const SUMMARY_CABLE_FIELDS: &str = "id,a_terminations,b_terminations";
+/// Peer-device fields for the batched primary-IP lookup. A nested
+/// `primary_ip4/6` is brief and does carry `address`.
+const SUMMARY_PEER_DEVICE_FIELDS: &str = "id,name,display,primary_ip4,primary_ip6";
 
 /// Trimmed, non-empty string from a JSON value.
 fn summary_text(v: Option<&serde_json::Value>) -> Option<String> {
@@ -197,30 +214,47 @@ fn summary_device_type(v: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// Group the device's addresses by interface. Only `dcim.interface` owners are
-/// considered, and only interfaces whose owner device is the requested one:
-/// NetBox's `device_id` filter includes virtual-chassis siblings.
+/// The interface object that owns an address, when that owner belongs to this
+/// device. Only `dcim.interface` owners are considered, and only interfaces
+/// whose owner device is the requested one: NetBox's IP `device_id` filter
+/// includes virtual-chassis siblings. A missing nested device passes, because
+/// the interfaces list's own `device_id` filter is exact.
+fn summary_ip_owner<'a>(
+    ip: &'a serde_json::Value,
+    device_id: u64,
+) -> Option<&'a serde_json::Value> {
+    if summary_text(ip.get("assigned_object_type")).as_deref() != Some("dcim.interface") {
+        return None;
+    }
+    let owner = ip.get("assigned_object").filter(|obj| !obj.is_null())?;
+    if let Some(owner_id) = owner
+        .get("device")
+        .and_then(|device| device.get("id"))
+        .and_then(|id| id.as_u64())
+    {
+        if owner_id != device_id {
+            return None;
+        }
+    }
+    Some(owner)
+}
+
+/// An address and its VRF, used for subnet containment.
+struct SummaryIpRef {
+    address: String,
+    vrf_id: Option<u64>,
+}
+
+/// Group the device's addresses by interface.
 fn summary_interfaces(
     results: &[serde_json::Value],
     device_id: u64,
 ) -> Vec<DeviceSummaryInterface> {
     let mut by_id: HashMap<u64, DeviceSummaryInterface> = HashMap::new();
     for ip in results {
-        if summary_text(ip.get("assigned_object_type")).as_deref() != Some("dcim.interface") {
-            continue;
-        }
-        let Some(owner) = ip.get("assigned_object").filter(|obj| !obj.is_null()) else {
+        let Some(owner) = summary_ip_owner(ip, device_id) else {
             continue;
         };
-        if let Some(owner_id) = owner
-            .get("device")
-            .and_then(|device| device.get("id"))
-            .and_then(|id| id.as_u64())
-        {
-            if owner_id != device_id {
-                continue;
-            }
-        }
         let interface_id = owner
             .get("id")
             .and_then(|id| id.as_u64())
@@ -261,6 +295,268 @@ fn summary_interfaces(
     interfaces
 }
 
+/// Every address on one of this device's interfaces, with its VRF id.
+fn summary_ip_refs(results: &[serde_json::Value], device_id: u64) -> Vec<SummaryIpRef> {
+    results
+        .iter()
+        .filter_map(|ip| {
+            summary_ip_owner(ip, device_id)?;
+            Some(SummaryIpRef {
+                address: summary_text(ip.get("address"))?,
+                vrf_id: ip
+                    .get("vrf")
+                    .and_then(|vrf| vrf.get("id"))
+                    .and_then(|id| id.as_u64()),
+            })
+        })
+        .collect()
+}
+
+/// The union of `untagged_vlan` and every `tagged_vlans` entry across the
+/// device's own interfaces. De-duplicated and ordered so the request's `?id=`
+/// list is deterministic.
+fn summary_vlan_ids(interfaces: &[serde_json::Value], device_id: u64) -> Vec<u64> {
+    let mut ids = BTreeSet::new();
+    for interface in interfaces {
+        if let Some(owner_id) = interface
+            .get("device")
+            .and_then(|device| device.get("id"))
+            .and_then(|id| id.as_u64())
+        {
+            if owner_id != device_id {
+                continue;
+            }
+        }
+        if let Some(id) = interface
+            .get("untagged_vlan")
+            .and_then(|vlan| vlan.get("id"))
+            .and_then(|id| id.as_u64())
+        {
+            ids.insert(id);
+        }
+        if let Some(tagged) = interface.get("tagged_vlans").and_then(|v| v.as_array()) {
+            for vlan in tagged {
+                if let Some(id) = vlan.get("id").and_then(|id| id.as_u64()) {
+                    ids.insert(id);
+                }
+            }
+        }
+    }
+    ids.into_iter().collect()
+}
+
+/// VLAN rows from the VLAN-details request, deduplicated by id and ordered by
+/// group name then VID.
+fn summary_vlans(results: &[serde_json::Value]) -> Vec<DeviceSummaryVlan> {
+    let mut by_id: HashMap<u64, DeviceSummaryVlan> = HashMap::new();
+    for vlan in results {
+        let Some(id) = vlan.get("id").and_then(|id| id.as_u64()) else {
+            continue;
+        };
+        let Some(vid) = vlan
+            .get("vid")
+            .and_then(|vid| vid.as_u64())
+            .and_then(|vid| u16::try_from(vid).ok())
+        else {
+            continue;
+        };
+        let group = vlan.get("group").filter(|group| !group.is_null());
+        let group_id = group
+            .and_then(|group| group.get("id"))
+            .and_then(|id| id.as_u64());
+        let group = group.and_then(|group| {
+            summary_text(group.get("name")).or_else(|| summary_text(group.get("display")))
+        });
+        let name = summary_text(vlan.get("name")).unwrap_or_else(|| format!("VLAN {}", vid));
+        by_id.entry(id).or_insert(DeviceSummaryVlan {
+            id,
+            vid,
+            name,
+            group_id,
+            group,
+        });
+    }
+    let mut vlans: Vec<DeviceSummaryVlan> = by_id.into_values().collect();
+    vlans.sort_by(|a, b| {
+        a.group
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .cmp(&b.group.as_deref().unwrap_or("").to_lowercase())
+            .then(a.group_id.cmp(&b.group_id))
+            .then(a.vid.cmp(&b.vid))
+            .then(a.id.cmp(&b.id))
+    });
+    vlans
+}
+
+/// Parse a CIDR into its address and mask length.
+fn parse_cidr(value: &str) -> Option<(std::net::IpAddr, u8)> {
+    let (address, length) = value.split_once('/')?;
+    let address: std::net::IpAddr = address.parse().ok()?;
+    let length: u8 = length.parse().ok()?;
+    Some((address, length))
+}
+
+/// True when `prefix` contains `address` (same address family only).
+fn ip_contained(prefix: &str, address: &str) -> bool {
+    let Some((network, length)) = parse_cidr(prefix) else {
+        return false;
+    };
+    let Some((address, _)) = parse_cidr(address) else {
+        return false;
+    };
+    match (network, address) {
+        (std::net::IpAddr::V4(network), std::net::IpAddr::V4(address)) => {
+            if length > 32 {
+                return false;
+            }
+            let mask = if length == 0 {
+                0
+            } else {
+                u32::MAX << (32 - length)
+            };
+            u32::from(network) & mask == u32::from(address) & mask
+        }
+        (std::net::IpAddr::V6(network), std::net::IpAddr::V6(address)) => {
+            if length > 128 {
+                return false;
+            }
+            let mask = if length == 0 {
+                0
+            } else {
+                u128::MAX << (128 - length)
+            };
+            u128::from(network) & mask == u128::from(address) & mask
+        }
+        _ => false,
+    }
+}
+
+/// The deduplicated union of the two subnet sources: a prefix assigned to one
+/// of the device's VLANs, or a prefix containing one of its interface
+/// addresses in the same VRF.
+fn summary_subnets(
+    prefixes: &[serde_json::Value],
+    vlan_ids: &[u64],
+    ips: &[SummaryIpRef],
+) -> Vec<DeviceSummarySubnet> {
+    let mut by_id: HashMap<u64, DeviceSummarySubnet> = HashMap::new();
+    for prefix in prefixes {
+        let Some(id) = prefix.get("id").and_then(|id| id.as_u64()) else {
+            continue;
+        };
+        let Some(value) = summary_text(prefix.get("prefix")) else {
+            continue;
+        };
+        let vrf_id = prefix
+            .get("vrf")
+            .and_then(|vrf| vrf.get("id"))
+            .and_then(|id| id.as_u64());
+        let by_vlan = prefix
+            .get("vlan")
+            .and_then(|vlan| vlan.get("id"))
+            .and_then(|id| id.as_u64())
+            .map(|vlan_id| vlan_ids.contains(&vlan_id))
+            .unwrap_or(false);
+        let by_address = ips
+            .iter()
+            .any(|ip| ip.vrf_id == vrf_id && ip_contained(&value, &ip.address));
+        if !by_vlan && !by_address {
+            continue;
+        }
+        let vrf = prefix.get("vrf").and_then(|vrf| {
+            summary_text(vrf.get("name")).or_else(|| summary_text(vrf.get("display")))
+        });
+        by_id.entry(id).or_insert(DeviceSummarySubnet {
+            id,
+            prefix: value,
+            vrf,
+        });
+    }
+    let mut subnets: Vec<DeviceSummarySubnet> = by_id.into_values().collect();
+    subnets.sort_by(|a, b| {
+        let key = |subnet: &DeviceSummarySubnet| match parse_cidr(&subnet.prefix) {
+            Some((std::net::IpAddr::V4(ip), length)) => {
+                (0u8, u128::from(u32::from(ip)), length)
+            }
+            Some((std::net::IpAddr::V6(ip), length)) => (1u8, u128::from(ip), length),
+            None => (2u8, 0u128, 0u8),
+        };
+        key(a)
+            .cmp(&key(b))
+            .then(a.prefix.cmp(&b.prefix))
+            .then(a.id.cmp(&b.id))
+    });
+    subnets
+}
+
+/// Cabled peer devices. Each cable end is a `GenericObjectSerializer`; the
+/// nested brief termination carries its device. A cable between two of this
+/// device's own ports contributes no peer, and a termination without a device
+/// (circuit, power feed) is skipped.
+fn summary_peers(cables: &[serde_json::Value], device_id: u64) -> Vec<DeviceSummaryPeer> {
+    let mut by_id: HashMap<u64, DeviceSummaryPeer> = HashMap::new();
+    for cable in cables {
+        for end in ["a_terminations", "b_terminations"] {
+            let Some(terminations) = cable.get(end).and_then(|list| list.as_array()) else {
+                continue;
+            };
+            for termination in terminations {
+                let Some(object) = termination.get("object").filter(|obj| !obj.is_null()) else {
+                    continue;
+                };
+                let Some(device) = object.get("device").filter(|obj| !obj.is_null()) else {
+                    continue;
+                };
+                let Some(peer_id) = device.get("id").and_then(|id| id.as_u64()) else {
+                    continue;
+                };
+                if peer_id == device_id {
+                    continue;
+                }
+                let display = summary_text(device.get("display"));
+                let name = summary_text(device.get("name"))
+                    .or_else(|| display.clone())
+                    .unwrap_or_else(|| format!("device-{}", peer_id));
+                by_id.entry(peer_id).or_insert(DeviceSummaryPeer {
+                    netbox_id: peer_id,
+                    name,
+                    display,
+                    primary_ip: None,
+                });
+            }
+        }
+    }
+    let mut peers: Vec<DeviceSummaryPeer> = by_id.into_values().collect();
+    peers.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.netbox_id.cmp(&b.netbox_id))
+    });
+    peers
+}
+
+/// Fill each peer's primary IP from the batched device list.
+fn attach_peer_primary_ips(peers: &mut [DeviceSummaryPeer], devices: &[serde_json::Value]) {
+    let mut primaries: HashMap<u64, Option<String>> = HashMap::new();
+    for device in devices {
+        let Some(id) = device.get("id").and_then(|id| id.as_u64()) else {
+            continue;
+        };
+        let primary = ["primary_ip4", "primary_ip6"]
+            .iter()
+            .find_map(|key| summary_text(device.get(*key)?.get("address")));
+        primaries.insert(id, primary);
+    }
+    for peer in peers {
+        if let Some(primary) = primaries.get(&peer.netbox_id) {
+            peer.primary_ip = primary.clone();
+        }
+    }
+}
+
 /// Build the summary from the device-detail response. Addresses are filled in
 /// by the caller from the separate IP request.
 fn parse_summary_device(
@@ -288,6 +584,9 @@ fn parse_summary_device(
         face: summary_face(device),
         primary_ip: summary_primary_ip(device),
         interfaces: Vec::new(),
+        vlans: Vec::new(),
+        subnets: Vec::new(),
+        peers: Vec::new(),
     }
 }
 
@@ -516,16 +815,24 @@ impl NetBoxClient {
         Ok(result)
     }
 
-    /// Fetch the live summary for one device (issue #177 phase 1).
+    /// Fetch the live summary for one device (issue #177, phases 1 and 2).
     ///
-    /// Exactly two GETs, independent of interface/address count:
-    /// 1. the device detail with `fields=` limited to the facts the tab shows
-    ///    (nested serializers default to their brief shape);
-    /// 2. every IP assigned to the device's interfaces, `limit=0` so there is
-    ///    no pagination loop and the request count stays fixed.
+    /// Seven GETs, independent of interface, VLAN, prefix or peer count:
+    /// 1. the device detail with `fields=` limited to the facts the tab shows;
+    /// 2. every IP assigned to the device's interfaces (`device_id`, `limit=0`);
+    /// 3. the device's interfaces with their VLAN membership (`device_id`,
+    ///    `limit=0`) — the VLAN fields are absent from the brief serializer;
+    /// 4. the VLAN details for those ids (`?id=` repeated, `limit=0`), because
+    ///    a nested VLAN is brief and carries no `group`;
+    /// 5. every prefix (`limit=0`), filtered client-side for both subnet
+    ///    sources — v4.1's `contains` filter is single-valued;
+    /// 6. every cable attached to the device (`device_id`, `limit=0`);
+    /// 7. the peer devices' primary IPs (`?id=` repeated, `limit=0`), because
+    ///    a nested device is brief and carries no primary IP.
     ///
-    /// The sync cache is never consulted. Any failure returns the mapped error;
-    /// no partial summary leaves this function.
+    /// Requests 4 and 7 are skipped only when their set is empty; no request is
+    /// ever split by count. The sync cache is never consulted. Any failure
+    /// returns the mapped error; no partial summary leaves this function.
     pub async fn fetch_device_summary(&self, netbox_id: u64) -> Result<DeviceSummary, String> {
         let device_url = reqwest::Url::parse_with_params(
             &format!("{}/api/dcim/devices/{}/", self.base_url, netbox_id),
@@ -546,20 +853,156 @@ impl NetBoxClient {
         )
         .map_err(|e| format!("Failed to build request URL: {}", e))?;
         log::info!("NetBox fetch_device_summary addresses -> {}", addresses_url);
-        let body = self
-            .get_json_for(
+        let results = self
+            .fetch_summary_list(
                 &addresses_url,
+                "interface addresses",
+                "raise NetBox's API MAX_PAGE_SIZE or reduce this device's address count.",
                 Some("reading IP addresses requires IPAM > IP address read access"),
             )
             .await?;
+
+        let mut summary = parse_summary_device(&device, netbox_id);
+        summary.interfaces = summary_interfaces(&results, netbox_id);
+        let ip_refs = summary_ip_refs(&results, netbox_id);
+
+        let interfaces_url = reqwest::Url::parse_with_params(
+            &format!("{}/api/dcim/interfaces/", self.base_url),
+            [
+                ("device_id", id.as_str()),
+                ("fields", SUMMARY_INTERFACE_FIELDS),
+                ("limit", "0"),
+            ],
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        log::info!(
+            "NetBox fetch_device_summary interfaces -> {}",
+            interfaces_url
+        );
+        let interfaces = self
+            .fetch_summary_list(
+                &interfaces_url,
+                "interfaces",
+                "raise NetBox's API MAX_PAGE_SIZE or reduce this device's interface count.",
+                Some("reading interfaces requires DCIM > Interface read access"),
+            )
+            .await?;
+        let vlan_ids = summary_vlan_ids(&interfaces, netbox_id);
+
+        if !vlan_ids.is_empty() {
+            let mut vlans_url = reqwest::Url::parse(&format!("{}/api/ipam/vlans/", self.base_url))
+                .map_err(|e| format!("Failed to build request URL: {}", e))?;
+            {
+                let mut query = vlans_url.query_pairs_mut();
+                query
+                    .append_pair("fields", SUMMARY_VLAN_FIELDS)
+                    .append_pair("limit", "0");
+                for vlan_id in &vlan_ids {
+                    query.append_pair("id", &vlan_id.to_string());
+                }
+            }
+            log::info!("NetBox fetch_device_summary vlans -> {}", vlans_url);
+            let vlans = self
+                .fetch_summary_list(
+                    &vlans_url,
+                    "VLANs",
+                    "raise NetBox's API MAX_PAGE_SIZE or reduce this device's VLAN count.",
+                    Some("reading VLANs requires IPAM > VLAN read access"),
+                )
+                .await?;
+            summary.vlans = summary_vlans(&vlans);
+        }
+
+        let prefixes_url = reqwest::Url::parse_with_params(
+            &format!("{}/api/ipam/prefixes/", self.base_url),
+            [("fields", SUMMARY_PREFIX_FIELDS), ("limit", "0")],
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        log::info!("NetBox fetch_device_summary prefixes -> {}", prefixes_url);
+        let prefixes = self
+            .fetch_summary_list(
+                &prefixes_url,
+                "prefixes",
+                "raise NetBox's API MAX_PAGE_SIZE for this instance.",
+                Some("reading prefixes requires IPAM > Prefix read access"),
+            )
+            .await?;
+        summary.subnets = summary_subnets(&prefixes, &vlan_ids, &ip_refs);
+
+        let cables_url = reqwest::Url::parse_with_params(
+            &format!("{}/api/dcim/cables/", self.base_url),
+            [
+                ("device_id", id.as_str()),
+                ("fields", SUMMARY_CABLE_FIELDS),
+                ("limit", "0"),
+            ],
+        )
+        .map_err(|e| format!("Failed to build request URL: {}", e))?;
+        log::info!("NetBox fetch_device_summary cables -> {}", cables_url);
+        let cables = self
+            .fetch_summary_list(
+                &cables_url,
+                "cables",
+                "raise NetBox's API MAX_PAGE_SIZE or reduce this device's cable count.",
+                Some("reading cables requires DCIM > Cable read access"),
+            )
+            .await?;
+        summary.peers = summary_peers(&cables, netbox_id);
+
+        if !summary.peers.is_empty() {
+            let mut peers_url =
+                reqwest::Url::parse(&format!("{}/api/dcim/devices/", self.base_url))
+                    .map_err(|e| format!("Failed to build request URL: {}", e))?;
+            {
+                let mut query = peers_url.query_pairs_mut();
+                query
+                    .append_pair("fields", SUMMARY_PEER_DEVICE_FIELDS)
+                    .append_pair("limit", "0");
+                for peer in &summary.peers {
+                    query.append_pair("id", &peer.netbox_id.to_string());
+                }
+            }
+            log::info!("NetBox fetch_device_summary peers -> {}", peers_url);
+            let devices = self
+                .fetch_summary_list(
+                    &peers_url,
+                    "cabled peer devices",
+                    "raise NetBox's API MAX_PAGE_SIZE or reduce the number of cabled peers.",
+                    None,
+                )
+                .await?;
+            attach_peer_primary_ips(&mut summary.peers, &devices);
+        }
+
+        log::info!(
+            "NetBox fetch_device_summary done — {} interface(s), {} VLAN(s), {} subnet(s), \
+             {} peer(s)",
+            summary.interfaces.len(),
+            summary.vlans.len(),
+            summary.subnets.len(),
+            summary.peers.len()
+        );
+        Ok(summary)
+    }
+
+    /// One list request whose full result must fit in a single page. `label`
+    /// and `advice` shape the cap error; a capped page is never truncated.
+    async fn fetch_summary_list(
+        &self,
+        url: &reqwest::Url,
+        label: &str,
+        advice: &str,
+        permission_hint: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let body = self.get_json_for(url, permission_hint).await?;
         let results = body
             .get("results")
             .and_then(|results| results.as_array())
             .ok_or_else(|| "Unexpected NetBox response shape (missing results)".to_string())?;
 
         // `limit=0` disables pagination only when the server's MAX_PAGE_SIZE is
-        // 0/unset. Accepting a capped page would silently drop addresses, so
-        // fail with the prerequisite instead; the fixed two-GET contract stays.
+        // 0/unset. Accepting a capped page would silently drop objects, so fail
+        // with the prerequisite instead; the fixed-GET contract stays.
         let total = body
             .get("count")
             .and_then(|count| count.as_u64())
@@ -571,21 +1014,15 @@ impl NetBoxClient {
             .unwrap_or(false);
         if has_next || total > results.len() as u64 {
             return Err(format!(
-                "NetBox returned {} of {} interface addresses in one page. The device summary \
-                 needs them all in one request; raise NetBox's API MAX_PAGE_SIZE or reduce this \
-                 device's address count.",
+                "NetBox returned {} of {} {} in one page. The device summary needs them all in \
+                 one request; {}",
                 results.len(),
-                total
+                total,
+                label,
+                advice
             ));
         }
-
-        let mut summary = parse_summary_device(&device, netbox_id);
-        summary.interfaces = summary_interfaces(results, netbox_id);
-        log::info!(
-            "NetBox fetch_device_summary done — {} interface(s)",
-            summary.interfaces.len()
-        );
-        Ok(summary)
+        Ok(results.clone())
     }
 
     /// Fetch all site choices (slug + name) for the filter dropdown.
@@ -1204,13 +1641,24 @@ mod tests {
         })
     }
 
+    fn summary_empty_endpoint(path: &str) -> Option<(u16, String, Vec<(String, String)>)> {
+        if path.starts_with("/api/dcim/interfaces/")
+            || path.starts_with("/api/ipam/vlans/")
+            || path.starts_with("/api/ipam/prefixes/")
+            || path.starts_with("/api/dcim/cables/")
+        {
+            return Some(page(None, Vec::new()));
+        }
+        None
+    }
+
     #[tokio::test]
     async fn test_fetch_device_summary_parses_fields() {
         let (base, server) = start_mock(|_| {
             Arc::new(|_, path, _| {
                 if path.starts_with("/api/dcim/devices/1/") {
                     (200, summary_device_json(1).to_string(), vec![])
-                } else {
+                } else if path.starts_with("/api/ipam/ip-addresses/") {
                     page(
                         None,
                         vec![summary_ip_json(
@@ -1222,6 +1670,10 @@ mod tests {
                             None,
                         )],
                     )
+                } else if let Some(empty) = summary_empty_endpoint(path) {
+                    empty
+                } else {
+                    (404, "{}".into(), vec![])
                 }
             })
         })
@@ -1241,6 +1693,9 @@ mod tests {
         assert_eq!(summary.face.as_deref(), Some("front"));
         assert_eq!(summary.primary_ip.as_deref(), Some("10.0.0.1/24"));
         assert_eq!(summary.interfaces.len(), 1);
+        assert!(summary.vlans.is_empty());
+        assert!(summary.subnets.is_empty());
+        assert!(summary.peers.is_empty());
         server.abort();
     }
 
@@ -1282,8 +1737,12 @@ mod tests {
             Arc::new(move |_, path, _| {
                 if path.starts_with("/api/dcim/devices/1/") {
                     (200, summary_device_json(1).to_string(), vec![])
-                } else {
+                } else if path.starts_with("/api/ipam/ip-addresses/") {
                     page(None, results.clone())
+                } else if let Some(empty) = summary_empty_endpoint(path) {
+                    empty
+                } else {
+                    (404, "{}".into(), vec![])
                 }
             })
         })
@@ -1312,36 +1771,130 @@ mod tests {
     async fn test_device_summary_request_count_is_fixed() {
         let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let recorder = seen.clone();
+        // Which device the current fetch is for. Every request in one fetch is
+        // awaited in order, so this is the device the next request belongs to.
+        let current: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
+        let current_reader = current.clone();
         let (base, server) = start_mock(move |_| {
             let recorder = recorder.clone();
+            let current = current_reader.clone();
             Arc::new(move |_, path, _| {
                 recorder.lock().unwrap().push(path.to_string());
-                if path.starts_with("/api/dcim/devices/1/") {
-                    (200, summary_device_json(1).to_string(), vec![])
-                } else if path.starts_with("/api/dcim/devices/2/") {
-                    (200, summary_device_json(2).to_string(), vec![])
-                } else if path.starts_with("/api/ipam/ip-addresses/") {
-                    let (owner, count): (u64, u64) = if path.contains("device_id=1") {
-                        (1, 1)
-                    } else {
-                        (2, 48)
-                    };
-                    let results = (0..count)
+                let device = *current.lock().unwrap();
+                if let Some(rest) = path.strip_prefix("/api/dcim/devices/") {
+                    let head = rest.split('/').next().unwrap_or("");
+                    if let Ok(id) = head.parse::<u64>() {
+                        *current.lock().unwrap() = id;
+                        return (200, summary_device_json(id).to_string(), vec![]);
+                    }
+                }
+                // 1 interface / 2 VLANs / 2 peers vs 48 / 40 / 40.
+                let (interfaces, vlans, peers): (u64, u64, u64) = if device == 1 {
+                    (1, 2, 2)
+                } else {
+                    (48, 40, 40)
+                };
+                if path.starts_with("/api/ipam/ip-addresses/") {
+                    let results = (0..interfaces)
                         .map(|index| {
                             summary_ip_json(
                                 100 + index,
                                 &format!("10.1.{}.{}/24", index / 254, index % 254 + 1),
                                 1000 + index,
                                 &format!("GigabitEthernet1/0/{}", index + 1),
-                                owner,
+                                device,
                                 None,
                             )
                         })
                         .collect();
-                    page(None, results)
-                } else {
-                    (404, "{}".into(), vec![])
+                    return page(None, results);
                 }
+                if path.starts_with("/api/dcim/interfaces/") {
+                    let results = (0..interfaces)
+                        .map(|index| {
+                            serde_json::json!({
+                                "id": 1000 + index,
+                                "name": format!("GigabitEthernet1/0/{}", index + 1),
+                                "device": { "id": device },
+                                "untagged_vlan": { "id": 100 + index % vlans },
+                                "tagged_vlans": [ { "id": 100 + (index + 1) % vlans } ]
+                            })
+                        })
+                        .collect();
+                    return page(None, results);
+                }
+                if path.starts_with("/api/ipam/vlans/") {
+                    let results = (0..vlans)
+                        .map(|index| {
+                            serde_json::json!({
+                                "id": 100 + index,
+                                "vid": 1000 + index,
+                                "name": format!("vlan-{}", index),
+                                "group": { "id": 1, "name": "DC1" }
+                            })
+                        })
+                        .collect();
+                    return page(None, results);
+                }
+                if path.starts_with("/api/ipam/prefixes/") {
+                    let mut results: Vec<serde_json::Value> = (0..vlans)
+                        .map(|index| {
+                            serde_json::json!({
+                                "id": 200 + index,
+                                "prefix": format!("10.{}.0.0/24", index % 254),
+                                "vrf": null,
+                                "vlan": { "id": 100 + index }
+                            })
+                        })
+                        .collect();
+                    // Contains the first interface address: source (b).
+                    results.push(serde_json::json!({
+                        "id": 999,
+                        "prefix": "10.1.0.0/16",
+                        "vrf": null,
+                        "vlan": null
+                    }));
+                    return page(None, results);
+                }
+                if path.starts_with("/api/dcim/cables/") {
+                    let results = (0..peers)
+                        .map(|index| {
+                            serde_json::json!({
+                                "id": 300 + index,
+                                "a_terminations": [{
+                                    "object_type": "dcim.interface",
+                                    "object_id": 1000,
+                                    "object": { "device": { "id": device } }
+                                }],
+                                "b_terminations": [{
+                                    "object_type": "dcim.interface",
+                                    "object_id": 5000 + index,
+                                    "object": { "device": {
+                                        "id": 5000 + index,
+                                        "name": format!("peer-{}", index),
+                                        "display": format!("peer-{}", index)
+                                    } }
+                                }]
+                            })
+                        })
+                        .collect();
+                    return page(None, results);
+                }
+                if path.starts_with("/api/dcim/devices/") {
+                    let results = (0..peers)
+                        .map(|index| {
+                            serde_json::json!({
+                                "id": 5000 + index,
+                                "name": format!("peer-{}", index),
+                                "display": format!("peer-{}", index),
+                                "primary_ip4": { "address": format!("10.9.{}.1/24", index % 254) },
+                                "primary_ip6": null
+                            })
+                        })
+                        .collect();
+                    return page(None, results);
+                }
+                (404, "{}".into(), vec![])
             })
         })
         .await;
@@ -1353,13 +1906,47 @@ mod tests {
         let many = client.fetch_device_summary(2).await.unwrap();
         let many_requests = seen.lock().unwrap().clone();
 
-        assert_eq!(one_requests.len(), 2, "{:?}", one_requests);
-        assert_eq!(many_requests.len(), 2, "{:?}", many_requests);
+        assert_eq!(one_requests.len(), 7, "{:?}", one_requests);
+        assert_eq!(many_requests.len(), 7, "{:?}", many_requests);
         assert_eq!(one.interfaces.len(), 1);
         assert_eq!(many.interfaces.len(), 48);
+        assert_eq!(one.vlans.len(), 2);
+        assert_eq!(many.vlans.len(), 40);
+        assert_eq!(one.peers.len(), 2);
+        assert_eq!(many.peers.len(), 40);
+        assert_eq!(one.subnets.len(), 3);
+        assert_eq!(many.subnets.len(), 41);
+        assert_eq!(
+            one.peers[0].primary_ip.as_deref(),
+            Some("10.9.0.1/24"),
+            "the batched peer-device request must supply the peer primary IP"
+        );
 
-        // The one-device path uses both endpoints with the query the plan pins.
-        // `display` is requested for the unnamed-device fallback.
+        // Identical endpoint set, normalised for the device id. The one-device
+        // path requests `display` for the unnamed-device fallback and uses
+        // `limit=0` on every list.
+        let endpoint = |path: &str| {
+            let path = path.split('?').next().unwrap_or(path).to_string();
+            path.replace("/api/dcim/devices/1/", "/api/dcim/devices/{id}/")
+                .replace("/api/dcim/devices/2/", "/api/dcim/devices/{id}/")
+        };
+        let mut one_set: Vec<String> = one_requests.iter().map(|p| endpoint(p)).collect();
+        let mut many_set: Vec<String> = many_requests.iter().map(|p| endpoint(p)).collect();
+        one_set.sort();
+        many_set.sort();
+        assert_eq!(one_set, many_set);
+        assert_eq!(
+            one_set,
+            vec![
+                "/api/dcim/cables/",
+                "/api/dcim/devices/",
+                "/api/dcim/devices/{id}/",
+                "/api/dcim/interfaces/",
+                "/api/ipam/ip-addresses/",
+                "/api/ipam/prefixes/",
+                "/api/ipam/vlans/",
+            ]
+        );
         assert!(one_requests.iter().any(|path| {
             path.starts_with("/api/dcim/devices/1/")
                 && path.contains("fields=")
@@ -1427,6 +2014,169 @@ mod tests {
         let client = NetBoxClient::new(&base, "t", false).unwrap();
         let error = client.fetch_device_summary(1).await.unwrap_err();
         assert!(error.contains("2 of 3"), "{}", error);
+        assert!(error.contains("MAX_PAGE_SIZE"), "{}", error);
+        server.abort();
+    }
+
+    #[test]
+    fn test_summary_vlans_group_and_dedupe() {
+        let results = vec![
+            serde_json::json!({ "id": 2, "vid": 20, "name": "voice", "group": { "id": 1, "name": "DC1" } }),
+            serde_json::json!({ "id": 1, "vid": 10, "name": "users", "group": { "id": 1, "name": "DC1" } }),
+            serde_json::json!({ "id": 3, "vid": 100, "name": "mgmt", "group": { "id": 2, "name": "MGMT" } }),
+            // Same id twice: the request filters by id, but the parser must not
+            // depend on that.
+            serde_json::json!({ "id": 1, "vid": 10, "name": "users", "group": { "id": 1, "name": "DC1" } }),
+            serde_json::json!({ "id": 4, "vid": 30, "name": "orphan", "group": null }),
+            // Group names are only unique within a scope: this group shares
+            // the DC1 name but has a different id, so both ids must survive.
+            serde_json::json!({ "id": 5, "vid": 40, "name": "same-name", "group": { "id": 3, "name": "DC1" } }),
+        ];
+        let vlans = summary_vlans(&results);
+        assert_eq!(vlans.len(), 5);
+        // Group name, then group id, then VID; a null group sorts first.
+        assert_eq!(
+            vlans.iter().map(|vlan| vlan.id).collect::<Vec<_>>(),
+            vec![4, 1, 2, 5, 3]
+        );
+        assert_eq!(vlans[0].group, None);
+        assert_eq!(vlans[0].group_id, None);
+        assert_eq!(vlans[1].group.as_deref(), Some("DC1"));
+        assert_eq!(vlans[1].group_id, Some(1));
+        assert_eq!(vlans[2].vid, 20);
+        assert_eq!(vlans[2].group_id, Some(1));
+        assert_eq!(
+            vlans[3].group_id,
+            Some(3),
+            "a same-named group must keep its own id"
+        );
+        assert_eq!(vlans[3].group.as_deref(), Some("DC1"));
+        assert_eq!(vlans[4].group.as_deref(), Some("MGMT"));
+        assert_eq!(vlans[4].group_id, Some(2));
+    }
+
+    #[test]
+    fn test_summary_subnets_union_dedupes_across_sources() {
+        let prefixes = vec![
+            // Both sources: assigned to VLAN 1 and contains 10.0.0.10/24.
+            serde_json::json!({ "id": 10, "prefix": "10.0.0.0/24", "vrf": null, "vlan": { "id": 1 } }),
+            // Source (b) only.
+            serde_json::json!({ "id": 11, "prefix": "10.0.0.0/16", "vrf": null, "vlan": null }),
+            // Source (a) only, in a VRF.
+            serde_json::json!({ "id": 12, "prefix": "10.9.0.0/24", "vrf": { "id": 2, "name": "blue" }, "vlan": { "id": 2 } }),
+            // Neither source.
+            serde_json::json!({ "id": 13, "prefix": "192.0.2.0/24", "vrf": null, "vlan": null }),
+            // Contains the address but in a different VRF: not a match.
+            serde_json::json!({ "id": 14, "prefix": "10.0.0.0/8", "vrf": { "id": 9, "name": "red" }, "vlan": null }),
+            // Duplicate id: one row.
+            serde_json::json!({ "id": 10, "prefix": "10.0.0.0/24", "vrf": null, "vlan": { "id": 1 } }),
+        ];
+        let ips = vec![
+            SummaryIpRef {
+                address: "10.0.0.10/24".into(),
+                vrf_id: None,
+            },
+            SummaryIpRef {
+                address: "2001:db8::1/64".into(),
+                vrf_id: None,
+            },
+        ];
+        let subnets = summary_subnets(&prefixes, &[1, 2], &ips);
+        assert_eq!(subnets.iter().map(|s| s.id).collect::<Vec<_>>(), vec![11, 10, 12]);
+        assert_eq!(subnets[0].prefix, "10.0.0.0/16");
+        assert_eq!(subnets[1].prefix, "10.0.0.0/24");
+        assert_eq!(subnets[2].vrf.as_deref(), Some("blue"));
+    }
+
+    #[test]
+    fn test_summary_peers_dedupe_and_skip_self() {
+        let cables = vec![
+            serde_json::json!({
+                "id": 1,
+                "a_terminations": [{ "object": { "device": { "id": 201 } } }],
+                "b_terminations": [{ "object": { "device": { "id": 202, "name": "peer-b", "display": "Peer B" } } }]
+            }),
+            // A second cable to the same peer is still one row.
+            serde_json::json!({
+                "id": 2,
+                "a_terminations": [{ "object": { "device": { "id": 201 } } }],
+                "b_terminations": [{ "object": { "device": { "id": 202, "name": "peer-b", "display": "Peer B" } } }]
+            }),
+            // No name: the fallback id form.
+            serde_json::json!({
+                "id": 3,
+                "a_terminations": [{ "object": { "device": { "id": 201 } } }],
+                "b_terminations": [{ "object": { "device": { "id": 203 } } }]
+            }),
+            // Both ends on this device: no peer.
+            serde_json::json!({
+                "id": 4,
+                "a_terminations": [{ "object": { "device": { "id": 201 } } }],
+                "b_terminations": [{ "object": { "device": { "id": 201 } } }]
+            }),
+            // A termination with no device (circuit, power feed) is skipped.
+            serde_json::json!({
+                "id": 5,
+                "a_terminations": [{ "object": { "device": { "id": 201 } } }],
+                "b_terminations": [{ "object": null }]
+            }),
+        ];
+        let peers = summary_peers(&cables, 201);
+        assert_eq!(peers.len(), 2);
+        assert_eq!(peers[0].netbox_id, 203);
+        assert_eq!(peers[0].name, "device-203");
+        assert_eq!(peers[1].netbox_id, 202);
+        assert_eq!(peers[1].name, "peer-b");
+        assert_eq!(peers[1].display.as_deref(), Some("Peer B"));
+    }
+
+    #[test]
+    fn test_ip_contained_handles_both_families() {
+        assert!(ip_contained("10.0.0.0/24", "10.0.0.10/24"));
+        assert!(ip_contained("10.0.0.0/8", "10.1.2.3/24"));
+        assert!(ip_contained("0.0.0.0/0", "203.0.113.1/24"));
+        assert!(!ip_contained("10.0.1.0/24", "10.0.0.10/24"));
+        assert!(!ip_contained("10.0.0.0/24", "2001:db8::1/64"));
+        assert!(ip_contained("2001:db8::/32", "2001:db8:1::1/64"));
+        assert!(ip_contained("::/0", "2001:db8::1/64"));
+        assert!(!ip_contained("2001:db8:1::/48", "2001:db8:2::1/64"));
+        assert!(!ip_contained("not-a-prefix", "10.0.0.1/24"));
+    }
+
+    #[tokio::test]
+    async fn test_device_summary_rejects_capped_prefix_page() {
+        let (base, server) = start_mock(|_| {
+            Arc::new(|_, path, _| {
+                if path.starts_with("/api/dcim/devices/1/") {
+                    (200, summary_device_json(1).to_string(), vec![])
+                } else if path.starts_with("/api/ipam/prefixes/") {
+                    (
+                        200,
+                        serde_json::json!({
+                            "count": 1001,
+                            "next": "http://netbox/api/ipam/prefixes/?limit=1000&offset=1000",
+                            "previous": null,
+                            "results": [
+                                { "id": 1, "prefix": "10.0.0.0/24", "vrf": null, "vlan": null }
+                            ]
+                        })
+                        .to_string(),
+                        vec![],
+                    )
+                } else if path.starts_with("/api/ipam/ip-addresses/") {
+                    page(None, Vec::new())
+                } else if let Some(empty) = summary_empty_endpoint(path) {
+                    empty
+                } else {
+                    (404, "{}".into(), vec![])
+                }
+            })
+        })
+        .await;
+
+        let client = NetBoxClient::new(&base, "t", false).unwrap();
+        let error = client.fetch_device_summary(1).await.unwrap_err();
+        assert!(error.contains("1 of 1001 prefixes"), "{}", error);
         assert!(error.contains("MAX_PAGE_SIZE"), "{}", error);
         server.abort();
     }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { mountPanelWindow, applyPanelPreferences, type PanelWindowBridge } from "./panel-window";
 import { ariaKeyShortcuts, platformMod, setOverrides } from "../lib/shortcuts";
-import type { SidePanelAction, SidePanelState } from "../lib/side-panel";
+import type { NetBoxResolvedSummary, SidePanelAction, SidePanelState } from "../lib/side-panel";
 import type { Command } from "../lib/tauri-api";
 
 /**
@@ -34,6 +34,38 @@ const state = (over: Partial<SidePanelState> = {}): SidePanelState => ({
   snapshot: { kind: "placeholder", text: "Start typing to see suggestions" },
   ...over,
 });
+
+function netboxSummary(): NetBoxResolvedSummary {
+  return {
+    netbox_id: 201,
+    name: "tab-device",
+    status: "active",
+    status_label: "Active",
+    device_type: null,
+    site: null,
+    location: null,
+    rack: null,
+    position: null,
+    face: null,
+    primary_ip: "127.0.0.1/32",
+    interfaces: [],
+    vlans: [
+      { id: 1, vid: 10, name: "users", group_id: 1, group: "DC1" },
+      { id: 3, vid: 100, name: "mgmt", group_id: 2, group: "MGMT" },
+    ],
+    subnets: [{ id: 601, prefix: "10.0.0.0/24", vrf: null }],
+    peers: [
+      {
+        netbox_id: 201,
+        name: "core",
+        display: null,
+        primary_ip: null,
+        hostId: "netbox:201",
+        label: "core",
+      },
+    ],
+  };
+}
 
 interface FakeBridge extends PanelWindowBridge {
   send: Mock<(action: SidePanelAction) => void>;
@@ -202,6 +234,36 @@ describe("undocked panel window", () => {
     );
     root.querySelector<HTMLButtonElement>(".nbd-retry")!.click();
     expect(b.send).toHaveBeenCalledWith({ type: "retry-netbox" });
+  });
+
+  it("renders the same NetBox sections from the published snapshot and forwards Connect", () => {
+    const { root, b } = mount();
+    b.push(
+      state({
+        mode: "netbox",
+        netboxHostId: "netbox:201",
+        snapshot: {
+          kind: "netbox",
+          hostId: "netbox:201",
+          phase: "ready",
+          summary: netboxSummary(),
+        },
+      }),
+    );
+
+    // The sections come from the snapshot; this window has no host list.
+    const groups = [...root.querySelectorAll(".nbd-vlan-group")];
+    expect(groups.map((group) => group.querySelector(".nbd-vlan-group-name")?.textContent)).toEqual([
+      "DC1",
+      "MGMT",
+    ]);
+    expect(root.querySelector(".nbd-subnet-prefix")?.textContent).toBe("10.0.0.0/24");
+    expect(root.querySelector(".nbd-peer-name")?.textContent).toBe("core");
+
+    const connect = root.querySelector<HTMLButtonElement>(".nbd-connect")!;
+    expect(connect.getAttribute("aria-label")).toBe("Connect to core");
+    connect.click();
+    expect(b.send).toHaveBeenCalledWith({ type: "connect", hostId: "netbox:201" });
   });
 
   it("closes the panel on Escape without docking it", () => {

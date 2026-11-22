@@ -19,10 +19,12 @@
 
 import type {
   Command,
+  NetBoxDevicePeer,
   NetBoxDeviceSummary,
   PanelConfig,
   ReplayCommand,
 } from "./tauri-api";
+import type { NetBoxPeerMatch, NetBoxResolvedPeer } from "./netbox-peer";
 import {
   netboxGetDeviceSummary,
   panelClose,
@@ -36,13 +38,19 @@ import { isNetboxHostId } from "./netbox-host";
 export type SidePanelMode = "kb" | "replay" | "netbox";
 
 /** What the panel is currently about. Raw command data, never markup, so both
- *  homes run the same renderer over the same value and cannot drift. */
+ *  homes run the same renderer over the same value and cannot drift. The
+ *  NetBox summary already has its peers resolved against Comnd's hosts, so the
+ *  undocked window never needs the host list. */
+export type NetBoxResolvedSummary = Omit<NetBoxDeviceSummary, "peers"> & {
+  peers: NetBoxResolvedPeer[];
+};
+
 export type SidePanelSnapshot =
   | { kind: "detail"; command: Command; referenceUrl: string | null }
   | { kind: "placeholder"; text: string }
   | { kind: "replay"; items: ReplayCommand[]; platform: string }
   | { kind: "netbox"; hostId: string; phase: "loading" }
-  | { kind: "netbox"; hostId: string; phase: "ready"; summary: NetBoxDeviceSummary }
+  | { kind: "netbox"; hostId: string; phase: "ready"; summary: NetBoxResolvedSummary }
   | { kind: "netbox"; hostId: string; phase: "error"; message: string };
 
 export interface SidePanelState {
@@ -70,6 +78,7 @@ export type SidePanelAction =
   | { type: "close" }
   | { type: "mode"; mode: SidePanelMode }
   | { type: "retry-netbox" }
+  | { type: "connect"; hostId: string }
   | { type: "play"; id: string }
   | { type: "add" }
   | { type: "run"; command: string };
@@ -83,6 +92,10 @@ export interface SidePanelDeps {
   closeWindow: () => Promise<void>;
   /** One live NetBox device summary, fetched fresh from the backend. */
   loadNetbox: (hostId: string) => Promise<NetBoxDeviceSummary>;
+  /** Resolve a cabled peer against Comnd's loaded hosts. Supplied by the main
+   *  window, which owns the host list; the renderer and the undocked window
+   *  never receive a lookup callback. */
+  resolvePeerHost: (peer: NetBoxDevicePeer) => NetBoxPeerMatch | null;
   /** Mirror the state into the undocked window. Called only when it is both
    *  open and undocked, so no IPC happens for the docked home. */
   publish: (state: SidePanelState) => void;
@@ -105,6 +118,7 @@ const defaultDeps: SidePanelDeps = {
   openWindow: panelOpen,
   closeWindow: panelClose,
   loadNetbox: netboxGetDeviceSummary,
+  resolvePeerHost: () => null,
   publish: () => {},
 };
 
@@ -397,7 +411,7 @@ async function refreshNetbox(): Promise<void> {
   const seq = ++netboxSeq;
   setSidePanelSnapshot({ kind: "netbox", hostId, phase: "loading" });
   try {
-    const summary = await deps.loadNetbox(hostId);
+    const summary = resolveNetboxPeers(await deps.loadNetbox(hostId));
     if (seq !== netboxSeq || state.netboxHostId !== hostId || state.mode !== "netbox") return;
     setSidePanelSnapshot({ kind: "netbox", hostId, phase: "ready", summary });
   } catch (error) {
@@ -409,6 +423,25 @@ async function refreshNetbox(): Promise<void> {
       message: `Failed to load NetBox device details: ${errorMessage(error)}`,
     });
   }
+}
+
+/**
+ * Resolve cabled peers against Comnd's hosts before the snapshot is stored or
+ * published. The undocked window renders only what it receives, so it must not
+ * need the host list; an unmatched peer carries nulls and renders as text.
+ */
+function resolveNetboxPeers(summary: NetBoxDeviceSummary): NetBoxResolvedSummary {
+  return {
+    ...summary,
+    peers: summary.peers.map((peer) => {
+      const match = deps.resolvePeerHost(peer);
+      return {
+        ...peer,
+        hostId: match?.hostId ?? null,
+        label: match?.label ?? null,
+      };
+    }),
+  };
 }
 
 /** Retry from the docked home; both homes share this one fetch. */
@@ -529,6 +562,7 @@ export function applySidePanelAction(action: SidePanelAction): void {
     case "retry-netbox":
       void refreshNetbox();
       return;
+    case "connect":
     case "play":
     case "add":
     case "run":

@@ -37,6 +37,7 @@ import {
   applySidePanelAction, closeSidePanel, cycleSidePanel, flushSidePanelWidth,
   getSidePanelState, handlePanelWindowClosed, initSidePanel, type SidePanelAction,
 } from "./lib/side-panel";
+import { resolvePeerHost as matchNetboxPeerHost } from "./lib/netbox-peer";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
   formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
@@ -239,8 +240,7 @@ class App {
         this.hostScreen.selectHost(hostId);
       },
       onConnectHost: (hostId) => {
-        const host = this.navPanel.getHost(hostId);
-        if (host) void this.onConnect(host);
+        this.connectHostById(hostId);
       },
       onEditHost: (hostId) => {
         this.showView("connections");
@@ -909,6 +909,17 @@ class App {
   }
 
   /**
+   * Connect entry point for a host id chosen outside the host list (a NetBox
+   * tab's cabled peer). The docked panel and the undocked window both come
+   * through here, so there is one connect path and the duplicate-session
+   * policy applies exactly as it does from the navigator.
+   */
+  private connectHostById(hostId: string): void {
+    const host = this.navPanel.getHost(hostId);
+    if (host) void this.onConnect(host);
+  }
+
+  /**
    * Connect entry point. Resolves the duplicate-session policy first: a host
    * that already has a live session may open a second one, focus the existing
    * one, or prompt (issue #67).
@@ -1031,6 +1042,7 @@ class App {
       () => this.onFullDisconnect(sessionId),
       () => this.onSessionDied(sessionId),
       () => this.closeTab(sessionId),
+      (hostId) => this.connectHostById(hostId),
     );
     // Failed attempts keep their tab open for Retry but hold no SSH session,
     // so the status bar must follow each transition, not just tab add/remove.
@@ -1290,7 +1302,12 @@ class App {
    * actions it sends back to the active session.
    */
   private initSidePanelBridge(): void {
-    void initSidePanel({ publish: (state) => this.publishPanelState() }).then(() => {
+    void initSidePanel({
+      publish: (state) => this.publishPanelState(),
+      // The main window owns the host list; the undocked window renders only
+      // the resolved hostId/label that this resolver puts in the snapshot.
+      resolvePeerHost: (peer) => matchNetboxPeerHost(peer, this.navPanel.getHosts()),
+    }).then(() => {
       // An undocked panel window may have been created while we booted.
       this.publishPanelState();
     });
@@ -1340,6 +1357,9 @@ class App {
    */
   private onPanelAction(action: SidePanelAction): void {
     switch (action.type) {
+      case "connect":
+        this.connectHostById(action.hostId);
+        return;
       case "play":
         this.activeView()?.playReplayById(action.id);
         return;
