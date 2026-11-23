@@ -31,7 +31,7 @@ Ghost text is the greyed-out completion that appears after your cursor while you
 - **Press `Tab` to accept** — the ghost text is entered into your command line
 - If no ghost text is showing, `Tab` passes through to the remote device for native tab-completion
 
-Ghost text is designed to stay out of your way. The app shows it at reduced opacity. This keeps a clear separation between what you type and the suggestion. It disappears instantly when you type a non-matching character — no animation, no delay.
+Ghost text is designed to stay out of your way. The app shows it at reduced opacity. This keeps a clear separation between what you type and the suggestion. It fades in briefly when it appears. It disappears instantly when you type a non-matching character — no delay.
 
 **Important:** `Tab` is context-sensitive. When ghost text is showing, `Tab` accepts the suggestion. When no ghost text is visible, `Tab` passes through to the remote device unchanged. This means the normal tab-completion on your remote shell still works as expected.
 
