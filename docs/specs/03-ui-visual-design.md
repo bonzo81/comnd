@@ -197,7 +197,7 @@ Hidden by default. Opened via the `≡` panel button; closed with the button aga
 * Same terminal row, inline
 * Rendered at 60% opacity in secondary text colour — clearly distinct from real text
 * **Truncates with** `**…**` if it would wrap to the next line
-* **Instant on/off** — no animation, no fade. Any delay feels laggy in a terminal.
+* **Settles in, vanishes instantly** — a short arrival settle (see Motion), but no delay or fade on departure. Any lingering feels laggy in a terminal. See ADR 025.
 * **Match count badge** — when ghost text is showing, a subtle `(+N)` after the ghost text indicates more matches available via `Ctrl+Space`. Teaches the dropdown feature organically.
 * Disappears instantly when user types a character that no longer matches
 
