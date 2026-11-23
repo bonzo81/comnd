@@ -1,4 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
 import { HostScreen } from "./components/host-screen";
 import { TerminalView } from "./components/terminal-view";
 import { KbScreen } from "./components/kb-screen";
@@ -17,12 +17,14 @@ import {
 } from "./lib/updater";
 import { escHtml } from "./lib/format";
 import { confirmDialog } from "./lib/confirm-dialog";
+import { describeWindowClose } from "./lib/window-close";
 import { openModal, ModalHandle } from "./lib/modal";
 import { TabState, activateTab as activateTabState, closeTab as closeTabState } from "./lib/tab-state";
 import { mintSessionId } from "./lib/session-id";
 import {
   countLiveSessions, isLiveSession, normalizeDuplicateSessionPolicy,
   resolveDuplicateSessionAction, resolveSessionLimit, type DuplicateSessionPolicy,
+  type SessionLifecycle,
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
 import { getAppConfig, setDuplicateSessionPolicy } from "./lib/tauri-api";
@@ -71,6 +73,12 @@ interface SessionTab {
   view: TerminalView;
   wrapper: HTMLElement;
 }
+
+/**
+ * Live-session states for the window-close guard. App registers this once its
+ * tab map exists; a close request before then has no sessions to lose.
+ */
+let sessionStatesForClose: () => SessionLifecycle[] = () => [];
 
 class App {
   private currentView: AppView = "connections";
@@ -123,6 +131,10 @@ class App {
   constructor() {
     this.container = document.getElementById("app")!;
     setAppTheme(getAppTheme());
+
+    // The window-close guard reads live status off the tab map.
+    sessionStatesForClose = () =>
+      [...this.tabs.values()].map((t) => t.view.connectionStatus);
 
     // Suppress native context menus everywhere except host list items
     document.addEventListener(
@@ -1525,7 +1537,7 @@ async function bootstrap(): Promise<void> {
   }
 
   document.documentElement.dataset.comndWindow = "main";
-  await holdCloseForPanelWidth();
+  await holdWindowClose();
   if (import.meta.env.MODE === "smoke") {
     void import("./lib/smoke-mutation")
       .then((m) => m.applySmokeMutation())
@@ -1537,13 +1549,70 @@ async function bootstrap(): Promise<void> {
 }
 
 /**
- * A docked width dragged inside its 400 ms debounce would be lost when the app
- * closes; the close handler awaits the write, so quitting mid-drag keeps the
- * width the user chose.
+ * Closing the window must not silently terminate live SSH sessions: the tab
+ * close path asks first (showCloseConfirm), so quitting does too. The count
+ * and the copy come from describeWindowClose(); App supplies the tab states.
+ *
+ * A docked width dragged inside its 400 ms debounce would also be lost on
+ * close, so every close — confirmed or not — awaits the flush first.
  */
-async function holdCloseForPanelWidth(): Promise<void> {
+async function holdWindowClose(): Promise<void> {
+  let state: "idle" | "prompting" | "closing" = "idle";
+
+  const onCloseRequested = async (event: CloseRequestedEvent) => {
+    // A request while the prompt is up must not stack a second dialog, and one
+    // that races the confirmed close must not prompt again.
+    if (state === "prompting") {
+      event.preventDefault();
+      return;
+    }
+    if (state === "closing") {
+      // The confirmed close is passing through (destroy() in flight, or the
+      // close() fallback). Let it continue; re-arm for a refused close.
+      await flushSidePanelWidth();
+      state = "idle";
+      return;
+    }
+
+    const prompt = describeWindowClose(sessionStatesForClose());
+    if (!prompt) {
+      // Nothing live to lose — the path before this guard existed.
+      await flushSidePanelWidth();
+      return;
+    }
+
+    event.preventDefault();
+    state = "prompting";
+    confirmDialog({
+      title: prompt.title,
+      message: prompt.message,
+      confirmLabel: prompt.confirmLabel,
+      destructive: true,
+      onConfirm: () => {
+        state = "closing";
+        // destroy() forces the close instead of emitting close-requested, so
+        // the confirmation cannot re-enter itself.
+        void flushSidePanelWidth()
+          .then(() => getCurrentWindow().destroy())
+          .catch(() => {
+            // destroy() refused or failed: close() still re-enters this
+            // handler and is let through by the "closing" state.
+            void getCurrentWindow()
+              .close()
+              .catch(() => {
+                state = "idle";
+              });
+          });
+      },
+      onCancel: () => {
+        // Cancel/Esc/backdrop: nothing is torn down, so nothing to undo.
+        state = "idle";
+      },
+    });
+  };
+
   try {
-    await getCurrentWindow().onCloseRequested(() => flushSidePanelWidth());
+    await getCurrentWindow().onCloseRequested(onCloseRequested);
   } catch {
     // Not under Tauri (unit test) — there is no close to hold.
   }
