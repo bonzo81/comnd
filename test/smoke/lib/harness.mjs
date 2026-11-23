@@ -231,6 +231,213 @@ export async function actOn(browser, selector, { action = "click", index = 0, ti
   );
 }
 
+// ─── Page helpers ───────────────────────────────────────────────────
+//
+// Every suite drives the same app through the same page interface, so the
+// interface lives here once. Nothing below holds a WebDriver element handle:
+// `browser.$()` resolves to a node that a whole-panel re-render detaches, so
+// reads go through `browser.execute` and actions through `actOn`.
+
+/**
+ * Poll until `selector` exists — and, with `visible`, is also rendered.
+ *
+ * `message` names the behaviour that broke. The default names the selector,
+ * because a bare timeout says nothing about what was missing.
+ */
+export async function waitForSelector(
+  browser,
+  selector,
+  message = `${selector} did not render`,
+  { timeout = WAIT_MS, visible = false } = {},
+) {
+  await browser.waitUntil(
+    async () => browser.execute(
+      (sel, needVisible) => {
+        const element = document.querySelector(sel);
+        if (!element) return false;
+        if (!needVisible) return true;
+        const style = getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden"
+          && element.getClientRects().length > 0;
+      },
+      selector,
+      visible,
+    ),
+    { timeout, interval: 100, timeoutMsg: message },
+  );
+}
+
+/** Act on an element; the polled action itself is `actOn`'s. */
+export async function click(browser, selector) {
+  await actOn(browser, selector);
+}
+
+/** Set a form field and fire the events the app listens for. */
+export async function setInput(browser, selector, value) {
+  await browser.execute(
+    (sel, next) => {
+      const element = document.querySelector(sel);
+      if (!element) throw new Error(`missing element ${sel}`);
+      element.value = next;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    selector,
+    value,
+  );
+}
+
+export async function sendKeys(browser, keys, { visibleOnly = false } = {}) {
+  // With duplicate sessions there is more than one xterm on the page; the
+  // hidden ones keep their own helper textarea, so focus the visible one.
+  if (visibleOnly) {
+    await browser.execute(() => {
+      const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
+        .find((el) => el.style.display !== "none");
+      (wrapper ?? document).querySelector(".xterm-helper-textarea")?.focus();
+    });
+  } else {
+    await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
+  }
+  const sequence = Array.isArray(keys) ? keys : [...keys];
+  // A modifier chord must stay in one command, otherwise WebKit releases the
+  // modifier before the character arrives (Ctrl+W becomes a plain "w").
+  if (sequence.some((key) => /[\uE008-\uE00A\uE03D]/.test(key))) {
+    await browser.keys(sequence);
+    return;
+  }
+  // WebKitWebDriver coalesces a run of identical characters inside one keys()
+  // call, so "zzzz" arrives as a single "z" and "disconnect" loses its doubled
+  // letter. One character per command keeps the real keystroke path and the
+  // exact byte counts the scenarios assert on.
+  for (const key of sequence) {
+    await browser.keys(key);
+    await pause(5);
+  }
+}
+
+/** The active terminal buffer as text, one line per row; "" before it mounts. */
+export async function terminalText(browser) {
+  return browser.execute(() => {
+    const terminal = window.__comndTerminal;
+    if (!terminal) return "";
+    const buffer = terminal.buffer.active;
+    return Array.from({ length: buffer.length }, (_, index) =>
+      buffer.getLine(index)?.translateToString(true) ?? "",
+    ).join("\n");
+  });
+}
+
+/** Wait for the terminal buffer to contain `text`; `message` names the wait. */
+export async function waitForTerminal(
+  browser,
+  text,
+  message = `Terminal did not show ${JSON.stringify(text)}`,
+  timeout = 20_000,
+) {
+  await browser.waitUntil(async () => (await terminalText(browser)).includes(text), {
+    timeout,
+    interval: 100,
+    timeoutMsg: message,
+  });
+}
+
+/** Clear a first-connect host-key confirmation, or wait for the connection to settle. */
+export async function acceptHostKeyIfNeeded(browser) {
+  await browser.waitUntil(async () => {
+    const state = await browser.execute(() => ({
+      accept: [...document.querySelectorAll("button")].some(
+        (button) => button.textContent?.trim() === "Accept and save",
+      ),
+      connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+      failed: !!document.querySelector(".tv-overlay-error:not(.hidden)"),
+    }));
+    if (state.accept) {
+      await browser.execute(() => {
+        [...document.querySelectorAll("button")]
+          .find((button) => button.textContent?.trim() === "Accept and save")
+          ?.click();
+      });
+      return true;
+    }
+    return state.connected || state.failed;
+  }, {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: "Host-key confirmation did not appear and SSH did not finish",
+  });
+}
+
+/** Expand a collapsible nav section (Knowledge Base, Replay) if it is closed. */
+export async function openNavSection(browser, section) {
+  const selector = `.nav-section-header[data-section="${section}"]`;
+  await waitForSelector(browser, selector, `the ${section} nav section did not render`);
+  const expanded = () => browser.execute(
+    (sel) => document.querySelector(sel)?.getAttribute("aria-expanded") === "true",
+    selector,
+  );
+  if (!(await expanded())) {
+    await actOn(browser, selector);
+  }
+  await browser.waitUntil(expanded, {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: `the ${section} nav section did not expand`,
+  });
+}
+
+/** Expand a folder row in the nav tree if it is collapsed. */
+export async function expandNavGroup(browser, groupId) {
+  const selector = `.nav-group-row[data-group-id="${groupId}"]`;
+  await waitForSelector(browser, selector, `nav group ${groupId} did not render`);
+  const collapsed = () => browser.execute((sel) => {
+    const row = document.querySelector(sel);
+    if (!row) return true;
+    return (row.querySelector(".nav-toggle")?.textContent ?? "").includes("▸");
+  }, selector);
+  if (await collapsed()) {
+    await actOn(browser, `${selector} .nav-item`);
+  }
+  await browser.waitUntil(async () => !(await collapsed()), {
+    timeout: WAIT_MS,
+    interval: 100,
+    timeoutMsg: `the nav group ${groupId} did not expand`,
+  });
+}
+
+/** The toast container's live-region mode and every toast's shape and text. */
+export const toastState = (browser) => browser.execute(() => {
+  const container = document.querySelector("#toast-container");
+  return {
+    live: container?.getAttribute("aria-live") ?? null,
+    toasts: [...document.querySelectorAll("#toast-container .toast")].map((toast) => ({
+      message: (toast.querySelector(".toast-message")?.textContent ?? "").trim(),
+      role: toast.getAttribute("role"),
+      className: toast.className,
+      insideLiveRegion: !!toast.closest('[aria-live]:not([aria-live="off"])'),
+      dismissName: toast.querySelector(".toast-close")?.getAttribute("aria-label") ?? "",
+    })),
+  };
+});
+
+export const clearToasts = (browser) => browser.execute(() => {
+  document.querySelectorAll("#toast-container .toast").forEach((toast) => toast.remove());
+});
+
+/** Wait for a toast matching `pattern`; returns the whole container state. */
+export async function waitForToast(browser, pattern, label) {
+  try {
+    await browser.waitUntil(async () => {
+      const state = await toastState(browser);
+      return state.toasts.some((toast) => pattern.test(toast.message));
+    }, { timeout: WAIT_MS, interval: 100, timeoutMsg: `${label}: no toast matched ${pattern}` });
+  } catch (error) {
+    const state = await toastState(browser).catch(() => null);
+    throw new Error(`${error.message}; toasts were ${JSON.stringify(state?.toasts ?? [])}`);
+  }
+  return toastState(browser);
+}
+
 /** Open the app under an already-running driver, and wait until it has a page. */
 export async function openSession(port) {
   const browser = await remote({
@@ -243,8 +450,10 @@ export async function openSession(port) {
     },
   });
   await browser.setTimeout({ implicit: 0, pageLoad: 30_000, script: 30_000 });
-  // Safe: `body` is never replaced by a render, and the handle is used once.
-  await (await browser.$("body")).waitForExist({ timeout: 20_000 });
+  // `#app` rather than `body`: the initial about:blank document also has a
+  // body, and scripting it races the real page, where the app's IPC global
+  // does not exist yet.
+  await waitForSelector(browser, "#app", "the app window never rendered its root", { timeout: 20_000 });
   return browser;
 }
 

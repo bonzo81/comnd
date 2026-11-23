@@ -19,15 +19,19 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
-  actOn,
   buildApp,
+  clearToasts,
+  click,
   invoke,
   parseJobs,
   pause,
   runCase,
   runSuite,
   runUnderXvfb,
-  waitFor,
+  setInput,
+  toastState,
+  waitForSelector,
+  waitForToast,
   WAIT_MS,
 } from "./lib/harness.mjs";
 
@@ -65,55 +69,24 @@ const EXPECTED_PATHS = [
 
 // ─── UI helpers ─────────────────────────────────────────────────────
 
-// Act through the DOM so no node handle survives a re-render (issue #126).
-async function click(browser, selector) {
-  await actOn(browser, selector);
-}
-
-/** Set a form field and fire the events the app listens for. */
-function setInput(browser, selector, value) {
-  return browser.execute(
-    (sel, next) => {
-      const element = document.querySelector(sel);
-      if (!element) throw new Error(`missing element ${sel}`);
-      element.value = next;
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
-    },
-    selector,
-    value,
-  );
-}
-
 const text = (browser, selector) =>
   browser.execute((sel) => document.querySelector(sel)?.textContent?.trim() ?? "", selector);
 
-const toastMessages = (browser) =>
-  browser.execute(() =>
-    Array.from(document.querySelectorAll("#toast-container .toast-message")).map((el) =>
-      (el.textContent ?? "").trim(),
-    ),
-  );
+const enabled = (browser, selector) =>
+  browser.execute((sel) => {
+    const element = document.querySelector(sel);
+    if (!element) throw new Error(`missing element ${sel}`);
+    return !element.matches(":disabled");
+  }, selector);
 
-const clearToasts = (browser) =>
-  browser.execute(() => {
-    document.querySelectorAll("#toast-container .toast").forEach((el) => el.remove());
-  });
-
-async function waitForToast(browser, pattern) {
-  let matched = "";
-  try {
-    await browser.waitUntil(
-      async () => {
-        matched = (await toastMessages(browser)).find((message) => pattern.test(message)) ?? "";
-        return matched !== "";
-      },
-      { timeout: WAIT_MS, interval: 100, timeoutMsg: `no toast matched ${pattern}` },
-    );
-  } catch (error) {
-    throw new Error(`${error.message}; toasts were ${JSON.stringify(await toastMessages(browser))}`);
-  }
-  return matched;
+/**
+ * The matched toast's message. NetBox asserts on the text alone, so it reads
+ * the message out of the shared `waitForToast` result instead of the ARIA
+ * shape the accessibility scenarios need.
+ */
+async function toastMessage(browser, pattern, label) {
+  const state = await waitForToast(browser, pattern, label);
+  return state.toasts.find((toast) => pattern.test(toast.message))?.message ?? "";
 }
 
 async function waitForText(browser, selector, expected) {
@@ -179,7 +152,7 @@ async function configureSource(browser) {
   await click(browser, "#netbox-test-btn");
   await waitForText(browser, "#netbox-test-status", CONNECTED_TEXT);
   await click(browser, "#netbox-token-save");
-  await waitForToast(browser, /^Connection saved$/);
+  await waitForToast(browser, /^Connection saved$/, "NetBox");
   await clearToasts(browser);
   return baseUrl;
 }
@@ -187,7 +160,7 @@ async function configureSource(browser) {
 async function syncAndWait(browser, pattern) {
   await clearToasts(browser);
   await click(browser, "#netbox-sync-btn");
-  return waitForToast(browser, pattern);
+  return toastMessage(browser, pattern, "NetBox");
 }
 
 const deviceRows = (browser) =>
@@ -247,8 +220,8 @@ const groupLabel = (browser, id) =>
  * click that lands during a re-render.
  */
 async function expandGroup(browser, id) {
-  // Safe: a single awaited wait, never acted on or re-queried.
-  await (await browser.$(`.nav-group-row[data-group-id="${id}"]`)).waitForExist({ timeout: WAIT_MS });
+  await waitForSelector(browser, `.nav-group-row[data-group-id="${id}"]`,
+    `nav group ${id} did not render`);
   const clickButton = () =>
     browser.execute((groupId) => {
       const button = document.querySelector(`.nav-group-row[data-group-id="${groupId}"] > .nav-item`);
@@ -371,30 +344,28 @@ const tests = [
       await enableNetbox(browser);
       await setInput(browser, "#netbox-url", baseUrl);
       await setInput(browser, "#netbox-token", TYPED_TOKEN);
-      // Safe: single awaited reads, never acted on or re-queried.
       assert.equal(
-        await (await browser.$("#netbox-token-save")).isEnabled(),
+        await enabled(browser, "#netbox-token-save"),
         false,
         "Save Connection must stay locked until a Test succeeds",
       );
 
       await click(browser, "#netbox-test-btn");
       await waitForText(browser, "#netbox-test-status", CONNECTED_TEXT);
-      // Safe: single awaited reads, never acted on or re-queried.
       assert.match(
-        await (await browser.$("#netbox-test-status")).getAttribute("class"),
+        await browser.execute(() =>
+          document.querySelector("#netbox-test-status")?.getAttribute("class") ?? ""),
         /import-test-ok/,
         "a successful Test must render as success, not an error",
       );
-      // Safe: a single awaited read, never acted on or re-queried.
       assert.equal(
-        await (await browser.$("#netbox-token-save")).isEnabled(),
+        await enabled(browser, "#netbox-token-save"),
         true,
         "a successful Test must unlock Save Connection",
       );
 
       await click(browser, "#netbox-token-save");
-      await waitForToast(browser, /^Connection saved$/);
+      await waitForToast(browser, /^Connection saved$/, "NetBox");
 
       const state = await invoke(browser, "netbox_get_config");
       assert.equal(state.config.base_url, baseUrl, "the URL typed into the form must reach the backend");
@@ -701,9 +672,9 @@ const tests = [
         await clearToasts(browser);
         await click(browser, "#netbox-test-btn");
         await waitForText(browser, "#netbox-test-status", `Connection failed: ${current.test}`);
-        // Safe: a single awaited read, never acted on or re-queried.
         assert.match(
-          await (await browser.$("#netbox-test-status")).getAttribute("class"),
+          await browser.execute(() =>
+            document.querySelector("#netbox-test-status")?.getAttribute("class") ?? ""),
           /import-test-err/,
           `${current.scenario}: a failed Test must render as an error`,
         );
@@ -711,12 +682,12 @@ const tests = [
         await clearToasts(browser);
         await click(browser, "#netbox-sync-btn");
         assert.equal(
-          await waitForToast(browser, /^Sync failed:/),
+          await toastMessage(browser, /^Sync failed:/, current.scenario),
           `Sync failed: ${current.sync}`,
           `${current.scenario}: the sync failure must be reported`,
         );
 
-        const toasts = await toastMessages(browser);
+        const toasts = (await toastState(browser)).toasts.map((toast) => toast.message);
         assert.deepEqual(
           toasts.filter((message) => message.startsWith("Synced")),
           [],
@@ -747,8 +718,8 @@ const tests = [
           before.cache,
           `${current.scenario}: a failed sync must leave netbox-cache.json byte-identical`,
         );
-        // Safe: a single awaited read, never acted on or re-queried.
-        assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
+        // Refresh must be usable again once the failed sync settles.
+        assert.equal(await enabled(browser, "#netbox-sync-btn"), true, "Refresh must recover");
       }
 
       // A failure after page 1 has already been read: the sync must abandon
@@ -758,12 +729,13 @@ const tests = [
       await clearToasts(browser);
       await click(browser, "#netbox-sync-btn");
       assert.equal(
-        await waitForToast(browser, /^Sync failed:/),
+        await toastMessage(browser, /^Sync failed:/, "NetBox"),
         "Sync failed: NetBox server error (HTTP 500)",
         "second_page_error: a mid-pagination failure must be reported",
       );
+      const messages = (await toastState(browser)).toasts.map((toast) => toast.message);
       assert.deepEqual(
-        (await toastMessages(browser)).filter((message) => message.startsWith("Synced")),
+        messages.filter((message) => message.startsWith("Synced")),
         [],
         "second_page_error: a partial sync must never report success",
       );
@@ -790,8 +762,8 @@ const tests = [
         before.cache,
         "second_page_error: a partial sync must leave netbox-cache.json byte-identical",
       );
-      // Safe: a single awaited read, never acted on or re-queried.
-      assert.equal(await (await browser.$("#netbox-sync-btn")).isEnabled(), true, "Refresh must recover");
+      // Refresh must be usable again once the failed sync settles.
+      assert.equal(await enabled(browser, "#netbox-sync-btn"), true, "Refresh must recover");
     },
   },
   {

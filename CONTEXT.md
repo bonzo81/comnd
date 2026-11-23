@@ -45,6 +45,12 @@ terms; keep them current as concepts crystallize.
 
 ## Testing
 
+- **Smoke harness** — `test/smoke/lib/harness.mjs`: the test-owned module behind
+  the WebDriver suites. It owns process lifecycle (driver, app boot, temp data
+  dir, teardown), the `runCase`/`runBoots`/`runSuite` reporting loop, and the
+  page interface — navigation, keys, terminal reads, `actOn` and
+  `waitForSelector`. Suites supply scenarios only. Not the test harness
+  (`tests/harness.ts`), which fakes IPC in-process.
 - **Test harness** — the single test-owned module that stands in for everything
   the app talks to — the Tauri IPC seam, shared wire fixtures, and DOM
   scaffolding — behind one narrow interface (`tests/harness.ts`,
