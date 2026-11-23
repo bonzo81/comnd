@@ -46,7 +46,10 @@ import {
   enable as rcEnable, disable as rcDisable, update as rcUpdate,
   resetToPreset as rcReset, getReadingComfortState, isReadingComfortEnabled, RC_PRESET,
 } from "../lib/reading-comfort";
-import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX } from "../lib/terminal-prefs";
+import {
+  getTerminalFontSize, getTerminalScrollback, setTerminalFontSize, setTerminalScrollback,
+  TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX,
+} from "../lib/terminal-prefs";
 import {
   findMapConflict, formatCombo, getOverrides, parseCombo, reservedComboReason,
   resolvedCombo, setOverrides, SECTION_TITLES, SHORTCUT_DEFS, SHORTCUT_SECTIONS,
@@ -60,6 +63,7 @@ const SETTINGS_NAV: { id: string; label: string; icon: keyof typeof icons }[] = 
   { id: "general", label: "General", icon: "sliders" },
   { id: "logging", label: "Logging", icon: "fileText" },
   { id: "theme", label: "Theme", icon: "paintbrush" },
+  { id: "terminal", label: "Terminal", icon: "monitor" },
   { id: "reading-comfort", label: "Reading Comfort", icon: "type" },
   { id: "llm", label: "LLM API / KB Import", icon: "bot" },
   { id: "auth", label: "Auth Integrations", icon: "lock" },
@@ -254,6 +258,7 @@ export class SettingsScreen {
       : this.itemId === "general" ? this.renderGeneral()
       : this.itemId === "logging" ? this.renderLogging()
       : this.itemId === "theme" ? this.renderTheme()
+      : this.itemId === "terminal" ? this.renderTerminal()
       : this.itemId === "reading-comfort" ? this.renderReadingComfort()
       : this.itemId === "auth" ? this.renderAuth()
       : this.itemId === "netbox" ? this.renderNetBox()
@@ -593,6 +598,19 @@ export class SettingsScreen {
             ${opts}
           </select>`,
           "Changes the colors of every screen.", "theme-app")}
+      </div>
+    `;
+  }
+
+  private renderTerminal(): string {
+    const scrollback = getTerminalScrollback();
+    return `
+      <div class="settings-form">
+        ${this.group("History")}
+        ${this.row("Scrollback", `
+          <input type="range" class="form-input" id="terminal-scrollback" min="${TERMINAL_SCROLLBACK_MIN}" max="${TERMINAL_SCROLLBACK_MAX}" step="1000" value="${scrollback}" />`,
+          "Lines kept above the visible screen. A larger history holds more device output but uses more memory. Open terminals update immediately.",
+          "terminal-scrollback", `${scrollback} lines`)}
       </div>
     `;
   }
@@ -1547,6 +1565,11 @@ export class SettingsScreen {
     this.container?.querySelector<HTMLInputElement>("#rc-font-size")?.addEventListener("input", (e) => {
       setTerminalFontSize(parseInt((e.target as HTMLInputElement).value, 10));
       this.setRowReadout("#rc-font-size", `${getTerminalFontSize()}px`);
+    });
+
+    this.container?.querySelector<HTMLInputElement>("#terminal-scrollback")?.addEventListener("input", (e) => {
+      setTerminalScrollback(parseInt((e.target as HTMLInputElement).value, 10));
+      this.setRowReadout("#terminal-scrollback", `${getTerminalScrollback()} lines`);
     });
 
     this.container?.querySelector<HTMLInputElement>("#rc-ui-scale")?.addEventListener("input", (e) => {

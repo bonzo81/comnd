@@ -1498,7 +1498,7 @@ async function assertNetboxDeviceTab(browser) {
 
 async function openSettings(browser) {
   await actOn(browser, "#title-bar-settings");
-  // Poll: `$(".settings-nav-item")` matches eight rows, so strict mode fails.
+  // Poll: `$(".settings-nav-item")` matches several rows, so strict mode fails.
   await browser.waitUntil(
     async () => browser.execute(() => !!document.querySelector(".settings-nav-item")),
     { timeout: WAIT_MS, interval: 100, timeoutMsg: "Settings: the settings screen did not open" },
@@ -2969,6 +2969,31 @@ async function main() {
           false,
           "Terminal focus: Ctrl+W must not toggle the sidebar",
         );
+
+        // Issue #194: the scrollback bound is explicit (never xterm's implicit
+        // 1000-line default) and a Settings change reaches the open terminal.
+        const scrollback = () => browser.execute(() => window.__comndTerminal?.options.scrollback);
+        const initialScrollback = await scrollback();
+        assert.equal(initialScrollback, 10_000,
+          `Terminal scrollback: expected the 10,000-line default, xterm holds ${initialScrollback}`);
+
+        await openSettings(browser);
+        await openSettingsItem(browser, "terminal");
+        // Safe: a single awaited wait, never acted on or re-queried.
+        await (await browser.$("#terminal-scrollback")).waitForExist({ timeout: WAIT_MS });
+        await setField(browser, "#terminal-scrollback", "20000");
+        await browser.waitUntil(
+          async () => (await scrollback()) === 20_000,
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Terminal scrollback: the Settings change did not reach the open terminal",
+          },
+        );
+        const readout = await browser.execute(() => document.querySelector("#terminal-scrollback")
+          ?.closest(".settings-row")?.querySelector(".settings-row-value")?.textContent);
+        assert.equal(readout, "20000 lines",
+          `Terminal scrollback: the readout did not follow the slider (got ${JSON.stringify(readout)})`);
       },
     },
     {
@@ -3596,7 +3621,7 @@ async function main() {
           "Accessible names: the connection manager");
 
         await openSettings(browser);
-        for (const item of ["general", "theme", "reading-comfort", "netbox"]) {
+        for (const item of ["general", "theme", "terminal", "reading-comfort", "netbox"]) {
           await openSettingsItem(browser, item);
           assertNamedControls(await browser.execute(() => window.__comndSmoke.unnamed("body")),
             `Accessible names: the ${item} settings`);

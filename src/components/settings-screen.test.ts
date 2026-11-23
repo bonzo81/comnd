@@ -4,6 +4,13 @@ import type { AppConfig, NetBoxConfig } from "../lib/tauri-api";
 import type { ConfigSaveDescriptor } from "../lib/config-save";
 import { SettingsScreen } from "./settings-screen";
 import { enable as rcEnable, disable as rcDisable } from "../lib/reading-comfort";
+import { clearStorage, readStorage } from "../lib/storage";
+import {
+  getTerminalScrollback,
+  TERMINAL_SCROLLBACK_DEFAULT,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN,
+} from "../lib/terminal-prefs";
 
 async function renderNetbox(showEmptyFolders = false) {
   const h = createHarness();
@@ -706,7 +713,7 @@ describe("SettingsScreen — version footer (#102)", () => {
     expect(line.classList.contains("settings-nav-version")).toBe(true);
     expect(line.textContent).toBe("Version v0.5.0");
     // The value comes from the runtime call, not a literal in the markup.
-    expect(nav.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+    expect(nav.querySelectorAll(".settings-nav-item")).toHaveLength(9);
   });
 
   it("keeps the footer non-interactive", async () => {
@@ -721,13 +728,13 @@ describe("SettingsScreen — version footer (#102)", () => {
   it("omits the footer when the version call rejects", async () => {
     const { container } = await mountWithVersion(Promise.reject(new Error("no app plugin")));
     expect(container.querySelector(".settings-nav-version")).toBeNull();
-    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(9);
   });
 
   it("omits the footer when the version is empty", async () => {
     const { container } = await mountWithVersion("");
     expect(container.querySelector(".settings-nav-version")).toBeNull();
-    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(8);
+    expect(container.querySelectorAll(".settings-nav-item")).toHaveLength(9);
   });
 
   it("leaves the roving tabindex cycling only the nav buttons", async () => {
@@ -868,5 +875,63 @@ describe("SettingsScreen — setting prose in info tooltips", () => {
     } finally {
       rcDisable();
     }
+  });
+});
+
+describe("SettingsScreen — Terminal pane (#194)", () => {
+  async function mountTerminal() {
+    clearStorage();
+    const h = createHarness();
+    h.ipc.mock("get_app_config", h.fixtures.appConfig());
+    h.ipc.mock("get_session_log_dir", "");
+    const container = h.mount();
+    const screen = new SettingsScreen();
+    await screen.mount(container);
+    screen.setItem("terminal");
+    await vi.waitFor(() => expect(container.querySelector("#terminal-scrollback")).not.toBeNull());
+    const input = container.querySelector<HTMLInputElement>("#terminal-scrollback")!;
+    return { h, container, screen, input };
+  }
+
+  const rowFor = (container: HTMLElement) =>
+    container.querySelector("#terminal-scrollback")!.closest(".settings-row")!;
+
+  it("renders a labelled range with the persisted scrollback", async () => {
+    const { container, input } = await mountTerminal();
+    expect(input.type).toBe("range");
+    expect(input.min).toBe(String(TERMINAL_SCROLLBACK_MIN));
+    expect(input.max).toBe(String(TERMINAL_SCROLLBACK_MAX));
+    expect(input.value).toBe(String(TERMINAL_SCROLLBACK_DEFAULT));
+    expect(container.querySelector('label[for="terminal-scrollback"]')!.textContent).toBe("Scrollback");
+    expect(rowFor(container).querySelector(".settings-row-value")!.textContent)
+      .toBe(`${TERMINAL_SCROLLBACK_DEFAULT} lines`);
+  });
+
+  it("persists a change and keeps the readout in step", async () => {
+    const { container, input } = await mountTerminal();
+    input.value = "20000";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(readStorage("comnd-terminal-scrollback")).toBe("20000");
+    expect(getTerminalScrollback()).toBe(20_000);
+    expect(rowFor(container).querySelector(".settings-row-value")!.textContent).toBe("20000 lines");
+  });
+
+  it("is keyboard-operable: focusable, and the input event a range emits updates the preference", async () => {
+    const { input } = await mountTerminal();
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    // jsdom does not emulate a range's Arrow-key default, so drive the event
+    // the browser emits and assert the same preference path it reaches.
+    input.value = "11000";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(getTerminalScrollback()).toBe(11_000);
+  });
+
+  it("keeps the Terminal entry in the settings rail", async () => {
+    const { container } = await mountTerminal();
+    const entry = container.querySelector('.settings-nav-item[data-item-id="terminal"]');
+    expect(entry?.textContent).toContain("Terminal");
   });
 });

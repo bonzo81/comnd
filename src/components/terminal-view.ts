@@ -6,7 +6,8 @@
 
 import { Terminal } from "@xterm/xterm";
 import { TERMINAL_THEMES, TERMINAL_THEME_ORDER, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
-import { getTerminalFontSize } from "../lib/terminal-prefs";
+import { getTerminalFontSize, getTerminalScrollback } from "../lib/terminal-prefs";
+import { bindTerminalScrollback, buildTerminalOptions } from "../lib/terminal-options";
 import { getReadingComfortState } from "../lib/reading-comfort";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -216,6 +217,7 @@ export class TerminalView {
   private ctrlWHandler: ((e: KeyboardEvent) => void) | null = null;
   private themeChangeHandler: (() => void) | null = null;
   private fontChangeHandler: (() => void) | null = null;
+  private unbindScrollback: (() => void) | null = null;
   private readingComfortHandler: (() => void) | null = null;
   private timestampsChangeHandler: (() => void) | null = null;
   private timestampsFormatHandler: (() => void) | null = null;
@@ -288,13 +290,11 @@ export class TerminalView {
 
   private initTerminal() {
     if (this.terminal) return;
-    this.terminal = new Terminal({
-      fontFamily: "'JetBrains Mono', monospace",
+    this.terminal = new Terminal(buildTerminalOptions({
       fontSize: this.fontSize,
+      scrollback: getTerminalScrollback(),
       theme: TERMINAL_THEMES[getTerminalTheme()],
-      cursorBlink: true,
-      allowProposedApi: true, // required for registerDecoration (line timestamps)
-    });
+    }));
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
@@ -342,6 +342,7 @@ export class TerminalView {
 
     this.fontChangeHandler = () => this.applyFontSize(getTerminalFontSize());
     window.addEventListener("comnd:terminal-font-size", this.fontChangeHandler);
+    this.unbindScrollback = bindTerminalScrollback(this.terminal);
     this.readingComfortHandler = () => this.syncReadingComfort();
     window.addEventListener("comnd:reading-comfort", this.readingComfortHandler);
 
@@ -1924,6 +1925,10 @@ export class TerminalView {
     if (this.fontChangeHandler) {
       window.removeEventListener("comnd:terminal-font-size", this.fontChangeHandler);
       this.fontChangeHandler = null;
+    }
+    if (this.unbindScrollback) {
+      this.unbindScrollback();
+      this.unbindScrollback = null;
     }
     if (this.readingComfortHandler) {
       window.removeEventListener("comnd:reading-comfort", this.readingComfortHandler);

@@ -83,6 +83,8 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 
 **Terminal font size:** adjustable via `Ctrl++` / `Ctrl+-` / `Ctrl+0` (zoom). Persisted via the `comnd-terminal-font-size` localStorage key (range 8–32px); one source of truth also written by Reading Comfort mode (spec 12).
 
+**Terminal scrollback:** adjustable in Settings → Terminal and persisted via the `comnd-terminal-scrollback` localStorage key (1,000–50,000 lines, default 10,000). A change applies to already-open terminals. xterm stores 12 bytes per cell, so history is bounded by `lines × cols × 12` bytes — about 19 MB at 10,000 lines and 160 columns.
+
 **Terminal themes:** four states, cycled by the toolbar theme button — `dark`, `light`, `cream`, `warm-charcoal` (definitions in spec 12). See Reading Comfort mode (`docs/specs/12-dyslexia-mode.md`) for typography scaling (`--text-scale`), spacing, and prose-measure tokens.
 
 ## Iconography
@@ -263,7 +265,7 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 └──────────────────────────────────────────────────────┘
 ```
 
-* **Icon rail (left):** one labeled button per page — icon + text: General, Logging, Theme, Reading Comfort, LLM API / KB Import, Auth Integrations, NetBox, Shortcuts (icons from `src/lib/icons.ts`). Flat — no borders on items; the active page is a **filled pill** (accent-tint background + accent text), mirroring the nav panel's active sub-item. Keyboard: roving tabindex (`↑`/`↓`/`Home`/`End`, Enter/Space activate) with the standard visible focus ring.
+* **Icon rail (left):** one labeled button per page — icon + text: General, Logging, Theme, Terminal, Reading Comfort, LLM API / KB Import, Auth Integrations, NetBox, Shortcuts (icons from `src/lib/icons.ts`). Flat — no borders on items; the active page is a **filled pill** (accent-tint background + accent text), mirroring the nav panel's active sub-item. Keyboard: roving tabindex (`↑`/`↓`/`Home`/`End`, Enter/Space activate) with the standard visible focus ring.
 * **Nav panel:** no Settings section — the entry point is the **title-bar cog** (left of the minimize button, tooltip "Settings"; the conditional update indicator sits left of it). The icon rail is the single page switcher.
 * **Content pane:** max-width 720px, left-aligned. No per-page title heading — the rail is the title.
 * **SettingRow:** label + short description left, control right-aligned on the same baseline. Wide widgets (log paths, textarea, filter multi-select) use a block variant: label on top, full-width control below.
