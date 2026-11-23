@@ -112,10 +112,22 @@ output.
   `ClientHandler` can implement those callbacks while keeping the drop. Neither
   is implemented today, and that is deferred by choice rather than forced by this
   decision — it is also not a regression, since both were already unconsumed.
-- Accepted, deferred: no heartbeat or timeout around `ssh_send`. A wedged send
-  stays pending indefinitely rather than failing, so the terminal appears to
-  accept keystrokes that never leave the machine. Bounding it is a separate
-  change.
+- **Bounded (issue #190):** `ssh_send` wraps the channel write in
+  `tokio::time::timeout` with a 2-second budget (`SSH_SEND_TIMEOUT` in
+  `ssh.rs`), so a wedged send fails as a command error instead of staying
+  pending. Two seconds because a healthy write completes in microseconds: the
+  window is long enough for a slow link or a device pausing mid-command, and
+  short enough that a stall is reported before the user has typed much more. It
+  is a single constant, so it can be tuned once a real measurement exists. A
+  timed-out write drops its pending future, but russh's `data()` copies into
+  the channel with `tokio::io::copy` as window credit allows, so a prefix may
+  already have reached the remote. The error therefore tells the user to check
+  the remote state before retrying rather than claiming nothing was sent.
+  `TerminalView.sendData` logs the rejection once per stall and shows one error
+  toast, re-armed only by the next successful send; it still never awaits the
+  command, so the keystroke path stays fire-and-forget and the happy path gains
+  no latency. The read half stays dropped, and no send queue or batching is
+  introduced. `resize` remains unbounded.
 - Rules out: raising `channel_buffer_size` as the remedy, and any `[patch]` fork
   of russh for this issue. Either supersedes this ADR.
 - Guarded: a regression test sends 300 single-byte writes through the mock host

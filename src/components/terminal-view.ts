@@ -31,6 +31,7 @@ import { ReplaySaveDialog } from "./replay-save-dialog";
 import { substitute } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
+import { showToast } from "../lib/toast";
 import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
@@ -197,6 +198,10 @@ export class TerminalView {
   /** Set on user cancel/teardown so a late backend rejection doesn't
    * flash an error overlay on an already-abandoned view. */
   private connectCancelled = false;
+  /** Session whose stalled send has already been reported. A new session id is
+   *  a new stall surface; the latch clears only on a successful send from the
+   *  same session (issue #190). */
+  private stalledSessionId: number | null = null;
   private status: SessionLifecycle = "connecting";
   /** Observer for status transitions (the app's live-session count). */
   onStatusChange: ((status: SessionLifecycle) => void) | null = null;
@@ -421,11 +426,41 @@ export class TerminalView {
     });
   }
 
-  /** Send data to the current session (no-op when not connected). */
+  /**
+   * Send data to the current session (no-op when not connected).
+   *
+   * Fire-and-forget on the keystroke path: never await a send, so a stalled
+   * one cannot delay or reorder later keystrokes. A rejection is reported
+   * once per stall; the Rust command bounds the send (ADR-020), so a wedged
+   * session rejects within the 2-second budget instead of hanging silently.
+   */
   private sendData(data: string) {
     if (this.channel.state === "connected" && this.channel.sessionId) {
-      sshSend(this.channel.sessionId, data).catch(() => {});
+      const sessionId = this.channel.sessionId;
+      void sshSend(sessionId, data).then(
+        () => {
+          if (this.stalledSessionId === sessionId) this.stalledSessionId = null;
+        },
+        (error: unknown) => {
+          this.reportSendStall(sessionId, error);
+        },
+      );
     }
+  }
+
+  /** Log and toast one stalled send per stall, not one per keystroke. */
+  private reportSendStall(sessionId: number, error: unknown) {
+    // A completion from a torn-down or replaced session must not raise a toast
+    // for whatever is on screen now.
+    if (this.channel.sessionId !== sessionId || this.channel.state !== "connected") return;
+    if (this.stalledSessionId === sessionId) return;
+    this.stalledSessionId = sessionId;
+    const message =
+      typeof error === "string" && error.trim()
+        ? error
+        : "SSH send stalled: the connection stopped accepting input; some input may already have been sent.";
+    log.error(LogTag.Ssh, message);
+    showToast(message, "error", 8000);
   }
 
   /**
@@ -866,6 +901,9 @@ export class TerminalView {
     log.info(LogTag.Terminal, `Connect flow starting for '${host.display_name}' (${host.hostname}:${host.port})`);
     this.connectCancelled = false;
     this.authInteractive = false;
+    // A new session is a new stall surface: a previous session's stall must
+    // not suppress this session's first report (issue #190).
+    this.stalledSessionId = null;
     // New session: drop any bytes held from a split codepoint, plus any escape
     // sequence the dropped session left half-delivered. The tracker reset must
     // happen here and not only in loadPatterns(), because a failed platform-

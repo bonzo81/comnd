@@ -569,6 +569,31 @@ fn create_session_log(
     }
 }
 
+/// Budget for one channel write. A healthy send completes in microseconds; if
+/// the write has not completed in this window, the event loop is not draining
+/// the outbound queue and the terminal would otherwise accept keystrokes that
+/// never leave the machine (ADR-020).
+const SSH_SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Run one channel send under [`SSH_SEND_TIMEOUT`]. A timeout is an error, not
+/// a silent success: the caller has to be able to tell the user the keystroke
+/// never left the machine.
+async fn send_within_budget<F>(send: F) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    match tokio::time::timeout(SSH_SEND_TIMEOUT, send).await {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "SSH send stalled: the connection stopped accepting input for {} \
+             seconds. The device or network may be unresponsive. Part of this \
+             input may already have been sent — check the remote state before \
+             retrying, or reconnect if it persists.",
+            SSH_SEND_TIMEOUT.as_secs()
+        )),
+    }
+}
+
 impl SshSession {
     // The signature mirrors everything `ssh_connect` resolves for a connection
     // and every test fixture needs to drive it; grouping the parameters would
@@ -1084,10 +1109,13 @@ impl SshSession {
     }
 
     pub async fn send(&self, data: &[u8]) -> Result<(), String> {
-        self.channel
-            .data(data)
-            .await
-            .map_err(|e| format!("Failed to send data: {}", e))
+        send_within_budget(async {
+            self.channel
+                .data(data)
+                .await
+                .map_err(|e| format!("Failed to send data: {}", e))
+        })
+        .await
     }
 
     pub async fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
@@ -1914,6 +1942,41 @@ mod tests {
 
         drop(session);
         server.abort();
+    }
+
+    /// Issue #190: ADR-020 leaves a wedged write pending forever, so the
+    /// terminal silently accepts keystrokes that never leave the machine. The
+    /// budget must fail the command, and fail it at the budget rather than
+    /// later. A paused clock makes this exact and instant.
+    #[tokio::test(start_paused = true)]
+    async fn send_within_budget_fails_a_stalled_write_at_the_budget() {
+        let started = tokio::time::Instant::now();
+        let result = send_within_budget(std::future::pending::<Result<(), String>>()).await;
+        let elapsed = started.elapsed();
+        let error = result.expect_err("a stalled send must return an error, not hang");
+        assert_eq!(
+            elapsed, SSH_SEND_TIMEOUT,
+            "the stalled send must fail exactly at the budget"
+        );
+        assert!(
+            error.contains("SSH send stalled") && error.contains("2 seconds"),
+            "the error must name the stall and the budget, got: {error}"
+        );
+    }
+
+    /// A successful write and a real channel error must reach the caller
+    /// unchanged: only the timeout is rewritten.
+    #[tokio::test(start_paused = true)]
+    async fn send_within_budget_passes_through_success_and_channel_errors() {
+        send_within_budget(async { Ok(()) })
+            .await
+            .expect("a completed write must stay a success");
+
+        let error =
+            send_within_budget(async { Err("Failed to send data: channel closed".to_string()) })
+                .await
+                .expect_err("a channel error must stay an error");
+        assert_eq!(error, "Failed to send data: channel closed");
     }
 }
 
