@@ -1009,22 +1009,21 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    use crate::fixtures::TempDir;
+
     #[test]
     fn test_atomic_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("paths");
         let path = dir.join("data.txt");
         atomic_write(&path, b"hello").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
         // No lingering tmp file
         assert!(!dir.join("data.tmp").exists());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_secure_write_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("paths");
         let path = dir.join("secret.json");
         secure_write(&path, b"{}").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"{}");
@@ -1036,14 +1035,15 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o077, 0, "file must not be group/world accessible");
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     #[cfg(unix)]
     fn test_log_dir_created_with_secure_perms() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("comnd_logperm_{}", uuid::Uuid::new_v4()));
+        // The tree must not exist beforehand: ensure_data_dir only tightens
+        // permissions on the directory it creates itself.
+        let dir = TempDir::absent("logperm");
         ensure_data_dir(&dir).unwrap();
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "log/data dir must be owner-only");
@@ -1054,24 +1054,20 @@ mod tests {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         let fmode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(fmode & 0o777, 0o600, "log file must be owner-only");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_atomic_write_overwrites_existing() {
-        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("paths");
         let path = dir.join("data.txt");
         atomic_write(&path, b"v1").unwrap();
         atomic_write(&path, b"v2-longer").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"v2-longer");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_load_json_or_preserve_defaults_on_missing_and_corrupt() {
-        let dir = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("paths");
 
         // missing → default
         let missing: Vec<String> = load_json_or_preserve(&dir.join("nope.json"));
@@ -1083,7 +1079,7 @@ mod tests {
         let corrupt: Vec<String> = load_json_or_preserve(&bad);
         assert!(corrupt.is_empty());
         assert!(!bad.exists(), "corrupt file should be renamed away");
-        let preserved = std::fs::read_dir(&dir)
+        let preserved = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .any(|e| {
@@ -1098,8 +1094,6 @@ mod tests {
         std::fs::write(&ok, "[\"a\"]").unwrap();
         let good: Vec<String> = load_json_or_preserve(&ok);
         assert_eq!(good, vec!["a".to_string()]);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1123,14 +1117,12 @@ mod tests {
     fn test_bundled_kb_path_prefers_resource_dir_over_dev() {
         // The real repo KB (CARGO_MANIFEST_DIR/../knowledge-base) exists at test
         // time, so returning the temp resource_dir proves release is checked first.
-        let resource_dir =
-            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = TempDir::new("paths");
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
         assert_eq!(
             bundled_kb_path(&resource_dir),
             resource_dir.join("knowledge-base")
         );
-        let _ = std::fs::remove_dir_all(&resource_dir);
     }
 
     #[test]
@@ -1139,29 +1131,25 @@ mod tests {
         // KB lands under resource_dir/_up_/knowledge-base. Only that layout exists
         // here (the dev fallback also exists at test time), so returning the _up_
         // path proves it is checked before the dev location.
-        let resource_dir =
-            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = TempDir::new("paths");
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(
             bundled_kb_path(&resource_dir),
             resource_dir.join("_up_").join("knowledge-base")
         );
-        let _ = std::fs::remove_dir_all(&resource_dir);
     }
 
     #[test]
     fn test_bundled_kb_path_prefers_release_over_up_dir() {
         // Both layouts present (a rebuild that changed the form, or a partial
         // install): the canonical release path must win over the _up_ fallback.
-        let resource_dir =
-            std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let resource_dir = TempDir::new("paths");
         std::fs::create_dir_all(resource_dir.join("knowledge-base")).unwrap();
         std::fs::create_dir_all(resource_dir.join("_up_").join("knowledge-base")).unwrap();
         assert_eq!(
             bundled_kb_path(&resource_dir),
             resource_dir.join("knowledge-base")
         );
-        let _ = std::fs::remove_dir_all(&resource_dir);
     }
 
     // app_data_dir() honours COMND_DATA_DIR only in debug builds, so this test must
@@ -1173,7 +1161,7 @@ mod tests {
         static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-        let root = std::env::temp_dir().join(format!("comnd_paths_{}", uuid::Uuid::new_v4()));
+        let root = TempDir::new("paths-export");
         let src_dir = root.join("src-data");
         let dst_dir = root.join("dst-data");
         std::fs::create_dir_all(src_dir.join("knowledge-base").join("linux-bash")).unwrap();
@@ -1241,7 +1229,5 @@ mod tests {
                 "{rel} must survive export -> import"
             );
         }
-
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

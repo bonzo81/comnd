@@ -140,6 +140,8 @@ mod tests {
     use super::*;
     use std::fs;
 
+    use crate::fixtures::TempDir;
+
     #[test]
     fn test_sanitize_filename() {
         assert_eq!(sanitize_filename("my-host:22"), "my-host-22");
@@ -149,9 +151,7 @@ mod tests {
 
     #[test]
     fn test_write_and_read() {
-        let dir =
-            std::env::temp_dir().join(format!("comnd_session_log_test_{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("session-log");
 
         let mut log = SessionLog::new_in(&dir, "test-host:22", 1, true);
         log.write(b"hello world\n");
@@ -163,17 +163,11 @@ mod tests {
         assert!(content.contains("["));
         assert!(content.contains("hello world\n"));
         assert!(content.contains("second chunk\n"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_timestamp_not_orphaned_on_leading_newline() {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd_session_log_test_lead_{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("session-log-lead");
 
         let mut log = SessionLog::new_in(&dir, "host:22", 3, true);
         log.write(b"line1");
@@ -187,17 +181,11 @@ mod tests {
             "orphaned timestamp found:\n{content}"
         );
         assert!(content.contains("line2"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_write_no_timestamps() {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd_session_log_test_notime_{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("session-log-notime");
 
         let mut log = SessionLog::new_in(&dir, "host:22", 2, false);
         log.write(b"plain bytes\n");
@@ -206,7 +194,5 @@ mod tests {
         assert!(content.starts_with("# host="));
         assert!(!content.contains("[0"));
         assert!(content.contains("plain bytes\n"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -182,9 +182,9 @@ pub(super) fn validate_platform(commands: &[Command]) -> Vec<KbValidationIssue> 
 mod tests {
     use super::*;
 
+    use crate::fixtures::{get_kb_path, mk_cmd};
     use crate::kb::schema::{PipeFilter, PipeToken, VarToken};
     use crate::kb::store::KbStore;
-    use crate::kb::test_util::{get_kb_path, mk_cmd};
     use CommandToken::*;
 
     fn has_error(issues: &[KbValidationIssue], needle: &str) -> bool {

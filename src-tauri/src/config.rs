@@ -756,6 +756,8 @@ pub async fn log_frontend(
 mod tests {
     use super::*;
 
+    use crate::fixtures::TempDir;
+
     #[test]
     fn test_default_config() {
         let config = AppConfig::default();
@@ -781,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_save_duplicate_session_policy_validates_and_persists() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
 
@@ -803,13 +805,11 @@ mod tests {
             .is_err());
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert_eq!(fresh.get().duplicate_session_policy, "focus");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_failed_persist_rolls_back_in_memory_config() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
         store.save_log_level("info".to_string()).unwrap();
@@ -829,8 +829,6 @@ mod tests {
         // get_app_config serves this in-memory config, so a rejected save must
         // not leave the new value visible there.
         assert_eq!(store.get().log_level, "info");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -857,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_log_file_path_persist_and_read() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
         store
@@ -874,8 +872,6 @@ mod tests {
         store.save_log_file_path(None).unwrap();
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert!(fresh.get().log_file_path.is_none());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -911,8 +907,7 @@ mod tests {
 
     #[test]
     fn test_migrate_plaintext_key() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         std::fs::write(
             &config_path,
@@ -938,14 +933,11 @@ mod tests {
         assert!(!raw.contains("ollama_api_key"));
         assert!(!raw.contains("migrate-me"));
         assert!(raw.contains("\"log_level\": \"debug\""));
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_corrupt_config_is_preserved_and_startup_uses_defaults() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         // Truncated JSON carrying a plaintext key: the migration cannot parse
         // it, so it must bail out before reaching the keychain, and startup
@@ -962,7 +954,7 @@ mod tests {
             "corrupt config should be moved aside"
         );
 
-        let preserved: Vec<_> = std::fs::read_dir(&dir)
+        let preserved: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.path())
@@ -974,14 +966,11 @@ mod tests {
             .collect();
         assert_eq!(preserved.len(), 1, "expected one preserved copy");
         assert_eq!(std::fs::read_to_string(&preserved[0]).unwrap(), corrupt);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_plaintext_migration_leaves_keyless_config_untouched() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         // An empty plaintext key must not be migrated to the keychain, and
         // migration never rewrites the file, so the bytes survive startup.
@@ -992,14 +981,11 @@ mod tests {
 
         assert_eq!(store.config.log_level, "debug");
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), raw);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_fresh_profile_starts_on_defaults_without_writing_config() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("config");
 
         // No config.json yet: startup must come up on defaults and must not
         // create the file just by reading, so nothing is written before the
@@ -1012,14 +998,11 @@ mod tests {
             !dir.join("config.json").exists(),
             "startup should not create config.json"
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_config_without_plaintext_key_is_left_untouched() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         // Already-migrated config: no ollama_api_key field, so there is nothing
         // to move and the file must be preserved byte for byte.
@@ -1031,13 +1014,11 @@ mod tests {
         assert_eq!(store.config.log_level, "warn");
         assert_eq!(store.config.llm_model, "qwen3");
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), raw);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_provider_config_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
 
@@ -1064,8 +1045,6 @@ mod tests {
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert!(!fresh.provider_enabled("proton"));
         assert!(fresh.provider_config("proton").is_none());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1089,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_shortcuts_override_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("comnd_test_{}", uuid::Uuid::new_v4()));
+        let dir = TempDir::new("config");
         let config_path = dir.join("config.json");
         let mut store = ConfigStore::new_with_path(config_path.clone()).unwrap();
 
@@ -1110,8 +1089,6 @@ mod tests {
             .unwrap();
         let fresh = ConfigStore::new_with_path(config_path).unwrap();
         assert!(fresh.get().shortcuts.is_empty());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1245,6 +1245,8 @@ impl SshManager {
 mod tests {
     use super::*;
 
+    use crate::fixtures::TempDir;
+
     struct DummySession;
 
     fn map_with(ids: &[u64]) -> SessionMap<DummySession> {
@@ -1321,12 +1323,14 @@ mod tests {
             fn emit_output(&self, _encoded: &str) {}
         }
 
-        let dir = std::env::temp_dir().join(format!(
-            "comnd_session_logging_disabled_{}",
-            uuid::Uuid::new_v4()
-        ));
-        let session_log =
-            create_session_log(false, Some(dir.to_str().unwrap()), "host:22", 1, true);
+        let dir = TempDir::absent("session-logging-disabled");
+        let session_log = create_session_log(
+            false,
+            Some(dir.path().to_str().unwrap()),
+            "host:22",
+            1,
+            true,
+        );
         let mut transcript = crate::transcript::Transcript::new(session_log, Box::new(DiscardSink));
 
         transcript.output(b"remote output that could contain a secret");
@@ -1592,14 +1596,13 @@ mod tests {
         let password = format!("probe-secret-{marker}");
         let session_id: u64 = 0x0068_0000_0000_0001;
 
-        let temp_root = std::env::temp_dir().join(format!("comnd_log_probe_{marker}"));
-        std::fs::create_dir_all(&temp_root).expect("create probe temp dir");
+        let temp_root = TempDir::new("log-probe");
         let key_file = temp_root.join("probe_key");
         // Junk contents: the file must exist so the key-auth path runs, and it
         // must fail to decode so the "Failed to load SSH key" line is reached.
         std::fs::write(&key_file, b"not a private key\n").expect("write probe key file");
         let key_path = key_file.to_string_lossy().into_owned();
-        let temp_root_str = temp_root.to_string_lossy().into_owned();
+        let temp_root_str = temp_root.path().to_string_lossy().into_owned();
 
         // A real connect parks on a first-seen host key and, once accepted,
         // writes it out. Point that at the probe temp dir so the developer's
@@ -1732,8 +1735,6 @@ mod tests {
                 lines.join("\n")
             );
         }
-
-        let _ = std::fs::remove_dir_all(&temp_root);
     }
 
     /// Tests that run a real connect share the process-wide
@@ -1807,12 +1808,7 @@ mod tests {
         let session_id: u64 = 0x0068_0000_0000_0002;
         let password = "burst-probe-secret";
 
-        let temp_root = std::env::temp_dir().join(format!(
-            "comnd_burst_probe_{}_{}",
-            std::process::id(),
-            session_id
-        ));
-        std::fs::create_dir_all(&temp_root).expect("create burst temp dir");
+        let temp_root = TempDir::new("burst-probe");
         known_hosts_override()
             .lock()
             .expect("known-hosts override lock")
@@ -1918,7 +1914,6 @@ mod tests {
 
         drop(session);
         server.abort();
-        let _ = std::fs::remove_dir_all(&temp_root);
     }
 }
 

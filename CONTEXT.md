@@ -57,3 +57,8 @@ terms; keep them current as concepts crystallize.
   read. It is the second adapter for the terminal seam (xterm is the first) and
   holds the module's one `as unknown as Terminal` cast, so a screen can be
   driven in a test without booting the app.
+- **Rust fixture module** — the crate-level `#[cfg(test)]` counterpart of the
+  test harness (`src-tauri/src/fixtures.rs`): a temp-directory guard that
+  removes its tree on drop, and builders for the structs tests construct, so a
+  schema change fails in one place instead of fifteen. Not "test utils", not a
+  "mock backend".

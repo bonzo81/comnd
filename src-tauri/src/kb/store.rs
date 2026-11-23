@@ -182,7 +182,7 @@ impl KbManager {
     /// Platforms that exist only in the user KB (custom platforms,
     /// docs/specs/10-custom-knowledge-base.md § Part 5) load directly from the
     /// user path with no merge.
-    pub(super) fn get_or_load(&mut self, platform_id: &str) -> Result<&KbStore, String> {
+    pub(crate) fn get_or_load(&mut self, platform_id: &str) -> Result<&KbStore, String> {
         if !self.stores.contains_key(platform_id) {
             let user_dir_exists = self
                 .user_kb_path
@@ -371,8 +371,8 @@ impl KbManager {
 mod tests {
     use super::*;
 
+    use crate::fixtures::*;
     use crate::kb::schema::CommandToken;
-    use crate::kb::test_util::*;
 
     #[test]
     fn test_load_cisco_iosxe() {
@@ -477,11 +477,8 @@ mod tests {
 
     #[test]
     fn legacy_user_index_inherits_bundled_secret_patterns_but_empty_overrides() {
-        let (bundled, user) = kb_fixture(
-            "secret-pattern-merge",
-            &cmd_yaml("show version", "bundled"),
-            None,
-        );
+        let dir = TempDir::new("kb-secret-pattern-merge");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let bundled_index = INDEX_YAML.replace(
             "default_mode: default",
             "secret_prompt_patterns:\n  - '^Password:$'\ndefault_mode: default",
@@ -510,18 +507,15 @@ mod tests {
                 .secret_prompt_patterns,
             Some(vec![]),
         );
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_tombstone_hides_bundled_after_merge() {
         // User _deleted.yaml must keep hiding a bundled command after the
         // user-wins merge change (existing behaviour, pinned).
-        let base = std::env::temp_dir().join(format!("comnd-tombstone-{}", std::process::id()));
-        let bundled = base.join("bundled");
-        let user = base.join("user");
-        let _ = std::fs::remove_dir_all(&base);
+        let dir = TempDir::new("kb-tombstone");
+        let bundled = dir.join("bundled");
+        let user = dir.join("user");
         std::fs::create_dir_all(bundled.join("test-plat/commands")).unwrap();
         std::fs::create_dir_all(user.join("test-plat")).unwrap();
 
@@ -543,8 +537,6 @@ mod tests {
             "tombstoned bundled command must stay hidden, got: {:?}",
             store.commands.iter().map(|c| &c.name).collect::<Vec<_>>()
         );
-
-        std::fs::remove_dir_all(&base).ok();
     }
 
     // ─── Mutation through a single persistent KbManager (invalidation) ──
@@ -554,7 +546,8 @@ mod tests {
 
     #[test]
     fn test_manager_save_adds_and_invalidates() {
-        let (bundled, user) = kb_fixture("mgr-save", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-save");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         // User platform needs an index.yaml to be loadable on merge (see KbStore::load).
         std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
@@ -568,13 +561,12 @@ mod tests {
 
         let after = mgr.get_or_load("test-plat").unwrap();
         assert!(after.commands.iter().any(|c| c.name == "my new cmd"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_delete_removes_and_invalidates() {
-        let (bundled, user) = kb_fixture("mgr-del", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-del");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         assert!(mgr
@@ -589,13 +581,12 @@ mod tests {
 
         let after = mgr.get_or_load("test-plat").unwrap();
         assert!(!after.commands.iter().any(|c| c.name == "show version"));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_disable_hides_and_invalidates() {
-        let (bundled, user) = kb_fixture("mgr-dis", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-dis");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         assert!(mgr
@@ -612,13 +603,12 @@ mod tests {
         assert!(mgr
             .disabled_commands("test-plat")
             .contains(&"show version".to_string()));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_enable_restores_and_invalidates() {
-        let (bundled, user) = kb_fixture("mgr-en", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-en");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         mgr.disable_command("test-plat", "show version").unwrap();
@@ -636,22 +626,20 @@ mod tests {
         assert!(!mgr
             .disabled_commands("test-plat")
             .contains(&"show version".to_string()));
-
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_disabled_commands_empty_when_none() {
-        let (bundled, user) =
-            kb_fixture("mgr-dis-none", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-dis-none");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let mgr = KbManager::with_user_path(bundled.clone(), user.clone());
         assert!(mgr.disabled_commands("test-plat").is_empty());
-        drop_fixture(&bundled);
     }
 
     #[test]
     fn test_manager_save_returns_validation_issues() {
-        let (bundled, user) = kb_fixture("mgr-val", &cmd_yaml("show version", "bundled"), None);
+        let dir = TempDir::new("kb-mgr-val");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         let bad = mk_cmd(
@@ -673,7 +661,5 @@ mod tests {
             .commands
             .iter()
             .any(|c| c.name == "bad cmd"));
-
-        drop_fixture(&bundled);
     }
 }

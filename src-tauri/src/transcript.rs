@@ -112,6 +112,8 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    use crate::fixtures::TempDir;
+
     /// Captures encoded output instead of emitting a Tauri event.
     #[derive(Default)]
     struct CapturedSink(Mutex<Vec<String>>);
@@ -132,12 +134,8 @@ mod tests {
         }
     }
 
-    fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("comnd_transcript_{}_{}", tag, std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn temp_dir(tag: &str) -> TempDir {
+        TempDir::new(&format!("transcript-{tag}"))
     }
 
     fn only_log_file(dir: &std::path::Path) -> String {
@@ -167,7 +165,6 @@ mod tests {
         );
 
         assert!(only_log_file(&dir).contains("hello world\n"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -190,7 +187,6 @@ mod tests {
         write_output(&shared, b"b");
         assert_eq!(captured.0.lock().unwrap().len(), 2);
         assert!(only_log_file(&dir).contains("ab"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A sink that panics once, to poison the mutex; recovery must let the

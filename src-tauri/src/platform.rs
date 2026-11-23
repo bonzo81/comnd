@@ -84,15 +84,7 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn tmp(prefix: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd_platform_{}_{}",
-            prefix,
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    use crate::fixtures::TempDir;
 
     /// Make `<root>/<name>/index.yaml` exist.
     fn add_platform(root: &Path, name: &str) {
@@ -103,8 +95,8 @@ mod tests {
 
     #[test]
     fn scan_empty_roots() {
-        let bundled = tmp("empty-b");
-        let user = tmp("empty-u");
+        let bundled = TempDir::new("empty-b");
+        let user = TempDir::new("empty-u");
         let reg = PlatformRegistry::scan(&bundled, Some(&user));
         assert!(reg.all().is_empty());
         assert!(!reg.is_valid("linux-bash"));
@@ -112,7 +104,7 @@ mod tests {
 
     #[test]
     fn scan_bundled_only() {
-        let bundled = tmp("b-only");
+        let bundled = TempDir::new("b-only");
         add_platform(&bundled, "linux-bash");
         add_platform(&bundled, "cisco-iosxe");
         let reg = PlatformRegistry::scan(&bundled, None::<&std::path::Path>);
@@ -123,8 +115,8 @@ mod tests {
 
     #[test]
     fn scan_user_only() {
-        let bundled = tmp("u-only-b");
-        let user = tmp("u-only-u");
+        let bundled = TempDir::new("u-only-b");
+        let user = TempDir::new("u-only-u");
         add_platform(&user, "my-custom");
         let reg = PlatformRegistry::scan(&bundled, Some(&user));
         assert_eq!(reg.all(), vec!["my-custom"]);
@@ -133,8 +125,8 @@ mod tests {
 
     #[test]
     fn scan_union_and_dedup() {
-        let bundled = tmp("union-b");
-        let user = tmp("union-u");
+        let bundled = TempDir::new("union-b");
+        let user = TempDir::new("union-u");
         add_platform(&bundled, "linux-bash");
         add_platform(&user, "linux-bash"); // duplicate across roots
         add_platform(&user, "my-custom");
@@ -144,7 +136,7 @@ mod tests {
 
     #[test]
     fn dir_without_index_yaml_excluded() {
-        let bundled = tmp("noindex");
+        let bundled = TempDir::new("noindex");
         fs::create_dir_all(bundled.join("not-a-platform")).unwrap(); // no index.yaml
         add_platform(&bundled, "real");
         let reg = PlatformRegistry::scan(&bundled, None::<&std::path::Path>);
@@ -153,8 +145,8 @@ mod tests {
 
     #[test]
     fn rescan_picks_up_new_platform() {
-        let bundled = tmp("rescan-b");
-        let user = tmp("rescan-u");
+        let bundled = TempDir::new("rescan-b");
+        let user = TempDir::new("rescan-u");
         add_platform(&user, "first");
         let mut reg = PlatformRegistry::scan(&bundled, Some(&user));
         assert_eq!(reg.all(), vec!["first"]);

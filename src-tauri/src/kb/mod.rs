@@ -20,8 +20,6 @@
 mod commands;
 mod schema;
 mod store;
-#[cfg(test)]
-mod test_util;
 mod user_files;
 mod validate;
 

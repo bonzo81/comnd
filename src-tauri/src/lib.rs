@@ -9,6 +9,8 @@ mod ssh;
 // profile (`cargo test --release` compiles tests with `debug_assertions` off).
 mod config;
 mod credentials;
+#[cfg(test)]
+mod fixtures;
 mod hosts;
 mod import;
 mod kb;
@@ -904,12 +906,7 @@ mod tests {
 
     #[test]
     fn test_size_cap_writer_truncates_at_cap() {
-        let dir = std::env::temp_dir().join(format!(
-            "comnd-logcap-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fixtures::TempDir::new("logcap");
         let path = dir.join("comnd.log");
 
         // A cap of 10 bytes: the write that reaches it truncates the file.
@@ -942,8 +939,6 @@ mod tests {
         uncapped.write_all(&[b'x'; 64]).unwrap();
         uncapped.flush().unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 67);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A `Write` sink that keeps its bytes where the test can read them.

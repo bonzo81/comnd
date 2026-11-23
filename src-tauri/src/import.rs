@@ -898,6 +898,8 @@ fn create_platform_index(
 mod tests {
     use super::*;
 
+    use crate::fixtures::{mk_full_cmd, TempDir};
+
     #[test]
     fn test_create_platform_index_matches_bundled() {
         let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -906,14 +908,7 @@ mod tests {
             .join("knowledge-base");
 
         for platform in ["cisco-iosxe", "cisco-nxos", "f5-tmos", "linux-bash"] {
-            let tmp = std::env::temp_dir().join(format!(
-                "comnd-idx-test-{}-{}",
-                std::process::id(),
-                platform
-            ));
-            let _ = std::fs::remove_dir_all(&tmp);
-            std::fs::create_dir_all(&tmp).unwrap();
-
+            let tmp = TempDir::new("idx-test");
             let user_index = tmp.join("index.yaml");
             create_platform_index(&bundled, platform, &user_index, None).unwrap();
 
@@ -931,8 +926,6 @@ mod tests {
                     .is_some_and(|patterns| !patterns.is_empty()),
                 "bundled index for {platform} must define secret prompts"
             );
-
-            let _ = std::fs::remove_dir_all(&tmp);
         }
     }
 
@@ -944,10 +937,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("knowledge-base");
-        let tmp = std::env::temp_dir().join(format!("comnd-idx-new-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
+        let tmp = TempDir::new("idx-new");
         let user_index = tmp.join("index.yaml");
         create_platform_index(&bundled, "my-nos", &user_index, Some("My NOS")).unwrap();
 
@@ -961,8 +951,6 @@ mod tests {
         let index: PlatformIndex = yaml_serde::from_str(&content).unwrap();
         assert!(index.prompt_patterns.is_empty());
         assert_eq!(index.default_mode, "default");
-
-        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
@@ -1274,37 +1262,15 @@ mod tests {
     #[test]
     fn test_merge_commands_adds_new() {
         let existing = vec![Command {
-            name: "show ip route".to_string(),
-            syntax: "show ip route".to_string(),
             description: "Routing table".to_string(),
             category: String::new(),
-            mode: "privileged-exec".to_string(),
-            aliases: vec![],
-            examples: vec![],
-            versions: CommandVersions::default(),
-            tags: vec![],
-            tokens: vec![],
-            order: Default::default(),
-            negatable: false,
-            source: None,
-            overrides: false,
+            ..mk_full_cmd("show ip route", "")
         }];
 
         let new_cmd = Command {
-            name: "show version".to_string(),
-            syntax: "show version".to_string(),
             description: "System version".to_string(),
             category: String::new(),
-            mode: "privileged-exec".to_string(),
-            aliases: vec![],
-            examples: vec![],
-            versions: CommandVersions::default(),
-            tags: vec![],
-            tokens: vec![],
-            order: Default::default(),
-            negatable: false,
-            source: None,
-            overrides: false,
+            ..mk_full_cmd("show version", "")
         };
 
         // Simulate the merge logic
