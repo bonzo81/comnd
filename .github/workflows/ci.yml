@@ -33,6 +33,13 @@ jobs:
       - name: install dependencies
         run: npm ci
 
+      # Lint runs on one leg: the rules are behavioural, so the result cannot
+      # differ by OS, and type-aware resolution reads the same tsconfig on every
+      # runner. The rule set is deliberately small (see eslint.config.mjs).
+      - name: eslint (typescript-eslint, type-aware)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: npm run lint
+
       # stylelint covers declarations; scripts/check-css-tokens.mjs covers the
       # cross-file rules stylelint cannot see (TypeScript reads, unused tokens,
       # theme coverage, var() fallbacks). Standard: docs/adr/018-css-token-naming-standard.md

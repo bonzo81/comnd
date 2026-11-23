@@ -188,7 +188,7 @@ export class KbViewerDialog {
     if (!this.platforms.includes(platform) || platform === this.selectedPlatform) return;
     this.selectedPlatform = platform;
     this.editing = false;
-    this.loadPlatform();
+    void this.loadPlatform();
   }
 
   private renderDetailPanel(): string {
@@ -288,7 +288,7 @@ export class KbViewerDialog {
       <div class="kb-category">
         <div class="kb-category-header">${escHtml(category.name)} (${filteredCatCommands.length})</div>
         ${filteredCatCommands
-          .map((cmd, i) => {
+          .map((cmd) => {
             const globalIndex = this.filteredCommands.indexOf(cmd);
             const selected = globalIndex === this.selectedIndex;
             return `

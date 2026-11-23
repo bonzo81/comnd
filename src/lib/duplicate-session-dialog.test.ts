@@ -27,7 +27,7 @@ describe("openDuplicateSessionDialog", () => {
   });
 
   it("focuses the primary action and offers all three choices", () => {
-    openDuplicateSessionDialog({ deviceName: "core-sw1", atLimit: false, maxSessions: 0 });
+    void openDuplicateSessionDialog({ deviceName: "core-sw1", atLimit: false, maxSessions: 0 });
     expect(document.activeElement).toBe(panel().querySelector(".duplicate-session-new"));
     expect(panel().querySelector(".duplicate-session-focus")).not.toBeNull();
     expect(panel().querySelector(".duplicate-session-cancel")).not.toBeNull();

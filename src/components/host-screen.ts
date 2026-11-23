@@ -253,11 +253,9 @@ export class HostScreen {
     const title = h ? "Edit Host" : "New Connection";
     const platforms = Object.entries(PLATFORM_META);
     const cred = h?.credential;
-    const isAgent = !!(cred && cred.type === "agent");
     const agentIdentityValue = cred && cred.type === "agent" ? (cred.identity ?? "") : "";
     const isSecretRef = !!(cred && cred.type === "secret_ref");
     const secretRefProvider = cred && cred.type === "secret_ref" ? cred.provider : "";
-    const secretRefReference = cred && cred.type === "secret_ref" ? cred.reference : "";
 
     return `
       <h2 id="hs-form-title">${title}</h2>
@@ -422,7 +420,7 @@ export class HostScreen {
             this.connectToHost(ctx.id);
             break;
           case "edit":
-            this.openForm(ctx.id);
+            void this.openForm(ctx.id);
             break;
           case "configure":
             void new NetBoxConfigureDialog(ctx.id, async () => {
@@ -432,7 +430,7 @@ export class HostScreen {
             }).open();
             break;
           case "duplicate":
-            this.duplicateHost(ctx.id);
+            void this.duplicateHost(ctx.id);
             break;
           case "delete":
             this.confirmDeleteHost(ctx.id);
@@ -503,7 +501,7 @@ export class HostScreen {
     panel.querySelector("#hs-form-save")?.addEventListener("click", () => this.submitForm(false));
     panel.querySelector("#hs-host-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
-      this.submitForm(true);
+      void this.submitForm(true);
     });
   }
 
@@ -570,7 +568,7 @@ export class HostScreen {
         }
         break;
       case "n":
-        if (e.ctrlKey) { e.preventDefault(); this.openForm(); }
+        if (e.ctrlKey) { e.preventDefault(); void this.openForm(); }
         break;
       case "F10":
         if (e.shiftKey && this.recent[this.selectedHostIndex]) {

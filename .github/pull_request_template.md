@@ -10,6 +10,7 @@ Closes #
 
 - [ ] `npm run build`
 - [ ] `npm run test`
+- [ ] `npm run lint` — ESLint (typescript-eslint, type-aware); CI runs it on one leg
 - [ ] `npm run lint:css` — CSS token standard (ADR 018); required when touching stylesheets
       or a `var(--token)` read
 - [ ] `npm run lint:eol` — `.editorconfig` rules on committed content; run `git add` first,

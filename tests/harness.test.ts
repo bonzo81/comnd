@@ -52,7 +52,7 @@ describe("test harness", () => {
   });
 
   it("the real emit() dispatches through an active harness", async () => {
-    const h = createHarness();
+    createHarness();
     const seen: unknown[] = [];
     await listen("import-progress", (e) => seen.push(e.payload));
     await emit("import-progress", "done");

@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHarness } from "../../tests/harness";
 import type { AppConfig, NetBoxConfig } from "../lib/tauri-api";
 import type { ConfigSaveDescriptor } from "../lib/config-save";

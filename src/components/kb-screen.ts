@@ -190,7 +190,7 @@ export class KbScreen {
     }
 
     this.viewerDialog = new KbViewerDialog();
-    this.viewerDialog.mount(panel, this.selectedPlatform || undefined).then(() => {
+    void this.viewerDialog.mount(panel, this.selectedPlatform || undefined).then(() => {
       const pending = this.pendingCommand;
       this.pendingCommand = null;
       if (pending && pending.platform === this.selectedPlatform) {
@@ -212,7 +212,7 @@ export class KbScreen {
       void this.loadPlatforms();
       this.onPlatformsChanged?.();
     });
-    this.importDialog.mount(panel);
+    void this.importDialog.mount(panel);
   }
 
   // ─── Keyboard Navigation ─────────────────────────────────────────

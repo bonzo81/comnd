@@ -5,7 +5,7 @@
  * Edit re-opens the save dialog pre-filled; Delete confirms inline.
  */
 
-import { ReplayCommand, replayList, replayDelete, replaySave } from "../lib/tauri-api";
+import { ReplayCommand, replayList, replayDelete } from "../lib/tauri-api";
 import { ReplaySaveDialog } from "./replay-save-dialog";
 import { showToast } from "../lib/toast";
 import { log, LogTag } from "../lib/logger";

@@ -179,7 +179,7 @@ export class SessionChannel {
 
   /** Normalised handlers, one per registered event. The stale-session guard is
    *  applied once in {@link registerListeners}, not per handler. */
-  private handlers(sid: number): { [K in SshEventName]: (p: SshEventPayloads[K]) => void } {
+  private handlers(): { [K in SshEventName]: (p: SshEventPayloads[K]) => void } {
     return {
       "ssh-output": (p) => {
         const bytes = this.base64ToBytes(p.data);
@@ -226,7 +226,7 @@ export class SessionChannel {
   }
 
   private async registerListeners(sid: number): Promise<void> {
-    const handlers = this.handlers(sid);
+    const handlers = this.handlers();
     for (const name of SSH_EVENT_NAMES) {
       this.unlisteners.push(
         await this.transport.listen(name, (raw) => {

@@ -9,7 +9,7 @@
  */
 
 import { SuggestionResult, Command, ghostPayloadFor } from "./suggestion-engine";
-import { GhostPayload, ghostPayloadAcceptText } from "./ghost-text";
+import { GhostPayload } from "./ghost-text";
 import { escHtml } from "./format";
 import { renderToken, isChoice as isChoiceTok, isLit } from "./tokens";
 import { moveListItem } from "./listbox-nav";

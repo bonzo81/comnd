@@ -334,7 +334,7 @@ export class TerminalView {
     // guarantees this gate actually waits for the JBM download. Skipped where
     // the FontFaceSet API is absent (e.g. jsdom test environment) — there is no
     // web-font race to guard against there.
-    document.fonts?.ready.then(() => {
+    void document.fonts?.ready.then(() => {
       if (!this.terminal || !this.fitAddon) return; // disposed before fonts resolved
       (this.terminal as unknown as XtermCoreSeam)?._core?._charSizeService?.measure();
       this.fitAddon.fit();
@@ -450,7 +450,7 @@ export class TerminalView {
   private copySelection() {
     const selection = this.terminal?.getSelection();
     if (!selection) return;
-    navigator.clipboard.writeText(selection);
+    void navigator.clipboard.writeText(selection);
     this.terminal?.clearSelection();
   }
 
@@ -466,7 +466,7 @@ export class TerminalView {
 
   /** Read clipboard and send it to the remote session + shadow buffer. */
   private pasteClipboard() {
-    navigator.clipboard.readText().then((text) => {
+    void navigator.clipboard.readText().then((text) => {
       if (!text) return;
       if (this.channel.state === "connected" && this.channel.sessionId) {
         this.controller.paste(text);
@@ -814,12 +814,12 @@ export class TerminalView {
 
     // Overlay cancel
     this.$(".tv-overlay-cancel")!.addEventListener("click", () => {
-      this.cancelConnect();
+      void this.cancelConnect();
     });
 
     // Disconnect banner actions
     this.$(".tv-banner-reconnect")!.addEventListener("click", () => {
-      this.reconnect();
+      void this.reconnect();
     });
     this.$(".tv-banner-back")!.addEventListener("click", () => {
       this.onRequestCloseCb();
@@ -1042,7 +1042,7 @@ export class TerminalView {
 
         // Load KB commands into the frontend suggestion engine
         if (this.host) {
-          this.loadKbCommands(
+          void this.loadKbCommands(
             this.host.platform,
             this.host.os_version ?? null,
             this.platformIndex?.negation_prefix ?? null,
