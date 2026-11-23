@@ -452,7 +452,7 @@ export class SettingsScreen {
   private renderModelSelect(currentModel: string): string {
     if (this.availableModels.length === 0) {
       return `
-        <select class="form-input form-input-mono" id="llm-model-select">
+        <select class="form-input" id="llm-model-select">
           <option value="${escAttr(currentModel)}" ${currentModel ? "selected" : ""}>${currentModel ? escHtml(currentModel) : "Run Test connection to load models"}</option>
         </select>
       `;
@@ -462,7 +462,7 @@ export class SettingsScreen {
       ? this.availableModels
       : [currentModel, ...this.availableModels].filter(Boolean);
     return `
-      <select class="form-input form-input-mono" id="llm-model-select">
+      <select class="form-input" id="llm-model-select">
         ${options.map((m) => `<option value="${escAttr(m)}" ${m === currentModel ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
       </select>
     `;
@@ -908,7 +908,7 @@ export class SettingsScreen {
           <div class="netbox-device-row${d.enabled ? "" : " netbox-device-disabled"}">
             <input type="checkbox" data-netbox-device="${d.netbox_id}" ${d.enabled ? "checked" : ""}
                    aria-label="Enable ${escHtml(d.name)}" />
-            <span class="hs-host-badge ${platformColorClass(d.platform)}">[${escHtml(platformBadge(d.platform))}]</span>
+            <span class="hs-host-badge ${platformColorClass(d.platform)}">${escHtml(platformBadge(d.platform))}</span>
             <div class="netbox-device-info">
               <span class="netbox-device-name">${escHtml(d.name)}</span>
               <span class="netbox-device-meta">${escHtml(meta)}</span>

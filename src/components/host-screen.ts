@@ -217,7 +217,7 @@ export class HostScreen {
            data-host-id="${host.id}" data-index="${index}"
            role="option" tabindex="0" aria-selected="${selected}"
            aria-label="${escAttr(host.display_name)} — ${escAttr(host.username)}@${escAttr(host.hostname)}${host.port !== 22 ? `:${host.port}` : ""}${active ? " (session active)" : ""}">
-        <div class="hs-host-badge ${platformColorClass(host.platform)}">[${escHtml(platformBadge(host.platform))}]</div>
+        <div class="hs-host-badge ${platformColorClass(host.platform)}">${escHtml(platformBadge(host.platform))}</div>
         <div class="hs-host-info">
           <div class="hs-host-top">
             <span class="hs-host-name">${escHtml(host.display_name)}</span>

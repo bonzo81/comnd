@@ -120,8 +120,8 @@
 
 .nbd-iface-name {
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   line-height: var(--font-leading-meta);
   overflow-wrap: anywhere;
 }
@@ -141,8 +141,8 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
   line-height: var(--font-leading-meta);
   overflow-wrap: anywhere;
 }
@@ -225,13 +225,9 @@
 .nbd-vlan-vid {
   min-width: var(--space-8);
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
   text-align: right;
-}
-
-.nbd-vlan-name {
-  font-family: var(--font-mono);
 }
 
 .nbd-subnets {
@@ -249,8 +245,8 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
   line-height: var(--font-leading-meta);
   overflow-wrap: anywhere;
 }
@@ -281,8 +277,8 @@
 
 .nbd-peer-name {
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   line-height: var(--font-leading-meta);
   overflow-wrap: anywhere;
 }

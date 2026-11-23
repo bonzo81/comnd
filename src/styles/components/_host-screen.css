@@ -70,10 +70,14 @@
   outline-offset: -1px;
 }
 
+/* Platform tag. A tracked uppercase label in the UI face, not a bracketed
+   mono token: brackets are terminal decoration, and the accent colour already
+   carries the platform identity. */
 .hs-host-badge {
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--font-tracking-label);
+  text-transform: uppercase;
   color: var(--color-accent);
   min-width: 44px;
   text-align: center;
@@ -218,7 +222,6 @@
 }
 
 .hs-browse-user {
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   flex-shrink: 0;

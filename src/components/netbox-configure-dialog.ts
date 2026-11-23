@@ -82,7 +82,7 @@ export class NetBoxConfigureDialog {
     const content = `
       <h2 id="nb-cfg-title">Configure NetBox Device</h2>
       <div class="netbox-cfg-summary">
-        <span class="hs-host-badge ${platformColorClass(d.platform)}">[${escHtml(platformBadge(d.platform))}]</span>
+        <span class="hs-host-badge ${platformColorClass(d.platform)}">${escHtml(platformBadge(d.platform))}</span>
         <div>
           <div class="netbox-cfg-name">${escHtml(d.name)}</div>
           <div class="netbox-cfg-meta">${escHtml(summaryMeta)}</div>

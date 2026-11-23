@@ -131,8 +131,8 @@
 }
 
 .tv-host-info {
-  font-family: var(--font-mono);
   font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
 }
 
@@ -308,7 +308,6 @@ body.tv-resizing * {
   background-color: var(--color-surface-secondary);
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
   color: var(--color-text-secondary);
   min-height: 28px;
   transition: background 0.3s ease;
@@ -778,7 +777,6 @@ body.tv-resizing * {
   border: none;
   outline: none;
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
 
@@ -788,8 +786,8 @@ body.tv-resizing * {
   min-width: 20px;
   text-align: center;
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Compact icon buttons inside the search bar */

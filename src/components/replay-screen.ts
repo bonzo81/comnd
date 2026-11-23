@@ -60,7 +60,7 @@ export class ReplayScreen {
         <div class="rsm-item" data-id="${escHtml(c.id)}">
           <div class="rsm-main">
             <code class="rsm-cmd">${renderReplayTemplate(c.command)}</code>
-            <span class="hs-host-badge ${platformColorClass(c.platform)}">[${escHtml(platformBadge(c.platform))}]</span>
+            <span class="hs-host-badge ${platformColorClass(c.platform)}">${escHtml(platformBadge(c.platform))}</span>
           </div>
           <div class="rsm-actions">
             <button class="btn-text rsm-edit" data-id="${escHtml(c.id)}">Edit</button>

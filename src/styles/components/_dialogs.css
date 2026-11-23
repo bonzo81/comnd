@@ -143,7 +143,6 @@
 .import-model-info {
   flex: 1;
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -230,8 +229,8 @@
 
 .import-result-value {
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .import-result-path {
@@ -459,7 +458,6 @@
 }
 
 .import-paste-text {
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   resize: vertical;
   min-height: 120px;
@@ -507,7 +505,7 @@
   color: var(--color-text-secondary);
   text-align: center;
   margin-top: var(--space-2);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Running-job banner above the disabled form (import in flight) */
@@ -664,7 +662,6 @@
 .preview-row {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
 .preview-row:last-child { border-bottom: none; }
@@ -684,6 +681,7 @@
 .preview-row-head .preview-warn { color: var(--color-warning); }
 
 .preview-name {
+  font-family: var(--font-mono);
   font-weight: var(--font-weight-semibold);
   flex: 1;
   white-space: nowrap;
@@ -730,6 +728,7 @@
 .preview-syntax {
   display: block;
   margin-top: var(--space-1);
+  font-family: var(--font-mono);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   white-space: pre-wrap;
