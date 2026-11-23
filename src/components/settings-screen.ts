@@ -468,16 +468,10 @@ export class SettingsScreen {
     const tagsOn = getSearchIncludeTags();
     const autoCopy = getAutoCopyEnabled();
     const highlight = getOutputHighlightEnabled();
-    const logLevel = this.config?.log_level ?? "info";
-    const maxSizeMb = this.config?.log_max_size_mb ?? 10;
     const maxSessions = this.config?.max_sessions ?? 30;
     const dupPolicy = normalizeDuplicateSessionPolicy(this.config?.duplicate_session_policy);
     const opt = (value: TimestampFormat, label: string) =>
       `<option value="${value}" ${fmt === value ? "selected" : ""}>${label}</option>`;
-    const levelOpt = (value: string, label: string) =>
-      `<option value="${value}" ${logLevel === value ? "selected" : ""}>${label}</option>`;
-    const sizeOpt = (value: number, label: string) =>
-      `<option value="${value}" ${maxSizeMb === value ? "selected" : ""}>${label}</option>`;
     const sessionOpt = (value: number, label: string) =>
       `<option value="${value}" ${maxSessions === value ? "selected" : ""}>${label}</option>`;
     const dupOpt = (value: string, label: string) =>

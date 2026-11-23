@@ -1422,7 +1422,7 @@ export class NavPanel {
     this.updateDropTarget(e.clientY);
   };
 
-  private onDragUp = (e: PointerEvent) => {
+  private onDragUp = () => {
     window.removeEventListener("pointermove", this.onDragMove);
     window.removeEventListener("pointerup", this.onDragUp);
     if (this.dragHoldTimer !== null) {

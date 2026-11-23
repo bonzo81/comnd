@@ -387,7 +387,6 @@ function matchUnordered(
 
     if (isLit(ct)) {
       const words = splitLit(ct.lit);
-      let matchedAny = false;
       while (litWordIdx < words.length && uti < completed.length) {
         const uw = completed[uti].toLowerCase();
         const lw = words[litWordIdx].toLowerCase();
@@ -395,7 +394,6 @@ function matchUnordered(
         if (ok) {
           uti++;
           litWordIdx++;
-          matchedAny = true;
         } else break;
       }
       if (litWordIdx === words.length) {

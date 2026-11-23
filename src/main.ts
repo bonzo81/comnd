@@ -219,7 +219,7 @@ class App {
       () => this.showView("connections"),
       () => void this.navPanel.refresh(),
     );
-    this.kbScreen.mount(this.kbScreenWrapper);
+    void this.kbScreen.mount(this.kbScreenWrapper);
 
     // Mount host screen (recent sessions list)
     this.hostScreen = new HostScreen(
@@ -227,7 +227,7 @@ class App {
       () => this.activeSessions,
       () => void this.navPanel.refresh(),
     );
-    this.hostScreen.mount(this.hostScreenWrapper);
+    void this.hostScreen.mount(this.hostScreenWrapper);
 
     // Left nav panel (accordion sections + host tree)
     const navContainer = document.createElement("div");
@@ -269,8 +269,8 @@ class App {
     void this.navPanel.mount();
 
     log.info(LogTag.App, "Initialized");
-    this.syncLogLevel();
-    this.syncLogStatus();
+    void this.syncLogLevel();
+    void this.syncLogStatus();
     // Registry overrides load async from config; matches() runs on
     // defaults until then — no race (docs/plans/058 phase 1).
     void initShortcuts();
@@ -1097,7 +1097,7 @@ class App {
     const doClose = () => {
       // disconnect() triggers onFullDisconnect, which removes the tab,
       // activates a neighbor (or returns to connections), and refreshes dots.
-      tab.view.disconnect();
+      void tab.view.disconnect();
     };
 
     this.showCloseConfirm(tab.host.display_name, doClose);
@@ -1109,7 +1109,7 @@ class App {
   private onDetach(sessionId: number) {
     log.info(LogTag.App, `Detached from terminal for session ${sessionId} (session stays active)`);
     this.showView("connections");
-    this.hostScreen.refresh();
+    void this.hostScreen.refresh();
   }
 
   /**
@@ -1152,7 +1152,7 @@ class App {
     }
     this.renderSessionTabBar();
     this.refreshStatusBar();
-    this.hostScreen.refresh();
+    void this.hostScreen.refresh();
     // The panel shows the active session; with no session left it has no
     // subject, so its window goes too (docked or not).
     if (this.tabs.size === 0) closeSidePanel();
@@ -1303,7 +1303,7 @@ class App {
    */
   private initSidePanelBridge(): void {
     void initSidePanel({
-      publish: (state) => this.publishPanelState(),
+      publish: () => this.publishPanelState(),
       // The main window owns the host list; the undocked window renders only
       // the resolved hostId/label that this resolver puts in the snapshot.
       resolvePeerHost: (peer) => matchNetboxPeerHost(peer, this.navPanel.getHosts()),
