@@ -585,9 +585,10 @@ where
     match tokio::time::timeout(SSH_SEND_TIMEOUT, send).await {
         Ok(result) => result,
         Err(_) => Err(format!(
-            "SSH send stalled: the connection could not write for {} seconds. \
-             The remote device or network may be unresponsive — keystrokes are \
-             not reaching it. Wait and try again, or reconnect if it persists.",
+            "SSH send stalled: the connection stopped accepting input for {} \
+             seconds. The device or network may be unresponsive. Part of this \
+             input may already have been sent — check the remote state before \
+             retrying, or reconnect if it persists.",
             SSH_SEND_TIMEOUT.as_secs()
         )),
     }
