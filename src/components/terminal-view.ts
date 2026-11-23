@@ -31,6 +31,7 @@ import { ReplaySaveDialog } from "./replay-save-dialog";
 import { substitute } from "../lib/replay";
 import { escHtml } from "../lib/format";
 import { log, LogTag } from "../lib/logger";
+import { showToast } from "../lib/toast";
 import { LineTracker } from "../lib/line-tracker";
 import { SuggestionController } from "../lib/suggestion-controller";
 import { Dropdown } from "../lib/dropdown";
@@ -197,6 +198,9 @@ export class TerminalView {
   /** Set on user cancel/teardown so a late backend rejection doesn't
    * flash an error overlay on an already-abandoned view. */
   private connectCancelled = false;
+  /** One stall report per stalled send: set on the first rejection, cleared
+   *  only by the next successful send (issue #190). */
+  private sendStalled = false;
   private status: SessionLifecycle = "connecting";
   /** Observer for status transitions (the app's live-session count). */
   onStatusChange: ((status: SessionLifecycle) => void) | null = null;
@@ -421,11 +425,37 @@ export class TerminalView {
     });
   }
 
-  /** Send data to the current session (no-op when not connected). */
+  /**
+   * Send data to the current session (no-op when not connected).
+   *
+   * Fire-and-forget on the keystroke path: never await a send, so a stalled
+   * one cannot delay or reorder later keystrokes. A rejection is reported
+   * once per stall; the Rust command bounds the send (ADR-020), so a wedged
+   * session rejects within the 2-second budget instead of hanging silently.
+   */
   private sendData(data: string) {
     if (this.channel.state === "connected" && this.channel.sessionId) {
-      sshSend(this.channel.sessionId, data).catch(() => {});
+      void sshSend(this.channel.sessionId, data).then(
+        () => {
+          this.sendStalled = false;
+        },
+        (error: unknown) => {
+          this.reportSendStall(error);
+        },
+      );
     }
+  }
+
+  /** Log and toast one stalled send per stall, not one per keystroke. */
+  private reportSendStall(error: unknown) {
+    if (this.sendStalled) return;
+    this.sendStalled = true;
+    const message =
+      typeof error === "string" && error.trim()
+        ? error
+        : "SSH send stalled: keystrokes are not reaching the remote device.";
+    log.error(LogTag.Ssh, message);
+    showToast(message, "error", 8000);
   }
 
   /**
