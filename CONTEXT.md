@@ -62,3 +62,19 @@ terms; keep them current as concepts crystallize.
   removes its tree on drop, and builders for the structs tests construct, so a
   schema change fails in one place instead of fifteen. Not "test utils", not a
   "mock backend".
+- **AppState test constructor** — the one function that assembles every store
+  over a temp directory (`AppState::for_test` in `src-tauri/src/state.rs`), so
+  a Rust handler test can call a handler's `_impl` with a plain `&AppState`
+  instead of a Tauri app handle. The Rust counterpart of the test harness; it
+  is what makes the command layer's wiring — read order, guards, lock order —
+  reachable from a `#[test]`.
+
+## Rust command layer
+
+- **Command adapter** — a `#[tauri::command]` that is a three-line delegate
+  over a real function in its parent module (the shape `paths/commands.rs`
+  established and the rest of the layer now follows): `foo_impl(&state, …)`.
+  The impl owns the wiring and takes `&AppState`, so it is callable from a
+  `#[test]`; the adapter exists only to unwrap `State`/`AppHandle` and convert
+  argument types. When a command starts holding logic again, the fix is to
+  move it back into the impl rather than to test the adapter.

@@ -380,8 +380,9 @@ fn load_groups_from_file(path: &Path) -> Vec<HostGroup> {
 
 // ─── Tauri Commands (host + group, plan: lib.rs domain split) ───────
 
-#[tauri::command]
-pub async fn get_hosts(state: tauri::State<'_, AppState>) -> Result<Vec<Host>, String> {
+/// Lock order: hosts (released) → config (released) → netbox. The NetBox
+/// merge is read-time only — never written to hosts.json.
+fn get_hosts_impl(state: &AppState) -> Result<Vec<Host>, String> {
     let mut all = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         hosts.get_all()?
@@ -405,7 +406,12 @@ pub async fn get_hosts(state: tauri::State<'_, AppState>) -> Result<Vec<Host>, S
 }
 
 #[tauri::command]
-pub async fn save_host(host: Host, state: tauri::State<'_, AppState>) -> Result<Host, String> {
+pub async fn get_hosts(state: tauri::State<'_, AppState>) -> Result<Vec<Host>, String> {
+    get_hosts_impl(&state)
+}
+
+/// Guard first (no lock), then lock order: platforms → hosts.
+fn save_host_impl(state: &AppState, host: Host) -> Result<Host, String> {
     if host.source.as_deref() == Some("netbox") || netbox::is_netbox_host_id(&host.id) {
         log::warn!(
             "Rejected save_host on NetBox-sourced host {} (plan §8.4 guard)",
@@ -423,7 +429,12 @@ pub async fn save_host(host: Host, state: tauri::State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-pub async fn delete_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn save_host(host: Host, state: tauri::State<'_, AppState>) -> Result<Host, String> {
+    save_host_impl(&state, host)
+}
+
+/// Guard first (no lock), then the hosts lock; the keyring delete last.
+fn delete_host_impl(state: &AppState, id: String) -> Result<(), String> {
     if netbox::is_netbox_host_id(&id) {
         log::warn!(
             "Rejected delete_host on NetBox-sourced host {} (plan §8.4 guard)",
@@ -442,7 +453,13 @@ pub async fn delete_host(id: String, state: tauri::State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
-pub async fn touch_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    delete_host_impl(&state, id)
+}
+
+/// NetBox ids take the netbox lock; user ids take the hosts lock. The two are
+/// never held together.
+fn touch_host_impl(state: &AppState, id: String) -> Result<(), String> {
     if netbox::is_netbox_host_id(&id) {
         let netbox_id: u64 = id
             .strip_prefix("netbox:")
@@ -456,7 +473,13 @@ pub async fn touch_host(id: String, state: tauri::State<'_, AppState>) -> Result
 }
 
 #[tauri::command]
-pub async fn get_host_groups(state: tauri::State<'_, AppState>) -> Result<Vec<HostGroup>, String> {
+pub async fn touch_host(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    touch_host_impl(&state, id)
+}
+
+/// Lock order: hosts (released) → config (released) → netbox. Synthetic groups
+/// are emitted only when enabled and at least one device is cached.
+fn get_host_groups_impl(state: &AppState) -> Result<Vec<HostGroup>, String> {
     let mut groups = {
         let hosts = state.hosts.lock().map_err(|e| e.to_string())?;
         hosts.get_groups()?
@@ -480,6 +503,11 @@ pub async fn get_host_groups(state: tauri::State<'_, AppState>) -> Result<Vec<Ho
         ));
     }
     Ok(groups)
+}
+
+#[tauri::command]
+pub async fn get_host_groups(state: tauri::State<'_, AppState>) -> Result<Vec<HostGroup>, String> {
+    get_host_groups_impl(&state)
 }
 
 /// NetBox-owned groups (plan §8.4): mutation handlers reject synthetic ids
@@ -541,12 +569,12 @@ pub async fn save_host_group(
     }
 }
 
-#[tauri::command]
-pub async fn move_host_group(
+/// Guard first (no lock), then the hosts lock alone.
+fn move_host_group_impl(
+    state: &AppState,
     id: String,
     new_parent: Option<String>,
     sort_order: u32,
-    state: tauri::State<'_, AppState>,
 ) -> Result<HostGroup, String> {
     reject_synthetic_group("move_host_group", &id)?;
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
@@ -563,12 +591,19 @@ pub async fn move_host_group(
 }
 
 #[tauri::command]
-pub async fn delete_host_group(
+pub async fn move_host_group(
     id: String,
+    new_parent: Option<String>,
+    sort_order: u32,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<HostGroup, String> {
+    move_host_group_impl(&state, id, new_parent, sort_order)
+}
+
+/// Guard first (no lock), then lock order: platforms → hosts (never nested the
+/// other way).
+fn delete_host_group_impl(state: &AppState, id: String) -> Result<(), String> {
     reject_synthetic_group("delete_host_group", &id)?;
-    // Lock order: platforms → hosts (never nested the other way).
     let platforms = state.platforms.lock().map_err(|e| e.to_string())?;
     let mut hosts = state.hosts.lock().map_err(|e| e.to_string())?;
     // Ungroup any hosts in this group, then delete it. One lock covers both
@@ -581,6 +616,14 @@ pub async fn delete_host_group(
         }
     }
     hosts.delete_group(&id)
+}
+
+#[tauri::command]
+pub async fn delete_host_group(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    delete_host_group_impl(&state, id)
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -981,5 +1024,227 @@ mod tests {
             "Host group not found: ghost"
         );
         assert!(store.get_groups().unwrap().is_empty());
+    }
+
+    // ─── Handler wiring (issue #185) ────────────────────────────────
+
+    use crate::fixtures::sample_entry;
+    use crate::netbox::{NetBoxConfig, NetBoxGeo, SyncReport};
+    use crate::state::AppState;
+
+    /// Seed one cached NetBox device (enabled unless `enabled` says otherwise).
+    fn seed_netbox_device(state: &AppState, id: u64, enabled: bool) {
+        state
+            .netbox
+            .lock()
+            .unwrap()
+            .apply_sync(
+                SyncReport::default(),
+                vec![sample_entry(id, enabled)],
+                NetBoxGeo::default(),
+            )
+            .unwrap();
+    }
+
+    fn enable_netbox(state: &AppState, show_empty_folders: bool) {
+        let config = NetBoxConfig {
+            enabled: true,
+            show_empty_folders,
+            ..Default::default()
+        };
+        state
+            .config
+            .lock()
+            .unwrap()
+            .save_host_source_config("netbox", serde_json::to_value(config).unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn save_host_impl_takes_the_platforms_lock_before_hosts_and_persists() {
+        let dir = TempDir::new("hosts-save");
+        let state = AppState::for_test(&dir);
+
+        let created = save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
+
+        assert!(!created.id.is_empty());
+        assert_eq!(state.hosts.lock().unwrap().get_all().unwrap().len(), 1);
+        assert!(dir.join("hosts.json").exists());
+    }
+
+    #[test]
+    fn save_host_impl_rejects_netbox_sourced_hosts_before_the_stores() {
+        let dir = TempDir::new("hosts-save-netbox");
+        let state = AppState::for_test(&dir);
+
+        let mut by_source = mk_host("dev-1", "10.0.0.1");
+        by_source.source = Some("netbox".to_string());
+        let mut by_id = mk_host("dev-2", "10.0.0.2");
+        by_id.id = "netbox:2".to_string();
+
+        for host in [by_source, by_id] {
+            let err = save_host_impl(&state, host).unwrap_err();
+            assert_eq!(err, "Cannot edit NetBox-sourced hosts");
+        }
+        assert!(state.hosts.lock().unwrap().get_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_host_impl_rejects_netbox_host_ids_before_touching_the_store() {
+        let dir = TempDir::new("hosts-delete-netbox");
+        let state = AppState::for_test(&dir);
+        let created = save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
+
+        let err = delete_host_impl(&state, "netbox:7".to_string()).unwrap_err();
+
+        assert!(err.contains("Cannot delete NetBox-sourced hosts"), "{err}");
+        assert_eq!(
+            state.hosts.lock().unwrap().get_all().unwrap()[0].id,
+            created.id
+        );
+    }
+
+    #[test]
+    fn touch_host_impl_takes_the_netbox_lock_for_netbox_ids() {
+        let dir = TempDir::new("hosts-touch-netbox");
+        let state = AppState::for_test(&dir);
+        seed_netbox_device(&state, 5, true);
+
+        touch_host_impl(&state, "netbox:5".to_string()).unwrap();
+
+        let netbox = state.netbox.lock().unwrap();
+        assert!(netbox.get().devices[0].overlay.last_connected.is_some());
+        assert!(state.hosts.lock().unwrap().get_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn touch_host_impl_takes_the_hosts_lock_for_user_hosts() {
+        let dir = TempDir::new("hosts-touch-user");
+        let state = AppState::for_test(&dir);
+        let created = save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
+
+        touch_host_impl(&state, created.id.clone()).unwrap();
+
+        let hosts = state.hosts.lock().unwrap().get_all().unwrap();
+        assert!(hosts[0].last_connected.is_some());
+    }
+
+    #[test]
+    fn get_hosts_impl_takes_hosts_then_config_then_netbox_and_skips_disabled_devices() {
+        let dir = TempDir::new("hosts-merge");
+        let state = AppState::for_test(&dir);
+        save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
+        // One sync: `apply_sync` full-replaces the cache, so both go in together.
+        state
+            .netbox
+            .lock()
+            .unwrap()
+            .apply_sync(
+                SyncReport::default(),
+                vec![sample_entry(1, true), sample_entry(2, false)],
+                NetBoxGeo::default(),
+            )
+            .unwrap();
+
+        let without = get_hosts_impl(&state).unwrap();
+        assert_eq!(without.len(), 1, "disabled source adds no NetBox devices");
+
+        enable_netbox(&state, false);
+        let merged = get_hosts_impl(&state).unwrap();
+
+        assert_eq!(merged.len(), 2, "only the enabled device is merged");
+        assert!(merged.iter().any(|h| h.id == "netbox:1"));
+        assert!(!merged.iter().any(|h| h.id == "netbox:2"));
+    }
+
+    #[test]
+    fn get_host_groups_impl_takes_hosts_then_config_then_netbox() {
+        let dir = TempDir::new("hosts-groups-merge");
+        let state = AppState::for_test(&dir);
+        seed_netbox_device(&state, 1, true);
+
+        let without = get_host_groups_impl(&state).unwrap();
+        assert!(
+            !without.iter().any(|g| netbox::is_synthetic_group_id(&g.id)),
+            "synthetic groups need the source enabled"
+        );
+
+        enable_netbox(&state, true);
+        let merged = get_host_groups_impl(&state).unwrap();
+
+        assert!(
+            merged.iter().any(|g| netbox::is_synthetic_group_id(&g.id)),
+            "enabled source contributes its synthetic groups"
+        );
+    }
+
+    #[test]
+    fn move_host_group_impl_rejects_synthetic_groups_before_the_host_store() {
+        let dir = TempDir::new("hosts-move-synthetic");
+        let state = AppState::for_test(&dir);
+        let group = {
+            let mut hosts = state.hosts.lock().unwrap();
+            hosts.create_group(mk_group("Lab")).unwrap()
+        };
+
+        let err = move_host_group_impl(
+            &state,
+            format!("{}{}", netbox::ROOT_GROUP_ID, "dc1"),
+            None,
+            0,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("managed by the NetBox integration"), "{err}");
+        let groups = state.hosts.lock().unwrap().get_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, group.id);
+    }
+
+    #[test]
+    fn delete_host_group_impl_ungroups_members_under_the_platforms_then_hosts_lock_order() {
+        let dir = TempDir::new("hosts-delete-group");
+        let state = AppState::for_test(&dir);
+        let group = {
+            let mut hosts = state.hosts.lock().unwrap();
+            hosts.create_group(mk_group("Lab")).unwrap()
+        };
+        let mut host = mk_host("R1", "10.0.0.1");
+        host.group_id = Some(group.id.clone());
+        let created = save_host_impl(&state, host).unwrap();
+        assert_eq!(created.group_id.as_deref(), Some(group.id.as_str()));
+
+        delete_host_group_impl(&state, group.id.clone()).unwrap();
+
+        assert!(state.hosts.lock().unwrap().get_groups().unwrap().is_empty());
+        let hosts = state.hosts.lock().unwrap().get_all().unwrap();
+        assert!(
+            hosts[0].group_id.is_none(),
+            "members must be ungrouped before the group is deleted"
+        );
+        let on_disk: Vec<HostGroup> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("groups.json")).unwrap())
+                .unwrap();
+        assert!(on_disk.is_empty(), "the group removal is persisted");
+    }
+
+    #[test]
+    fn delete_host_group_impl_rejects_synthetic_groups_before_locking() {
+        let dir = TempDir::new("hosts-delete-synthetic");
+        let state = AppState::for_test(&dir);
+        let group = {
+            let mut hosts = state.hosts.lock().unwrap();
+            hosts.create_group(mk_group("Lab")).unwrap()
+        };
+
+        let err =
+            delete_host_group_impl(&state, format!("{}site", netbox::ROOT_GROUP_ID)).unwrap_err();
+
+        assert!(err.contains("managed by the NetBox integration"), "{err}");
+        assert_eq!(state.hosts.lock().unwrap().get_groups().unwrap().len(), 1);
+        assert_eq!(
+            state.hosts.lock().unwrap().get_groups().unwrap()[0].id,
+            group.id
+        );
     }
 }
