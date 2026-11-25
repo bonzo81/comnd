@@ -43,8 +43,10 @@ Window, geometry and config work only.
 - `panel_set_undocked(false)` destroys the panel window if it exists, so "dock" cannot
   leave a stray copy behind. `panel_open` reuses an existing window instead of building a
   second one.
-- `attach_main_window_cleanup` destroys the panel window when the main window closes, so
-  quitting while undocked cannot leave an orphan process.
+- `attach_main_window_cleanup` destroys the panel window once the main window is
+  destroyed, so quitting while undocked cannot leave an orphan process. Not on
+  `CloseRequested`: that fires before the close confirmation resolves, so a
+  cancelled quit would take the undocked panel with it.
 
 ### Config (`src-tauri/src/config.rs`)
 

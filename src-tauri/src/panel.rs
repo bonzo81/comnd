@@ -877,6 +877,12 @@ pub async fn test_panel_race_close(app: AppHandle) -> Result<PanelCloseRaceRepor
 /// Destroy the panel window when the main window goes away, so quitting the app
 /// with the panel undocked cannot leave an orphan window keeping the process
 /// alive.
+///
+/// `Destroyed` only. `CloseRequested` now arrives before the window-close
+/// confirmation resolves, so cleaning up there would close the undocked panel
+/// even when the user cancels and the app stays open. A confirmed close
+/// destroys the window, which reports `Destroyed` as well, so the panel is
+/// still saved and closed on that path.
 pub fn attach_main_window_cleanup(app: &AppHandle) {
     let Some(main) = app.get_webview_window("main") else {
         log::warn!("Main window missing at setup; panel cleanup not attached");
@@ -884,10 +890,7 @@ pub fn attach_main_window_cleanup(app: &AppHandle) {
     };
     let handle = app.clone();
     main.on_window_event(move |event| {
-        if matches!(
-            event,
-            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
-        ) {
+        if matches!(event, WindowEvent::Destroyed) {
             let _ = close_panel_window(&handle);
         }
     });
