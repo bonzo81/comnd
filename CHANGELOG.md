@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.7.0](https://github.com/bonzo81/comnd/compare/v0.6.1...v0.7.0) (2026-11-23)
+
+
+### Features
+
+* **netbox:** add the device summary side-panel tab ([#180](https://github.com/bonzo81/comnd/issues/180)) ([a1c4af1](https://github.com/bonzo81/comnd/commit/a1c4af18cdadc9685b7013b0820fc64170a84b4e))
+* **netbox:** add VLAN, subnet and connected-device sections ([#186](https://github.com/bonzo81/comnd/issues/186)) ([c38d12d](https://github.com/bonzo81/comnd/commit/c38d12d88b9a4309e24eda2e54c55b28e470ba64))
+* **panel:** undock the side panel into its own window ([#179](https://github.com/bonzo81/comnd/issues/179)) ([04774c1](https://github.com/bonzo81/comnd/commit/04774c147aafbb7755bdbe3f150340ce419fbf1f))
+* **suggestion:** settle suggestions, ghost text and panel content ([#173](https://github.com/bonzo81/comnd/issues/173)) ([708e9a7](https://github.com/bonzo81/comnd/commit/708e9a7064d359556cc1ce700c78d9cbe15f9a6b))
+* **terminal:** add configurable scrollback preference ([#220](https://github.com/bonzo81/comnd/issues/220)) ([6aca5b0](https://github.com/bonzo81/comnd/commit/6aca5b0933bd07b96d3240c419188a62409b1121))
+* **terminal:** focus ring and inset on the terminal pane ([#163](https://github.com/bonzo81/comnd/issues/163)) ([c0147ba](https://github.com/bonzo81/comnd/commit/c0147baa2ab23f2abd62c1b19bf0b8b952d755c6))
+
+
+### Bug Fixes
+
+* **smoke:** single-source the mock auth URL fixture ([#170](https://github.com/bonzo81/comnd/issues/170)) ([802f3d9](https://github.com/bonzo81/comnd/commit/802f3d92b3f111d892bb77015afca71b19c7a00f))
+* **ssh:** bound ssh_send with a 2-second deadline ([#221](https://github.com/bonzo81/comnd/issues/221)) ([6897b52](https://github.com/bonzo81/comnd/commit/6897b5209a34732ee3ccce768199cb2093dcd84d))
+* **ui:** inherit theme accent on Reading Comfort sliders ([#169](https://github.com/bonzo81/comnd/issues/169)) ([7ba1297](https://github.com/bonzo81/comnd/commit/7ba1297fb8611a22b0bd5f7f500dd0401d83c675))
+
+
+### Performance Improvements
+
+* **smoke:** cut the CI smoke job from 25 minutes to 3 ([#215](https://github.com/bonzo81/comnd/issues/215)) ([871a045](https://github.com/bonzo81/comnd/commit/871a04517cebb2f6b77ddea097419e54a915887a))
+
+
+### Dependencies
+
+* **deps-dev:** bump jsdom from 29.1.1 to 31.0.1 ([#210](https://github.com/bonzo81/comnd/issues/210)) ([721b6a7](https://github.com/bonzo81/comnd/commit/721b6a76f31b93e2c3ec0766f094ab850ed774ad))
+* **deps-dev:** bump typescript to the 6.0 release line ([#208](https://github.com/bonzo81/comnd/issues/208)) ([fb0c4e7](https://github.com/bonzo81/comnd/commit/fb0c4e7106dc3ba8d59434f2ee66c7fc78207453))
+* **deps-dev:** bump vite from 6.4.5 to 8.3.8 ([#211](https://github.com/bonzo81/comnd/issues/211)) ([87a2f12](https://github.com/bonzo81/comnd/commit/87a2f122b6c7ee598bdff6172553c922d2d6634a))
+* **deps:** bump @xterm/xterm from 5.5.0 to 6.0.0 ([#209](https://github.com/bonzo81/comnd/issues/209)) ([9ed1d7d](https://github.com/bonzo81/comnd/commit/9ed1d7d802cc42538aa7295efadfbfb32d5aa6c4))
+* **deps:** bump actions/cache from 4 to 6 ([#200](https://github.com/bonzo81/comnd/issues/200)) ([d7c547e](https://github.com/bonzo81/comnd/commit/d7c547e93643ab39d6cbda34b327676d76c8e70f))
+* **deps:** bump actions/setup-node from 6 to 7 ([#201](https://github.com/bonzo81/comnd/issues/201)) ([147877d](https://github.com/bonzo81/comnd/commit/147877d4cb4edfb59e21f1f2cf161b8cb45d3e19))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#199](https://github.com/bonzo81/comnd/issues/199)) ([eba8ff0](https://github.com/bonzo81/comnd/commit/eba8ff027d61afbd8100958552e1de263e12224b))
+* **deps:** bump log from 0.4.29 to 0.4.35 in /src-tauri ([#206](https://github.com/bonzo81/comnd/issues/206)) ([3a72008](https://github.com/bonzo81/comnd/commit/3a720087c12546e481179cb8ca88e4582b9281c6))
+* **deps:** bump reqwest from 0.12.28 to 0.13.2 in /src-tauri ([#205](https://github.com/bonzo81/comnd/issues/205)) ([6a46f04](https://github.com/bonzo81/comnd/commit/6a46f048238fb47f59eaf34630927faa67b324d4))
+* **deps:** bump tauri from 2.12.4 to 2.12.5 in /src-tauri ([#202](https://github.com/bonzo81/comnd/issues/202)) ([57f04b6](https://github.com/bonzo81/comnd/commit/57f04b6e7e5864eb1a32d2530ebe196e944c4014))
+* **deps:** bump time from 0.3.47 to 0.3.55 in /src-tauri ([#204](https://github.com/bonzo81/comnd/issues/204)) ([135317c](https://github.com/bonzo81/comnd/commit/135317c3e8fa4e6fbb5bd6c9f89c78aaba36c985))
+* **deps:** bump zip from 9.1.3 to 9.7.3 in /src-tauri ([#203](https://github.com/bonzo81/comnd/issues/203)) ([646deac](https://github.com/bonzo81/comnd/commit/646deac603fc4d096b4be00b5f9a3aad3486b136))
+* pin the Rust toolchain to 1.93.1 ([#197](https://github.com/bonzo81/comnd/issues/197)) ([06a619d](https://github.com/bonzo81/comnd/commit/06a619d047fb52775e8f72afd2f23348548dfd4d))
+
 ## [0.6.1](https://github.com/bonzo81/comnd/compare/v0.6.0...v0.6.1) (2026-11-15)
 
 
