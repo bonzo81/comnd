@@ -1028,7 +1028,7 @@ mod tests {
 
     // ─── Handler wiring (issue #185) ────────────────────────────────
 
-    use crate::fixtures::sample_entry;
+    use crate::fixtures::{assert_acquired_before, sample_entry};
     use crate::netbox::{NetBoxConfig, NetBoxGeo, SyncReport};
     use crate::state::AppState;
 
@@ -1043,6 +1043,15 @@ mod tests {
                 vec![sample_entry(id, enabled)],
                 NetBoxGeo::default(),
             )
+            .unwrap();
+    }
+
+    fn seed_devices(state: &AppState, entries: Vec<crate::netbox::NetBoxDeviceEntry>) {
+        state
+            .netbox
+            .lock()
+            .unwrap()
+            .apply_sync(SyncReport::default(), entries, NetBoxGeo::default())
             .unwrap();
     }
 
@@ -1065,7 +1074,11 @@ mod tests {
         let dir = TempDir::new("hosts-save");
         let state = AppState::for_test(&dir);
 
-        let created = save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
+        // Contended order: holding `platforms` must leave `hosts` free.
+        let created = assert_acquired_before(&state.platforms, &state.hosts, || {
+            save_host_impl(&state, mk_host("R1", "10.0.0.1"))
+        })
+        .unwrap();
 
         assert!(!created.id.is_empty());
         assert_eq!(state.hosts.lock().unwrap().get_all().unwrap().len(), 1);
@@ -1130,21 +1143,11 @@ mod tests {
     }
 
     #[test]
-    fn get_hosts_impl_takes_hosts_then_config_then_netbox_and_skips_disabled_devices() {
+    fn get_hosts_impl_merges_only_enabled_devices() {
         let dir = TempDir::new("hosts-merge");
         let state = AppState::for_test(&dir);
         save_host_impl(&state, mk_host("R1", "10.0.0.1")).unwrap();
-        // One sync: `apply_sync` full-replaces the cache, so both go in together.
-        state
-            .netbox
-            .lock()
-            .unwrap()
-            .apply_sync(
-                SyncReport::default(),
-                vec![sample_entry(1, true), sample_entry(2, false)],
-                NetBoxGeo::default(),
-            )
-            .unwrap();
+        seed_devices(&state, vec![sample_entry(1, true), sample_entry(2, false)]);
 
         let without = get_hosts_impl(&state).unwrap();
         assert_eq!(without.len(), 1, "disabled source adds no NetBox devices");
@@ -1155,13 +1158,34 @@ mod tests {
         assert_eq!(merged.len(), 2, "only the enabled device is merged");
         assert!(merged.iter().any(|h| h.id == "netbox:1"));
         assert!(!merged.iter().any(|h| h.id == "netbox:2"));
+
+        let on_disk: Vec<Host> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("hosts.json")).unwrap())
+                .unwrap();
+        assert_eq!(on_disk.len(), 1, "the merge is never written to hosts.json");
     }
 
     #[test]
-    fn get_host_groups_impl_takes_hosts_then_config_then_netbox() {
+    fn get_hosts_impl_reads_hosts_then_config_then_netbox() {
+        let dir = TempDir::new("hosts-read-order");
+        let state = AppState::for_test(&dir);
+        enable_netbox(&state, false);
+        seed_devices(&state, vec![sample_entry(1, true)]);
+
+        // Holding `hosts` must leave `config` free, and holding `config` must
+        // leave `netbox` free: each pair is taken in the documented order.
+        let merged =
+            assert_acquired_before(&state.hosts, &state.config, || get_hosts_impl(&state)).unwrap();
+        assert!(merged.iter().any(|h| h.id == "netbox:1"));
+
+        assert_acquired_before(&state.config, &state.netbox, || get_hosts_impl(&state)).unwrap();
+    }
+
+    #[test]
+    fn get_host_groups_impl_merges_synthetic_groups_only_when_enabled() {
         let dir = TempDir::new("hosts-groups-merge");
         let state = AppState::for_test(&dir);
-        seed_netbox_device(&state, 1, true);
+        seed_devices(&state, vec![sample_entry(1, true)]);
 
         let without = get_host_groups_impl(&state).unwrap();
         assert!(
@@ -1176,6 +1200,23 @@ mod tests {
             merged.iter().any(|g| netbox::is_synthetic_group_id(&g.id)),
             "enabled source contributes its synthetic groups"
         );
+    }
+
+    #[test]
+    fn get_host_groups_impl_reads_hosts_then_config_then_netbox() {
+        let dir = TempDir::new("hosts-groups-read-order");
+        let state = AppState::for_test(&dir);
+        enable_netbox(&state, true);
+        seed_devices(&state, vec![sample_entry(1, true)]);
+
+        assert_acquired_before(&state.hosts, &state.config, || get_host_groups_impl(&state))
+            .unwrap();
+        let merged = assert_acquired_before(&state.config, &state.netbox, || {
+            get_host_groups_impl(&state)
+        })
+        .unwrap();
+
+        assert!(merged.iter().any(|g| netbox::is_synthetic_group_id(&g.id)));
     }
 
     #[test]
@@ -1202,7 +1243,25 @@ mod tests {
     }
 
     #[test]
-    fn delete_host_group_impl_ungroups_members_under_the_platforms_then_hosts_lock_order() {
+    fn delete_host_group_impl_takes_the_platforms_lock_before_hosts() {
+        let dir = TempDir::new("hosts-delete-group-order");
+        let state = AppState::for_test(&dir);
+        let group = {
+            let mut hosts = state.hosts.lock().unwrap();
+            hosts.create_group(mk_group("Lab")).unwrap()
+        };
+
+        // Holding `platforms` must leave `hosts` free.
+        assert_acquired_before(&state.platforms, &state.hosts, || {
+            delete_host_group_impl(&state, group.id.clone())
+        })
+        .unwrap();
+
+        assert!(state.hosts.lock().unwrap().get_groups().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_host_group_impl_ungroups_members_before_deleting_the_group() {
         let dir = TempDir::new("hosts-delete-group");
         let state = AppState::for_test(&dir);
         let group = {

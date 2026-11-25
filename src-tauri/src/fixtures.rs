@@ -6,6 +6,8 @@
 
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::credentials::CredentialSource;
 use crate::hosts::{Host, HostGroup};
@@ -72,6 +74,48 @@ impl Drop for TempDir {
         // handle on Windows, must not turn teardown into a failure.
         let _ = std::fs::remove_dir_all(&self.path);
     }
+}
+
+// ─── Lock-order probe ─────────────────────────────────────────────────────
+
+/// Proves that `op` takes `first` before `second`, by contention: `first` is
+/// held here, so `op` blocks on it, and `second` must stay acquirable for as
+/// long as that lasts. An operation that grabbed `second` first would hold it
+/// while waiting for `first`, and the probe fails.
+///
+/// Use it with the pair the code documents: for a chain `a -> b -> c`, probe
+/// (`a`, `b`) then (`b`, `c`). Do not probe a lock the operation takes and
+/// releases *before* blocking on the held one - the transient hold would make
+/// the poll flake.
+pub(crate) fn assert_acquired_before<'env, A, B, T>(
+    first: &'env Mutex<A>,
+    second: &'env Mutex<B>,
+    op: impl FnOnce() -> T + Send + 'env,
+) -> T
+where
+    A: Send + 'env,
+    B: Send + 'env,
+    T: Send + 'env,
+{
+    let guard = first.lock().unwrap();
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(op);
+        // The window only has to outlast thread start-up; if `op` has not
+        // reached its first lock yet, the probe passes harmlessly.
+        for _ in 0..100 {
+            assert!(
+                second.try_lock().is_ok(),
+                "lock order violated: the second lock was taken before the first was released"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            !handle.is_finished(),
+            "the operation completed while the first lock was held"
+        );
+        drop(guard);
+        handle.join().unwrap()
+    })
 }
 
 // ─── Command and KB builders (folded in from kb/test_util.rs) ─────────────

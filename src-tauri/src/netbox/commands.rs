@@ -311,7 +311,7 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use crate::fixtures::{sample_entry, TempDir};
+    use crate::fixtures::{assert_acquired_before, sample_entry, TempDir};
     use crate::netbox::NetBoxGeo;
 
     fn seed_netbox_config(state: &AppState, config: &NetBoxConfig) {
@@ -422,9 +422,28 @@ mod tests {
     }
 
     #[test]
-    fn netbox_get_status_impl_nests_the_netbox_lock_inside_the_config_lock() {
+    fn netbox_get_status_impl_takes_the_config_lock_before_the_netbox_lock() {
+        let dir = TempDir::new("netbox-status-order");
+        let state = AppState::for_test(&dir);
+        seed_netbox_config(
+            &state,
+            &NetBoxConfig {
+                enabled: true,
+                ..Default::default()
+            },
+        );
+
+        // Holding `config` must leave `netbox` free. The result may need the
+        // keychain, but the lock order does not, so this runs everywhere.
+        let _ = assert_acquired_before(&state.config, &state.netbox, || {
+            netbox_get_status_impl(&state)
+        });
+    }
+
+    #[test]
+    fn netbox_get_status_impl_reports_the_cached_source_state() {
         if !crate::credentials::keychain_available_or_skip(
-            "netbox::commands::netbox_get_status_impl_nests_the_netbox_lock_inside_the_config_lock",
+            "netbox::commands::netbox_get_status_impl_reports_the_cached_source_state",
         ) {
             return;
         }
