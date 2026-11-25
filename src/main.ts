@@ -1558,6 +1558,10 @@ async function bootstrap(): Promise<void> {
  */
 async function holdWindowClose(): Promise<void> {
   let state: "idle" | "prompting" | "closing" = "idle";
+  // Settles once the confirmed close's width write has finished. A second flush
+  // would find no pending timer and return at once, so a close request racing
+  // the confirmed one has to await this instead of calling the flush again.
+  let closingFlush: Promise<void> = Promise.resolve();
 
   const onCloseRequested = async (event: CloseRequestedEvent) => {
     // A request while the prompt is up must not stack a second dialog, and one
@@ -1568,8 +1572,9 @@ async function holdWindowClose(): Promise<void> {
     }
     if (state === "closing") {
       // The confirmed close is passing through (destroy() in flight, or the
-      // close() fallback). Let it continue; re-arm for a refused close.
-      await flushSidePanelWidth();
+      // close() fallback). Let it continue once the width write settles, and
+      // re-arm for a refused close.
+      await closingFlush;
       state = "idle";
       return;
     }
@@ -1592,7 +1597,8 @@ async function holdWindowClose(): Promise<void> {
         state = "closing";
         // destroy() forces the close instead of emitting close-requested, so
         // the confirmation cannot re-enter itself.
-        void flushSidePanelWidth()
+        closingFlush = flushSidePanelWidth();
+        void closingFlush
           .then(() => getCurrentWindow().destroy())
           .catch(() => {
             // destroy() refused or failed: close() still re-enters this
