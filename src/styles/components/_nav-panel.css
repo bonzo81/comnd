@@ -487,15 +487,6 @@ body.nav-resizing * {
   outline: none;
 }
 
-.nav-badge {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  min-width: 38px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
 .nav-disabled {
   cursor: default;
   opacity: 0.45;
@@ -559,8 +550,8 @@ body.nav-resizing * {
 .nav-host-tip-value {
   min-width: 0;
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
   word-break: break-all; /* long hostnames wrap instead of overflowing */
 }
 

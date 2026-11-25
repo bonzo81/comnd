@@ -203,8 +203,8 @@
 
 .settings-row-value {
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ─── Info tooltip ─────────────────────────────────────────────────
@@ -597,7 +597,6 @@
 .netbox-device-meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -628,7 +627,6 @@
 .netbox-cfg-meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
 }
 
 /* Input with reset-to-default button (NetBox configure) */
@@ -804,7 +802,6 @@
 }
 
 .kbd-chip {
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   padding: var(--space-1) var(--space-1-5);
