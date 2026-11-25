@@ -1863,12 +1863,63 @@ async function commandRoundTrip(browser, dataDir) {
   assert.equal(echoes, 1, `Command round-trip: expected remote echo exactly once, saw ${echoes}`);
 }
 
+/**
+ * 0.7.0 regression: the app must quit when the user closes it.
+ *
+ * The main window registers a close-requested listener (so a docked width
+ * dragged inside its 400 ms debounce is flushed on the way out), and Tauri then
+ * leaves the close to that listener: the `@tauri-apps/api` wrapper destroys the
+ * window itself. `destroy` is a permissioned command, so without
+ * `core:window:allow-destroy` the request is rejected inside the event handler
+ * and the title-bar cross, the OS window close and the taskbar Close are all
+ * silently ignored — which is what shipped in 0.7.0. Nothing else in the suite
+ * quits through the window (teardown kills the driver), so this is the guard on
+ * that path. No live session is open, so the close is the silent one; a live
+ * session prompts first (issue #191).
+ */
+async function appCloseScenario(browser) {
+  const closeButton = '.title-bar-controls button[aria-label="Close"]';
+  await waitFor(
+    browser,
+    () => !!document.querySelector('.title-bar-controls button[aria-label="Close"]'),
+    "App close: the title-bar Close button never rendered",
+  );
+  await actOn(browser, closeButton);
+
+  // Destroying the last window takes the app process, and so the WebDriver
+  // session, with it: the close worked when the handle list empties or the next
+  // command fails. A handle still listed after the wait means it did not.
+  const until = Date.now() + WAIT_MS;
+  for (;;) {
+    let handles;
+    try {
+      handles = await windowHandles(browser);
+    } catch {
+      return;
+    }
+    if (handles.length === 0) return;
+    if (Date.now() >= until) {
+      throw new Error(
+        `App close: ${handles.length} window(s) still open ${WAIT_MS} ms after clicking the title-bar cross`,
+      );
+    }
+    await pause(100);
+  }
+}
+
 async function main() {
   if (runUnderXvfb(import.meta.url)) return;
 
   if (!skipBuild) buildApp();
 
   const tests = [
+    {
+      name: "app-close",
+      // The scenario ends with the app gone, so there is no mock or session to
+      // tidy through it; the harness kills the driver either way.
+      teardown: async () => {},
+      run: appCloseScenario,
+    },
     {
       name: "launch-and-connect",
       run: launchAndConnect,

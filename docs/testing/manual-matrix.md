@@ -25,6 +25,7 @@ runs, so it stays on the reviewer's list.
 | Focus management | `npm run smoke` | Modal focus trapped while open, restored to the invoking element on close |
 | Accessible names and announcements | `npm run smoke` | A name on every control with no visible label; error toasts announced via `role="alert"` and a polite live region with a named dismiss button |
 | Layout | `npm run smoke` | Side panel resizes the terminal and drives the PTY size change instead of overlaying it (ADR-003); no clipped or overlapping controls at small windows, with long host names, an expanded folder tree, or a scrolling dialog |
+| App quit | `npm run smoke` | Clicking the title-bar cross destroys the main window and the process exits — the path 0.7.0 shipped with `core:window:allow-destroy` missing, where every close was silently ignored (`docs/plans/066-plan-side-panel-undock.md`) |
 | Themes, Reading Comfort, enlarged text | `npm run smoke` | Dark, light and solarized themes, Reading Comfort mode and enlarged text render without clipped or overlapping controls |
 | Assertion strength | `npm run smoke -- --mutation=focus\|name\|layout\|suggestion\|kb-layout\|terminal-sidebar-layout`, `npm run smoke:mutation` | Each category of assertion still fails when the behaviour it guards is deliberately broken |
 | Visual reference — **local only, not run in CI** | `npm run smoke:visual -- --check` | The current build reproduces the committed reference screenshots byte for byte (human review aid — see visual-baseline.md) |

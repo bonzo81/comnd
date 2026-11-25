@@ -704,8 +704,10 @@ async function shutdownApp({ driver, browser, display }, teardown) {
       // leak: the driver is killed below either way, and the data dir is removed.
       // Neither is a closed transport: undici can lose the keep-alive socket
       // between the teardown command and this DELETE (UND_ERR_CLOSED), and the
-      // driver kill that follows ends any session that was still open.
-      const alreadyGone = /no such window|no such session|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up/i;
+      // driver kill that follows ends any session that was still open. A
+      // scenario that quits through the window leaves W3C's `invalid session id`
+      // behind, and the app is gone either way.
+      const alreadyGone = /no such window|no such session|invalid session id|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up/i;
       if (!alreadyGone.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
     timings.close = Date.now() - closeStarted;
@@ -779,7 +781,9 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
  *
  * `suite` supplies the per-suite parts: `env` merged into the app process
  * environment, and `teardown(browser)` run before the session is closed (the
- * default stops the SSH mock, which every SSH scenario starts).
+ * default stops the SSH mock, which every SSH scenario starts). `test.teardown`
+ * overrides it for a scenario that ends with the app gone, where calling into
+ * the app during teardown would fail for the wrong reason.
  *
  * A scenario with `needsApp: false` asserts on helpers rather than the running
  * app, so it skips the boot: an app launch costs more than the assertion does.
@@ -789,7 +793,7 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
  */
 export async function runCase(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const teardown = test.teardown ?? suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
   const timings = emptyTimings();
   let app;
   let error;
@@ -845,7 +849,7 @@ export async function runCase(test, suite = {}) {
  */
 export async function runBoots(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const teardown = test.teardown ?? suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
   const timings = emptyTimings();
   let error;
   let appReady = false;
