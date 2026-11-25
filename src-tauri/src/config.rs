@@ -560,10 +560,9 @@ fn load_config_from_file(path: &Path) -> AppConfig {
 
 // ─── Tauri Commands (config + logging, plan: lib.rs domain split) ───
 
-#[tauri::command]
-pub async fn get_app_config(
-    state: tauri::State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+/// Reads the config under its lock, then probes the keychain for the LLM key
+/// (the key is never in config.json).
+fn get_app_config_impl(state: &AppState) -> Result<serde_json::Value, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
     let mut v = serde_json::to_value(config.get())
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
@@ -575,6 +574,13 @@ pub async fn get_app_config(
         );
     }
     Ok(v)
+}
+
+#[tauri::command]
+pub async fn get_app_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    get_app_config_impl(&state)
 }
 
 #[tauri::command]
@@ -596,12 +602,10 @@ pub async fn get_log_level(state: tauri::State<'_, AppState>) -> Result<String, 
     Ok(config.get().log_level.clone())
 }
 
-#[tauri::command]
-pub async fn set_log_level(
-    level: String,
-    app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+/// Validation half of `set_log_level`: the level is checked before anything is
+/// written, and the normalised level is returned for the command to apply.
+/// The logger reload and the frontend emit stay in the command.
+fn set_log_level_impl(state: &AppState, level: &str) -> Result<String, String> {
     let level = level.to_ascii_lowercase();
     match level.as_str() {
         "debug" | "info" | "warn" | "error" => {}
@@ -610,7 +614,16 @@ pub async fn set_log_level(
 
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     config.save_log_level(level.clone())?;
-    drop(config);
+    Ok(level)
+}
+
+#[tauri::command]
+pub async fn set_log_level(
+    level: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let level = set_log_level_impl(&state, &level)?;
 
     // simplelog reads the level filter per-record, so both raising and
     // lowering take effect live via log::set_max_level.
@@ -1100,6 +1113,65 @@ mod tests {
         )
         .unwrap();
         assert!(v.shortcuts.is_empty());
+    }
+
+    // ─── Handler wiring (issue #185) ────────────────────────────────
+
+    #[test]
+    fn get_app_config_impl_serves_the_config_before_the_keychain_probe() {
+        if !crate::credentials::keychain_available_or_skip(
+            "config::get_app_config_impl_serves_the_config_before_the_keychain_probe",
+        ) {
+            return;
+        }
+        use crate::state::AppState;
+
+        let dir = TempDir::new("config-get-app-config");
+        let state = AppState::for_test(&dir);
+        state
+            .config
+            .lock()
+            .unwrap()
+            .save_log_level("debug".to_string())
+            .unwrap();
+
+        let v = get_app_config_impl(&state).unwrap();
+
+        assert_eq!(v["log_level"], serde_json::json!("debug"));
+        // The key is served from the keychain, never from config.json.
+        assert!(v.get("llm_api_key").is_some());
+    }
+
+    #[test]
+    fn set_log_level_impl_rejects_an_unknown_level_before_writing() {
+        use crate::state::AppState;
+
+        let dir = TempDir::new("config-log-level-invalid");
+        let state = AppState::for_test(&dir);
+
+        let err = set_log_level_impl(&state, "verbose").unwrap_err();
+
+        assert!(err.contains("Invalid log level"), "{err}");
+        assert_eq!(state.config.lock().unwrap().get().log_level, "info");
+        assert!(
+            !dir.join("config.json").exists(),
+            "a rejected level must not be persisted"
+        );
+    }
+
+    #[test]
+    fn set_log_level_impl_normalizes_and_persists_before_the_command_reloads_the_logger() {
+        use crate::state::AppState;
+
+        let dir = TempDir::new("config-log-level-valid");
+        let state = AppState::for_test(&dir);
+
+        let normalised = set_log_level_impl(&state, "DEBUG").unwrap();
+
+        assert_eq!(normalised, "debug");
+        assert_eq!(state.config.lock().unwrap().get().log_level, "debug");
+        let fresh = ConfigStore::new_with_path(dir.join("config.json")).unwrap();
+        assert_eq!(fresh.get().log_level, "debug");
     }
 
     #[test]

@@ -590,7 +590,7 @@ pub fn run() {
                 netbox: Mutex::new(netbox_store),
                 platforms: Mutex::new(platform_registry),
                 log_status: Mutex::new(log_fallback_reason),
-                #[cfg(debug_assertions)]
+                #[cfg(any(debug_assertions, test))]
                 netbox_mock: Mutex::new(None),
             });
 
