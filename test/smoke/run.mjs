@@ -3765,10 +3765,20 @@ async function main() {
         );
         // Safe: a single awaited wait, never acted on or re-queried.
         await (await browser.$("#rc-ui-scale")).waitForExist({ timeout: WAIT_MS });
-        await setField(browser, "#rc-ui-scale", "1.5");
+        // Act inside the poll, like actOn: a set dispatched while the pane is
+        // being rebuilt can land on a node the render has already replaced, and
+        // re-applying a value the app already holds is harmless. The read is
+        // what passes, so a slider that does nothing still fails.
         await browser.waitUntil(
-          async () => Math.abs(parseFloat((await measure()).scale) - 1.5) < 0.001,
-          { timeout: WAIT_MS, interval: 100, timeoutMsg: "Reading Comfort: the UI text scale never reached 1.5x" },
+          async () => {
+            await setField(browser, "#rc-ui-scale", "1.5");
+            return Math.abs(parseFloat((await measure()).scale) - 1.5) < 0.001;
+          },
+          {
+            timeout: WAIT_MS,
+            interval: 100,
+            timeoutMsg: "Reading Comfort: the UI text scale never reached 1.5x",
+          },
         );
         const after = await measure();
         assert(
