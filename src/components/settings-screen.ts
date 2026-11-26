@@ -2118,11 +2118,11 @@ export class SettingsScreen {
         Choose how to restore from <strong>${escHtml(srcPath.split(/[\\/]/).pop() ?? srcPath)}</strong>:
       </p>
       <div class="modal-choice-list">
-        <button class="btn-primary modal-choice" id="import-overwrite">
+        <button class="modal-choice" id="import-overwrite">
           <span>Overwrite everything</span>
           <span class="import-hint">Replaces all current data with the backup. Comnd deletes files that are not in the backup.</span>
         </button>
-        <button class="btn-secondary modal-choice" id="import-merge">
+        <button class="modal-choice" id="import-merge">
           <span>Merge</span>
           <span class="import-hint">Combines current and backup data. You review each conflict before Comnd changes anything.</span>
         </button>

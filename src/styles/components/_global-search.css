@@ -79,7 +79,9 @@
 
 .title-bar-search-seg.active {
   background: var(--color-accent);
-  color: var(--color-text-primary);
+  /* Was --color-text-primary, which is white-on-accent in the dark themes and
+     measured 1.19:1 in solarized-light and 1.74:1 in nord. */
+  color: var(--color-on-accent);
 }
 
 .title-bar-search-results {
