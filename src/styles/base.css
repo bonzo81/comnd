@@ -25,6 +25,20 @@
     padding: 0 var(--space-2) var(--space-2);
   }
 
+  /* A browser gives form controls their own font-family rather than inheriting
+     the body's, and nothing here reset it. Classes that named Inter looked
+     right; classes that did not (.btn-primary, .btn-text, nav-row-btn,
+     sb-toggle-btn) rendered in the platform form face — measured as Arial on
+     Windows — so a dialog footer showed Cancel and Save in one typeface and
+     Save in another. Family only: `font` shorthand would also reset
+     line-height and change control heights. */
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
   .app-body {
     flex: 1;
     display: flex;

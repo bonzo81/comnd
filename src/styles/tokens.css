@@ -145,7 +145,12 @@
   --color-suggestion-fade: rgba(15, 23, 42, 0.8);
   --color-badge-nxos: #38BDF8;
   --color-accent-soft: rgba(34, 197, 94, 0.12);
-  --color-on-accent: #FFFFFF;
+  /* Text on a --color-accent fill (the primary button and the switch knob).
+     Ink, not white: white on #22C55E is 2.28:1 and on the hover fill 1.74:1,
+     both under 3:1. Ink measures 8.39:1 resting and 10.98:1 hovered. Themes
+     whose accent is dark enough for white (light, solarized-light) override
+     this; nord inherits the same idea with its own ink. */
+  --color-on-accent: #0A0F1C;
   /* Custom-KB provenance badge (docs/10) */
   --color-accent-custom: #38BDF8;
   --color-badge-custom: #7DD3FC;
@@ -233,7 +238,8 @@
   --color-suggestion-fade: rgba(40,42,54,0.85);
   --color-badge-nxos: #8be9fd;
   --color-accent-soft: rgba(189,147,249,0.14);
-  --color-on-accent: #FFFFFF;
+  /* Ink, like :root: white on #bd93f9 is 2.41:1 and 2.02:1 on hover. */
+  --color-on-accent: #0A0F1C;
 
   /* Custom-KB provenance badge (docs/10) */
   --color-accent-custom: #BD93F9;
@@ -271,7 +277,8 @@
   --color-suggestion-fade: rgba(39,40,34,0.85);
   --color-badge-nxos: #66d9ef;
   --color-accent-soft: rgba(253,151,31,0.14);
-  --color-on-accent: #FFFFFF;
+  /* Ink, like :root: white on #fd971f is 2.18:1 and 1.78:1 on hover. */
+  --color-on-accent: #0A0F1C;
 
   /* Custom-KB provenance badge (docs/10) */
   --color-accent-custom: #FD971F;

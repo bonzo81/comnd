@@ -387,4 +387,21 @@ describe("badge and note contrast (issue #114)", () => {
     expect(contrast(tokenColor(theme, "--color-fg-on-danger"), tokenColor(theme, "--color-error")))
       .toBeGreaterThanOrEqual(TEXT_MIN);
   });
+
+  it.each(ALL_THEMES)("%s accent-fill label clears AA on its accent", (theme) => {
+    // --color-on-accent labels the primary button fill (.btn-primary) and the
+    // switch knob (.settings-switch:checked::before). Unguarded until now,
+    // which is how dark, dracula and monokai shipped white at 2.28, 2.41 and
+    // 2.18:1 — below even the 3:1 non-text floor.
+    expect(contrast(tokenColor(theme, "--color-on-accent"), tokenColor(theme, "--color-accent")))
+      .toBeGreaterThanOrEqual(TEXT_MIN);
+  });
+
+  it.each(ALL_THEMES)("%s accent-fill label clears AA on the accent's hover fill", (theme) => {
+    // :hover swaps the fill for --color-accent-hover and keeps the same label,
+    // so the hover state is the worst case in every theme where it brightens.
+    expect(
+      contrast(tokenColor(theme, "--color-on-accent"), tokenColor(theme, "--color-accent-hover")),
+    ).toBeGreaterThanOrEqual(TEXT_MIN);
+  });
 });

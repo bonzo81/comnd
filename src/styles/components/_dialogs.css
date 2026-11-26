@@ -75,7 +75,6 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  font-family: inherit;
   font-size: var(--font-size-3xl);
   cursor: pointer;
   width: var(--space-8);
@@ -92,7 +91,7 @@
 }
 
 .import-close-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -116,7 +115,6 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   margin-top: var(--space-1);
-  opacity: 0.7;
   line-height: var(--prose-line-height);
   word-spacing: var(--prose-word-spacing);
 }
@@ -395,15 +393,9 @@
   margin-bottom: 0;
 }
 
-.kb-btn-edit {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-}
-
-.kb-btn-delete {
-  color: var(--color-error);
-  border-color: var(--color-error);
-}
+/* The icon trio's colour lives with its caller, in the .cmd-actions block of
+   _terminal-view.css: it needs to outweigh the .btn-icon base rule, and this
+   file is imported before it. */
 
 /* â”€â”€â”€ Import: Model Select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-models {
@@ -431,6 +423,7 @@
   padding: var(--space-1) var(--space-4);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .import-mode-btn.active {
@@ -438,7 +431,7 @@
 }
 
 .import-mode-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

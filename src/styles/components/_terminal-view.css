@@ -379,20 +379,24 @@ body.tv-resizing * {
   margin-left: auto;
 }
 
-.cmd-actions .btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-6);
-  height: var(--space-6);
-  padding: 0;
-  border-radius: var(--radius-pill);
-  color: var(--color-text-secondary);
+/* Colour belongs to the caller, and `.btn-icon` is imported after this file,
+   so the caller's own class has to outweigh it: `.kb-btn-edit` alone is one
+   class like `.btn-icon`, and lost on import order, leaving Edit and Delete
+   grey at rest. Scoping to `.cmd-actions` gives them (0,2,0). */
+.cmd-actions .kb-btn-edit {
+  color: var(--color-accent);
 }
 
-.cmd-actions .btn-secondary:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
+.cmd-actions .kb-btn-delete {
+  color: var(--color-error);
+}
+
+/* The trio keeps its own colour on hover: Delete holds its error, Edit steps
+   up a shade like the topbar's active toggles do, Ignore takes .btn-icon's
+   neutral. Without the Edit rule it would fall to --color-text-primary and
+   lose the accent between rest and hover. */
+.cmd-actions .kb-btn-edit:hover {
+  color: var(--color-accent-hover);
 }
 
 .cmd-actions .kb-btn-delete:hover {
@@ -688,16 +692,14 @@ body.tv-resizing * {
 }
 
 /* Non-active topbar buttons get the same pill with a neutral tint */
-.tv-topbar .btn-text:not(.active):hover {
+.tv-topbar .btn-text:not(.active):where(:not(:disabled)):hover {
   background: var(--color-surface-hover);
 }
 
-/* Disabled topbar buttons (e.g. highlighting when host profile is "none") */
-.tv-topbar .btn-text.btn-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
-}
+/* Disabled topbar buttons (e.g. highlighting when host profile is "none").
+   The class-based variant is gone: :disabled already blocks the click, and
+   .btn-text:not(:disabled):hover suppresses the hover, so .btn-disabled was
+   doing the same job twice. */
 
 /* Stamps are recorded continuously; hidden unless the gutter is shown.
    xterm sets inline display:block on decoration elements, so hiding
@@ -790,10 +792,12 @@ body.tv-resizing * {
   font-variant-numeric: tabular-nums;
 }
 
-/* Compact icon buttons inside the search bar */
+/* Compact icon buttons inside the search bar. Same pill radius as the topbar
+   controls they sit under — this used --radius-sm, a third radius for the
+   same role. */
 .tv-search-bar .btn-text {
   padding: 2px var(--space-1);
   font-size: var(--font-size-sm);
   line-height: var(--font-leading-solid);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }

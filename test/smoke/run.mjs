@@ -2256,13 +2256,13 @@ async function main() {
         const host = await launchAndConnect(browser, dataDir);
         await actOn(browser, ".session-tab-close");
         await browser.waitUntil(async () => browser.execute(() => [...document.querySelectorAll("button")]
-          .some((button) => button.textContent?.trim() === "Close Session")), {
+          .some((button) => button.textContent?.trim() === "Close session")), {
           timeout: 5_000,
           interval: 100,
           timeoutMsg: "User disconnect: confirmation dialog did not appear",
         });
         await browser.execute(() => [...document.querySelectorAll("button")]
-          .find((button) => button.textContent?.trim() === "Close Session")
+          .find((button) => button.textContent?.trim() === "Close session")
           ?.click());
         await waitForSessionCleanup(browser, "User disconnect");
         await browser.waitUntil(async () => invoke(browser, "test_smoke_client_closed"), {
@@ -2501,7 +2501,7 @@ async function main() {
         // Closing one session leaves the other responsive.
         await actOn(browser, ".session-tab-close", { index: 1 });
         await browser.execute(() => [...document.querySelectorAll("button")]
-          .find((button) => button.textContent?.trim() === "Close Session")
+          .find((button) => button.textContent?.trim() === "Close session")
           ?.click());
         await browser.waitUntil(async () => (await tabCount()) === 1, {
           timeout: WAIT_MS,

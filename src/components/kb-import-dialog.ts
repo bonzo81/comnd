@@ -184,7 +184,7 @@ export class KbImportDialog {
         <div class="import-field">
           <div class="import-mode-toggle" role="radiogroup" aria-label="Source type">
             <button type="button" class="import-mode-btn${!isText ? " active" : ""}" id="import-mode-url" aria-pressed="${!isText}" ${isImporting ? 'disabled' : ''}>From URL</button>
-            <button type="button" class="import-mode-btn${isText ? " active" : ""}" id="import-mode-text" aria-pressed="${isText}" ${isImporting ? 'disabled' : ''}>Paste Text</button>
+            <button type="button" class="import-mode-btn${isText ? " active" : ""}" id="import-mode-text" aria-pressed="${isText}" ${isImporting ? 'disabled' : ''}>Paste text</button>
             <span class="import-mode-slider" aria-hidden="true"></span>
           </div>
         </div>
@@ -256,7 +256,7 @@ export class KbImportDialog {
         </div>
 
         <button class="btn-primary import-submit" id="import-submit-btn" ${isImporting ? 'disabled' : ''}>
-          ${isImporting ? "Importing…" : "Import Commands"}
+          ${isImporting ? "Importing…" : "Import commands"}
         </button>
       </div>
     `;
@@ -311,7 +311,7 @@ export class KbImportDialog {
         </div>
         <div class="import-actions">
           <button class="btn-primary" id="import-done-btn">Done</button>
-          <button class="btn-secondary" id="import-another-btn">Import Another</button>
+          <button class="btn-secondary" id="import-another-btn">Import another</button>
         </div>
       </div>
     `;
@@ -319,9 +319,9 @@ export class KbImportDialog {
 
   private renderError(): string {
     const pasteOffer = this.fetchBlocked ? `
-      <p class="import-error-hint">Your browser can open pages the app's fetcher cannot. Switch to <strong>Paste Text</strong> mode: open the page in your browser, select all (Ctrl+A), copy, and paste it into the import dialog.</p>
+      <p class="import-error-hint">Your browser can open pages the app's fetcher cannot. Switch to <strong>Paste text</strong> mode: open the page in your browser, select all (Ctrl+A), copy, and paste it into the import dialog.</p>
     ` : "";
-    const pasteBtn = this.fetchBlocked ? `<button class="btn-secondary" id="import-paste-mode-btn">Paste Text Instead</button>` : "";
+    const pasteBtn = this.fetchBlocked ? `<button class="btn-secondary" id="import-paste-mode-btn">Paste text instead</button>` : "";
     return `
       <div class="import-error" role="alert">
         <div class="import-error-icon">${icons.x}</div>
@@ -329,7 +329,7 @@ export class KbImportDialog {
         <p class="import-error-message">${escHtml(this.errorMessage)}</p>
         ${pasteOffer}
         <div class="import-actions">
-          <button class="btn-primary" id="import-retry-btn">Try Again</button>
+          <button class="btn-primary" id="import-retry-btn">Try again</button>
           ${pasteBtn}
         </div>
       </div>

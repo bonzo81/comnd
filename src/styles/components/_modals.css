@@ -50,6 +50,14 @@
   color: var(--color-text-primary);
 }
 
+/* ─── Choice card ────────────────────────────────────────────────────
+   A stacked, left-aligned button that names its own outcome, used when a
+   dialog offers two paths rather than a confirm. It is its own role: it used
+   to be built by adding .btn-primary / .btn-secondary on top of .modal-choice,
+   which painted the destructive path with the accent fill and then laid
+   --color-text-secondary over that fill, so the sentence explaining what gets
+   deleted measured 1.02-1.32:1 in all six themes. Neither card is ranked by
+   paint now — the destructive consequence is carried by its description. */
 .modal-choice-list {
   display: flex;
   flex-direction: column;
@@ -60,8 +68,22 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  width: 100%;
   padding: var(--space-3) var(--space-4);
   text-align: left;
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.modal-choice:hover {
+  border-color: var(--color-border-strong);
 }
 
 .modal-choice-list > .btn-text {
