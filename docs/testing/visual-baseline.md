@@ -29,10 +29,20 @@ Committed set: `test/smoke/visual-baseline/windows/`.
 `manifest.json` sits beside them and records the geometry the set was captured
 at, plus each shot's screen, state, SHA-256 and pixel size.
 
-The committed set was last captured on 2026-11-03 on Windows 11 (WebView2
-156.0.4314.58, DPR 2, 1280×800). Re-capture reproducibility was checked by
-capturing five times in a row and comparing every file's SHA-256 against the
-committed set: identical every time.
+The committed set was last captured on 2026-11-26 on Windows 11 (WebView2
+158.0.4370.33, DPR 2, 1280×800), after the button-system pass that changed
+button typeface, labels and fills. The earlier 2026-11-03 set was captured on
+WebView2 156.0.4314.58, where five consecutive captures hashed identically.
+
+**Reproducibility on WebView2 158.** Captured five times. Five of the nine
+files hashed identically every time; the other four — `04-knowledge-base`,
+`06-replay`, `07-settings-general` and `09-terminal-sidebar-open` — differed by
+one or two isolated pixels whose blue channel moves by 1/255. That is
+sub-pixel text rasterisation inside the engine, not a layout difference, and
+the largest spread measured across the whole frame is 2 px. So `--check` can
+report `DIFFERS` on one or two of those files while the UI is correct; compare
+the difference rather than assuming a regression. A real one moves thousands
+of pixels — the button-system re-capture moved 0.2%–3.1% of each frame.
 
 ### What is deliberately not covered
 

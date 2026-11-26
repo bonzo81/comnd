@@ -15,7 +15,7 @@
       "file": "01-connections.png",
       "screen": "Connections",
       "state": "Recent Sessions with three seeded hosts; nav tree with the Core network folder expanded and Edge collapsed",
-      "sha256": "a8ce35ba004c7edeb9373ad495740d3551dfdf35bcb726cbda3e88627c97dd29",
+      "sha256": "1ae9581bc8241f9b5909e32774fb1cc0c1c1bcbbfba3903f6da300d00cbef8e2",
       "width": 2560,
       "height": 1600
     },
@@ -23,7 +23,7 @@
       "file": "02-dialog-new-connection.png",
       "screen": "New connection dialog",
       "state": "empty form opened with Ctrl+N",
-      "sha256": "f0ec4f65674581c8a9afc9a0841a3453c1322c691264d8e96ffa67bfc8b3fd37",
+      "sha256": "61db237a62e38f58a959b40431dd8f61db0587a8d54112d53624bc551dbb3d1e",
       "width": 2560,
       "height": 1600
     },
@@ -31,7 +31,7 @@
       "file": "03-dialog-shortcuts.png",
       "screen": "Keyboard shortcuts dialog",
       "state": "opened from the status-bar keyboard button; shortcut list at the top",
-      "sha256": "287ad8c52331081a0f7aff20955f0b5df06bc8170822ace150d10ff78f9494a4",
+      "sha256": "3577e3631d506c2d7ef34528b95c2168fc7b76c3e13aec86fb615b4ea76a1ffa",
       "width": 2560,
       "height": 1600
     },
@@ -39,7 +39,7 @@
       "file": "04-knowledge-base.png",
       "screen": "Knowledge Base",
       "state": "default platform, first command selected, detail panel populated",
-      "sha256": "5e0279fc38c0a72bc14540b0f036b31713f99694cd390ed648a8dace7f679b65",
+      "sha256": "15c1e4326848ea5bdd24089b73cb14bdee92273a19a1fc6ed5bc8bf35164683c",
       "width": 2560,
       "height": 1600
     },
@@ -47,7 +47,7 @@
       "file": "05-dialog-confirm-delete.png",
       "screen": "Delete confirmation dialog",
       "state": "in-app confirm dialog over the Knowledge Base, raised by the command Delete button",
-      "sha256": "c289b885b35b66d2441d36f93e3c01d68af44c53d08a5ba2f660b0ca0f39438d",
+      "sha256": "11a31dc8a92e51c3ca578b87d398912c817a46256cff0ed1b1b16766adaaaf7a",
       "width": 2560,
       "height": 1600
     },
@@ -55,7 +55,7 @@
       "file": "06-replay.png",
       "screen": "Command Replay",
       "state": "three seeded commands across three platforms, one with a {{variable}}",
-      "sha256": "c50d6deb858496b96e90ab30fa651b6e4a23b32e4638b56f7015145222dd2f65",
+      "sha256": "5adfed1610bbbc1dded6d65322a7f0fc4ec3c8d94281b5adf7245f47f9449f70",
       "width": 2560,
       "height": 1600
     },
@@ -63,7 +63,7 @@
       "file": "07-settings-general.png",
       "screen": "Settings",
       "state": "General pane",
-      "sha256": "42928d7a0cf27e846c0b1342edc29274b20e8b8cecb93679384389ee7fe0e4a3",
+      "sha256": "ffde6dc9ba1ff7df8c2f104aba985764624972d703b032044fcb353f68ab3531",
       "width": 2560,
       "height": 1600
     },
@@ -71,7 +71,7 @@
       "file": "08-terminal-sidebar-closed.png",
       "screen": "Terminal",
       "state": "\"ip \" typed at the mock prompt: 4 command row(s) (addr, route, link, neigh) with ghost text \"addr\"; side panel closed",
-      "sha256": "3ca69fb1eeeca86f4f47fd61b7bf0204560df4bef53665de15c76c889ec5421b",
+      "sha256": "e7bcdffafb29e93464bfd5bc63a28a129e40c645b57ed302a1d2d29ddf9823a7",
       "width": 2560,
       "height": 1600
     },
@@ -79,7 +79,7 @@
       "file": "09-terminal-sidebar-open.png",
       "screen": "Terminal",
       "state": "same command line with the side panel open showing the ip command detail",
-      "sha256": "4177ed353454feb0e8dc95079649fcb5b4fba6e58c0e8ab4c3dd9b32592a3132",
+      "sha256": "c47fd97465828bf48f0dacbbf63b38d2aa799affaf37b8ee484300331e6e804c",
       "width": 2560,
       "height": 1600
     }
