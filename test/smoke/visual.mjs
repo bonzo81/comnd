@@ -21,7 +21,22 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { actOn, buildApp, invoke, pause, root, runCase, runUnderXvfb, WAIT_MS } from "./lib/harness.mjs";
+import {
+  acceptHostKeyIfNeeded,
+  actOn,
+  buildApp,
+  expandNavGroup,
+  invoke,
+  openNavSection,
+  pause,
+  root,
+  runCase,
+  runUnderXvfb,
+  sendKeys,
+  waitForSelector,
+  waitForTerminal,
+  WAIT_MS,
+} from "./lib/harness.mjs";
 
 const VIEWPORT = { width: 1280, height: 800 };
 
@@ -204,11 +219,6 @@ async function freeze(browser) {
   });
 }
 
-const waitForSelector = (browser, selector, message) => browser.waitUntil(
-  async () => browser.execute((sel) => !!document.querySelector(sel), selector),
-  { timeout: WAIT_MS, interval: 100, timeoutMsg: message },
-);
-
 const waitForGone = (browser, selector, message) => browser.waitUntil(
   async () => browser.execute((sel) => !document.querySelector(sel), selector),
   { timeout: WAIT_MS, interval: 100, timeoutMsg: message },
@@ -218,99 +228,6 @@ const visible = (browser, selector) => browser.execute((sel) => {
   const element = document.querySelector(sel);
   return !!element && getComputedStyle(element).display !== "none" && element.getClientRects().length > 0;
 }, selector);
-
-const terminalText = (browser) => browser.execute(() => {
-  const terminal = window.__comndTerminal;
-  if (!terminal) return "";
-  const buffer = terminal.buffer.active;
-  return Array.from({ length: buffer.length }, (_, index) =>
-    buffer.getLine(index)?.translateToString(true) ?? "",
-  ).join("\n");
-});
-
-async function waitForTerminal(browser, text, message) {
-  await browser.waitUntil(async () => (await terminalText(browser)).includes(text), {
-    timeout: 20_000,
-    interval: 100,
-    timeoutMsg: message,
-  });
-}
-
-async function sendKeys(browser, keys) {
-  await browser.execute(() => document.querySelector(".xterm-helper-textarea")?.focus());
-  const sequence = Array.isArray(keys) ? keys : [...keys];
-  if (sequence.some((key) => /[\uE008-\uE00A\uE03D]/.test(key))) {
-    await browser.keys(sequence);
-    return;
-  }
-  // One key per command: the drivers coalesce runs of identical characters.
-  for (const key of sequence) {
-    await browser.keys(key);
-    await pause(5);
-  }
-}
-
-/** Expand a collapsible nav section (Knowledge Base, Replay) if it is closed. */
-async function openNavSection(browser, section) {
-  const selector = `.nav-section-header[data-section="${section}"]`;
-  await waitForSelector(browser, selector, `the ${section} nav section did not render`);
-  const expanded = () => browser.execute(
-    (sel) => document.querySelector(sel)?.getAttribute("aria-expanded") === "true",
-    selector,
-  );
-  if (!(await expanded())) {
-    await browser.execute((sel) => document.querySelector(sel)?.click(), selector);
-  }
-  await browser.waitUntil(expanded, {
-    timeout: WAIT_MS,
-    interval: 100,
-    timeoutMsg: `the ${section} nav section did not expand`,
-  });
-}
-
-/** Expand a nav folder row if it is collapsed. */
-async function expandNavGroup(browser, groupId) {
-  const selector = `.nav-group-row[data-group-id="${groupId}"]`;
-  await waitForSelector(browser, selector, `nav group ${groupId} did not render`);
-  const collapsed = () => browser.execute((sel) => {
-    const row = document.querySelector(sel);
-    if (!row) return true;
-    return (row.querySelector(".nav-toggle")?.textContent ?? "").includes("▸");
-  }, selector);
-  if (await collapsed()) {
-    await browser.execute((sel) => document.querySelector(sel)?.querySelector(".nav-item")?.click(), selector);
-  }
-  await browser.waitUntil(async () => !(await collapsed()), {
-    timeout: WAIT_MS,
-    interval: 100,
-    timeoutMsg: `nav group ${groupId} did not expand`,
-  });
-}
-
-async function acceptHostKeyIfNeeded(browser) {
-  await browser.waitUntil(async () => {
-    const state = await browser.execute(() => ({
-      accept: [...document.querySelectorAll("button")].some(
-        (button) => button.textContent?.trim() === "Accept and save",
-      ),
-      connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
-      failed: !!document.querySelector(".tv-overlay-error:not(.hidden)"),
-    }));
-    if (state.accept) {
-      await browser.execute(() => {
-        [...document.querySelectorAll("button")]
-          .find((button) => button.textContent?.trim() === "Accept and save")
-          ?.click();
-      });
-      return true;
-    }
-    return state.connected || state.failed;
-  }, {
-    timeout: WAIT_MS,
-    interval: 100,
-    timeoutMsg: "host-key confirmation did not appear and SSH did not finish",
-  });
-}
 
 function createCapture(browser, outDir, manifest) {
   const expected = {
@@ -459,18 +376,17 @@ async function captureAll(browser, outDir) {
 
   await actOn(browser, `.nav-host-row[data-host-id="${seeded.mockHostId}"]`, { action: "dblclick" });
   await acceptHostKeyIfNeeded(browser);
-  // Safe: one awaited read per poll; no handle outlives the predicate.
-  await browser.waitUntil(async () => (await browser.$(".tv-sb-dot")).getAttribute("class")
-    .then((classes) => classes?.includes("sb-connected") ?? false), {
+  await browser.waitUntil(async () => browser.execute(() =>
+    (document.querySelector(".tv-sb-dot")?.getAttribute("class") ?? "").includes("sb-connected")), {
     timeout: 20_000,
     interval: 100,
     timeoutMsg: "SSH connection did not reach the connected state",
   });
   await waitForTerminal(browser, "user@host:~$", "the mock prompt did not appear");
 
-  // Safe: this handle is only read; the click below goes through actOn.
-  const suggestions = await browser.$(".tv-suggestions-btn");
-  if (await suggestions.getAttribute("aria-pressed") !== "true") await actOn(browser, ".tv-suggestions-btn");
+  const pressed = await browser.execute(() =>
+    document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null);
+  if (pressed !== "true") await actOn(browser, ".tv-suggestions-btn");
 
   await sendKeys(browser, "ip ");
   await browser.waitUntil(async () => visible(browser, ".suggestion-dropdown"), {
@@ -499,9 +415,10 @@ async function captureAll(browser, outDir) {
   });
 
   await actOn(browser, ".tv-panel-btn");
-  // Safe: one awaited read per poll; no handle outlives the predicate.
-  await browser.waitUntil(async () => (await browser.$("#tv-sidebar")).getAttribute("class")
-    .then((classes) => !(classes ?? "").includes("hidden")), {
+  await browser.waitUntil(async () => browser.execute(() => {
+    const sidebar = document.querySelector("#tv-sidebar");
+    return !!sidebar && !(sidebar.getAttribute("class") ?? "").includes("hidden");
+  }), {
     timeout: WAIT_MS,
     interval: 100,
     timeoutMsg: "the terminal side panel did not open",
