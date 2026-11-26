@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -683,6 +683,55 @@ async function bootApp(dataDir, suite) {
   return { driver: started.driver, browser, display: started.display, driverLog: started.driverLog, timings };
 }
 
+/**
+ * Errors that prove a WebDriver session is gone because the browser it drove
+ * went away: WebDriver's `invalid session id`, `no such window`, `no such
+ * session`, and WebKitGTK's "session deleted because of page crash or hang".
+ *
+ * A gone session is necessary but not sufficient evidence that the app quit:
+ * WebKitGTK reports a crashed page the same way, which is why the close
+ * scenario also polls the process (`waitForProcessExit`).
+ *
+ * Transport failures (`ECONNRESET`, `ECONNREFUSED`, a socket hang-up) are
+ * deliberately absent: the driver dying looks identical from here whether the
+ * app closed or the harness broke, so a scenario asserting that the window
+ * closed must not accept them. `shutdownApp` does tolerate them, because there
+ * it only has to avoid masking the scenario's own failure.
+ */
+export const SESSION_GONE =
+  /invalid session id|no such window|no such session|session deleted/i;
+
+/**
+ * Whether `pid` has exited. A signal-0 probe is not enough on Linux: it keeps
+ * succeeding for a zombie that the parent has not reaped yet, so the proc state
+ * is read as well.
+ */
+function hasExited(pid) {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    return error.code !== "EPERM";
+  }
+  if (process.platform !== "linux") return false;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The state is the first field after the parenthesised command name.
+    return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
+  } catch {
+    return true;
+  }
+}
+
+/** Poll until `pid` exits: true when it did, false at the deadline. */
+export async function waitForProcessExit(pid, timeout) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    if (hasExited(pid)) return true;
+    if (Date.now() >= until) return false;
+    await pause(100);
+  }
+}
+
 /** Tear down one boot: the suite's teardown, then the session, the driver and the display. */
 async function shutdownApp({ driver, browser, display }, teardown) {
   let cleanupError;
@@ -704,8 +753,15 @@ async function shutdownApp({ driver, browser, display }, teardown) {
       // leak: the driver is killed below either way, and the data dir is removed.
       // Neither is a closed transport: undici can lose the keep-alive socket
       // between the teardown command and this DELETE (UND_ERR_CLOSED), and the
-      // driver kill that follows ends any session that was still open.
-      const alreadyGone = /no such window|no such session|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up/i;
+      // driver kill that follows ends any session that was still open. A
+      // scenario that quits through the window leaves W3C's `invalid session id`
+      // behind, and the app is gone either way. Transport errors are tolerated
+      // here, unlike in a closure assertion, because the only cost is a session
+      // the kill below ends anyway.
+      const alreadyGone = new RegExp(
+        `${SESSION_GONE.source}|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up`,
+        "i",
+      );
       if (!alreadyGone.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
     timings.close = Date.now() - closeStarted;
@@ -779,7 +835,9 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
  *
  * `suite` supplies the per-suite parts: `env` merged into the app process
  * environment, and `teardown(browser)` run before the session is closed (the
- * default stops the SSH mock, which every SSH scenario starts).
+ * default stops the SSH mock, which every SSH scenario starts). `test.teardown`
+ * overrides it for a scenario that ends with the app gone, where calling into
+ * the app during teardown would fail for the wrong reason.
  *
  * A scenario with `needsApp: false` asserts on helpers rather than the running
  * app, so it skips the boot: an app launch costs more than the assertion does.
@@ -789,7 +847,7 @@ function reportCase(test, { error, cleanupError, teardownError, appReady, dataDi
  */
 export async function runCase(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const teardown = test.teardown ?? suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
   const timings = emptyTimings();
   let app;
   let error;
@@ -845,7 +903,7 @@ export async function runCase(test, suite = {}) {
  */
 export async function runBoots(test, suite = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), `comnd-smoke-${test.name}-`));
-  const teardown = suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
+  const teardown = test.teardown ?? suite.teardown ?? ((browser) => invoke(browser, "test_stop_mock_server"));
   const timings = emptyTimings();
   let error;
   let appReady = false;

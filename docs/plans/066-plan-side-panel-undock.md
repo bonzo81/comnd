@@ -268,3 +268,38 @@ Two WebDriver behaviours the helpers account for, both found by running the suit
   surviving handle before polling.
 - A destroyed window stays listed for a moment and rejects the switch; `waitForNoWindow`
   treats an unswitchable handle as absent and re-reads the list on the next poll.
+
+## Follow-up after release: 0.7.0 could not be closed
+
+Shipped 0.7.0 did not quit: the title-bar cross, the OS window close and the taskbar Close
+all did nothing on Windows (macOS and Linux were never reached by the report).
+
+The close hook is the cause. Registering a JS listener for `tauri://close-requested` makes
+Tauri's core call `api.prevent_close()` (`manager/window.rs`, `has_js_listener`), and
+`@tauri-apps/api`'s `onCloseRequested` wrapper is responsible for the actual close: it
+awaits the handler and then calls `Window.destroy()`. `destroy` is a permissioned command,
+and `core:window:default` does not include `core:window:allow-destroy`, so the invoke was
+rejected inside the event handler — after the native close had already been prevented.
+Nothing surfaced: the rejection lives in a listener nobody awaits, so all three close paths
+failed silently.
+
+`src-tauri/capabilities/default.json` now grants `core:window:allow-destroy` alongside the
+existing `allow-close` (the cross itself still needs that). The grant arrived with the
+live-session close confirmation (issue #191), whose confirmed path calls `destroy()` too and
+would have failed the same way; that change also renamed the hook to `holdWindowClose`.
+
+`app-close` in the smoke suite is the guard: it clicks the real title-bar cross with no live
+session (the silent path — a live session prompts first) and requires two independent proofs
+that the app exited. WebDriver must lose the session with an error that names it gone
+(`SESSION_GONE` in the harness; a transport failure fails the scenario instead), and the OS
+must no longer have the process, which the app reports through the debug-only
+`test_smoke_pid` command and the harness polls with `waitForProcessExit`. The second proof is
+not redundant: WebKitGTK answers a clean quit and a crashed page with the same
+`session deleted` error, so a session that merely dies is not evidence that the close was
+honoured. Before the grant the scenario fails with
+`App close: 1 window(s) still open 30000 ms after clicking the title-bar cross`; after it the
+app exits. No earlier scenario quit through the window (teardown kills the driver), and the
+panel-relaunch scenario's "quit" was that same teardown, so the path had no coverage at all.
+That scenario ends with the app gone, which is why `runCase`/`runBoots` accept a per-test
+`teardown` and `shutdownApp` treats W3C's `invalid session id` as an already-closed session.
+

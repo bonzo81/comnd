@@ -21,11 +21,13 @@ import {
   terminalText,
   waitFor,
   waitForNoWindow,
+  waitForProcessExit,
   waitForSelector,
   waitForTerminal,
   waitForToast,
   waitForWindowCount,
   windowHandles,
+  SESSION_GONE,
   WAIT_MS,
 } from "./lib/harness.mjs";
 
@@ -1863,12 +1865,79 @@ async function commandRoundTrip(browser, dataDir) {
   assert.equal(echoes, 1, `Command round-trip: expected remote echo exactly once, saw ${echoes}`);
 }
 
+/**
+ * 0.7.0 regression: the app must quit when the user closes it.
+ *
+ * The main window registers a close-requested listener (so a docked width
+ * dragged inside its 400 ms debounce is flushed on the way out), and Tauri then
+ * leaves the close to that listener: the `@tauri-apps/api` wrapper destroys the
+ * window itself. `destroy` is a permissioned command, so without
+ * `core:window:allow-destroy` the request is rejected inside the event handler
+ * and the title-bar cross, the OS window close and the taskbar Close are all
+ * silently ignored — which is what shipped in 0.7.0. Nothing else in the suite
+ * quits through the window (teardown kills the driver), so this is the guard on
+ * that path. No live session is open, so the close is the silent one; a live
+ * session prompts first (issue #191).
+ *
+ * Exit is proven twice: WebDriver loses the session, and the OS no longer has
+ * the process. The second check is not redundant — WebKitGTK reports a clean
+ * quit and a crashed page with the same "session deleted" error, so only the
+ * process can tell them apart (which is why the app reports its own PID).
+ */
+async function appCloseScenario(browser) {
+  const closeButton = '.title-bar-controls button[aria-label="Close"]';
+  await waitFor(
+    browser,
+    () => !!document.querySelector('.title-bar-controls button[aria-label="Close"]'),
+    "App close: the title-bar Close button never rendered",
+  );
+  const pid = await invoke(browser, "test_smoke_pid");
+  assert(Number.isInteger(pid) && pid > 0, `App close: the app reported no usable PID (${pid})`);
+  await actOn(browser, closeButton);
+
+  const until = Date.now() + WAIT_MS;
+  for (;;) {
+    let handles = [];
+    let sessionGone = false;
+    try {
+      handles = await windowHandles(browser);
+    } catch (error) {
+      // Only a session that WebDriver names as gone counts; anything else (a
+      // transport failure with the window still up) fails the scenario.
+      if (!SESSION_GONE.test(String(error?.message ?? error))) throw error;
+      sessionGone = true;
+    }
+    if (sessionGone || handles.length === 0) {
+      // The session is gone; a crashed page looks the same from WebDriver, so
+      // the process is the proof that the user's close was honoured.
+      if (await waitForProcessExit(pid, 10_000)) return;
+      throw new Error(
+        `App close: WebDriver lost the session but process ${pid} is still running `
+        + "(a crashed page, not a close)",
+      );
+    }
+    if (Date.now() >= until) {
+      throw new Error(
+        `App close: ${handles.length} window(s) still open ${WAIT_MS} ms after clicking the title-bar cross`,
+      );
+    }
+    await pause(100);
+  }
+}
+
 async function main() {
   if (runUnderXvfb(import.meta.url)) return;
 
   if (!skipBuild) buildApp();
 
   const tests = [
+    {
+      name: "app-close",
+      // The scenario ends with the app gone, so there is no mock or session to
+      // tidy through it; the harness kills the driver either way.
+      teardown: async () => {},
+      run: appCloseScenario,
+    },
     {
       name: "launch-and-connect",
       run: launchAndConnect,
