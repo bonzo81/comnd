@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1](https://github.com/bonzo81/comnd/compare/v0.7.0...v0.7.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **app:** confirm before closing the window with live sessions ([#222](https://github.com/bonzo81/comnd/issues/222)) ([961744f](https://github.com/bonzo81/comnd/commit/961744f66454fa4770eacd82ea0df099ae51ff0e))
+* **ui:** make the button system consistent across themes and surfaces ([#228](https://github.com/bonzo81/comnd/issues/228)) ([536206b](https://github.com/bonzo81/comnd/commit/536206b508296ec161642f85f8b11d10107b558d))
+* **ui:** reserve monospace for commands and terminal output ([#224](https://github.com/bonzo81/comnd/issues/224)) ([df45f11](https://github.com/bonzo81/comnd/commit/df45f116d1311a8bc3c749710caac8f3bef18282))
+
 ## [0.7.0](https://github.com/bonzo81/comnd/compare/v0.6.1...v0.7.0) (2026-11-23)
 
 
