@@ -77,7 +77,7 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 
 **Mono scope.** JetBrains Mono is only for content that is a command or that a machine printed: the terminal surface and its stamp gutter; ghost text, suggestion rows, command names, syntax, token breakdowns and examples; KB command names and import-preview commands; replay recipes and previews; and verbatim output streams (the auth-phase output box, the import job log, raw LLM output). Everything else — chrome, labels, platform tags, counts, settings values, keycaps, usernames, host metadata and descriptive prose — uses Inter. Bracketed mono tokens (`[IOS]`) are banned: brackets are terminal decoration, not identity, and the accent colour already carries the platform. Numeric values in a UI role take `font-variant-numeric: tabular-nums`, so changing digits do not reflow.
 
-**Weights.** Only the three Inter weights that ship are used: `regular` (400) for body and prose, `medium` (500) for dense chrome (buttons, chips, badges), `semibold` (600) for every heading and any text carrying the primary label of its region. Nothing in the UI is 700 — Inter 700 is not loaded, so a `700` would be synthesised bold. JetBrains Mono ships 700 and the two places that need it (the command name, the syntax match highlight) use `--font-weight-bold`.
+**Weights.** Only the three Inter weights that ship are used: `regular` (400) for body, prose and tertiary text actions (`.btn-text`, `.btn-link`), `medium` (500) for dense chrome (filled and outlined buttons, chips, badges), `semibold` (600) for every heading and any text carrying the primary label of its region — including the confirming button of a destructive dialog (`.btn-danger`). Nothing in the UI is 700 — Inter 700 is not loaded, so a `700` would be synthesised bold. JetBrains Mono ships 700 and the two places that need it (the command name, the syntax match highlight) use `--font-weight-bold`.
 
 **Leading.** Chrome leadings by role: `display` (1.15) for headings at 20px and up, `title` (1.3) for 14–16px headings and two-line list rows, `meta` (1.45) for 12px secondary lines, `solid` (1) for single-glyph controls, and `body` (1.5) on `body` itself. Body leading deliberately matches `--prose-line-height`'s default so prose is never tighter than the chrome around it; prose that must widen under Reading Comfort keeps `var(--prose-line-height)`, which is the Reading Comfort seam — a tooltip or a description never takes a fixed leading, or it silently loses that bump.
 
@@ -95,6 +95,46 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 * Icons inherit text color via `currentColor`; sized per-context in CSS (12px badges, 14px buttons, 16px nav/toasts, 48px empty state).
 * **No emoji as icons** — they render inconsistently across Windows/macOS/Linux and can't follow theme colors. Plain text glyphs (`×`, `●`, `▾`/`▸`, `←`) are acceptable where they're characters, not decorative icons.
 * Every icon-only control has an `aria-label`. Decorative SVGs carry `aria-hidden="true"`.
+
+## Buttons
+
+One class, one job. A control's class name must predict what it looks like and what it does;
+if a surface needs a shape the table has no row for, add a row rather than stacking two roles
+on one element.
+
+| Role | Class | Where | Shape |
+|---|---|---|---|
+| Commit | `.btn-primary` | dialog footers, form submits, one per footer | accent fill, pill, 8/16 padding, `--color-on-accent` label |
+| Alternative | `.btn-secondary` | beside an input, or beside a `.btn-primary` | `--color-surface-selected` fill, 1px border, pill |
+| Tertiary / Cancel | `.btn-text` | every Cancel, row actions, toolbar toggles | no chrome, `--color-text-secondary`, hover to primary |
+| Destructive | `.btn-danger` | the confirm of a destructive dialog only | `--color-error` fill, `--color-fg-on-danger` label |
+| Inline link | `.btn-link` | "Reset", "Refresh status" inside a row | accent text, underline on hover |
+| Icon-only | `.btn-icon` | KB viewer actions, square toolbar icons | 24×24, `--radius-sm`, no border, hover fill |
+| Choice card | `.modal-choice` | a dialog offering two paths | recessed card, stacked title + description |
+| Size | `.btn-small`, `.btn-xs` | modifiers, compose with any role | smaller padding / font-size |
+
+Rules that the table implies:
+
+* **One primary per footer.** A footer's commit action is `.btn-primary`; everything else in
+  that footer is `.btn-text` unless it is a real alternative path. The new-connection form is
+  the documented two-rank case: "Save" is `.btn-secondary` because "Save & Connect" is the
+  primary, and both are legitimate outcomes of that form.
+* **Cancel is always `.btn-text`**, including when the thing being cancelled is destructive.
+  Red means the button destroys something, never that it stops something.
+* **Destructive confirm only.** `.btn-danger` belongs on the confirming button of a dialog that
+  deletes. A row-level Delete stays tertiary and relies on that confirmation; it must not carry
+  `.btn-danger` in a list.
+* **Choice cards are not ranked.** Neither option in `.modal-choice` wears a role fill — the
+  destructive consequence is stated in its description, not encoded in paint.
+* **Contrast is guarded, not assumed.** `--color-on-accent` is the only label colour that sits
+  on `--color-accent`, and `src/lib/theme-contrast.test.ts` asserts it (and
+  `--color-fg-on-danger` on `--color-error`) for all six themes, resting and hovered. Any new
+  fill/label pairing gets a pair in that file.
+* **States are uniform.** Every role defines hover (`:not(:disabled)` gated), `:active`,
+  focus-visible (the global ring), and `:disabled` at one opacity (0.5). No role uses
+  `opacity` to express hover.
+* **Form controls inherit the UI font.** `base.css` resets `font-family` on `button`, `input`,
+  `select` and `textarea`, so no button class needs to name a family.
 
 ## Spacing & Layout
 
@@ -272,7 +312,7 @@ Cancel button available at all stages. On failure, error overlay with retry butt
 * **Content pane:** max-width 720px, left-aligned. No per-page title heading — the rail is the title.
 * **SettingRow:** label + short description left, control right-aligned on the same baseline. Wide widgets (log paths, textarea, filter multi-select) use a block variant: label on top, full-width control below.
 * **Group labels:** small, muted, uppercase (`--color-text-tertiary`), separated by whitespace only — no bold section headings, no divider rules.
-* **Controls:** all share the app-wide pill radius (`--radius-pill` via `.form-input` / `.btn`). Booleans are **pill switches** — native checkboxes restyled in place, so bindings and tests are unchanged. Selects and buttons are compact and right-aligned, never full-width (one exception: the NetBox filter multi-select chips box stays full-width — it cannot function compact).
+* **Controls:** all share the app-wide pill radius (`--radius-pill` via `.form-input` and the `.btn-primary` / `.btn-secondary` / `.btn-danger` roles — see Buttons). Booleans are **pill switches** — native checkboxes restyled in place, so bindings and tests are unchanged. Selects and buttons are compact and right-aligned, never full-width (one exception: the NetBox filter multi-select chips box stays full-width — it cannot function compact).
 
 ## Accessibility
 
