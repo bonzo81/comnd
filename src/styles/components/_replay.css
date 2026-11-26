@@ -116,7 +116,6 @@
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--color-text-secondary);
-  font-family: inherit;
   font-size: var(--font-size-sm);
   white-space: nowrap;
   padding: var(--space-1-5) var(--space-2);

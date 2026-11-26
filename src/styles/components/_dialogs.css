@@ -75,7 +75,6 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  font-family: inherit;
   font-size: var(--font-size-3xl);
   cursor: pointer;
   width: var(--space-8);
