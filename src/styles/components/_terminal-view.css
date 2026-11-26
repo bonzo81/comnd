@@ -379,9 +379,24 @@ body.tv-resizing * {
   margin-left: auto;
 }
 
-.cmd-actions .btn-secondary:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
+/* Colour belongs to the caller, and `.btn-icon` is imported after this file,
+   so the caller's own class has to outweigh it: `.kb-btn-edit` alone is one
+   class like `.btn-icon`, and lost on import order, leaving Edit and Delete
+   grey at rest. Scoping to `.cmd-actions` gives them (0,2,0). */
+.cmd-actions .kb-btn-edit {
+  color: var(--color-accent);
+}
+
+.cmd-actions .kb-btn-delete {
+  color: var(--color-error);
+}
+
+/* The trio keeps its own colour on hover: Delete holds its error, Edit steps
+   up a shade like the topbar's active toggles do, Ignore takes .btn-icon's
+   neutral. Without the Edit rule it would fall to --color-text-primary and
+   lose the accent between rest and hover. */
+.cmd-actions .kb-btn-edit:hover {
+  color: var(--color-accent-hover);
 }
 
 .cmd-actions .kb-btn-delete:hover {
@@ -677,7 +692,7 @@ body.tv-resizing * {
 }
 
 /* Non-active topbar buttons get the same pill with a neutral tint */
-.tv-topbar .btn-text:not(.active):not(:disabled):hover {
+.tv-topbar .btn-text:not(.active):where(:not(:disabled)):hover {
   background: var(--color-surface-hover);
 }
 

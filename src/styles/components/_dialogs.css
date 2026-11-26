@@ -393,13 +393,9 @@
   margin-bottom: 0;
 }
 
-.kb-btn-edit {
-  color: var(--color-accent);
-}
-
-.kb-btn-delete {
-  color: var(--color-error);
-}
+/* The icon trio's colour lives with its caller, in the .cmd-actions block of
+   _terminal-view.css: it needs to outweigh the .btn-icon base rule, and this
+   file is imported before it. */
 
 /* â”€â”€â”€ Import: Model Select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .import-models {

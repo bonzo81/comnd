@@ -11,7 +11,14 @@
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-primary:not(:disabled):hover {
+/* `:where()` on the disabled guard keeps it out of the specificity count.
+   `:not(:disabled)` is a pseudo-class, so a plain guard lifts `.btn-text:hover`
+   from (0,2,0) to (0,3,0) — which ties the caller rules that deliberately
+   re-colour a button on hover (`.tv-*-btn.active:hover`, `.cmd-actions
+   .kb-btn-delete:hover`) and wins them by import order, since this file is
+   imported after both. Inside `:where()` the guard contributes nothing, so
+   each hover keeps the specificity it had before. */
+.btn-primary:where(:not(:disabled)):hover {
   background: var(--color-accent-hover);
 }
 
@@ -29,7 +36,7 @@
   transition: color 0.15s ease, background 0.15s ease;
 }
 
-.btn-text:not(:disabled):hover {
+.btn-text:where(:not(:disabled)):hover {
   color: var(--color-text-primary);
 }
 
@@ -45,7 +52,7 @@
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-secondary:not(:disabled):hover {
+.btn-secondary:where(:not(:disabled)):hover {
   background: var(--color-surface-hover);
 }
 
@@ -69,37 +76,12 @@
    and the label toward the surface together, which pulled the dark theme's
    5.08:1 label down to 4.25:1 exactly when the user is committing something
    destructive. The ring changes neither. */
-.btn-danger:not(:disabled):hover {
+.btn-danger:where(:not(:disabled)):hover {
   box-shadow: inset 0 0 0 1px var(--color-border-strong);
 }
 
 .btn-danger:active {
   transform: scale(0.98);
-}
-
-.btn-small {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-sm);
-}
-
-/* Size modifier like .btn-small: composes with any role, no base of its own. */
-.btn-xs {
-  font-size: var(--font-size-xs);
-}
-
-/* Every role that can be disabled appears here. .btn-text and .btn-link were
-   missing, so a disabled one kept `opacity: 1`, `cursor: pointer` and its
-   :hover rule — it looked and answered exactly like an enabled button.
-   "Restore all defaults", the locked shortcut "Change" and "Mark as variable"
-   all shipped in that state. */
-.btn-primary:disabled,
-.btn-secondary:disabled,
-.btn-danger:disabled,
-.btn-text:disabled,
-.btn-link:disabled,
-.btn-icon:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .btn-link {
@@ -113,7 +95,7 @@
   transition: color 0.15s ease;
 }
 
-.btn-link:not(:disabled):hover {
+.btn-link:where(:not(:disabled)):hover {
   text-decoration: underline;
 }
 
@@ -139,7 +121,7 @@
   transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-icon:not(:disabled):hover {
+.btn-icon:where(:not(:disabled)):hover {
   color: var(--color-text-primary);
   background: var(--color-surface-hover);
 }
@@ -151,4 +133,33 @@
 .btn-icon svg {
   width: 14px;
   height: 14px;
+}
+
+/* ─── Size modifiers ─────────────────────────────────────────────────────
+   Declared after every role, because a modifier and a role are both one
+   class: `.btn-link` sets font-size 12px, so a `.btn-xs` placed above it lost
+   the extra-small size on `btn-link btn-xs` despite the markup asking for it.
+   After the roles, the modifier always wins. */
+.btn-small {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.btn-xs {
+  font-size: var(--font-size-xs);
+}
+
+/* Every role that can be disabled appears here. .btn-text and .btn-link were
+   missing, so a disabled one kept `opacity: 1`, `cursor: pointer` and its
+   :hover rule — it looked and answered exactly like an enabled button.
+   "Restore all defaults", the locked shortcut "Change" and "Mark as variable"
+   all shipped in that state. */
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled,
+.btn-text:disabled,
+.btn-link:disabled,
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
