@@ -203,9 +203,9 @@ export class KbViewerDialog {
     const isOverride = !!cmd.overrides;
     const actions = `
       <div class="cmd-actions">
-        <button class="btn-secondary btn-small kb-btn-edit" id="kb-cmd-edit-btn" aria-label="Edit command" title="Edit command">${icons.pencil}</button>
-        <button class="btn-secondary btn-small kb-btn-ignore" id="kb-cmd-ignore-btn" aria-label="Ignore command" title="Ignore command">${icons.eyeOff}</button>
-        <button class="btn-secondary btn-small kb-btn-delete" id="kb-cmd-delete-btn" aria-label="${isOverride ? "Restore built-in version" : "Delete command"}" title="${isOverride ? "Restore built-in version" : "Delete command"}">${icons.trash}</button>
+        <button class="btn-icon kb-btn-edit" id="kb-cmd-edit-btn" aria-label="Edit command" title="Edit command">${icons.pencil}</button>
+        <button class="btn-icon kb-btn-ignore" id="kb-cmd-ignore-btn" aria-label="Ignore command" title="Ignore command">${icons.eyeOff}</button>
+        <button class="btn-icon kb-btn-delete" id="kb-cmd-delete-btn" aria-label="${isOverride ? "Restore built-in version" : "Delete command"}" title="${isOverride ? "Restore built-in version" : "Delete command"}">${icons.trash}</button>
       </div>
     `;
     return `
@@ -260,7 +260,7 @@ export class KbViewerDialog {
           <span>Negatable</span>
           <input type="checkbox" id="kb-edit-negatable" ${this.editNegatable ? "checked" : ""} />
         </label>
-        <div class="kb-edit-actions">
+        <div class="form-actions">
           <button class="btn-text" id="kb-edit-cancel-btn">Cancel</button>
           <button class="btn-primary" id="kb-edit-save-btn" ${this.saving ? 'disabled' : ''}>
             ${this.saving ? "Saving…" : "Save Changes"}

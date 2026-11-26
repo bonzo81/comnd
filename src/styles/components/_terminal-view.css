@@ -379,17 +379,6 @@ body.tv-resizing * {
   margin-left: auto;
 }
 
-.cmd-actions .btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-6);
-  height: var(--space-6);
-  padding: 0;
-  border-radius: var(--radius-pill);
-  color: var(--color-text-secondary);
-}
-
 .cmd-actions .btn-secondary:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
@@ -790,10 +779,12 @@ body.tv-resizing * {
   font-variant-numeric: tabular-nums;
 }
 
-/* Compact icon buttons inside the search bar */
+/* Compact icon buttons inside the search bar. Same pill radius as the topbar
+   controls they sit under — this used --radius-sm, a third radius for the
+   same role. */
 .tv-search-bar .btn-text {
   padding: 2px var(--space-1);
   font-size: var(--font-size-sm);
   line-height: var(--font-leading-solid);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }

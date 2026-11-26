@@ -181,13 +181,14 @@
 .replay-play {
   font-size: var(--font-size-sm);
 }
-.replay-del {
-  font-size: var(--font-size-lg);
-  margin-left: auto;
-  color: var(--color-text-secondary);
-}
-.replay-del:hover {
-  color: var(--color-error);
+/* The Replay screen's Delete is .rsm-del, which had no rule at all — the
+   stylesheet named a .replay-del that nothing used — so Delete looked exactly
+   like Edit. Signal intent with a tinted fill, not a red label: --color-error
+   as text measures 3.48:1 on the light surface and 4.28:1 on solarized-light,
+   under AA. The label keeps .btn-text:hover's --color-text-primary, which the
+   contrast guard covers. */
+.rsm-del:hover {
+  background: color-mix(in srgb, var(--color-error) 14%, transparent);
 }
 
 /* Save dialog + variable prompt */

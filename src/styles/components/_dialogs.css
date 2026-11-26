@@ -395,12 +395,10 @@
 
 .kb-btn-edit {
   color: var(--color-accent);
-  border-color: var(--color-accent);
 }
 
 .kb-btn-delete {
   color: var(--color-error);
-  border-color: var(--color-error);
 }
 
 /* â”€â”€â”€ Import: Model Select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */

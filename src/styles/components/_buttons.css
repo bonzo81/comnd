@@ -67,8 +67,8 @@
   font-size: var(--font-size-sm);
 }
 
-.btn-text.btn-xs,
-.btn-link.btn-xs {
+/* Size modifier like .btn-small: composes with any role, no base of its own. */
+.btn-xs {
   font-size: var(--font-size-xs);
 }
 
@@ -94,24 +94,34 @@
   text-decoration: underline;
 }
 
-/* â”€â”€â”€ Shortcuts Button in Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.btn-shortcuts {
-  background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-medium);
-  display: flex;
+/* ─── Icon-only ──────────────────────────────────────────────────────────
+   A square button that carries an SVG and no visible label. Its own role,
+   because the alternatives were all wrong: .btn-secondary.btn-small gave the
+   KB viewer's action trio a bordered pill, .cmd-actions then overrode it to a
+   circle, and .sb-toggle-btn a borderless square of the same 24px — three
+   shapes for one job in the same panel. Size and hover follow .sb-toggle-btn;
+   colour is the caller's, so Edit can stay accent and Delete error. */
+.btn-icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.15s, color 0.15s;
+  width: var(--space-6);
+  height: var(--space-6);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.btn-shortcuts:hover {
-  border-color: var(--color-border-strong);
+.btn-icon:hover {
   color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+.btn-icon svg {
+  width: 14px;
+  height: 14px;
 }

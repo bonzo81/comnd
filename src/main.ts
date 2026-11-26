@@ -623,7 +623,7 @@ class App {
         <pre id="import-status-llm-tail">${escHtml(importJob.llmTail)}</pre>
       </details>` : ""}
       <div class="form-actions">
-        ${!done && !importJob.committing ? `<button class="btn-danger" id="import-status-cancel-btn">Cancel</button>` : ""}
+        ${!done && !importJob.committing ? `<button class="btn-text" id="import-status-cancel-btn">Cancel</button>` : ""}
         <button class="btn-text" id="import-status-close-btn">Close</button>
       </div>`;
     const log2 = panel.querySelector("#import-status-log");
