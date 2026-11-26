@@ -659,9 +659,9 @@ export class TerminalView {
             <div class="tv-search-bar hidden" id="tv-search-bar" role="search">
               <input type="text" class="tv-search-input" placeholder="Search scrollback…" aria-label="Search scrollback" autocomplete="off" spellcheck="false" />
               <span class="tv-search-count" aria-live="polite">0</span>
-              <button class="btn-text tv-search-prev" aria-label="Previous match"></button>
-              <button class="btn-text tv-search-next" aria-label="Next match"></button>
-              <button class="btn-text tv-search-close" aria-label="Close search"></button>
+              <button class="btn-text tv-search-prev" aria-label="Previous match" title="Previous match"></button>
+              <button class="btn-text tv-search-next" aria-label="Next match" title="Next match"></button>
+              <button class="btn-text tv-search-close" aria-label="Close search" title="Close search"></button>
             </div>
           </div>
           <div

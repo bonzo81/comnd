@@ -516,8 +516,8 @@ export class SettingsScreen {
           "When off, search matches command names and aliases only.", tagsOn)}
         ${this.group("Data")}
         ${this.row("", `
-          <button type="button" id="data-export" class="btn-secondary btn-small">Export backup...</button>
-          <button type="button" id="data-import" class="btn-secondary btn-small">Restore from backup...</button>`,
+          <button type="button" id="data-export" class="btn-secondary btn-small">Export backup…</button>
+          <button type="button" id="data-import" class="btn-secondary btn-small">Restore from backup…</button>`,
           "Export saves hosts, groups, configuration, known hosts, and the knowledge base to a zip file. Restore replaces your current data and keeps a backup of it. Restart the app after a restore.")}
         ${this.group("Updates")}
         ${this.row("", `
@@ -560,7 +560,7 @@ export class SettingsScreen {
             value="${escAttr(this.config?.log_file_path ?? "")}"
             placeholder="Default: app data dir"
             spellcheck="false" autocomplete="off" />
-          <button type="button" id="log-file-browse" class="btn-secondary btn-small">Browse...</button>
+          <button type="button" id="log-file-browse" class="btn-secondary btn-small">Browse…</button>
           <button type="button" id="log-file-reset" class="btn-link">Reset</button>`,
           "Leave empty for the default location. Applies at next start. A custom folder can have different access permissions, so the default location is safer.",
           "log-file-path")}
@@ -578,7 +578,7 @@ export class SettingsScreen {
             value="${escAttr(sessionDir)}"
             placeholder="Default: ${escAttr(this.sessionLogDefaultDir)}"
             spellcheck="false" autocomplete="off" />
-          <button type="button" id="session-log-dir-browse" class="btn-secondary btn-small">Browse...</button>
+          <button type="button" id="session-log-dir-browse" class="btn-secondary btn-small">Browse…</button>
           <button type="button" id="session-log-dir-reset" class="btn-link">Reset</button>`,
           "Leave empty for the default location. Applies to new connections.",
           "session-log-dir")}
@@ -705,7 +705,7 @@ export class SettingsScreen {
     const chips = selected.map((slug) => {
       const opt = options.find((o) => o.slug === slug);
       const display = opt ? opt.name : slug;
-      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove" title="Remove">&times;</button></span>`;
     }).join("");
     const listItems = options.map((o) => {
       const sel = selected.includes(o.slug) ? " ms-item-selected" : "";
@@ -716,7 +716,7 @@ export class SettingsScreen {
         <label for="${id}-search">${label}</label>
         <div class="ms-wrap" data-ms-field="${id}">
           <div class="ms-chips">${chips || '<span class="ms-placeholder">' + escHtml(placeholder) + '</span>'}</div>
-          <input type="text" class="form-input ms-search" id="${id}-search" placeholder="Search..." autocomplete="off" />
+          <input type="text" class="form-input ms-search" id="${id}-search" placeholder="Search…" autocomplete="off" />
           <ul class="ms-dropdown" data-ms-list="${id}">${listItems}</ul>
         </div>
         <input type="hidden" id="${id}" value="${escAttr(selected.join(","))}" />
@@ -733,7 +733,7 @@ export class SettingsScreen {
     chipsEl.innerHTML = selected.map((slug) => {
       const opt = options.find((o) => o.dataset.msSlug === slug);
       const display = opt ? opt.textContent ?? slug : slug;
-      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove">&times;</button></span>`;
+      return `<span class="ms-chip" data-ms-slug="${escAttr(slug)}">${escHtml(display)}<button type="button" class="ms-chip-x" aria-label="Remove" title="Remove">&times;</button></span>`;
     }).join("");
   }
 

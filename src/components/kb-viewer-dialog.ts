@@ -219,7 +219,7 @@ export class KbViewerDialog {
     if (!cmd) return "";
     return `
       <div class="kb-edit-form">
-        <h3 style="margin-bottom:12px">Edit Command</h3>
+        <h3 style="margin-bottom:12px">Edit command</h3>
         <label class="kb-edit-field">
           <span>Name</span>
           <input type="text" class="form-input" id="kb-edit-name" value="${escAttr(this.editName)}" />
@@ -263,7 +263,7 @@ export class KbViewerDialog {
         <div class="form-actions">
           <button class="btn-text" id="kb-edit-cancel-btn">Cancel</button>
           <button class="btn-primary" id="kb-edit-save-btn" ${this.saving ? 'disabled' : ''}>
-            ${this.saving ? "Saving…" : "Save Changes"}
+            ${this.saving ? "Saving…" : "Save changes"}
           </button>
         </div>
         <div class="kb-edit-errors" id="kb-edit-errors" role="alert"></div>
@@ -455,11 +455,11 @@ export class KbViewerDialog {
     const isOverride = !!cmd.overrides;
     const name = cmd.name;
     confirmDialog({
-      title: isOverride ? "Restore Built-in Version" : "Delete Command",
+      title: isOverride ? "Restore built-in version" : "Delete command",
       message: isOverride
         ? `Delete your custom version of <strong>${escHtml(name)}</strong>? The built-in KB entry will be shown again.`
         : `Delete <strong>${escHtml(name)}</strong>?<br/>This cannot be undone.`,
-      confirmLabel: isOverride ? "Restore Built-in" : "Delete",
+      confirmLabel: isOverride ? "Restore built-in" : "Delete",
       destructive: true,
       onConfirm: () => void this.confirmDelete(name),
     });

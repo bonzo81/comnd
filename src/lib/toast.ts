@@ -34,7 +34,7 @@ export function showToast(message: string, type: "success" | "error" | "info" = 
   toast.innerHTML = `
     <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
     <span class="toast-message">${escHtml(message)}</span>
-    <button class="toast-close" aria-label="Dismiss notification">&times;</button>
+    <button class="toast-close" aria-label="Dismiss notification" title="Dismiss notification">&times;</button>
   `;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
   container.appendChild(toast);
@@ -66,7 +66,7 @@ export function showToastWithAction(
   toast.innerHTML = `
     <span class="toast-icon">${iconsByType[type] ?? icons.info}</span>
     <span class="toast-message">${escHtml(message)}</span>
-    <button class="toast-close" aria-label="Dismiss notification">&times;</button>
+    <button class="toast-close" aria-label="Dismiss notification" title="Dismiss notification">&times;</button>
     <button class="toast-action btn-primary btn-small">${escHtml(actionLabel)}</button>
   `;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());

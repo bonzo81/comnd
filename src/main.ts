@@ -1232,6 +1232,7 @@ class App {
       close.className = "session-tab-close";
       close.textContent = "×";
       close.setAttribute("aria-label", `Close session ${tab.host.display_name}${sessionSuffix}`);
+      close.title = `Close session ${tab.host.display_name}${sessionSuffix}`;
       close.addEventListener("click", (e) => {
         e.stopPropagation();
         this.closeTab(sessionId);
@@ -1248,9 +1249,9 @@ class App {
 
   private showCloseConfirm(hostName: string, onConfirm: () => void) {
     confirmDialog({
-      title: "Close Session",
+      title: "Close session",
       message: `Close session to <strong>${escHtml(hostName)}</strong>?<br/>Your SSH session will be terminated.`,
-      confirmLabel: "Close Session",
+      confirmLabel: "Close session",
       destructive: true,
       onConfirm,
     });
@@ -1282,7 +1283,7 @@ class App {
         <h2 id="app-shortcuts-title">Keyboard Shortcuts</h2>
         <div class="shortcuts-grid">${items}</div>
         <div class="form-actions">
-          <button class="btn-text" id="app-shortcuts-customize-btn">Customize…</button>
+          <button class="btn-text" id="app-shortcuts-customize-btn">Customize</button>
           <button class="btn-primary" id="app-shortcuts-close-btn">Got it</button>
         </div>`,
       onDismiss: () => this.closeShortcutsModal(),
