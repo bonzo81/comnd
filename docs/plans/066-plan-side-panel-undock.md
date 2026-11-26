@@ -289,11 +289,14 @@ live-session close confirmation (issue #191), whose confirmed path calls `destro
 would have failed the same way; that change also renamed the hook to `holdWindowClose`.
 
 `app-close` in the smoke suite is the guard: it clicks the real title-bar cross with no live
-session (the silent path — a live session prompts first) and requires the window list to
-empty within `WAIT_MS` — or a WebDriver error naming the session as gone (`SESSION_GONE` in
-the harness), because destroying the last window takes the session with it. Any other error
-fails the scenario, so a driver that breaks while the window is still open cannot pass for a
-successful quit. Before the permission it fails with
+session (the silent path — a live session prompts first) and requires two independent proofs
+that the app exited. WebDriver must lose the session with an error that names it gone
+(`SESSION_GONE` in the harness; a transport failure fails the scenario instead), and the OS
+must no longer have the process, which the app reports through the debug-only
+`test_smoke_pid` command and the harness polls with `waitForProcessExit`. The second proof is
+not redundant: WebKitGTK answers a clean quit and a crashed page with the same
+`session deleted` error, so a session that merely dies is not evidence that the close was
+honoured. Before the grant the scenario fails with
 `App close: 1 window(s) still open 30000 ms after clicking the title-bar cross`; after it the
 app exits. No earlier scenario quit through the window (teardown kills the driver), and the
 panel-relaunch scenario's "quit" was that same teardown, so the path had no coverage at all.

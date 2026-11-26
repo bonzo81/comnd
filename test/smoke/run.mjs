@@ -21,6 +21,7 @@ import {
   terminalText,
   waitFor,
   waitForNoWindow,
+  waitForProcessExit,
   waitForSelector,
   waitForTerminal,
   waitForToast,
@@ -1877,6 +1878,11 @@ async function commandRoundTrip(browser, dataDir) {
  * quits through the window (teardown kills the driver), so this is the guard on
  * that path. No live session is open, so the close is the silent one; a live
  * session prompts first (issue #191).
+ *
+ * Exit is proven twice: WebDriver loses the session, and the OS no longer has
+ * the process. The second check is not redundant — WebKitGTK reports a clean
+ * quit and a crashed page with the same "session deleted" error, so only the
+ * process can tell them apart (which is why the app reports its own PID).
  */
 async function appCloseScenario(browser) {
   const closeButton = '.title-bar-controls button[aria-label="Close"]';
@@ -1885,23 +1891,31 @@ async function appCloseScenario(browser) {
     () => !!document.querySelector('.title-bar-controls button[aria-label="Close"]'),
     "App close: the title-bar Close button never rendered",
   );
+  const pid = await invoke(browser, "test_smoke_pid");
+  assert(Number.isInteger(pid) && pid > 0, `App close: the app reported no usable PID (${pid})`);
   await actOn(browser, closeButton);
 
-  // Destroying the last window takes the app process, and so the WebDriver
-  // session, with it. Closure is only proven by one of two things: an empty
-  // handle list, or a WebDriver error that names the session/window as gone
-  // (SESSION_GONE). Any other error fails the scenario — a driver that broke
-  // while the window stayed open must not read as a successful quit.
   const until = Date.now() + WAIT_MS;
   for (;;) {
-    let handles;
+    let handles = [];
+    let sessionGone = false;
     try {
       handles = await windowHandles(browser);
     } catch (error) {
-      if (SESSION_GONE.test(String(error?.message ?? error))) return;
-      throw error;
+      // Only a session that WebDriver names as gone counts; anything else (a
+      // transport failure with the window still up) fails the scenario.
+      if (!SESSION_GONE.test(String(error?.message ?? error))) throw error;
+      sessionGone = true;
     }
-    if (handles.length === 0) return;
+    if (sessionGone || handles.length === 0) {
+      // The session is gone; a crashed page looks the same from WebDriver, so
+      // the process is the proof that the user's close was honoured.
+      if (await waitForProcessExit(pid, 10_000)) return;
+      throw new Error(
+        `App close: WebDriver lost the session but process ${pid} is still running `
+        + "(a crashed page, not a close)",
+      );
+    }
     if (Date.now() >= until) {
       throw new Error(
         `App close: ${handles.length} window(s) still open ${WAIT_MS} ms after clicking the title-bar cross`,

@@ -269,6 +269,15 @@ async fn test_smoke_mock_auth_url() -> Result<String, String> {
     Ok(test_server::MOCK_AUTH_URL.to_string())
 }
 
+/// This process's own PID (debug only). The smoke runner polls the OS for it to
+/// prove the app exited, which WebDriver alone cannot: WebKitGTK reports a clean
+/// quit and a crashed page with the same "session deleted" error.
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn test_smoke_pid() -> Result<u32, String> {
+    Ok(std::process::id())
+}
+
 /// Every PTY size the mock host has been asked for, oldest first.
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -708,6 +717,8 @@ pub fn run() {
                 test_smoke_auth_urls,
                 #[cfg(debug_assertions)]
                 test_smoke_mock_auth_url,
+                #[cfg(debug_assertions)]
+                test_smoke_pid,
                 #[cfg(debug_assertions)]
                 test_stop_mock_server,
                 #[cfg(debug_assertions)]
