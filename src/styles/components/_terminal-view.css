@@ -677,16 +677,14 @@ body.tv-resizing * {
 }
 
 /* Non-active topbar buttons get the same pill with a neutral tint */
-.tv-topbar .btn-text:not(.active):hover {
+.tv-topbar .btn-text:not(.active):not(:disabled):hover {
   background: var(--color-surface-hover);
 }
 
-/* Disabled topbar buttons (e.g. highlighting when host profile is "none") */
-.tv-topbar .btn-text.btn-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
-}
+/* Disabled topbar buttons (e.g. highlighting when host profile is "none").
+   The class-based variant is gone: :disabled already blocks the click, and
+   .btn-text:not(:disabled):hover suppresses the hover, so .btn-disabled was
+   doing the same job twice. */
 
 /* Stamps are recorded continuously; hidden unless the gutter is shown.
    xterm sets inline display:block on decoration elements, so hiding

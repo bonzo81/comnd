@@ -51,6 +51,7 @@
   font-size: var(--font-size-2xl);
   line-height: var(--font-leading-solid);
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .title-bar-btn:hover {
@@ -186,6 +187,7 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .statusbar-btn:hover {

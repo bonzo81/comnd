@@ -87,6 +87,7 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 .sb-toggle-btn svg {
   width: var(--space-4);
@@ -120,6 +121,7 @@
   white-space: nowrap;
   padding: var(--space-1-5) var(--space-2);
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 .sb-undock-btn:hover {
   color: var(--color-text-primary);

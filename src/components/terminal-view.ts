@@ -1893,7 +1893,6 @@ export class TerminalView {
       // highlighter not yet initialized). Prevents toggling a no-op.
       const disabled = this.outputHighlighter === null;
       btn.disabled = disabled;
-      btn.classList.toggle("btn-disabled", disabled);
       btn.classList.toggle("active", on && !disabled);
       if (disabled) {
         setToggleState(btn, false, "Output highlighting disabled for this host");

@@ -11,7 +11,7 @@
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-primary:hover {
+.btn-primary:not(:disabled):hover {
   background: var(--color-accent-hover);
 }
 
@@ -29,7 +29,7 @@
   transition: color 0.15s ease, background 0.15s ease;
 }
 
-.btn-text:hover {
+.btn-text:not(:disabled):hover {
   color: var(--color-text-primary);
 }
 
@@ -41,10 +41,15 @@
   border-radius: var(--radius-pill);
   font-size: var(--font-size-base);
   cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-secondary:hover {
+.btn-secondary:not(:disabled):hover {
   background: var(--color-surface-hover);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
 }
 
 .btn-danger {
@@ -56,10 +61,19 @@
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
 }
 
-.btn-danger:hover {
-  opacity: 0.9;
+/* A ring rather than `opacity: 0.9`: dimming the whole button blended the fill
+   and the label toward the surface together, which pulled the dark theme's
+   5.08:1 label down to 4.25:1 exactly when the user is committing something
+   destructive. The ring changes neither. */
+.btn-danger:not(:disabled):hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.btn-danger:active {
+  transform: scale(0.98);
 }
 
 .btn-small {
@@ -72,10 +86,17 @@
   font-size: var(--font-size-xs);
 }
 
+/* Every role that can be disabled appears here. .btn-text and .btn-link were
+   missing, so a disabled one kept `opacity: 1`, `cursor: pointer` and its
+   :hover rule — it looked and answered exactly like an enabled button.
+   "Restore all defaults", the locked shortcut "Change" and "Mark as variable"
+   all shipped in that state. */
 .btn-primary:disabled,
 .btn-secondary:disabled,
 .btn-danger:disabled,
-.btn-small:disabled {
+.btn-text:disabled,
+.btn-link:disabled,
+.btn-icon:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -88,9 +109,10 @@
   font-size: var(--font-size-sm);
   padding: var(--space-1) var(--space-2);
   white-space: nowrap;
+  transition: color 0.15s ease;
 }
 
-.btn-link:hover {
+.btn-link:not(:disabled):hover {
   text-decoration: underline;
 }
 
@@ -113,12 +135,16 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
-.btn-icon:hover {
+.btn-icon:not(:disabled):hover {
   color: var(--color-text-primary);
   background: var(--color-surface-hover);
+}
+
+.btn-icon:active {
+  transform: scale(0.94);
 }
 
 .btn-icon svg {

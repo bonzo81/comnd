@@ -225,6 +225,7 @@
   background: none;
   color: var(--color-text-tertiary);
   cursor: help;
+  transition: color 0.15s ease;
 }
 
 .settings-info svg {
@@ -655,6 +656,7 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   border-radius: var(--radius-sm);
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .netbox-cfg-reset svg {

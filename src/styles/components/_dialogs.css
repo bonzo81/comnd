@@ -91,7 +91,7 @@
 }
 
 .import-close-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -427,6 +427,7 @@
   padding: var(--space-1) var(--space-4);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .import-mode-btn.active {
@@ -434,7 +435,7 @@
 }
 
 .import-mode-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

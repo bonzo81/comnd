@@ -166,7 +166,9 @@ export function openModal(opts: ModalOptions): ModalHandle {
 
   const focusTarget =
     (opts.initialFocus ? panel.querySelector<HTMLElement>(opts.initialFocus) : null) ??
-    panel.querySelector<HTMLElement>("button") ??
+    // A disabled control cannot take focus, and focusing one drops it to <body>
+    // — the replay dialog opens on a disabled "Mark as variable" otherwise.
+    panel.querySelector<HTMLElement>("button:not([disabled])") ??
     panel;
   if (focusTarget === panel) panel.setAttribute("tabindex", "-1");
   focusTarget.focus();
