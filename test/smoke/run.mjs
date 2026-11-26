@@ -2201,10 +2201,14 @@ async function main() {
           interval: 100,
           timeoutMsg: "User disconnect: mock host did not observe the SSH connection close",
         });
+        // isDisplayed()'s semantics: a rendered box that is neither
+        // display:none nor visibility:hidden, which getClientRects() alone
+        // would accept.
         assert(await browser.execute((sel) => {
           const element = document.querySelector(sel);
-          return !!element && element.getClientRects().length > 0
-            && getComputedStyle(element).display !== "none";
+          if (!element || element.getClientRects().length === 0) return false;
+          const style = getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden";
         }, `.hs-host-item[data-host-id="${host.id}"]`));
       },
     },
