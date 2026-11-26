@@ -26,6 +26,7 @@ import {
   waitForToast,
   waitForWindowCount,
   windowHandles,
+  SESSION_GONE,
   WAIT_MS,
 } from "./lib/harness.mjs";
 
@@ -1887,15 +1888,18 @@ async function appCloseScenario(browser) {
   await actOn(browser, closeButton);
 
   // Destroying the last window takes the app process, and so the WebDriver
-  // session, with it: the close worked when the handle list empties or the next
-  // command fails. A handle still listed after the wait means it did not.
+  // session, with it. Closure is only proven by one of two things: an empty
+  // handle list, or a WebDriver error that names the session/window as gone
+  // (SESSION_GONE). Any other error fails the scenario — a driver that broke
+  // while the window stayed open must not read as a successful quit.
   const until = Date.now() + WAIT_MS;
   for (;;) {
     let handles;
     try {
       handles = await windowHandles(browser);
-    } catch {
-      return;
+    } catch (error) {
+      if (SESSION_GONE.test(String(error?.message ?? error))) return;
+      throw error;
     }
     if (handles.length === 0) return;
     if (Date.now() >= until) {

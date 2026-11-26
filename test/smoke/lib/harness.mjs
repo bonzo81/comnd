@@ -683,6 +683,19 @@ async function bootApp(dataDir, suite) {
   return { driver: started.driver, browser, display: started.display, driverLog: started.driverLog, timings };
 }
 
+/**
+ * Errors that prove a WebDriver session is gone because the browser it drove
+ * went away: WebDriver's `invalid session id` (the native driver reports the
+ * browser closing its connection), `no such window` and `no such session`.
+ *
+ * Transport failures (`ECONNRESET`, `ECONNREFUSED`, a socket hang-up) are
+ * deliberately absent: the driver dying looks identical from here whether the
+ * app closed or the harness broke, so a scenario asserting that the window
+ * closed must not accept them. `shutdownApp` does tolerate them, because there
+ * it only has to avoid masking the scenario's own failure.
+ */
+export const SESSION_GONE = /invalid session id|no such window|no such session/i;
+
 /** Tear down one boot: the suite's teardown, then the session, the driver and the display. */
 async function shutdownApp({ driver, browser, display }, teardown) {
   let cleanupError;
@@ -706,8 +719,13 @@ async function shutdownApp({ driver, browser, display }, teardown) {
       // between the teardown command and this DELETE (UND_ERR_CLOSED), and the
       // driver kill that follows ends any session that was still open. A
       // scenario that quits through the window leaves W3C's `invalid session id`
-      // behind, and the app is gone either way.
-      const alreadyGone = /no such window|no such session|invalid session id|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up/i;
+      // behind, and the app is gone either way. Transport errors are tolerated
+      // here, unlike in a closure assertion, because the only cost is a session
+      // the kill below ends anyway.
+      const alreadyGone = new RegExp(
+        `${SESSION_GONE.source}|UND_ERR_CLOSED|UND_ERR_SOCKET|ECONNRESET|ECONNREFUSED|socket hang up`,
+        "i",
+      );
       if (!alreadyGone.test(String(caught?.message ?? caught))) cleanupError = caught;
     }
     timings.close = Date.now() - closeStarted;
