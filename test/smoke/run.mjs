@@ -2979,7 +2979,7 @@ async function main() {
           tabBar: !!document.querySelector(".session-tab-bar"),
           topbar: !!document.querySelector(".tv-topbar"),
           statusbar: !!document.querySelector(".tv-statusbar"),
-          probeSurvived: window.__chromeProbe?.dataset.probe === "1",
+          probeSurvived: window.__chromeProbe === document.querySelector(".session-tab"),
           liveRole: document.querySelector(".tv-live-status")?.getAttribute("role"),
           liveText: document.querySelector(".tv-live-status")?.textContent ?? "",
         }));
@@ -3189,6 +3189,19 @@ async function main() {
           browser,
           () => document.querySelector(".tv-panel-btn")?.getAttribute("aria-expanded") === "false",
           "Terminal chrome: the icon-only panel button did not close the panel",
+        );
+
+        // A menu opened over the terminal must not outlive that view: its items
+        // would still act on the hidden terminal. Mod+, switches to Settings,
+        // whose global listener runs while the menu owns focus.
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not open before leaving the terminal");
+        await sendKeys(browser, ["\uE009", ",", "\uE000"]);
+        await waitFor(
+          browser,
+          () => !!document.querySelector(".settings-nav-item")
+            && !document.querySelector("#tv-control-menu"),
+          "Terminal chrome: leaving the terminal view left the controls menu open",
         );
       },
     },

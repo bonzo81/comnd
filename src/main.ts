@@ -897,6 +897,10 @@ class App {
   }
 
   private showView(view: AppView) {
+    // A menu opened over the terminal must not outlive that view: its items
+    // would still act on the hidden terminal. Focus is not restored because
+    // the trigger is about to be hidden.
+    if (view !== "terminal") this.closeTerminalControlsMenu(false);
     this.currentView = view;
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
