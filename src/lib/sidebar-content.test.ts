@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SidebarContent, wireExampleCopy } from "./sidebar-content";
+import {
+  SidebarContent,
+  wireExampleCopy,
+  wireReferenceLink,
+} from "./sidebar-content";
+import { openUrl } from "./tauri-api";
+import { showToast } from "./toast";
 import type { Command } from "./tauri-api";
 import { command } from "../../tests/harness";
+
+vi.mock("./tauri-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tauri-api")>();
+  return { ...actual, openUrl: vi.fn() };
+});
+
+vi.mock("./toast", () => ({ showToast: vi.fn() }));
 
 /** These fixtures are about `reload`; the shared factory supplies the rest. */
 const makeCommand = (over: Partial<Command> = {}): Command =>
@@ -96,5 +109,65 @@ describe("wireExampleCopy", () => {
     btn.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe("SidebarContent reference link", () => {
+  it("renders the docs link as a button carrying the platform URL", () => {
+    const root = document.createElement("div");
+    root.innerHTML = new SidebarContent().render(makeCommand(), "https://example.test/kb");
+
+    const link = root.querySelector<HTMLElement>(".cmd-ref-link");
+    expect(link?.tagName).toBe("BUTTON");
+    expect(link?.textContent).toBe("Documentation ↗");
+    expect(link?.dataset.url).toBe("https://example.test/kb");
+    // No anchor means no default navigation for the WebView to perform.
+    expect(root.querySelector(".cmd-ref-link[href]")).toBeNull();
+  });
+
+  it("renders no link when the platform has no reference URL", () => {
+    const html = new SidebarContent().render(makeCommand(), null);
+
+    expect(html).not.toContain("cmd-ref-link");
+    expect(html).not.toContain("Documentation");
+  });
+});
+
+describe("wireReferenceLink", () => {
+  const url = "https://example.test/kb";
+
+  let root: HTMLElement;
+
+  beforeEach(() => {
+    vi.mocked(openUrl).mockReset().mockResolvedValue(undefined);
+    vi.mocked(showToast).mockReset();
+    root = document.createElement("div");
+    root.innerHTML = `<footer><button type="button" class="cmd-ref-link btn-link" data-url="${url}">Documentation ↗</button></footer>`;
+    wireReferenceLink(root);
+  });
+
+  it("opens the exact URL through openUrl", () => {
+    root.querySelector<HTMLElement>(".cmd-ref-link")!.click();
+
+    expect(openUrl).toHaveBeenCalledWith(url);
+  });
+
+  it("cancels the click's default action", () => {
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    root.querySelector<HTMLElement>(".cmd-ref-link")!.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("reports a failed open instead of swallowing it", async () => {
+    vi.mocked(openUrl).mockRejectedValue(new Error("no browser"));
+    root.querySelector<HTMLElement>(".cmd-ref-link")!.click();
+
+    await vi.waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith(
+        "Could not open the documentation link",
+        "error",
+      );
+    });
   });
 });

@@ -12,7 +12,7 @@
 
 import { escAttr, escHtml } from "./format";
 import { renderReplayTemplate } from "./replay";
-import { SidebarContent, wireExampleCopy } from "./sidebar-content";
+import { SidebarContent, wireExampleCopy, wireReferenceLink } from "./sidebar-content";
 import type { SidePanelSnapshot } from "./side-panel";
 import type {
   NetBoxLinkedInterface,
@@ -60,6 +60,7 @@ export function renderSidePanel(
       });
     });
     wireExampleCopy(root);
+    wireReferenceLink(root);
     return;
   }
 
