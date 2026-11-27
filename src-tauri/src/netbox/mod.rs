@@ -271,6 +271,10 @@ pub struct DeviceSummaryPeer {
 /// Live NetBox summary for one device (issue #177): identity and status,
 /// device type, geography, rack/U position, interface addresses, VLANs,
 /// subnets and cabled peers. Built per fetch and never cached.
+///
+/// The `*_id` fields are the brief nested object's id, used by the frontend to
+/// build NetBox links from the configured base URL. They come from nested
+/// objects the device request already returns, so they cost no extra GET.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceSummary {
     pub netbox_id: u64,
@@ -278,14 +282,25 @@ pub struct DeviceSummary {
     /// Choice value (`active`) and human label (`Active`).
     pub status: String,
     pub status_label: String,
+    /// Tag slugs, matching the tags the synced host list already carries.
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub device_type: Option<String>,
     #[serde(default)]
+    pub device_type_id: Option<u64>,
+    #[serde(default)]
     pub site: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<u64>,
     #[serde(default)]
     pub location: Option<String>,
     #[serde(default)]
+    pub location_id: Option<u64>,
+    #[serde(default)]
     pub rack: Option<String>,
+    #[serde(default)]
+    pub rack_id: Option<u64>,
     #[serde(default)]
     pub position: Option<f64>,
     #[serde(default)]

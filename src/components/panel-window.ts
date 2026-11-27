@@ -68,6 +68,8 @@ export function mountPanelWindow(root: HTMLElement, bridge: PanelWindowBridge): 
     runExample: (command: string) => bridge.send({ type: "run", command }),
     retryNetbox: () => bridge.send({ type: "retry-netbox" }),
     connect: (hostId: string) => bridge.send({ type: "connect", hostId }),
+    switchSession: (sessionId: number) => bridge.send({ type: "switch", sessionId }),
+    openLink: (url: string) => bridge.send({ type: "open-url", url }),
   };
 
   let renderedSnapshot: SidePanelState["snapshot"] | null = null;

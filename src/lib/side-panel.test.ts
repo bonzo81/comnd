@@ -448,7 +448,9 @@ describe("side panel state", () => {
 
     applySidePanelAction({ type: "play", id: "abc" });
     applySidePanelAction({ type: "add" });
-    expect(forwarded).toEqual(["play", "add"]);
+    applySidePanelAction({ type: "switch", sessionId: 7 });
+    applySidePanelAction({ type: "open-url", url: "https://nb.example.com/dcim/devices/201/" });
+    expect(forwarded).toEqual(["play", "add", "switch", "open-url"]);
 
     applySidePanelAction({ type: "dock" });
     // The write and the window effect are queued, so they run over a few ticks.

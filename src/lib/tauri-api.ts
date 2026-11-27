@@ -855,10 +855,16 @@ export interface NetBoxDeviceSummary {
   name: string;
   status: string;
   status_label: string;
+  /** Tag slugs, matching the tags the synced host list carries. */
+  tags: string[];
   device_type: string | null;
+  device_type_id: number | null;
   site: string | null;
+  site_id: number | null;
   location: string | null;
+  location_id: number | null;
   rack: string | null;
+  rack_id: number | null;
   position: number | null;
   face: string | null;
   primary_ip: string | null;

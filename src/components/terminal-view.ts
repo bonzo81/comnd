@@ -39,6 +39,7 @@ import { GhostText } from "../lib/ghost-text";
 import {
   DOCKED_WIDTH_MAX,
   DOCKED_WIDTH_MIN,
+  applySidePanelAction,
   clearSidePanelNetboxHost,
   closeSidePanel,
   getSidePanelState,
@@ -811,6 +812,10 @@ export class TerminalView {
       runExample: (command) => this.runExampleCommand(command),
       retryNetbox: () => retrySidePanelNetbox(),
       connect: (hostId) => this.onConnectHostCb(hostId),
+      // The main window owns tabs and external navigation; routing these as
+      // actions keeps the docked and undocked homes on one path.
+      switchSession: (sessionId) => applySidePanelAction({ type: "switch", sessionId }),
+      openLink: (url) => applySidePanelAction({ type: "open-url", url }),
     };
     this.panelUnsubscribe = subscribeSidePanel((state) => this.applyPanelState(state));
     this.applyPanelState(getSidePanelState());

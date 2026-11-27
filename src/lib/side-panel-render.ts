@@ -14,14 +14,13 @@ import { escAttr, escHtml } from "./format";
 import { renderReplayTemplate } from "./replay";
 import { SidebarContent, wireExampleCopy } from "./sidebar-content";
 import type { SidePanelSnapshot } from "./side-panel";
-import type { NetBoxResolvedPeer } from "./netbox-peer";
 import type {
-  NetBoxDeviceInterface,
-  NetBoxDeviceSubnet,
-  NetBoxDeviceSummary,
-  NetBoxDeviceVlan,
-  ReplayCommand,
-} from "./tauri-api";
+  NetBoxLinkedInterface,
+  NetBoxLinkedPeer,
+  NetBoxLinkedSubnet,
+  NetBoxLinkedVlan,
+} from "./netbox-url";
+import type { NetBoxDeviceSummary, ReplayCommand } from "./tauri-api";
 
 export interface SidePanelHandlers {
   /** Insert a saved replay command into the live session. */
@@ -34,6 +33,10 @@ export interface SidePanelHandlers {
   retryNetbox: () => void;
   /** Open a session to a cabled peer that matches a Comnd host. */
   connect: (hostId: string) => void;
+  /** Bring an already-live session to the front instead of connecting again. */
+  switchSession: (sessionId: number) => void;
+  /** Open a NetBox page through `openUrl`, never by navigating the WebView. */
+  openLink: (url: string) => void;
 }
 
 const sidebarContent = new SidebarContent();
@@ -81,6 +84,18 @@ export function renderSidePanel(
         if (hostId) handlers.connect(hostId);
       });
     });
+    root.querySelectorAll<HTMLButtonElement>(".nbd-switch").forEach((button) => {
+      button.addEventListener("click", () => {
+        const sessionId = Number(button.dataset.sessionId);
+        if (Number.isInteger(sessionId)) handlers.switchSession(sessionId);
+      });
+    });
+    root.querySelectorAll<HTMLButtonElement>(".nbd-link").forEach((button) => {
+      button.addEventListener("click", () => {
+        const url = button.dataset.url;
+        if (url) handlers.openLink(url);
+      });
+    });
     return;
   }
 
@@ -121,11 +136,15 @@ function netboxMarkup(snapshot: NetboxSnapshot): string {
 
   const summary = snapshot.summary;
   const facts: string[] = [];
-  if (summary.device_type) facts.push(netboxFact("Device type", summary.device_type));
-  if (summary.site) facts.push(netboxFact("Site", summary.site));
-  if (summary.location) facts.push(netboxFact("Location", summary.location));
+  if (summary.device_type) {
+    facts.push(netboxFact("Device type", summary.device_type, summary.device_type_url));
+  }
+  if (summary.site) facts.push(netboxFact("Site", summary.site, summary.site_url));
+  if (summary.location) {
+    facts.push(netboxFact("Location", summary.location, summary.location_url));
+  }
   const rack = rackText(summary);
-  if (rack) facts.push(netboxFact("Rack / U", rack));
+  if (rack) facts.push(netboxFact("Rack / U", rack, summary.rack_url));
   if (summary.primary_ip) facts.push(netboxFact("Primary IP", summary.primary_ip));
 
   const interfaces =
@@ -137,11 +156,12 @@ function netboxMarkup(snapshot: NetboxSnapshot): string {
     <div class="nbd">
       <div class="nbd-band">
         <div class="nbd-identity">
-          <h3 class="nbd-name">${escHtml(summary.name)}</h3>
+          <h3 class="nbd-name">${netboxLink(summary.name, summary.url, `Open device ${summary.name} in NetBox`)}</h3>
           ${summary.status_label
             ? `<span class="nbd-status" data-status="${escHtml(summary.status)}">${escHtml(summary.status_label)}</span>`
             : ""}
         </div>
+        ${tagMarkup(summary.tags)}
       </div>
       ${facts.length > 0 ? `<dl class="nbd-facts">${facts.join("")}</dl>` : ""}
       <section class="nbd-section" aria-label="Interfaces">
@@ -164,8 +184,26 @@ function netboxMarkup(snapshot: NetboxSnapshot): string {
   `;
 }
 
-function netboxFact(key: string, value: string): string {
-  return `<div class="nbd-fact"><dt>${escHtml(key)}</dt><dd>${escHtml(value)}</dd></div>`;
+/**
+ * A link button, or escaped plain text when no URL is available. The control
+ * is a button so the WebView can never navigate away from the app; `openUrl`
+ * is the only external-navigation route.
+ */
+function netboxLink(text: string, url: string | null, accessibleName: string): string {
+  if (!url) return escHtml(text);
+  return `<button type="button" class="nbd-link" data-url="${escAttr(url)}" aria-label="${escAttr(accessibleName)}">${escHtml(text)}</button>`;
+}
+
+function netboxFact(key: string, value: string, url: string | null = null): string {
+  return `<div class="nbd-fact"><dt>${escHtml(key)}</dt><dd>${netboxLink(value, url, `Open ${key} ${value} in NetBox`)}</dd></div>`;
+}
+
+/** NetBox tags as the same pill the host rows use; an empty list renders nothing. */
+function tagMarkup(tags: readonly string[]): string {
+  if (tags.length === 0) return "";
+  return `<ul class="nbd-tags" aria-label="Tags">${tags
+    .map((tag) => `<li class="hs-tag">${escHtml(tag)}</li>`)
+    .join("")}</ul>`;
 }
 
 /** "rack-1 · U12 · front"; a missing rack or position simply drops that part. */
@@ -182,7 +220,7 @@ function rackText(summary: NetBoxDeviceSummary): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-function interfaceMarkup(iface: NetBoxDeviceInterface): string {
+function interfaceMarkup(iface: NetBoxLinkedInterface): string {
   const addresses = iface.addresses
     .map(
       (address) => `
@@ -193,18 +231,18 @@ function interfaceMarkup(iface: NetBoxDeviceInterface): string {
     .join("");
   return `
     <div class="nbd-iface" data-interface-id="${iface.id}">
-      <div class="nbd-iface-name">${escHtml(iface.name)}</div>
+      <div class="nbd-iface-name">${netboxLink(iface.name, iface.url, `Open interface ${iface.name} in NetBox`)}</div>
       <ul class="nbd-addresses">${addresses}</ul>
     </div>
   `;
 }
 
 /** VLANs grouped by their VLAN group id, labelled with the group name. */
-function vlanMarkup(vlans: NetBoxDeviceVlan[]): string {
+function vlanMarkup(vlans: NetBoxLinkedVlan[]): string {
   if (vlans.length === 0) return `<p class="sb-placeholder">No VLANs.</p>`;
   // Names are only unique within a scope, so the id is the key. Two groups
   // that happen to share a name stay two sections.
-  const groups = new Map<string, { label: string; vlans: NetBoxDeviceVlan[] }>();
+  const groups = new Map<string, { label: string; vlans: NetBoxLinkedVlan[] }>();
   for (const vlan of vlans) {
     const key = vlan.group_id != null ? `id:${vlan.group_id}` : "none";
     const entry = groups.get(key) ?? { label: vlan.group ?? "No group", vlans: [] };
@@ -222,7 +260,7 @@ function vlanMarkup(vlans: NetBoxDeviceVlan[]): string {
               (vlan) => `
             <li class="nbd-vlan" data-vlan-id="${vlan.id}">
               <span class="nbd-vlan-vid">${vlan.vid}</span>
-              <span class="nbd-vlan-name">${escHtml(vlan.name)}</span>
+              <span class="nbd-vlan-name">${netboxLink(vlan.name, vlan.url, `Open VLAN ${vlan.name} in NetBox`)}</span>
             </li>`,
             )
             .join("")}
@@ -234,7 +272,7 @@ function vlanMarkup(vlans: NetBoxDeviceVlan[]): string {
 }
 
 /** One list: both sources are already deduplicated by prefix id. */
-function subnetMarkup(subnets: NetBoxDeviceSubnet[]): string {
+function subnetMarkup(subnets: NetBoxLinkedSubnet[]): string {
   if (subnets.length === 0) return `<p class="sb-placeholder">No subnets.</p>`;
   return `
     <ul class="nbd-subnets">
@@ -242,7 +280,7 @@ function subnetMarkup(subnets: NetBoxDeviceSubnet[]): string {
         .map(
           (subnet) => `
         <li class="nbd-subnet" data-subnet-id="${subnet.id}">
-          <span class="nbd-subnet-prefix">${escHtml(subnet.prefix)}</span>
+          <span class="nbd-subnet-prefix">${netboxLink(subnet.prefix, subnet.url, `Open prefix ${subnet.prefix} in NetBox`)}</span>
           ${subnet.vrf ? `<span class="nbd-vrf">${escHtml(subnet.vrf)}</span>` : ""}
         </li>`,
         )
@@ -252,11 +290,12 @@ function subnetMarkup(subnets: NetBoxDeviceSubnet[]): string {
 }
 
 /**
- * Matched peers get a Connect button; unmatched peers are plain text. Both the
- * host id and its label came from the main window, so neither home looks
- * anything up here.
+ * Peers always link to their NetBox page when a base URL is configured. A
+ * matched host with a live session shows Switch (that exact tab); a matched
+ * host without one shows Connect; an unmatched peer is plain text apart from
+ * its link. Both homes receive the already-resolved values.
  */
-function peerMarkup(peers: NetBoxResolvedPeer[]): string {
+function peerMarkup(peers: NetBoxLinkedPeer[]): string {
   if (peers.length === 0) return `<p class="sb-placeholder">No connected devices.</p>`;
   return `
     <ul class="nbd-peers">
@@ -264,15 +303,22 @@ function peerMarkup(peers: NetBoxResolvedPeer[]): string {
         .map(
           (peer) => `
         <li class="nbd-peer" data-peer-id="${peer.netbox_id}">
-          <span class="nbd-peer-name">${escHtml(peer.name)}</span>
-          ${peer.hostId
-            ? `<button type="button" class="btn-secondary btn-small nbd-connect" data-host-id="${escAttr(peer.hostId)}" aria-label="Connect to ${escAttr(peer.label ?? peer.name)}">Connect</button>`
-            : ""}
+          <span class="nbd-peer-name">${netboxLink(peer.name, peer.url, `Open device ${peer.name} in NetBox`)}</span>
+          ${peerActionMarkup(peer)}
         </li>`,
         )
         .join("")}
     </ul>
   `;
+}
+
+function peerActionMarkup(peer: NetBoxLinkedPeer): string {
+  if (peer.sessionId != null) {
+    const label = peer.sessionLabel ?? peer.label ?? peer.name;
+    return `<button type="button" class="btn-secondary btn-small nbd-switch" data-session-id="${peer.sessionId}" aria-label="Switch to ${escAttr(label)}">Switch</button>`;
+  }
+  if (!peer.hostId) return "";
+  return `<button type="button" class="btn-secondary btn-small nbd-connect" data-host-id="${escAttr(peer.hostId)}" aria-label="Connect to ${escAttr(peer.label ?? peer.name)}">Connect</button>`;
 }
 
 function replayMarkup(items: ReplayCommand[], platform: string): string {

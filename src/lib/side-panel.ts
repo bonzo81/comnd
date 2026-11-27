@@ -24,8 +24,9 @@ import type {
   PanelConfig,
   ReplayCommand,
 } from "./tauri-api";
-import type { NetBoxPeerMatch, NetBoxResolvedPeer } from "./netbox-peer";
+import type { NetBoxPeerMatch, NetBoxPeerSession, NetBoxResolvedPeer } from "./netbox-peer";
 import {
+  netboxGetConfig,
   netboxGetDeviceSummary,
   panelClose,
   panelGetState,
@@ -33,17 +34,17 @@ import {
   panelSetDockedWidth,
   panelSetUndocked,
 } from "./tauri-api";
+import { linkNetboxSummary, netboxBaseUrl, type NetBoxLinkedSummary } from "./netbox-url";
 import { isNetboxHostId } from "./netbox-host";
 
 export type SidePanelMode = "kb" | "replay" | "netbox";
 
 /** What the panel is currently about. Raw command data, never markup, so both
  *  homes run the same renderer over the same value and cannot drift. The
- *  NetBox summary already has its peers resolved against Comnd's hosts, so the
- *  undocked window never needs the host list. */
-export type NetBoxResolvedSummary = Omit<NetBoxDeviceSummary, "peers"> & {
-  peers: NetBoxResolvedPeer[];
-};
+ *  NetBox summary already has its peers resolved against Comnd's hosts, its
+ *  live sessions named, and every link composed from the configured base URL,
+ *  so the undocked window never needs the host list or app config. */
+export type NetBoxResolvedSummary = NetBoxLinkedSummary;
 
 export type SidePanelSnapshot =
   | { kind: "detail"; command: Command; referenceUrl: string | null }
@@ -79,6 +80,8 @@ export type SidePanelAction =
   | { type: "mode"; mode: SidePanelMode }
   | { type: "retry-netbox" }
   | { type: "connect"; hostId: string }
+  | { type: "switch"; sessionId: number }
+  | { type: "open-url"; url: string }
   | { type: "play"; id: string }
   | { type: "add" }
   | { type: "run"; command: string };
@@ -96,6 +99,11 @@ export interface SidePanelDeps {
    *  window, which owns the host list; the renderer and the undocked window
    *  never receive a lookup callback. */
   resolvePeerHost: (peer: NetBoxDevicePeer) => NetBoxPeerMatch | null;
+  /** The live session for a matched host, with the tab bar's label. Supplied
+   *  by the main window, which owns the tabs; null keeps the peer on Connect. */
+  resolvePeerSession: (hostId: string) => NetBoxPeerSession | null;
+  /** The configured NetBox base URL, or null when NetBox is not configured. */
+  getNetboxBaseUrl: () => Promise<string | null>;
   /** Mirror the state into the undocked window. Called only when it is both
    *  open and undocked, so no IPC happens for the docked home. */
   publish: (state: SidePanelState) => void;
@@ -119,6 +127,14 @@ const defaultDeps: SidePanelDeps = {
   closeWindow: panelClose,
   loadNetbox: netboxGetDeviceSummary,
   resolvePeerHost: () => null,
+  resolvePeerSession: () => null,
+  getNetboxBaseUrl: async () => {
+    try {
+      return (await netboxGetConfig()).config.base_url;
+    } catch {
+      return null;
+    }
+  },
   publish: () => {},
 };
 
@@ -134,6 +150,15 @@ const actionListeners = new Set<(action: SidePanelAction) => void>();
 let widthTimer: ReturnType<typeof setTimeout> | null = null;
 /** Invalidates a NetBox fetch whose subject changed (host or tab switch). */
 let netboxSeq = 0;
+/**
+ * The raw summary behind the ready snapshot, kept so a live-session change can
+ * re-resolve peers and Switch/Connect labels without a second network fetch.
+ */
+let lastNetbox: {
+  hostId: string;
+  summary: NetBoxDeviceSummary;
+  baseUrl: string | null;
+} | null = null;
 /**
  * View that published the NetBox subject. The host id is not enough: two
  * duplicate sessions can share one id, so the outgoing view's clear must not
@@ -402,8 +427,9 @@ function errorMessage(error: unknown): string {
 /**
  * Fetch the active NetBox host's summary. Every call replaces the pane with a
  * loading snapshot first, so a failure can never leave the previous device's
- * values on screen, and each selection costs exactly the backend's two GETs.
- * A response for a superseded host, tab or selection is dropped.
+ * values on screen, and each selection costs the backend's fixed GETs plus one
+ * local config read. A response for a superseded host, tab or selection is
+ * dropped.
  */
 async function refreshNetbox(): Promise<void> {
   const hostId = state.netboxHostId;
@@ -411,9 +437,19 @@ async function refreshNetbox(): Promise<void> {
   const seq = ++netboxSeq;
   setSidePanelSnapshot({ kind: "netbox", hostId, phase: "loading" });
   try {
-    const summary = resolveNetboxPeers(await deps.loadNetbox(hostId));
+    const [summary, rawBaseUrl] = await Promise.all([
+      deps.loadNetbox(hostId),
+      deps.getNetboxBaseUrl().catch(() => null),
+    ]);
     if (seq !== netboxSeq || state.netboxHostId !== hostId || state.mode !== "netbox") return;
-    setSidePanelSnapshot({ kind: "netbox", hostId, phase: "ready", summary });
+    const baseUrl = netboxBaseUrl(rawBaseUrl);
+    lastNetbox = { hostId, summary, baseUrl };
+    setSidePanelSnapshot({
+      kind: "netbox",
+      hostId,
+      phase: "ready",
+      summary: resolveNetboxSummary(summary, baseUrl),
+    });
   } catch (error) {
     if (seq !== netboxSeq || state.netboxHostId !== hostId || state.mode !== "netbox") return;
     setSidePanelSnapshot({
@@ -426,22 +462,52 @@ async function refreshNetbox(): Promise<void> {
 }
 
 /**
- * Resolve cabled peers against Comnd's hosts before the snapshot is stored or
- * published. The undocked window renders only what it receives, so it must not
- * need the host list; an unmatched peer carries nulls and renders as text.
+ * Resolve cabled peers against Comnd's hosts and live tabs, then compose every
+ * NetBox link from the configured base URL. The undocked window renders only
+ * what it receives, so it must not need the host list, the tab list or config;
+ * an unmatched peer carries nulls and renders as text.
  */
-function resolveNetboxPeers(summary: NetBoxDeviceSummary): NetBoxResolvedSummary {
-  return {
-    ...summary,
-    peers: summary.peers.map((peer) => {
-      const match = deps.resolvePeerHost(peer);
-      return {
-        ...peer,
-        hostId: match?.hostId ?? null,
-        label: match?.label ?? null,
-      };
-    }),
-  };
+function resolveNetboxSummary(
+  summary: NetBoxDeviceSummary,
+  baseUrl: string | null,
+): NetBoxResolvedSummary {
+  const peers: NetBoxResolvedPeer[] = summary.peers.map((peer) => {
+    const match = deps.resolvePeerHost(peer);
+    const session = match ? deps.resolvePeerSession(match.hostId) : null;
+    return {
+      ...peer,
+      hostId: match?.hostId ?? null,
+      label: match?.label ?? null,
+      sessionId: session?.sessionId ?? null,
+      sessionLabel: session?.label ?? null,
+    };
+  });
+  return linkNetboxSummary(summary, baseUrl, peers);
+}
+
+/**
+ * A tab opened, closed or died while the NetBox tab kept its subject. Rebuild
+ * the ready snapshot from the cached raw summary so a peer whose session went
+ * away falls back from Switch to Connect (and vice versa) without a refetch.
+ * A different host or a loading/error pane is left alone.
+ */
+export function notifySidePanelSessionsChanged(): void {
+  const cached = lastNetbox;
+  const snapshot = state.snapshot;
+  if (!cached || state.mode !== "netbox") return;
+  if (
+    snapshot.kind !== "netbox" ||
+    snapshot.phase !== "ready" ||
+    snapshot.hostId !== cached.hostId
+  ) {
+    return;
+  }
+  setSidePanelSnapshot({
+    kind: "netbox",
+    hostId: cached.hostId,
+    phase: "ready",
+    summary: resolveNetboxSummary(cached.summary, cached.baseUrl),
+  });
 }
 
 /** Retry from the docked home; both homes share this one fetch. */
@@ -563,6 +629,8 @@ export function applySidePanelAction(action: SidePanelAction): void {
       void refreshNetbox();
       return;
     case "connect":
+    case "switch":
+    case "open-url":
     case "play":
     case "add":
     case "run":
@@ -588,6 +656,7 @@ export function __resetSidePanel(): void {
   persistedHome = false;
   requestedHome = null;
   netboxSeq = 0;
+  lastNetbox = null;
   publishedNetboxOwner = null;
   state = initialState();
 }

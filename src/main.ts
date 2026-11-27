@@ -27,7 +27,7 @@ import {
   type SessionLifecycle,
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
-import { getAppConfig, setDuplicateSessionPolicy } from "./lib/tauri-api";
+import { getAppConfig, openUrl, setDuplicateSessionPolicy } from "./lib/tauri-api";
 import { getAppTheme, setAppTheme } from "./lib/theme";
 import {
   isReadingComfortEnabled, enable as rcEnable, disable as rcDisable,
@@ -37,9 +37,11 @@ import {
 import { startApp } from "./lib/app-startup";
 import {
   applySidePanelAction, closeSidePanel, cycleSidePanel, flushSidePanelWidth,
-  getSidePanelState, handlePanelWindowClosed, initSidePanel, type SidePanelAction,
+  getSidePanelState, handlePanelWindowClosed, initSidePanel,
+  notifySidePanelSessionsChanged, onSidePanelAction, type SidePanelAction,
 } from "./lib/side-panel";
-import { resolvePeerHost as matchNetboxPeerHost } from "./lib/netbox-peer";
+import { resolvePeerHost as matchNetboxPeerHost, type NetBoxPeerSession } from "./lib/netbox-peer";
+import { sessionTabLabels } from "./lib/session-label";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
   formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
@@ -1037,6 +1039,30 @@ class App {
     this.showView("terminal");
   }
 
+  /**
+   * The live session for a NetBox peer's matched host, named exactly as its
+   * tab. Oldest live session wins, matching `focusExistingSession`; no live
+   * session means the panel keeps offering Connect.
+   */
+  private sessionLabelForHost(hostId: string): NetBoxPeerSession | null {
+    const tabs = [...this.tabs.values()];
+    const live = tabs.find(
+      (tab) => tab.host.id === hostId && isLiveSession(tab.view.connectionStatus),
+    );
+    if (!live) return null;
+    const labels = sessionTabLabels(
+      tabs.map((tab) => ({
+        sessionId: tab.sessionId,
+        hostId: tab.host.id,
+        displayName: tab.host.display_name,
+      })),
+    );
+    return {
+      sessionId: live.sessionId,
+      label: labels.get(live.sessionId)?.accessibleLabel ?? live.host.display_name,
+    };
+  }
+
   /** Create an independent session and its own tab. */
   private openSession(host: Host) {
     // The tab is keyed by the session id, so it must exist before the view.
@@ -1058,7 +1084,13 @@ class App {
     );
     // Failed attempts keep their tab open for Retry but hold no SSH session,
     // so the status bar must follow each transition, not just tab add/remove.
-    view.onStatusChange = () => this.refreshStatusBar();
+    // The NetBox peer action follows the same transitions: a session that
+    // drops while its tab stays open must stop offering Switch, and a Retry
+    // that reconnects must offer it again.
+    view.onStatusChange = () => {
+      this.refreshStatusBar();
+      notifySidePanelSessionsChanged();
+    };
     view.mount(wrapper);
 
     this.tabs.set(sessionId, { sessionId, host, view, wrapper });
@@ -1165,6 +1197,9 @@ class App {
     this.renderSessionTabBar();
     this.refreshStatusBar();
     void this.hostScreen.refresh();
+    // A peer's session may have just closed while the NetBox tab kept its
+    // subject; rebuild Switch/Connect labels without a network refetch.
+    notifySidePanelSessionsChanged();
     // The panel shows the active session; with no session left it has no
     // subject, so its window goes too (docked or not).
     if (this.tabs.size === 0) closeSidePanel();
@@ -1192,18 +1227,19 @@ class App {
 
     // Duplicate sessions to one host share a visible label by design, so the
     // accessible name carries the position instead — it still contains the
-    // visible text, keeping WCAG 2.5.3 "label in name" intact.
-    const perHost = new Map<string, number>();
-    for (const tab of this.tabs.values()) {
-      perHost.set(tab.host.id, (perHost.get(tab.host.id) ?? 0) + 1);
-    }
-    const hostIndex = new Map<string, number>();
+    // visible text, keeping WCAG 2.5.3 "label in name" intact. The NetBox tab's
+    // Switch control reuses the same label.
+    const labels = sessionTabLabels(
+      [...this.tabs.values()].map((tab) => ({
+        sessionId: tab.sessionId,
+        hostId: tab.host.id,
+        displayName: tab.host.display_name,
+      })),
+    );
 
     for (const [sessionId, tab] of this.tabs) {
-      const hostTotal = perHost.get(tab.host.id) ?? 1;
-      const index = (hostIndex.get(tab.host.id) ?? 0) + 1;
-      hostIndex.set(tab.host.id, index);
-      const sessionSuffix = hostTotal > 1 ? `, session ${index} of ${hostTotal}` : "";
+      const naming = labels.get(sessionId)!;
+      const sessionSuffix = naming.suffix;
 
       const el = document.createElement("div");
       el.className = "session-tab" + (sessionId === this.activeTabId ? " active" : "");
@@ -1211,7 +1247,7 @@ class App {
       el.dataset.hostId = tab.host.id;
       el.setAttribute("role", "tab");
       if (sessionSuffix) {
-        el.setAttribute("aria-label", `${tab.host.display_name}${sessionSuffix}`);
+        el.setAttribute("aria-label", naming.accessibleLabel);
       }
       el.setAttribute("aria-selected", String(sessionId === this.activeTabId));
       el.tabIndex = 0;
@@ -1226,13 +1262,13 @@ class App {
       label.className = "session-tab-label";
       // Duplicate sessions to one host share the same label — the tab bar
       // does not disambiguate them.
-      label.textContent = tab.host.display_name;
+      label.textContent = naming.label;
 
       const close = document.createElement("button");
       close.className = "session-tab-close";
       close.textContent = "×";
-      close.setAttribute("aria-label", `Close session ${tab.host.display_name}${sessionSuffix}`);
-      close.title = `Close session ${tab.host.display_name}${sessionSuffix}`;
+      close.setAttribute("aria-label", `Close session ${naming.accessibleLabel}`);
+      close.title = `Close session ${naming.accessibleLabel}`;
       close.addEventListener("click", (e) => {
         e.stopPropagation();
         this.closeTab(sessionId);
@@ -1320,6 +1356,9 @@ class App {
       // The main window owns the host list; the undocked window renders only
       // the resolved hostId/label that this resolver puts in the snapshot.
       resolvePeerHost: (peer) => matchNetboxPeerHost(peer, this.navPanel.getHosts()),
+      // Same for live sessions: the panel carries the exact session id and
+      // the tab bar's label, so Switch never has to look anything up.
+      resolvePeerSession: (hostId) => this.sessionLabelForHost(hostId),
     }).then(() => {
       // An undocked panel window may have been created while we booted.
       this.publishPanelState();
@@ -1327,6 +1366,14 @@ class App {
 
     void listen<SidePanelAction>("comnd:panel-action", (event) => {
       this.onPanelAction(event.payload);
+    });
+
+    // The docked home routes the same new interactions through
+    // applySidePanelAction; handle them in one place so both homes agree.
+    onSidePanelAction((action) => {
+      if (action.type === "switch" || action.type === "open-url") {
+        this.onPanelAction(action);
+      }
     });
 
     // The panel window's own close button (and Escape) end in Rust
@@ -1372,6 +1419,16 @@ class App {
     switch (action.type) {
       case "connect":
         this.connectHostById(action.hostId);
+        return;
+      case "switch":
+        // An exact existing tab, never a second session to the same device.
+        if (!this.tabs.has(action.sessionId)) return;
+        this.activateTab(action.sessionId);
+        this.showView("terminal");
+        return;
+      case "open-url":
+        // External navigation is the main window's command, in both homes.
+        openUrl(action.url).catch(() => {});
         return;
       case "play":
         this.activeView()?.playReplayById(action.id);

@@ -19,6 +19,39 @@
   gap: var(--space-2);
 }
 
+/* Tags reuse the host rows' `.hs-tag` pill; only the wrapping container is
+   local, because the panel shows every tag rather than the host row's three. */
+.nbd-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* An in-app button that reads as a link: external navigation goes through
+   openUrl, never a WebView anchor. Underline carries the affordance without
+   hover. */
+.nbd-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: var(--space-0-5);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.nbd-link:hover {
+  text-decoration-thickness: var(--space-0-5);
+}
+
 .nbd-name {
   margin: 0;
   color: var(--color-text-primary);
@@ -283,6 +316,7 @@
   overflow-wrap: anywhere;
 }
 
-.nbd-connect {
+.nbd-connect,
+.nbd-switch {
   flex: none;
 }

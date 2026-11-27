@@ -27,6 +27,16 @@ export interface NetBoxPeerMatch {
 export interface NetBoxResolvedPeer extends NetBoxDevicePeer {
   hostId: string | null;
   label: string | null;
+  /** The live Comnd session for `hostId`, or null when the peer is not open. */
+  sessionId: number | null;
+  /** The tab bar's accessible label for that session, duplicates included. */
+  sessionLabel: string | null;
+}
+
+/** The live session a matched peer resolves to, resolved in the main window. */
+export interface NetBoxPeerSession {
+  sessionId: number;
+  label: string;
 }
 
 /**
