@@ -23,7 +23,7 @@ function platformIndexFixture() {
 
 async function mountViewer(
   h: Harness,
-  commands: Command[] | (() => Command[]),
+  commands: Command[] | (() => Command[] | Promise<Command[]>),
 ): Promise<HTMLElement> {
   h.ipc.mock("list_kb_platforms", ["linux-bash"]);
   h.ipc.mock("load_platform_index", platformIndexFixture());
@@ -170,5 +170,73 @@ describe("KbViewerDialog disabled commands", () => {
     );
     expect(el.querySelector("#kb-cmd-ignore-btn")?.getAttribute("aria-label")).toBe("Ignore command");
     expect(el.querySelector("#kb-command-detail [role='status']")).toBeNull();
+  });
+
+  it("does not steal the selection when another command is picked during the reload", async () => {
+    const h = createHarness();
+    const alpha = h.fixtures.command("alpha", { category: "routing" });
+    const beta = h.fixtures.command("beta", { category: "routing" });
+    let commands: Command[] = [alpha, beta];
+    let resolveReload: ((value: Command[]) => void) | null = null;
+    let fetches = 0;
+
+    const el = await mountViewer(h, () => {
+      fetches += 1;
+      if (fetches === 1) return commands;
+      return new Promise<Command[]>((resolve) => {
+        resolveReload = resolve;
+      });
+    });
+    h.ipc.mockImpl("disable_kb_command", () => {
+      commands = commands.map((c) => (c.name === "alpha" ? { ...c, disabled: true } : c));
+    });
+
+    rowFor(el, "alpha").click();
+    el.querySelector<HTMLButtonElement>("#kb-cmd-ignore-btn")!.click();
+    await vi.waitFor(() => expect(h.ipc.calls("disable_kb_command")).toHaveLength(1));
+    await vi.waitFor(() => expect(resolveReload).not.toBeNull());
+
+    rowFor(el, "beta").click();
+    resolveReload!(commands);
+
+    await vi.waitFor(() =>
+      expect(rowFor(el, "alpha").classList.contains("kb-command-ignored")).toBe(true),
+    );
+    expect(el.querySelector(".kb-command-selected")?.textContent).toContain("beta");
+  });
+
+  it("keeps an open edit draft when the reload returns", async () => {
+    const h = createHarness();
+    const alpha = h.fixtures.command("alpha", { category: "routing" });
+    const beta = h.fixtures.command("beta", { category: "routing" });
+    let commands: Command[] = [alpha, beta];
+    let resolveReload: ((value: Command[]) => void) | null = null;
+    let fetches = 0;
+
+    const el = await mountViewer(h, () => {
+      fetches += 1;
+      if (fetches === 1) return commands;
+      return new Promise<Command[]>((resolve) => {
+        resolveReload = resolve;
+      });
+    });
+    h.ipc.mockImpl("disable_kb_command", () => {
+      commands = commands.map((c) => (c.name === "alpha" ? { ...c, disabled: true } : c));
+    });
+
+    rowFor(el, "alpha").click();
+    el.querySelector<HTMLButtonElement>("#kb-cmd-ignore-btn")!.click();
+    await vi.waitFor(() => expect(resolveReload).not.toBeNull());
+
+    rowFor(el, "beta").click();
+    expect(el.querySelector(".kb-command-selected")?.textContent).toContain("beta");
+    el.querySelector<HTMLButtonElement>("#kb-cmd-edit-btn")!.click();
+    expect(el.querySelector(".kb-edit-form")).not.toBeNull();
+
+    resolveReload!(commands);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(el.querySelector(".kb-edit-form")).not.toBeNull();
+    expect(el.querySelector<HTMLInputElement>("#kb-edit-name")?.value).toBe("beta");
   });
 });

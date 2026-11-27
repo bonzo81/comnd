@@ -71,9 +71,14 @@ pub(crate) struct Command {
     pub overrides: bool,
     /// True when the user disabled this command (`_disabled.yaml`). Load-time
     /// computed: the browse query returns these entries so they stay visible
-    /// in place, while the suggestion query excludes them. Stripped from YAML
-    /// writes like `source`/`overrides`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// in place, while the suggestion query excludes them. Never deserialized
+    /// (an authored value must not override `_disabled.yaml`) and stripped
+    /// from YAML writes like `source`/`overrides`.
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub disabled: bool,
 }
 
@@ -573,5 +578,16 @@ default_mode: default
             index.secret_prompt_patterns,
             Some(vec!["^Password:$".into()])
         );
+    }
+
+    #[test]
+    fn authored_disabled_flag_is_ignored() {
+        // `disabled` is computed from `_disabled.yaml`; an authored value in a
+        // command file must not exclude the command from suggestions.
+        let cmd: Command = yaml_serde::from_str(
+            "name: show version\nsyntax: show version\ndescription: x\ncategory: test\nmode: default\ndisabled: true\n",
+        )
+        .unwrap();
+        assert!(!cmd.disabled);
     }
 }

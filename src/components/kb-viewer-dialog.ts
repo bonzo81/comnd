@@ -29,6 +29,7 @@ export class KbViewerDialog {
   private selectedCommand: Command | null = null;
   private platformIndex: PlatformIndex | null = null;
   private editing = false;
+  private editCategory = "";
   private editName = "";
   private editSyntax = "";
   private editDescription = "";
@@ -411,6 +412,7 @@ export class KbViewerDialog {
   private startEdit() {
     const cmd = this.selectedCommand;
     if (!cmd) return;
+    this.editCategory = cmd.category;
     this.editName = cmd.name;
     this.editSyntax = cmd.syntax;
     this.editDescription = cmd.description;
@@ -471,11 +473,19 @@ export class KbViewerDialog {
   private async reloadAfterToggle(name: string) {
     const listEl = this.container?.querySelector<HTMLElement>(".kb-command-list");
     const scrollTop = listEl?.scrollTop ?? 0;
-    this.commands = await getAllKbCommands(this.selectedPlatform);
+    const commands = await getAllKbCommands(this.selectedPlatform);
+    // A slow fetch must not replace the selection of an active edit draft or a
+    // command the user picked while the toggle was in flight. Only restore the
+    // toggled command when it still owns the selection.
+    if (this.editing) return;
+    const ownsSelection = this.selectedCommand?.name === name;
+    const selectedName = this.selectedCommand?.name;
+    this.commands = commands;
     void refreshValidation(this.selectedPlatform);
     this.categorizeCommands();
-    this.applyFilter(name);
+    this.applyFilter(ownsSelection ? name : selectedName);
     this.render();
+    if (!ownsSelection) return;
     const newList = this.container?.querySelector<HTMLElement>(".kb-command-list");
     if (newList) newList.scrollTop = scrollTop;
     this.container?.querySelector<HTMLElement>("#kb-cmd-ignore-btn")?.focus();
@@ -517,7 +527,7 @@ export class KbViewerDialog {
 
     const aliases = aliasesInput?.value.split(",").map(a => a.trim()).filter(a => a) ?? [];
     const tags = tagsInput?.value.split(",").map(t => t.trim()).filter(t => t) ?? [];
-    const category = this.selectedCommand?.category ?? "general";
+    const category = this.editCategory || "general";
     const order = (orderSelect?.value ?? "fixed") as "fixed" | "flags-anywhere" | "free";
 
     let issues: KbValidationIssue[] | null = null;
