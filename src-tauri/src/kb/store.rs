@@ -19,7 +19,7 @@
 //! (`user_files::remove_command`).
 
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::schema::{Command, PlatformIndex};
@@ -82,21 +82,29 @@ impl KbStore {
             }
         }
 
-        // Load deleted + disabled command lists
+        // Deleted commands are removed everywhere (a tombstone is not a
+        // disable). Disabled commands stay in the store carrying `disabled:
+        // true`, so the browse query can list them in place while
+        // `get_all_commands` (the suggestion query) filters them out.
         let deleted_commands = read_deleted_list(&platform_dir);
         let disabled_commands = read_disabled_list(&platform_dir);
 
-        // Filter out deleted and disabled commands
-        commands.retain(|c| {
-            !deleted_commands.contains(&c.name) && !disabled_commands.contains(&c.name)
-        });
+        commands.retain(|c| !deleted_commands.contains(&c.name));
+        for cmd in &mut commands {
+            if disabled_commands.contains(&cmd.name) {
+                cmd.disabled = true;
+            }
+        }
 
         // Sort alphabetically by name
         commands.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         // Validate tokens — log warnings, never fail the load (a single typo
         // should not brick the app). See docs/plans/plan-kb-token-engine.md § 1.1.
-        let issues = validate_platform(&commands);
+        // Disabled commands are excluded from validation, matching the
+        // suggestion query and `validate_kb`.
+        let active: Vec<Command> = commands.iter().filter(|c| !c.disabled).cloned().collect();
+        let issues = validate_platform(&active);
         let errors = issues.iter().filter(|i| i.severity == "error").count();
         let warnings = issues.len() - errors;
         for issue in &issues {
@@ -114,10 +122,11 @@ impl KbStore {
             );
         }
         log::info!(
-            "KB loaded platform '{}': {} commands ({} deleted, {} validation errors, {} warnings)",
+            "KB loaded platform '{}': {} commands ({} deleted, {} disabled, {} validation errors, {} warnings)",
             platform_id,
-            commands.len(),
+            active.len(),
             deleted_commands.len(),
+            disabled_commands.len(),
             errors,
             warnings,
         );
@@ -236,22 +245,27 @@ impl KbManager {
                         }
                     }
 
-                    // Also filter by user KB's deleted + disabled lists
-                    // (catches bundled-only commands)
+                    // Deleted tombstones remove the command from every query.
+                    // Disabled names only set the flag, so the browse query
+                    // keeps the entry in place while the suggestion query
+                    // filters it out.
                     let user_deleted = read_deleted_list(&user_platform_dir);
                     let user_disabled = read_disabled_list(&user_platform_dir);
-                    let hidden: HashSet<String> =
-                        user_deleted.union(&user_disabled).cloned().collect();
-                    if !hidden.is_empty() {
+                    if !user_deleted.is_empty() {
                         let before = store.commands.len();
-                        store.commands.retain(|c| !hidden.contains(&c.name));
+                        store.commands.retain(|c| !user_deleted.contains(&c.name));
                         log::info!(
-                            "Filtered {} hidden commands for '{}' ({} → {})",
-                            hidden.len(),
+                            "Filtered {} deleted commands for '{}' ({} → {})",
+                            user_deleted.len(),
                             platform_id,
                             before,
                             store.commands.len()
                         );
+                    }
+                    for cmd in &mut store.commands {
+                        if user_disabled.contains(&cmd.name) {
+                            cmd.disabled = true;
+                        }
                     }
                 }
             }
@@ -269,9 +283,25 @@ impl KbManager {
         log::info!("KB stores cleared — will reload on next query");
     }
 
-    /// Get all commands for a platform (no filtering — version eligibility
-    /// is filtered in the frontend suggestion engine).
+    /// Commands for the suggestion pipeline: active (not disabled) entries
+    /// only. Version eligibility is filtered in the frontend suggestion engine.
     pub(super) fn get_all_commands(&mut self, platform_id: &str) -> Result<Vec<Command>, String> {
+        let store = self.get_or_load(platform_id)?;
+        Ok(store
+            .commands
+            .iter()
+            .filter(|c| !c.disabled)
+            .cloned()
+            .collect())
+    }
+
+    /// Commands for the KB browser: active and disabled entries, so a disabled
+    /// command stays in its category and position (`disabled: true`). The
+    /// suggestion path must keep using `get_all_commands`, which filters them.
+    pub(super) fn get_all_commands_with_disabled(
+        &mut self,
+        platform_id: &str,
+    ) -> Result<Vec<Command>, String> {
         let store = self.get_or_load(platform_id)?;
         Ok(store.commands.clone())
     }
@@ -292,6 +322,7 @@ impl KbManager {
                 store
                     .commands
                     .iter()
+                    .filter(|c| !c.disabled)
                     .map(|c| c.category.clone())
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
@@ -590,16 +621,26 @@ mod tests {
         let mut mgr = KbManager::with_user_path(bundled.clone(), user.clone());
 
         assert!(mgr
-            .get_or_load("test-plat")
+            .get_all_commands("test-plat")
             .unwrap()
-            .commands
             .iter()
-            .any(|c| c.name == "show version"));
+            .any(|c| c.name == "show version" && !c.disabled));
 
         mgr.disable_command("test-plat", "show version").unwrap();
 
-        let after = mgr.get_or_load("test-plat").unwrap();
-        assert!(!after.commands.iter().any(|c| c.name == "show version"));
+        // Suggestion projection: gone.
+        assert!(!mgr
+            .get_all_commands("test-plat")
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "show version"));
+        // Browse projection: still there, flagged.
+        let browse = mgr.get_all_commands_with_disabled("test-plat").unwrap();
+        let entry = browse
+            .iter()
+            .find(|c| c.name == "show version")
+            .expect("disabled command must stay in the browse set");
+        assert!(entry.disabled);
         assert!(mgr
             .disabled_commands("test-plat")
             .contains(&"show version".to_string()));
@@ -613,19 +654,103 @@ mod tests {
 
         mgr.disable_command("test-plat", "show version").unwrap();
         assert!(!mgr
-            .get_or_load("test-plat")
+            .get_all_commands("test-plat")
             .unwrap()
-            .commands
             .iter()
             .any(|c| c.name == "show version"));
 
         mgr.enable_command("test-plat", "show version").unwrap();
 
-        let after = mgr.get_or_load("test-plat").unwrap();
-        assert!(after.commands.iter().any(|c| c.name == "show version"));
+        assert!(mgr
+            .get_all_commands("test-plat")
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "show version" && !c.disabled));
+        assert!(!mgr
+            .get_all_commands_with_disabled("test-plat")
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "show version" && c.disabled));
         assert!(!mgr
             .disabled_commands("test-plat")
             .contains(&"show version".to_string()));
+    }
+
+    #[test]
+    fn test_disabled_override_keeps_user_version_in_browse() {
+        let dir = TempDir::new("kb-dis-override");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
+        std::fs::create_dir_all(user.join("test-plat/commands")).unwrap();
+        // The user platform needs an index.yaml to be loadable during merge.
+        std::fs::write(user.join("test-plat/index.yaml"), INDEX_YAML).unwrap();
+        std::fs::write(
+            user.join("test-plat/commands/test.yaml"),
+            "commands:\n  - name: show version\n    syntax: show version\n    description: user copy\n    category: test\n    mode: default\n",
+        )
+        .unwrap();
+        std::fs::write(
+            user.join("test-plat/_disabled.yaml"),
+            "disabled:\n  - show version\n",
+        )
+        .unwrap();
+
+        let mut mgr = KbManager::with_user_path(bundled, user);
+        let browse = mgr.get_all_commands_with_disabled("test-plat").unwrap();
+        let entry = browse
+            .iter()
+            .find(|c| c.name == "show version")
+            .expect("disabled override must stay in the browse set");
+        assert!(entry.disabled);
+        assert_eq!(entry.description, "user copy");
+        assert_eq!(entry.source.as_deref(), Some("custom"));
+        assert!(entry.overrides);
+        assert!(!mgr
+            .get_all_commands("test-plat")
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "show version"));
+    }
+
+    #[test]
+    fn test_deleted_command_absent_from_browse_even_if_disabled() {
+        let dir = TempDir::new("kb-dis-del");
+        let (bundled, user) = kb_fixture(&dir, &cmd_yaml("show version", "bundled"), None);
+        let mut mgr = KbManager::with_user_path(bundled, user);
+
+        mgr.disable_command("test-plat", "show version").unwrap();
+        mgr.delete_user_command("test-plat", "test", "show version", false)
+            .unwrap();
+
+        assert!(
+            !mgr.get_all_commands_with_disabled("test-plat")
+                .unwrap()
+                .iter()
+                .any(|c| c.name == "show version"),
+            "a tombstone must not reappear through the browse projection"
+        );
+    }
+
+    #[test]
+    fn test_disabled_command_excluded_from_validation_set() {
+        let dir = TempDir::new("kb-dis-validation");
+        let bad = "commands:\n  - name: show version\n    syntax: show version\n    description: bad\n    category: test\n    mode: default\n    tokens:\n      - lit: \"\"\n";
+        let (bundled, user) = kb_fixture(&dir, bad, None);
+        let mut mgr = KbManager::with_user_path(bundled, user);
+
+        // `validate_kb` validates `get_all_commands`, so this projection is
+        // the set it sees.
+        assert!(
+            validate_platform(&mgr.get_all_commands("test-plat").unwrap())
+                .iter()
+                .any(|i| i.severity == "error")
+        );
+
+        mgr.disable_command("test-plat", "show version").unwrap();
+
+        assert!(
+            validate_platform(&mgr.get_all_commands("test-plat").unwrap()).is_empty(),
+            "disabled commands must stay out of the validation set"
+        );
     }
 
     #[test]

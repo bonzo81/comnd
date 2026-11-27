@@ -773,6 +773,7 @@ fn validate_extracted_command(
         negatable: extracted.negatable,
         source: None,
         overrides: false,
+        disabled: false,
     };
 
     // Phase 5.3: run the validator. Any error-severity issue touching `tokens`

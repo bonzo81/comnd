@@ -39,10 +39,14 @@ export function showToast(message: string, type: "success" | "error" | "info" = 
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
   container.appendChild(toast);
   const remove = () => {
-    if (!document.body.contains(toast)) return;
+    // The timer can outlive the jsdom environment in tests; `document` is
+    // gone by then, so guard it rather than throwing an unhandled error.
+    if (typeof document === "undefined" || !document.body.contains(toast)) return;
     toast.style.opacity = "0";
     toast.style.transition = "opacity 0.3s ease";
-    setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 300);
+    setTimeout(() => {
+      if (typeof document !== "undefined" && document.body.contains(toast)) toast.remove();
+    }, 300);
   };
   setTimeout(remove, duration);
 }
@@ -76,10 +80,12 @@ export function showToastWithAction(
   });
   container.appendChild(toast);
   const remove = () => {
-    if (!document.body.contains(toast)) return;
+    if (typeof document === "undefined" || !document.body.contains(toast)) return;
     toast.style.opacity = "0";
     toast.style.transition = "opacity 0.3s ease";
-    setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 300);
+    setTimeout(() => {
+      if (typeof document !== "undefined" && document.body.contains(toast)) toast.remove();
+    }, 300);
   };
   setTimeout(remove, duration);
 }

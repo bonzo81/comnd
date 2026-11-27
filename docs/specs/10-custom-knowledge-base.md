@@ -99,5 +99,5 @@ Phase 1 is the only behavioural risk (existing user overrides become real); ship
 
 ## Open Questions
 
-* ~~Should the KB viewer offer "restore built-in version" for an overridden command?~~ Resolved: delete is class-aware (docs/plans/plan-kb-ignore-disable.md) — deleting an override removes the user copy and un-tombstones the name so the bundled command resurfaces; no separate restore affordance needed. A non-destructive Ignore/Disable path (`_disabled.yaml`) was added alongside for hiding without destroying data.
+* ~~Should the KB viewer offer "restore built-in version" for an overridden command?~~ Resolved: delete is class-aware (docs/plans/plan-kb-ignore-disable.md) — deleting an override removes the user copy and un-tombstones the name so the bundled command resurfaces; no separate restore affordance needed. A non-destructive Ignore/Disable path (`_disabled.yaml`) was added alongside for hiding without destroying data. Disabled commands stay in their original category and position (struck through and dimmed), the browse query returns them flagged `disabled: true`, and the detail panel toggles Ignore/Enable with a "disabled from suggestions" banner. `query_kb` and `validate_kb` keep seeing the active set only, so suggestions never offer a disabled command.
 * Badge style/placement — designer call, see docs/03.

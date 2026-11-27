@@ -127,6 +127,31 @@ commands:
       - troubleshooting
 ```
 
+### Disabled commands
+
+Ignoring a command in the KB viewer is a non-destructive disable. Its name is
+recorded in `<platform>/_disabled.yaml` in the user KB (format unchanged):
+
+```yaml
+disabled:
+  - show ip route
+```
+
+The loader keeps the command in the merged store with `disabled: true`. The flag
+is computed at load, never authored, and is stripped from YAML writes. Two IPC
+projections then diverge:
+
+* `query_kb` — active commands only. Ghost text and the dropdown never see a
+  disabled command. `validate_kb` validates this same active set.
+* `get_all_kb_commands` — active and disabled commands. The browse list keeps a
+  disabled entry in its original category and position, struck through and
+  dimmed; it stays selectable and searchable, and its detail panel shows a
+  "disabled from suggestions" banner plus an Ignore/Enable toggle.
+
+Deleting is different: `_deleted.yaml` removes the command from both
+projections, because a tombstone is not a disable. If a name is in both lists,
+the delete wins.
+
 ## Token Schema
 
 `tokens` is an ordered list. Each entry is one of four token kinds. Every entry may carry `optional: true` (default `false`). Tokens are matched positionally in `fixed` and `flags-anywhere` order modes (see Order Rules).

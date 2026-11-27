@@ -143,6 +143,7 @@ pub(crate) fn mk_cmd(name: &str, tokens: Vec<CommandToken>) -> Command {
         negatable: false,
         source: None,
         overrides: false,
+        disabled: false,
     }
 }
 
