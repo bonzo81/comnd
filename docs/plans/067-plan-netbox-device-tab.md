@@ -674,8 +674,9 @@ come from requests that already existed.
   reach `main.ts` → `onPanelAction`, where Switch activates the tab and a URL goes through
   `openUrl`.
 - `notifySidePanelSessionsChanged()` rebuilds the ready snapshot from a cached raw summary
-  when a tab is removed. A peer whose session closed therefore falls back to Connect
-  without a second NetBox fetch; the snapshot’s host id must still match the cache.
+  when a tab is removed or a session's status changes (a drop, or a Retry reconnect that
+  keeps the tab). A peer whose session closed therefore falls back to Connect without a
+  second NetBox fetch; the snapshot's host id must still match the cache.
 - Every link is a real `<button class="nbd-link">` with an accessible name and the global
   focus ring. No `<a target="_blank">` and no WebView navigation. `.nbd-tags` reuses the
   existing `.hs-tag` pill styling; component CSS uses tokens only.
@@ -715,7 +716,8 @@ come from requests that already existed.
   dispatches that session id; a matched peer without one keeps Connect.
 - **Freshness:** clearing the resolved session and calling
   `notifySidePanelSessionsChanged()` turns Switch back into Connect without another
-  `netbox_get_device_summary` call.
+  `netbox_get_device_summary` call; the same rebuild runs from the session status callback,
+  so a drop or Retry reconnect with the tab still open is reflected too.
 - **Links:** every rendered object carries the expected composed URL in either home; with no
   base URL the pane renders no `.nbd-link` and keeps the visible text.
 - **Rust:** the parsed summary carries tags and nested ids; a device with no tags/null

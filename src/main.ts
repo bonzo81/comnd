@@ -1084,7 +1084,13 @@ class App {
     );
     // Failed attempts keep their tab open for Retry but hold no SSH session,
     // so the status bar must follow each transition, not just tab add/remove.
-    view.onStatusChange = () => this.refreshStatusBar();
+    // The NetBox peer action follows the same transitions: a session that
+    // drops while its tab stays open must stop offering Switch, and a Retry
+    // that reconnects must offer it again.
+    view.onStatusChange = () => {
+      this.refreshStatusBar();
+      notifySidePanelSessionsChanged();
+    };
     view.mount(wrapper);
 
     this.tabs.set(sessionId, { sessionId, host, view, wrapper });
