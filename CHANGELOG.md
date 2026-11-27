@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/bonzo81/comnd/compare/v0.7.1...v0.8.0) (2026-11-27)
+
+
+### Features
+
+* **kb:** disable commands in place in the viewer ([#238](https://github.com/bonzo81/comnd/issues/238)) ([e9804d8](https://github.com/bonzo81/comnd/commit/e9804d82ca4f67eba7be957a338173f1a865413a))
+* **netbox:** switch to live peers and link device objects ([#234](https://github.com/bonzo81/comnd/issues/234)) ([7a2fb63](https://github.com/bonzo81/comnd/commit/7a2fb63f151b006c19a48e293490dcb0247c4b88))
+* **terminal:** collapse chrome into the session tab bar ([#236](https://github.com/bonzo81/comnd/issues/236)) ([3d49f22](https://github.com/bonzo81/comnd/commit/3d49f22ac4c4335065dcf671ecb1acb12f7d728d))
+
+
+### Bug Fixes
+
+* **kb:** keep browse list scroll and open reference links ([#237](https://github.com/bonzo81/comnd/issues/237)) ([3326dcc](https://github.com/bonzo81/comnd/commit/3326dcc327e97fc72d47e068c679c66e7d928bb9))
+
 ## [0.7.1](https://github.com/bonzo81/comnd/compare/v0.7.0...v0.7.1) (2026-11-26)
 
 
