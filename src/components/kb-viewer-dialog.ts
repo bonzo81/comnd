@@ -4,7 +4,7 @@
  */
 
 import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, disableKbCommand, enableKbCommand, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
-import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
+import { SidebarContent, wireExampleCopy, wireReferenceLink } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { escAttr, escHtml, formatMode } from "../lib/format";
 import { confirmDialog } from "../lib/confirm-dialog";
@@ -82,7 +82,7 @@ export class KbViewerDialog {
       this.searchQuery = "";
       this.selectedIndex = 0;
       this.selectedCommand = null;
-      this.render();
+      this.render({ resetScroll: true });
     } catch (err) {
       this.renderError(`Failed to load commands: ${err}`);
     }
@@ -151,8 +151,19 @@ export class KbViewerDialog {
     this.container.querySelector("#kb-viewer-close-error")?.addEventListener("click", () => this.close());
   }
 
-  private render() {
+  private render({ resetScroll = false } = {}) {
     if (!this.container) return;
+
+    // Replacing the container destroys the scroll container, so the list would
+    // return to the top on every selection. Everything below the header is the
+    // same list unless the platform or the query changed; preserve the offset
+    // and the row focus across the re-render instead.
+    const list = this.container.querySelector<HTMLElement>(".kb-command-list");
+    const scrollTop = resetScroll ? 0 : list?.scrollTop ?? 0;
+    const active = document.activeElement;
+    const hadRowFocus = active instanceof HTMLElement
+      && active.classList.contains("kb-command-item")
+      && this.container.contains(active);
 
     this.container.innerHTML = `
       <div class="kb-viewer-toolbar">
@@ -170,18 +181,31 @@ export class KbViewerDialog {
     `;
 
     this.bindEvents();
+
+    const nextList = this.container.querySelector<HTMLElement>(".kb-command-list");
+    if (nextList) nextList.scrollTop = scrollTop;
+    if (hadRowFocus) {
+      this.container.querySelector<HTMLElement>(".kb-command-selected")
+        ?.focus({ preventScroll: true });
+    }
   }
 
   /** Deep-link: select a command by name so the detail panel shows it. */
   selectCommandByName(name: string): boolean {
     const idx = this.commands.findIndex((c) => c.name === name);
     if (idx < 0) return false;
+    // Clearing an active query changes the list content; without one the list
+    // is the same and must keep its offset.
+    const hadSearch = this.searchQuery !== "";
     this.searchQuery = "";
     this.filteredCommands = this.commands;
     this.selectedIndex = idx;
     this.selectedCommand = this.commands[idx];
     this.editing = false;
-    this.render();
+    this.render({ resetScroll: hadSearch });
+    // The deep link may pick a row outside the kept offset. `nearest` leaves an
+    // already-visible row where it is, so the list only moves when it must.
+    this.scrollSelectedIntoView();
     return true;
   }
 
@@ -317,7 +341,8 @@ export class KbViewerDialog {
     this.container.querySelector("#kb-search")?.addEventListener("input", (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value;
       this.applyFilter();
-      this.render();
+      // A new query is different list content; start it at the top.
+      this.render({ resetScroll: true });
       const searchInput = this.container?.querySelector("#kb-search") as HTMLInputElement;
       if (searchInput) {
         searchInput.focus();
@@ -354,6 +379,9 @@ export class KbViewerDialog {
 
     // Copy buttons on example rows
     if (this.container) wireExampleCopy(this.container);
+
+    // Platform reference link in the detail footer
+    if (this.container) wireReferenceLink(this.container);
 
     // Edit form: save
     document.getElementById("kb-edit-save-btn")?.addEventListener("click", () => this.saveEdit());
@@ -406,7 +434,8 @@ export class KbViewerDialog {
 
   private scrollSelectedIntoView() {
     const el = this.container?.querySelector(".kb-command-selected");
-    el?.scrollIntoView({ block: "nearest" });
+    // jsdom has no layout engine, so there is no scroll container to move.
+    el?.scrollIntoView?.({ block: "nearest" });
   }
 
   private startEdit() {

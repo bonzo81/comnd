@@ -4,17 +4,23 @@
  * path mismatch) left the "Loading knowledge base…" spinner spinning forever,
  * because both load branches in mount() were skipped without rendering anything.
  */
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { Command } from "../lib/tauri-api";
 import { createHarness, type Harness } from "../../tests/harness";
 import { KbViewerDialog } from "./kb-viewer-dialog";
+import { openUrl } from "../lib/tauri-api";
 
-function platformIndexFixture() {
+vi.mock("../lib/tauri-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/tauri-api")>();
+  return { ...actual, openUrl: vi.fn() };
+});
+
+function platformIndexFixture(referenceUrl = "") {
   return {
     id: "linux-bash",
     name: "Linux (bash)",
     description: "General-purpose Linux shell",
-    reference_url: "",
+    reference_url: referenceUrl,
     versions: [],
     prompt_patterns: {},
     default_mode: "bash",
@@ -24,9 +30,10 @@ function platformIndexFixture() {
 async function mountViewer(
   h: Harness,
   commands: Command[] | (() => Command[] | Promise<Command[]>),
+  referenceUrl = "",
 ): Promise<HTMLElement> {
   h.ipc.mock("list_kb_platforms", ["linux-bash"]);
-  h.ipc.mock("load_platform_index", platformIndexFixture());
+  h.ipc.mock("load_platform_index", platformIndexFixture(referenceUrl));
   if (typeof commands === "function") {
     h.ipc.mockImpl("get_all_kb_commands", commands);
   } else {
@@ -238,5 +245,93 @@ describe("KbViewerDialog disabled commands", () => {
 
     expect(el.querySelector(".kb-edit-form")).not.toBeNull();
     expect(el.querySelector<HTMLInputElement>("#kb-edit-name")?.value).toBe("beta");
+  });
+});
+
+describe("KbViewerDialog browse pane", () => {
+  const numberedCommands = (h: Harness, count: number): Command[] =>
+    Array.from({ length: count }, (_, i) =>
+      h.fixtures.command(`cmd-${String(i).padStart(2, "0")}`, { category: "net" }));
+
+  beforeEach(() => {
+    vi.mocked(openUrl).mockReset().mockResolvedValue(undefined);
+  });
+
+  it("keeps the list scroll offset and row focus across a selection", async () => {
+    const h = createHarness();
+    const el = await mountViewer(h, numberedCommands(h, 40));
+
+    const list = el.querySelector<HTMLElement>(".kb-command-list")!;
+    list.scrollTop = 240;
+    const row = rowFor(el, "cmd-20");
+    row.focus();
+    row.click();
+
+    // The render is a full replacement; the offset and focus must survive it.
+    const next = el.querySelector<HTMLElement>(".kb-command-list")!;
+    expect(next).not.toBe(list);
+    expect(next.scrollTop).toBe(240);
+
+    const selected = el.querySelector(".kb-command-selected")!;
+    expect(selected.textContent).toContain("cmd-20");
+    expect(document.activeElement).toBe(selected);
+  });
+
+  it("starts a new search query at the top of the list", async () => {
+    const h = createHarness();
+    const el = await mountViewer(h, numberedCommands(h, 40));
+
+    el.querySelector<HTMLElement>(".kb-command-list")!.scrollTop = 240;
+    const search = el.querySelector<HTMLInputElement>("#kb-search")!;
+    search.value = "cmd-1";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(el.querySelector<HTMLElement>(".kb-command-list")!.scrollTop).toBe(0);
+  });
+
+  it("reveals a deep-linked selection without resetting the list", async () => {
+    const h = createHarness();
+    const dialog = new KbViewerDialog();
+    const el = h.mount();
+    h.ipc.mock("list_kb_platforms", ["linux-bash"]);
+    h.ipc.mock("load_platform_index", platformIndexFixture());
+    h.ipc.mock("get_all_kb_commands", numberedCommands(h, 40));
+    h.ipc.mock("validate_kb", []);
+    await dialog.mount(el);
+
+    el.querySelector<HTMLElement>(".kb-command-list")!.scrollTop = 240;
+
+    // jsdom has no layout, so the browser's own reveal is stubbed to observe it.
+    const scrollIntoView = vi.fn();
+    const proto = Element.prototype as { scrollIntoView?: unknown };
+    proto.scrollIntoView = scrollIntoView;
+    try {
+      expect(dialog.selectCommandByName("cmd-00")).toBe(true);
+    } finally {
+      Reflect.deleteProperty(proto, "scrollIntoView");
+    }
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(el.querySelector<HTMLElement>(".kb-command-list")!.scrollTop).toBe(240);
+    expect(el.querySelector(".kb-command-selected")?.textContent).toContain("cmd-00");
+  });
+
+  it("opens the platform reference URL from the detail pane", async () => {
+    const h = createHarness();
+    const el = await mountViewer(h, numberedCommands(h, 3), "https://example.test/linux");
+
+    rowFor(el, "cmd-00").click();
+    el.querySelector<HTMLElement>(".cmd-ref-link")!.click();
+
+    expect(openUrl).toHaveBeenCalledWith("https://example.test/linux");
+  });
+
+  it("renders no reference link when the platform URL is empty", async () => {
+    const h = createHarness();
+    const el = await mountViewer(h, numberedCommands(h, 3));
+
+    rowFor(el, "cmd-00").click();
+
+    expect(el.querySelector(".cmd-ref-link")).toBeNull();
   });
 });

@@ -78,7 +78,7 @@ secret_prompt_patterns:
   - '^[Pp]assword:\s*$'
 ```
 
-The `reference_url` is shown in the sidebar as "📖 Official docs →" — one link per platform pointing to the official command reference.
+The `reference_url` is shown in the command detail as a **Documentation ↗** link — one link per platform pointing to the official command reference. It opens in the default browser through the app's external-link command (`open_url_cmd`), in the KB screen and in both side-panel homes; a platform with an empty `reference_url` shows no link.
 
 ## Command Schema
 

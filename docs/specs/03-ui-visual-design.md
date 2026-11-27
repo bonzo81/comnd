@@ -240,7 +240,7 @@ Hidden by default. Opened via the icon-only panel button at the right end of the
 5. **Divider**
 6. **Metadata rows** (muted label + value) — platform · version introduced · mode. De-emphasised, does not compete with description.
 7. **Tags** — shown as pills/chips (e.g. `interfaces` `networking` `troubleshooting`). Post-MVP: clickable to filter related commands.
-8. **Official docs →** — link to platform reference URL. Opens in default browser.
+8. **Documentation ↗** — link to platform reference URL. Opens in the default browser; no link is shown when the platform has no reference URL.
 
 ## Ghost Text Rendering
 

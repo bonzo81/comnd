@@ -16,8 +16,10 @@
  */
 
 import { Command } from "./suggestion-engine";
-import { escHtml, formatMode } from "./format";
+import { escAttr, escHtml, formatMode } from "./format";
 import { icons } from "./icons";
+import { log, LogTag } from "./logger";
+import { openUrl } from "./tauri-api";
 import { issuesFor } from "./validation-cache";
 import { renderToken, renderTokenHelp } from "./tokens";
 import { showToast } from "./toast";
@@ -78,7 +80,7 @@ export class SidebarContent {
       .map(t => `<span class="tag-badge">${escHtml(t)}</span>`)
       .join("");
     const docs = referenceUrl
-      ? `<a class="cmd-ref-link" href="${escHtml(referenceUrl)}" target="_blank" rel="noopener noreferrer">Documentation ↗</a>`
+      ? `<button type="button" class="cmd-ref-link btn-link" data-url="${escAttr(referenceUrl)}">Documentation ↗</button>`
       : "";
 
     if (facts.length === 0 && !tags && !docs) return "";
@@ -186,6 +188,26 @@ export function wireExampleCopy(root: ParentNode): void {
         () => showToast("Command copied", "success"),
         () => showToast("Could not copy the command", "error"),
       );
+    });
+  });
+}
+
+/**
+ * Wire the platform reference link in a freshly rendered detail pane. The link
+ * is a button, not an anchor, so the WebView has no default navigation to
+ * perform: every activation (pointer, Enter or Space) and `openUrl` is the only
+ * route out of the app. A failure is reported, never swallowed.
+ */
+export function wireReferenceLink(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>(".cmd-ref-link").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      const url = link.dataset.url;
+      if (!url) return;
+      openUrl(url).catch((error) => {
+        log.error(LogTag.Kb, "Could not open the reference link", error);
+        showToast("Could not open the documentation link", "error");
+      });
     });
   });
 }
