@@ -75,8 +75,9 @@ fn write_disabled_list(disabled_path: &Path, names: &HashSet<String>) -> Result<
 }
 
 /// Serialize commands under a top-level `commands:` key.
-/// Strips merge-generated provenance (`source`/`overrides`) — they are
-/// computed at load, never authored (docs/specs/10-custom-knowledge-base.md § 1.3).
+/// Strips merge-generated provenance (`source`/`overrides`) and the load-time
+/// `disabled` flag — they are computed, never authored
+/// (docs/specs/10-custom-knowledge-base.md § 1.3).
 pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String> {
     use yaml_serde::Value;
     let cleaned: Vec<Command> = commands
@@ -84,6 +85,7 @@ pub(super) fn serialize_commands(commands: &[Command]) -> Result<String, String>
         .map(|c| Command {
             source: None,
             overrides: false,
+            disabled: false,
             ..c.clone()
         })
         .collect();
@@ -604,6 +606,8 @@ mod tests {
             mk_full_cmd("my-command", "user only"),
         ]);
         bundled.merge_from(user);
+        // The disabled flag is load-time computed too.
+        bundled.commands[0].disabled = true;
 
         let yaml = serialize_commands(&bundled.commands).unwrap();
         assert!(
@@ -616,6 +620,11 @@ mod tests {
             "overrides leaked into YAML: {}",
             yaml
         );
+        assert!(
+            !yaml.contains("disabled:"),
+            "disabled leaked into YAML: {}",
+            yaml
+        );
 
         // Reload from the YAML — commands load cleanly with no provenance.
         let file: CommandFile = yaml_serde::from_str(&yaml).unwrap();
@@ -623,7 +632,7 @@ mod tests {
         assert!(file
             .commands
             .iter()
-            .all(|c| c.source.is_none() && !c.overrides));
+            .all(|c| c.source.is_none() && !c.overrides && !c.disabled));
     }
 
     // ─── Delete / disable / enable (docs/plans/plan-kb-ignore-disable.md) ──────
@@ -690,7 +699,11 @@ mod tests {
 
         mark_disabled(&user, "test-plat", "show version").unwrap();
 
-        assert!(!loaded_names(&bundled, &user).contains(&"show version".to_string()));
+        // The command stays loaded (flagged) for the browse query; the
+        // suggestion query filters it out.
+        let loaded =
+            loaded_cmd(&bundled, &user, "show version").expect("disabled command stays loaded");
+        assert!(loaded.disabled);
         assert!(read_disabled_list(&user.join("test-plat")).contains("show version"));
     }
 
@@ -702,7 +715,8 @@ mod tests {
         mark_disabled(&user, "test-plat", "show version").unwrap();
         mark_enabled(&user, "test-plat", "show version").unwrap();
 
-        assert!(loaded_names(&bundled, &user).contains(&"show version".to_string()));
+        let loaded = loaded_cmd(&bundled, &user, "show version").expect("re-enabled command loads");
+        assert!(!loaded.disabled);
         assert!(!read_disabled_list(&user.join("test-plat")).contains("show version"));
     }
 }

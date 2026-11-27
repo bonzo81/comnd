@@ -24,7 +24,7 @@ const REQUIRED_COMMAND_KEYS = [
   "examples", "versions", "tags", "tokens", "order", "negatable",
 ];
 // Keys Rust omits via skip_serializing_if when absent/false.
-const OPTIONAL_COMMAND_KEYS = ["source", "overrides"];
+const OPTIONAL_COMMAND_KEYS = ["source", "overrides", "disabled"];
 const ALLOWED_COMMAND_KEYS = new Set([...REQUIRED_COMMAND_KEYS, ...OPTIONAL_COMMAND_KEYS]);
 
 // Exact key sets per token kind (Rust serializes every field of each variant).

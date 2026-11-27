@@ -11,8 +11,9 @@ use super::validate::{validate_platform, KbValidationIssue};
 
 // ─── Tauri Commands (plan: lib.rs domain split) ─────────────────────
 
-/// Commands for the suggestion pipeline: full merged set, unfiltered.
-/// Version eligibility is applied in the frontend (suggestion-engine.ts).
+/// Commands for the suggestion pipeline: the merged active set; disabled
+/// entries are excluded. Version eligibility is applied in the frontend
+/// (suggestion-engine.ts).
 #[tauri::command]
 pub(crate) async fn query_kb(
     platform: String,
@@ -32,13 +33,16 @@ pub(crate) async fn validate_kb(
     Ok(validate_platform(&commands))
 }
 
+/// Commands for the KB browser, including disabled entries flagged
+/// `disabled: true`. `query_kb` stays active-only so suggestions never see
+/// them (docs/specs/06-knowledge-base.md § Disabled commands).
 #[tauri::command]
 pub(crate) async fn get_all_kb_commands(
     platform: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Command>, String> {
     let mut kb = state.kb.lock().map_err(|e| e.to_string())?;
-    kb.get_all_commands(&platform)
+    kb.get_all_commands_with_disabled(&platform)
 }
 
 // One flat parameter per field because this is a Tauri command: the argument
@@ -91,6 +95,7 @@ pub(crate) async fn save_kb_command(
         negatable: negatable.unwrap_or(false),
         source: None,
         overrides: false,
+        disabled: false,
     };
 
     // Validation + write + invalidation live in the manager (policy with model).

@@ -69,6 +69,12 @@ pub(crate) struct Command {
     /// Merge-generated; stripped from YAML writes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub overrides: bool,
+    /// True when the user disabled this command (`_disabled.yaml`). Load-time
+    /// computed: the browse query returns these entries so they stay visible
+    /// in place, while the suggestion query excludes them. Stripped from YAML
+    /// writes like `source`/`overrides`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +258,7 @@ mod contract {
                 negatable: false,
                 source: None,
                 overrides: false,
+                disabled: false,
             },
             Command {
                 name: "ls".into(),
@@ -299,6 +306,7 @@ mod contract {
                 negatable: false,
                 source: None,
                 overrides: false,
+                disabled: false,
             },
             Command {
                 name: "set profile".into(),
@@ -334,6 +342,7 @@ mod contract {
                 negatable: true,
                 source: None,
                 overrides: false,
+                disabled: false,
             },
             Command {
                 name: "copy running-config startup".into(),
@@ -379,6 +388,7 @@ mod contract {
                 negatable: false,
                 source: Some("custom".into()),
                 overrides: true,
+                disabled: false,
             },
         ]
     }

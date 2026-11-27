@@ -81,6 +81,12 @@ export interface Command {
   source?: string;
   /** True when this command replaced a bundled command with the same name. */
   overrides?: boolean;
+  /**
+   * True when the user disabled this command from suggestions (`_disabled.yaml`).
+   * Only the browse query (`getAllKbCommands`) returns these entries; `queryKb`
+   * excludes them. Absent means enabled.
+   */
+  disabled?: boolean;
 }
 
 export interface CommandExample {

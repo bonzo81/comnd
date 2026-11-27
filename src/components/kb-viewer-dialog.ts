@@ -3,7 +3,7 @@
  * Shows commands grouped by category for a selected platform.
  */
 
-import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, disableKbCommand, enableKbCommand, getDisabledCommands, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
+import { Command, listKbPlatforms, getAllKbCommands, saveKbCommand, deleteKbCommand, disableKbCommand, enableKbCommand, PlatformIndex, loadPlatformIndex, KbValidationIssue } from "../lib/tauri-api";
 import { SidebarContent, wireExampleCopy } from "../lib/sidebar-content";
 import { refreshValidation } from "../lib/validation-cache";
 import { escAttr, escHtml, formatMode } from "../lib/format";
@@ -41,7 +41,6 @@ export class KbViewerDialog {
   private editOrder = "";
   private editNegatable = false;
   private saving = false;
-  private disabledCommands: string[] = [];
 
   async mount(container: HTMLElement, platform?: string) {
     this.container = container;
@@ -75,10 +74,7 @@ export class KbViewerDialog {
 
     try {
       this.platformIndex = await loadPlatformIndex(this.selectedPlatform);
-      [this.commands, this.disabledCommands] = await Promise.all([
-        getAllKbCommands(this.selectedPlatform),
-        getDisabledCommands(this.selectedPlatform),
-      ]);
+      this.commands = await getAllKbCommands(this.selectedPlatform);
       void refreshValidation(this.selectedPlatform);
       this.categorizeCommands();
       this.filteredCommands = this.commands;
@@ -107,7 +103,7 @@ export class KbViewerDialog {
     this.categories.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private applyFilter() {
+  private applyFilter(selectedName?: string) {
     const q = this.searchQuery.toLowerCase().trim();
     if (!q) {
       this.filteredCommands = this.commands;
@@ -119,8 +115,14 @@ export class KbViewerDialog {
         return false;
       });
     }
-    this.selectedIndex = 0;
-    this.selectedCommand = null;
+    if (selectedName) {
+      const idx = this.filteredCommands.findIndex((cmd) => cmd.name === selectedName);
+      this.selectedIndex = idx >= 0 ? idx : 0;
+      this.selectedCommand = idx >= 0 ? this.filteredCommands[idx] : null;
+    } else {
+      this.selectedIndex = 0;
+      this.selectedCommand = null;
+    }
   }
 
   private renderLoading() {
@@ -159,7 +161,6 @@ export class KbViewerDialog {
       <div class="kb-viewer-body">
         <div class="kb-command-list" role="listbox" aria-label="Knowledge base commands">
           ${this.categories.map((cat) => this.renderCategory(cat)).join("")}
-          ${this.renderIgnoredSection()}
         </div>
         <div class="kb-command-detail" id="kb-command-detail">
           ${this.renderDetailPanel()}
@@ -201,14 +202,17 @@ export class KbViewerDialog {
     const sidebar = new SidebarContent();
     const cmd = this.selectedCommand;
     const isOverride = !!cmd.overrides;
+    const disabled = cmd.disabled === true;
+    const toggleLabel = disabled ? "Enable command" : "Ignore command";
     const actions = `
       <div class="cmd-actions">
         <button class="btn-icon kb-btn-edit" id="kb-cmd-edit-btn" aria-label="Edit command" title="Edit command">${icons.pencil}</button>
-        <button class="btn-icon kb-btn-ignore" id="kb-cmd-ignore-btn" aria-label="Ignore command" title="Ignore command">${icons.eyeOff}</button>
+        <button class="btn-icon kb-btn-ignore" id="kb-cmd-ignore-btn" aria-label="${toggleLabel}" aria-pressed="${disabled}" title="${disabled ? "Enable this command in suggestions" : "Disable this command from suggestions"}">${disabled ? icons.check : icons.eyeOff}</button>
         <button class="btn-icon kb-btn-delete" id="kb-cmd-delete-btn" aria-label="${isOverride ? "Restore built-in version" : "Delete command"}" title="${isOverride ? "Restore built-in version" : "Delete command"}">${icons.trash}</button>
       </div>
     `;
     return `
+      ${disabled ? `<div class="kb-override-note" role="status" aria-live="polite" aria-atomic="true">Disabled from suggestions — still in the KB, not offered by ghost text or the dropdown.</div>` : ""}
       ${isOverride ? `<div class="kb-override-note">This is your custom version — it overrides the built-in KB entry with the same name. Deleting it restores the built-in version.</div>` : ""}
       ${sidebar.render(cmd, this.platformIndex?.reference_url ?? null, actions)}
     `;
@@ -291,31 +295,15 @@ export class KbViewerDialog {
           .map((cmd) => {
             const globalIndex = this.filteredCommands.indexOf(cmd);
             const selected = globalIndex === this.selectedIndex;
+            const disabled = cmd.disabled === true;
             return `
-          <div class="kb-command-item ${selected ? "kb-command-selected" : ""}" data-index="${globalIndex}"
+          <div class="kb-command-item${selected ? " kb-command-selected" : ""}${disabled ? " kb-command-ignored" : ""}" data-index="${globalIndex}"
                role="option" tabindex="0" aria-selected="${selected}">
-            <span class="kb-command-name">${escHtml(cmd.name)}</span>
+            <span class="kb-command-name">${escHtml(cmd.name)}${disabled ? `<span class="visually-hidden"> — disabled from suggestions</span>` : ""}</span>
             <span class="kb-command-mode">${escHtml(formatMode(cmd.mode))}</span>
           </div>
         `;
           })
-          .join("")}
-      </div>
-    `;
-  }
-
-  private renderIgnoredSection(): string {
-    if (this.disabledCommands.length === 0) return "";
-    return `
-      <div class="kb-category">
-        <div class="kb-category-header">Ignored (${this.disabledCommands.length})</div>
-        ${this.disabledCommands
-          .map((name) => `
-            <div class="kb-command-item kb-command-ignored" data-ignore-name="${escAttr(name)}" role="option" tabindex="0">
-              <span class="kb-command-name">${escHtml(name)}</span>
-              <button class="btn-text btn-small kb-btn-enable" data-enable-name="${escAttr(name)}">Enable</button>
-            </div>
-          `)
           .join("")}
       </div>
     `;
@@ -360,20 +348,11 @@ export class KbViewerDialog {
     // Delete button
     document.getElementById("kb-cmd-delete-btn")?.addEventListener("click", () => this.promptDelete());
 
-    // Ignore button (non-destructive — no confirm)
-    document.getElementById("kb-cmd-ignore-btn")?.addEventListener("click", () => this.ignoreCommand());
+    // Disable/enable toggle (non-destructive — no confirm)
+    document.getElementById("kb-cmd-ignore-btn")?.addEventListener("click", () => void this.toggleCommandDisabled());
 
     // Copy buttons on example rows
     if (this.container) wireExampleCopy(this.container);
-
-    // Enable buttons in the Ignored section
-    this.container.querySelectorAll(".kb-btn-enable").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const name = (el as HTMLElement).dataset.enableName ?? "";
-        if (name) void this.enableIgnored(name);
-      });
-    });
 
     // Edit form: save
     document.getElementById("kb-edit-save-btn")?.addEventListener("click", () => this.saveEdit());
@@ -465,31 +444,41 @@ export class KbViewerDialog {
     });
   }
 
-  private async ignoreCommand() {
-    const name = this.selectedCommand?.name;
-    if (!name) return;
+  private async toggleCommandDisabled() {
+    const cmd = this.selectedCommand;
+    if (!cmd) return;
+    const name = cmd.name;
     try {
-      await disableKbCommand(this.selectedPlatform, name);
-      this.selectedCommand = null;
-      await this.loadPlatform();
+      if (cmd.disabled) {
+        await enableKbCommand(this.selectedPlatform, name);
+      } else {
+        await disableKbCommand(this.selectedPlatform, name);
+      }
+      await this.reloadAfterToggle(name);
     } catch (e) {
       const detailEl = this.container?.querySelector("#kb-command-detail");
       if (detailEl) {
-        detailEl.innerHTML = `<div class="kb-edit-errors">Ignore failed: ${escHtml(String(e))}</div>`;
+        detailEl.innerHTML = `<div class="kb-edit-errors">Updating command failed: ${escHtml(String(e))}</div>`;
       }
     }
   }
 
-  private async enableIgnored(name: string) {
-    try {
-      await enableKbCommand(this.selectedPlatform, name);
-      await this.loadPlatform();
-    } catch (e) {
-      const detailEl = this.container?.querySelector("#kb-command-detail");
-      if (detailEl) {
-        detailEl.innerHTML = `<div class="kb-edit-errors">Enable failed: ${escHtml(String(e))}</div>`;
-      }
-    }
+  /**
+   * Re-fetch commands after a disable/enable without losing the selected
+   * command, the search query, the list scroll position or keyboard focus.
+   * The command keeps its category and position, so the index is stable.
+   */
+  private async reloadAfterToggle(name: string) {
+    const listEl = this.container?.querySelector<HTMLElement>(".kb-command-list");
+    const scrollTop = listEl?.scrollTop ?? 0;
+    this.commands = await getAllKbCommands(this.selectedPlatform);
+    void refreshValidation(this.selectedPlatform);
+    this.categorizeCommands();
+    this.applyFilter(name);
+    this.render();
+    const newList = this.container?.querySelector<HTMLElement>(".kb-command-list");
+    if (newList) newList.scrollTop = scrollTop;
+    this.container?.querySelector<HTMLElement>("#kb-cmd-ignore-btn")?.focus();
   }
 
   private async saveEdit() {

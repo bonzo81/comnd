@@ -121,21 +121,24 @@ disabled:
 
 Semantics:
 - **Disable** a command: add name to `_disabled.yaml`. Command data stays
-  intact (user copy or bundled). Command is hidden from suggestions and viewer.
+  intact (user copy or bundled). Command is hidden from suggestions; the viewer
+  keeps it in place, struck through and dimmed (see the update below).
 - **Enable/restore** a command: remove name from `_disabled.yaml`.
 - Disable works for all three classes uniformly — no class-aware logic needed.
-- A command can be both disabled and deleted (edge case, disable wins for
-  display purposes since delete already removes data).
+- A command can be both disabled and deleted (edge case, delete wins: the
+  tombstone removes it from both the suggestion and browse projections).
 
-Loader change (kb.rs:591-599): filter by **union** of deleted + disabled:
+Loader change (kb.rs:591-599): deleted names are removed; disabled names set
+the `disabled` flag on the retained entry (see the update below):
 ```rust
 let user_deleted = Self::load_deleted_names(&user_platform_dir);
 let user_disabled = Self::load_disabled_names(&user_platform_dir);  // new
-let hidden: HashSet<&str> = user_deleted.iter()
-    .chain(user_disabled.iter())
-    .map(String::as_str)
-    .collect();
-store.commands.retain(|c| !hidden.contains(c.name.as_str()));
+store.commands.retain(|c| !user_deleted.contains(&c.name));
+for cmd in &mut store.commands {
+    if user_disabled.contains(&cmd.name) {
+        cmd.disabled = true;
+    }
+}
 ```
 
 ### New backend functions
@@ -169,15 +172,21 @@ without data, since the bundled copy still exists in resources).
    - Bundled-only: "Delete" (tombstone) + new "Ignore" button.
    - User-only: "Delete" (remove copy, no tombstone) + new "Ignore" button.
 
-2. **Ignored section** in the viewer list:
-   - New backend call `get_disabled_commands(platform)` returns names from
-     `_disabled.yaml` (or raw commands if we want to show them greyed out).
-   - Simplest: return `Vec<String>` of disabled names. Frontend shows a
-     collapsible "Ignored (N)" section with the names and an "Enable" button
-     per entry. No need to load full command data for ignored items.
+2. **Disabled commands stay in place** in the viewer list (issue #230):
+   - No "Ignored (N)" section. A disabled command keeps its category and
+     position, rendered struck through and dimmed by the existing
+     `.kb-command-ignored` row style, and remains selectable and searchable.
+   - The browse query (`get_all_kb_commands`) returns disabled entries with
+     `disabled: true`; the viewer no longer calls `get_disabled_commands`, which
+     stays available but is unused.
+   - Selecting one shows the normal detail panel plus a `role="status"` banner
+     ("Disabled from suggestions…"). The Ignore button is a toggle
+     (`aria-pressed`; label/title Ignore ↔ Enable) and the reload preserves the
+     selected command, search query, scroll position and focus.
 
-3. **Suggestion engine:** no change. Disabled commands are filtered at load
-   time in Rust, so they never reach the frontend suggestion path.
+3. **Suggestion engine:** no change. Disabled commands are filtered by the
+   active query projection in Rust, so they never reach the frontend suggestion
+   path.
 
 ### Frontend API (tauri-api.ts)
 
@@ -255,20 +264,44 @@ Rust unit tests in `kb.rs` test module:
 
 Frontend: manual verification via `npm run build` + app testing.
 
+## Update (issue #230): disable in place
+
+The original `get_disabled_commands` + "Ignored (N)" section design was
+replaced by a flag on the browse query. Current data path:
+
+| Layer | Behaviour |
+|---|---|
+| `_disabled.yaml` | Unchanged — one platform-level list of names. |
+| `Command.disabled` | `#[serde(default, skip_serializing_if = Not::not)]`; load-time computed, stripped from YAML writes. |
+| `KbStore.commands` | Keeps non-deleted commands, including disabled ones flagged. |
+| `get_all_commands` | Filters `!disabled`. `query_kb` and `validate_kb` use it, so suggestions and validation never see a disabled command. |
+| `get_all_commands_with_disabled` | Returns the whole set; `get_all_kb_commands` uses it so the viewer can list disabled entries in place. |
+| Deleted | Removed from the set before the flag applies; a tombstone is not a disable. |
+
+Component tests in `kb-viewer-dialog.test.ts` cover: no Ignored section, the
+disabled row stays in its category and is searchable, the banner and toggle,
+and selection/scroll preserved. Rust tests cover the two query projections, the
+disabled override keeping the user copy, delete-wins, and validation
+exclusion.
+
 ## Verification
 
 - `cargo test` in `src-tauri/` — all new tests pass.
-- `npm run build` — TypeScript compiles clean.
+- `cargo check --all-targets`, `cargo fmt --all -- --check`,
+  `cargo clippy --all-targets -- -D warnings` — clean.
+- `npm run build`, `npm run test`, `npm run lint` — clean.
+- `npm run smoke` — keystroke/suggestion path untouched; run as the full-app gate.
 - Manual: override a bundled command, click "Restore built-in version",
   verify bundled version appears (not gone).
-- Manual: disable a command, verify it disappears from suggestions and viewer;
-  enable it, verify it returns.
+- Manual: disable a command, verify it stays in its category struck through,
+  disappears from suggestions, and can be re-enabled from the detail toggle.
 
 ## Open questions
 
-1. Should "Ignored" commands be visible in the viewer list (greyed out) or
-   fully hidden with only a count badge? Plan assumes greyed-out section —
-   easier to discover and re-enable.
+1. ~~Should "Ignored" commands be visible in the viewer list (greyed out) or
+   fully hidden with only a count badge?~~ Resolved (issue #230): visible in
+   place, struck through and dimmed, in the original category and position —
+   easier to find and re-enable, and search keeps working.
 2. Should disable persist across app updates? Yes — it's in the user KB path,
    same as delete. No action needed.
 3. Should `enable_kb_command` also remove from `_deleted.yaml`? Plan says yes
