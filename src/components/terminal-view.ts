@@ -5,7 +5,7 @@
  */
 
 import { Terminal } from "@xterm/xterm";
-import { TERMINAL_THEMES, TERMINAL_THEME_ORDER, getTerminalTheme, setTerminalTheme, TerminalTheme } from "../lib/theme";
+import { TERMINAL_THEMES, getTerminalTheme, setTerminalTheme, nextTerminalTheme, TerminalTheme } from "../lib/theme";
 import { getTerminalFontSize, getTerminalScrollback } from "../lib/terminal-prefs";
 import { bindTerminalScrollback, buildTerminalOptions } from "../lib/terminal-options";
 import { getReadingComfortState } from "../lib/reading-comfort";
@@ -51,7 +51,6 @@ import {
   setSidePanelSnapshot,
   setPanelUndocked,
   subscribeSidePanel,
-  toggleSidePanel,
   type SidePanelSnapshot,
   type SidePanelState,
 } from "../lib/side-panel";
@@ -60,7 +59,6 @@ import { renderSidePanel, type SidePanelHandlers } from "../lib/side-panel-rende
 import { refreshValidation } from "../lib/validation-cache";
 import { stripAnsi } from "../lib/ansi";
 import { StreamingTextDecoder } from "../lib/stream-decoder";
-import { formatMode } from "../lib/format";
 import { SessionChannel, TauriTransport, type SessionEvent } from "../lib/session-channel";
 import type { SessionLifecycle } from "../lib/duplicate-session";
 import { AuthInputCollector } from "../lib/auth-input";
@@ -78,8 +76,7 @@ import {
 import { getAutoCopyEnabled, setAutoCopyEnabled } from "../lib/auto-copy";
 import { OutputHighlighter } from "../lib/output-highlighter";
 import { getOutputHighlightEnabled, setOutputHighlightEnabled } from "../lib/output-highlight";
-import { initContextMenu, setToggleState } from "../lib/a11y";
-import { getPlatformMeta } from "../lib/platforms";
+import { initContextMenu } from "../lib/a11y";
 import { readStorage, writeStorage } from "../lib/storage";
 
 declare global {
@@ -161,6 +158,17 @@ interface ConnectProgress {
   error?: string;
 }
 
+/** Snapshot the terminal controls menu paints from the active session. */
+export interface TerminalControlState {
+  timestamps: boolean;
+  suggestions: boolean;
+  autoCopy: boolean;
+  highlight: boolean;
+  /** False when the host has no highlighter profile, so the toggle is a no-op. */
+  highlightAvailable: boolean;
+  theme: TerminalTheme;
+}
+
 export class TerminalView {
   private root: HTMLElement | null = null;
   private terminal: Terminal | null = null;
@@ -206,6 +214,10 @@ export class TerminalView {
   private status: SessionLifecycle = "connecting";
   /** Observer for status transitions (the app's live-session count). */
   onStatusChange: ((status: SessionLifecycle) => void) | null = null;
+  /** Observer for detected-mode changes (the session tab's description). */
+  onModeChange: ((mode: string) => void) | null = null;
+  /** Observer for the six controls' state (an open controls menu). */
+  onControlsChange: (() => void) | null = null;
 
   // Line/prompt tracking & suggestion pipeline (controller owns buffer/engine)
   private tracker: LineTracker;
@@ -581,14 +593,12 @@ export class TerminalView {
     this.terminal?.focus();
   }
 
-  private openSearch() {
+  /** Show the transient scrollback search bar and focus its input. */
+  openSearch() {
     const bar = this.$(".tv-search-bar");
     if (!bar) return;
     bar.classList.remove("hidden");
     this.searchBarOpen = true;
-    const btn = this.$(".tv-search-btn")!;
-    btn.setAttribute("aria-expanded", "true");
-    setToggleState(btn, true, "Close scrollback search");
     const input = this.$(".tv-search-input") as HTMLInputElement;
     input.focus();
     input.select();
@@ -599,9 +609,6 @@ export class TerminalView {
     if (!bar) return;
     bar.classList.add("hidden");
     this.searchBarOpen = false;
-    const btn = this.$(".tv-search-btn")!;
-    btn.setAttribute("aria-expanded", "false");
-    setToggleState(btn, false, "Search scrollback");
     this.searchAddon?.clearDecorations();
     const input = this.$(".tv-search-input") as HTMLInputElement;
     input.value = "";
@@ -623,16 +630,6 @@ export class TerminalView {
   mount(container: HTMLElement) {
     container.innerHTML = `
       <div class="terminal-view">
-        <div class="tv-topbar" role="toolbar" aria-label="Terminal toolbar">
-          <span class="tv-host-info">Connecting...</span>
-          <button class="btn-text tv-timestamps-btn" aria-label="Toggle line timestamps" aria-pressed="false"></button>
-          <button class="btn-text tv-suggestions-btn" aria-label="Toggle command suggestions" aria-pressed="false"></button>
-          <button class="btn-text tv-autocopy-btn" aria-label="Toggle auto-copy on selection" aria-pressed="false"></button>
-          <button class="btn-text tv-highlight-btn" aria-label="Toggle output highlighting" aria-pressed="false"></button>
-          <button class="btn-text tv-theme-btn" aria-label="Toggle terminal theme" aria-pressed="false"></button>
-          <button class="btn-text tv-search-btn" aria-label="Search scrollback" aria-expanded="false" aria-controls="tv-search-bar"></button>
-          <button class="btn-text tv-panel-btn" title="Toggle side panel" aria-expanded="false" aria-controls="tv-sidebar">≡ Panel</button>
-        </div>
         <div class="tv-main">
           <div class="tv-terminal-wrap">
             <div class="tv-terminal" role="region" aria-label="SSH terminal output"></div>
@@ -692,28 +689,12 @@ export class TerminalView {
             </div>
           </div>
         </div>
-        <div class="tv-statusbar" role="status" aria-label="Connection status">
-          <span class="sb-indicator sb-connecting tv-sb-dot">●</span>
-          <span class="tv-sb-host">—</span>
-          <span class="tv-sb-platform">—</span>
-          <span class="tv-sb-mode">—</span>
-        </div>
+        <div class="tv-live-status visually-hidden" role="status" aria-label="Connection status"></div>
       </div>
     `;
     this.root = container.firstElementChild as HTMLElement;
 
     this.initTerminal();
-
-    // Toolbar buttons are state toggles, not text entry — keep keyboard
-    // focus in the terminal instead of moving it to the clicked button.
-    // Keyboard activation (Enter/Space) has no mouse position (detail 0) and
-    // must keep focus on the button, or the toggle cannot be operated twice.
-    const topbar = this.$(".tv-topbar")!;
-    topbar.addEventListener("mousedown", (e) => e.preventDefault());
-    topbar.addEventListener("click", (event: MouseEvent) => {
-      if (event.detail === 0) return;
-      this.terminal?.focus();
-    });
 
     // Right-click context menu on the terminal area
     this.$(".tv-terminal-wrap")!.addEventListener("contextmenu", (e: MouseEvent) => {
@@ -722,70 +703,27 @@ export class TerminalView {
       this.showContextMenu(e.clientX, e.clientY);
     });
 
-    // Terminal theme toggle — cycles dark → warm-charcoal → cream → light
-    const themeBtn = this.$(".tv-theme-btn")!;
-    const THEME_ICON: Record<TerminalTheme, string> = {
-      dark: icons.moon,
-      "warm-charcoal": icons.moonStar,
-      cream: icons.sunDim,
-      light: icons.sun,
-    };
-    const syncThemeIcon = () => {
-      const t = getTerminalTheme();
-      const next = TERMINAL_THEME_ORDER[(TERMINAL_THEME_ORDER.indexOf(t) + 1) % TERMINAL_THEME_ORDER.length];
-      themeBtn.innerHTML = THEME_ICON[t];
-      const name = (id: TerminalTheme) => id === "warm-charcoal" ? "Warm charcoal" : id[0].toUpperCase() + id.slice(1);
-      setToggleState(themeBtn, t !== "dark", `Terminal theme: ${name(t)} — click for ${name(next)}`);
-    };
-    themeBtn.addEventListener("click", () => {
-      const i = TERMINAL_THEME_ORDER.indexOf(getTerminalTheme());
-      setTerminalTheme(TERMINAL_THEME_ORDER[(i + 1) % TERMINAL_THEME_ORDER.length]);
-    });
     // Event applies theme to THIS terminal — keeps every session tab in sync
-    this.themeChangeHandler = () => {
-      this.applyTerminalTheme(getTerminalTheme());
-      syncThemeIcon();
-    };
+    this.themeChangeHandler = () => this.applyTerminalTheme(getTerminalTheme());
     window.addEventListener("comnd:terminal-theme", this.themeChangeHandler);
-    syncThemeIcon();
 
-    // Line timestamps toggle
-    this.$(".tv-timestamps-btn")!.addEventListener("click", () => {
-      setTimestampsEnabled(!getTimestampsEnabled());
-    });
     // Events apply to THIS terminal — keeps every session tab in sync
     this.timestampsChangeHandler = () => this.syncTimestamps();
     this.timestampsFormatHandler = () => this.syncTimestamps();
     window.addEventListener("comnd:timestamps", this.timestampsChangeHandler);
     window.addEventListener("comnd:timestamps-format", this.timestampsFormatHandler);
 
-    // Command suggestions toggle (auto-show dropdown while typing)
-    this.$(".tv-suggestions-btn")!.addEventListener("click", () => {
-      setSuggestionsEnabled(!getSuggestionsEnabled());
-    });
     this.suggestionsChangeHandler = () => this.syncSuggestions();
     window.addEventListener("comnd:suggestions", this.suggestionsChangeHandler);
 
-    // Auto-copy on selection toggle
-    this.$(".tv-autocopy-btn")!.addEventListener("click", () => {
-      setAutoCopyEnabled(!getAutoCopyEnabled());
-    });
     this.autoCopyChangeHandler = () => this.syncAutoCopy();
     window.addEventListener("comnd:auto-copy", this.autoCopyChangeHandler);
     this.syncAutoCopy();
 
-    // Output highlighting toggle
-    this.$(".tv-highlight-btn")!.addEventListener("click", () => {
-      setOutputHighlightEnabled(!getOutputHighlightEnabled());
-    });
     this.highlightChangeHandler = () => this.syncHighlight();
     window.addEventListener("comnd:output-highlight", this.highlightChangeHandler);
     this.syncHighlight();
 
-    // Panel toggle
-    this.$(".tv-panel-btn")!.addEventListener("click", () => {
-      toggleSidePanel();
-    });
     // Undock from the docked home; Mod+Shift+B reaches the same place by key.
     this.$("#panel-undock")?.addEventListener("click", () => {
       void setPanelUndocked(true);
@@ -820,14 +758,7 @@ export class TerminalView {
     this.panelUnsubscribe = subscribeSidePanel((state) => this.applyPanelState(state));
     this.applyPanelState(getSidePanelState());
 
-    // Scrollback search (toolbar button + Ctrl+Shift+F)
-    const searchBtn = this.$(".tv-search-btn")!;
-    searchBtn.innerHTML = icons.search;
-    searchBtn.addEventListener("mousedown", (e) => e.stopPropagation());
-    searchBtn.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't let topbar click → terminal.focus() steal input focus
-      this.searchBarOpen ? this.closeSearch() : this.openSearch();
-    });
+    // Scrollback search (controls menu + Ctrl+Shift+F)
     const searchInput = this.$(".tv-search-input") as HTMLInputElement;
     searchInput.addEventListener("input", () => {
       if (!searchInput.value) {
@@ -893,7 +824,6 @@ export class TerminalView {
       log.info(LogTag.Terminal, `Reattaching to existing session for '${host.display_name}'`);
       this.hideOverlay();
       this.hideDisconnectBanner();
-      this.updateHostInfo();
       this.updateStatusBar("connected");
       this.terminal?.focus();
       return;
@@ -915,9 +845,6 @@ export class TerminalView {
     // index load skips that call and would leave the stripper swallowing output.
     this.outputDecoder.reset();
     this.tracker.resetStream();
-
-    // Update top bar
-    this.updateHostInfo();
 
     // Clear stale output from previous connection attempt
     this.clearOutputBuffer();
@@ -1056,7 +983,9 @@ export class TerminalView {
           touchHost(this.host.id).catch(() => {});
         }
         this.hideOverlay();
-        this.terminal?.focus();
+        // A menu or dialog can be open while the connection completes; it owns
+        // keyboard focus, so this event must not pull focus into xterm.
+        if (!this.focusOwnedByOverlay()) this.terminal?.focus();
         this.updateStatusBar("connected");
         this.updateModeDisplay(this.currentMode);
         this.controller.setConnected(true);
@@ -1320,49 +1249,43 @@ export class TerminalView {
     this.$(".tv-banner")?.classList.add("hidden");
   }
 
-  // ─── Status bar ──────────────────────────────────────────────────
-
-  private updateHostInfo() {
-    const infoEl = this.$(".tv-host-info");
-    if (infoEl && this.host) {
-      const platformLabel = getPlatformMeta(this.host.platform).label;
-      const version = this.host.os_version ? ` ${this.host.os_version}` : "";
-      infoEl.textContent = `${this.host.display_name} (${platformLabel}${version})`;
-    }
-  }
+  // ─── Connection status ───────────────────────────────────────────
 
   /**
-   * Connection status, mirrored from the status bar so callers can tell a live
-   * session from a failed attempt that is only holding its tab open for Retry.
+   * Connection status, mirrored so callers can tell a live session from a
+   * failed attempt that is only holding its tab open for Retry.
    */
   get connectionStatus(): SessionLifecycle {
     return this.status;
   }
 
+  /**
+   * True when an open menu or modal owns keyboard focus. An asynchronous
+   * connection event must not move focus into xterm and leave a visible menu
+   * unable to receive arrows and Enter.
+   */
+  private focusOwnedByOverlay(): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    return !!active?.closest('[role="menu"], [role="dialog"], .modal-panel');
+  }
+
   private updateStatusBar(status: SessionLifecycle) {
     const changed = status !== this.status;
     this.status = status;
-    const dot = this.$(".tv-sb-dot");
-    const hostEl = this.$(".tv-sb-host");
-    const platformEl = this.$(".tv-sb-platform");
 
-    if (dot) {
-      dot.className = "sb-indicator tv-sb-dot";
+    // The visible device status lives on the session tab now. This hidden
+    // region keeps role="status" announcements for connection transitions;
+    // mode is left out on purpose, because prompt detection would otherwise
+    // announce on every command.
+    const live = this.$(".tv-live-status");
+    if (live) {
+      const target = this.host ? ` ${this.host.hostname}` : "";
       switch (status) {
-        case "connecting": dot.classList.add("sb-connecting"); break;
-        case "connected": dot.classList.add("sb-connected"); break;
-        case "disconnected":
-        case "error": dot.classList.add("sb-disconnected"); break;
+        case "connecting": live.textContent = `Connecting to${target || " host"}`; break;
+        case "connected": live.textContent = `Connected to${target || " host"}`; break;
+        case "disconnected": live.textContent = `Disconnected from${target || " host"}`; break;
+        case "error": live.textContent = `Connection error on${target || " host"}`; break;
       }
-    }
-
-    if (hostEl && this.host) {
-      hostEl.textContent = this.host.hostname;
-    }
-    if (platformEl && this.host) {
-      const label = getPlatformMeta(this.host.platform).label;
-      const version = this.host.os_version ? ` ${this.host.os_version}` : "";
-      platformEl.textContent = `${label}${version}`;
     }
 
     if (changed) this.onStatusChange?.(status);
@@ -1422,7 +1345,6 @@ export class TerminalView {
     sidebar?.classList.toggle("hidden", !docked);
     this.$(".tv-resizer")?.classList.toggle("hidden", !docked);
     if (sidebar) sidebar.style.width = docked ? `${this.clampDockedWidth(state.dockedWidth)}px` : "";
-    this.$(".tv-panel-btn")?.setAttribute("aria-expanded", String(state.open));
 
     for (const mode of ["kb", "replay", "netbox"] as const) {
       const btn = this.$(`.sb-toggle-${mode}`);
@@ -1578,13 +1500,11 @@ export class TerminalView {
   // ─── Mode display ────────────────────────────────────────────────
 
   private updateModeDisplay(mode: string) {
-    const modeEl = this.$(".tv-sb-mode");
-    if (modeEl) {
-      modeEl.textContent = mode ? formatMode(mode) : "—";
-    }
-
-    // Apply ambient chrome tint based on platform/mode
+    // Ambient chrome tint follows the platform/mode. The detected mode is
+    // also published so the session tab's tooltip and description stay
+    // current; that update touches one tab element, never the tab bar.
     this.applyChromeTint();
+    this.onModeChange?.(mode);
   }
 
   /** Re-assert this view's chrome tint (called by App on tab activation). */
@@ -1857,54 +1777,65 @@ export class TerminalView {
     container?.classList.toggle("timestamps-on", on);
     if (container) container.dataset.tsFormat = format;
     this.timestampGutter?.applyFormat(format);
-    const btn = this.$(".tv-timestamps-btn");
-    if (btn) {
-      btn.innerHTML = icons.clock;
-      btn.classList.toggle("active", on);
-      setToggleState(btn, on, on ? "Hide line timestamps" : "Show line timestamps");
-    }
     this.fitAddon?.fit();
+    this.onControlsChange?.();
   }
 
   private syncSuggestions() {
     this.suggestionsEnabled = getSuggestionsEnabled();
     this.controller.setSuggestionsEnabled(this.suggestionsEnabled);
-    const btn = this.$(".tv-suggestions-btn");
-    if (btn) {
-      btn.innerHTML = icons.lightbulb;
-      btn.classList.toggle("active", this.suggestionsEnabled);
-      setToggleState(btn, this.suggestionsEnabled, this.suggestionsEnabled ? "Disable command suggestions" : "Enable command suggestions");
-    }
+    this.onControlsChange?.();
     if (!this.suggestionsEnabled) return;
     this.controller.refresh();
   }
 
   private syncAutoCopy() {
-    const on = getAutoCopyEnabled();
-    const btn = this.$(".tv-autocopy-btn");
-    if (btn) {
-      btn.innerHTML = icons.copy;
-      btn.classList.toggle("active", on);
-      setToggleState(btn, on, on ? "Disable auto-copy on selection" : "Enable auto-copy on selection");
-    }
+    this.onControlsChange?.();
   }
 
   private syncHighlight() {
-    const on = getOutputHighlightEnabled();
-    const btn = this.$<HTMLButtonElement>(".tv-highlight-btn");
-    if (btn) {
-      btn.innerHTML = icons.paintbrush;
-      // Disable when no highlighter is active (host profile = "none" or
-      // highlighter not yet initialized). Prevents toggling a no-op.
-      const disabled = this.outputHighlighter === null;
-      btn.disabled = disabled;
-      btn.classList.toggle("active", on && !disabled);
-      if (disabled) {
-        setToggleState(btn, false, "Output highlighting disabled for this host");
-      } else {
-        setToggleState(btn, on, on ? "Disable output highlighting" : "Enable output highlighting");
-      }
-    }
+    this.onControlsChange?.();
+  }
+
+  // ─── Controls (the session tab bar's menu) ───────────────────────
+
+  /** Mode the prompt tracker last detected ("" before the first prompt). */
+  get detectedMode(): string {
+    return this.currentMode;
+  }
+
+  getControlState(): TerminalControlState {
+    const highlightAvailable = this.outputHighlighter !== null;
+    return {
+      timestamps: getTimestampsEnabled(),
+      suggestions: getSuggestionsEnabled(),
+      autoCopy: getAutoCopyEnabled(),
+      highlight: highlightAvailable && getOutputHighlightEnabled(),
+      highlightAvailable,
+      theme: getTerminalTheme(),
+    };
+  }
+
+  toggleTimestamps(): void {
+    setTimestampsEnabled(!getTimestampsEnabled());
+  }
+
+  toggleSuggestions(): void {
+    setSuggestionsEnabled(!getSuggestionsEnabled());
+  }
+
+  toggleAutoCopy(): void {
+    setAutoCopyEnabled(!getAutoCopyEnabled());
+  }
+
+  /** No-op when the host has no highlighter — the menu item is disabled then. */
+  toggleOutputHighlight(): void {
+    if (this.outputHighlighter === null) return;
+    setOutputHighlightEnabled(!getOutputHighlightEnabled());
+  }
+
+  cycleTerminalTheme(): void {
+    setTerminalTheme(nextTerminalTheme(getTerminalTheme()));
   }
 
   // ─── Zoom ────────────────────────────────────────────────────────

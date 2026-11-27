@@ -28,7 +28,7 @@ import {
 } from "./lib/duplicate-session";
 import { openDuplicateSessionDialog, policyForRememberedChoice } from "./lib/duplicate-session-dialog";
 import { getAppConfig, openUrl, setDuplicateSessionPolicy } from "./lib/tauri-api";
-import { getAppTheme, setAppTheme } from "./lib/theme";
+import { getAppTheme, setAppTheme, terminalThemeLabel, nextTerminalTheme } from "./lib/theme";
 import {
   isReadingComfortEnabled, enable as rcEnable, disable as rcDisable,
   update as rcUpdate, resetToPreset as rcReset, getReadingComfortState, RC_PRESET,
@@ -38,16 +38,18 @@ import { startApp } from "./lib/app-startup";
 import {
   applySidePanelAction, closeSidePanel, cycleSidePanel, flushSidePanelWidth,
   getSidePanelState, handlePanelWindowClosed, initSidePanel,
-  notifySidePanelSessionsChanged, onSidePanelAction, type SidePanelAction,
+  notifySidePanelSessionsChanged, onSidePanelAction, subscribeSidePanel, toggleSidePanel,
+  type SidePanelAction,
 } from "./lib/side-panel";
 import { resolvePeerHost as matchNetboxPeerHost, type NetBoxPeerSession } from "./lib/netbox-peer";
 import { sessionTabLabels } from "./lib/session-label";
 import { getTerminalFontSize, setTerminalFontSize, TERMINAL_FONT_MIN, TERMINAL_FONT_MAX, TERMINAL_FONT_DEFAULT } from "./lib/terminal-prefs";
 import {
-  formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
+  ariaKeyShortcuts, formatCombo, getOverrides, initShortcuts, matches, resolvedCombo,
   SECTION_TITLES, SHORTCUT_DEFS, SHORTCUT_SECTIONS,
 } from "./lib/shortcuts";
-import { setToggleState } from "./lib/a11y";
+import { initContextMenu, setToggleState } from "./lib/a11y";
+import { tabText } from "./lib/tab-description";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -108,6 +110,13 @@ class App {
    *  cannot stack a second dialog. */
   private pendingDuplicatePrompt = new Set<string>();
   private sessionTabBar: HTMLElement | null = null;
+  private sessionTabList: HTMLElement | null = null;
+  private sessionTabDescs: HTMLElement | null = null;
+  /** Controls menu — built on open so its state always mirrors the tab. */
+  private controlsMenuEl: HTMLElement | null = null;
+  private controlsMenuOutside: ((e: MouseEvent) => void) | null = null;
+  private controlsMenuUnsubPrefs: (() => void) | null = null;
+  private panelStateUnsub: (() => void) | null = null;
   private terminalArea: HTMLElement;
 
   /** Host ids that currently have at least one live session. Derived from
@@ -169,6 +178,7 @@ class App {
       // advertised combination on both Dock controls.
       void emitTo("panel", "comnd:shortcuts", getOverrides()).catch(() => {});
       this.publishPanelPreferences();
+      this.updatePanelButtonShortcut();
     });
 
     // Theme and Reading Comfort are per-document: the undocked panel would
@@ -887,6 +897,10 @@ class App {
   }
 
   private showView(view: AppView) {
+    // A menu opened over the terminal must not outlive that view: its items
+    // would still act on the hidden terminal. Focus is not restored because
+    // the trigger is about to be hidden.
+    if (view !== "terminal") this.closeTerminalControlsMenu(false);
     this.currentView = view;
     this.hostScreenWrapper.style.display = view === "connections" ? "" : "none";
     this.terminalArea.style.display = view === "terminal" ? "" : "none";
@@ -1083,13 +1097,21 @@ class App {
       (hostId) => this.connectHostById(hostId),
     );
     // Failed attempts keep their tab open for Retry but hold no SSH session,
-    // so the status bar must follow each transition, not just tab add/remove.
+    // Failed attempts keep their tab open for Retry but hold no SSH session,
+    // so the tab must follow each transition, not just tab add/remove.
     // The NetBox peer action follows the same transitions: a session that
     // drops while its tab stays open must stop offering Switch, and a Retry
     // that reconnects must offer it again.
     view.onStatusChange = () => {
       this.refreshStatusBar();
+      this.updateTabFacts(sessionId);
       notifySidePanelSessionsChanged();
+    };
+    // Mode detection runs on the keystroke path: update one tab element, do
+    // not rebuild the bar.
+    view.onModeChange = () => this.updateTabFacts(sessionId);
+    view.onControlsChange = () => {
+      if (this.controlsMenuEl) this.syncTerminalControlsMenu();
     };
     view.mount(wrapper);
 
@@ -1214,16 +1236,85 @@ class App {
     }));
   }
 
-  private renderSessionTabBar() {
-    if (!this.sessionTabBar) {
-      this.sessionTabBar = document.createElement("div");
-      this.sessionTabBar.className = "session-tab-bar";
-      this.sessionTabBar.setAttribute("role", "tablist");
-      this.sessionTabBar.setAttribute("aria-label", "SSH sessions");
-      this.terminalArea.insertBefore(this.sessionTabBar, this.terminalArea.firstChild);
-    }
+  /**
+   * Build the persistent shell of the session tab bar. Only the tab list and
+   * the hidden descriptions are rebuilt; the controls and panel buttons are
+   * created once, so a tab switch never recreates them.
+   */
+  private ensureSessionTabBar(): void {
+    if (this.sessionTabBar) return;
 
-    this.sessionTabBar.innerHTML = "";
+    const bar = document.createElement("div");
+    bar.className = "session-tab-bar";
+
+    const list = document.createElement("div");
+    list.className = "session-tab-list";
+    list.setAttribute("role", "tablist");
+    list.setAttribute("aria-label", "SSH sessions");
+
+    const actions = document.createElement("div");
+    actions.className = "session-tab-actions";
+
+    const menuBtn = document.createElement("button");
+    menuBtn.type = "button";
+    menuBtn.className = "btn-icon tv-menu-btn";
+    menuBtn.innerHTML = icons.sliders;
+    menuBtn.title = "Terminal controls";
+    menuBtn.setAttribute("aria-label", "Terminal controls");
+    menuBtn.setAttribute("aria-haspopup", "menu");
+    menuBtn.setAttribute("aria-controls", "tv-control-menu");
+    menuBtn.setAttribute("aria-expanded", "false");
+    menuBtn.addEventListener("click", () => {
+      if (this.controlsMenuEl) this.closeTerminalControlsMenu();
+      else this.openTerminalControlsMenu();
+    });
+
+    const panelBtn = document.createElement("button");
+    panelBtn.type = "button";
+    panelBtn.className = "btn-icon tv-panel-btn";
+    // Icon-only: the three-line glyph is the label's whole visual, so the
+    // accessible name and tooltip carry the words.
+    panelBtn.innerHTML = '<span aria-hidden="true">≡</span>';
+    panelBtn.title = "Toggle side panel";
+    panelBtn.setAttribute("aria-label", "Toggle side panel");
+    panelBtn.setAttribute("aria-controls", "tv-sidebar");
+    panelBtn.setAttribute("aria-expanded", String(getSidePanelState().open));
+    panelBtn.addEventListener("click", () => toggleSidePanel());
+    this.updatePanelButtonShortcut(panelBtn);
+
+    actions.append(menuBtn, panelBtn);
+
+    const descs = document.createElement("div");
+    descs.className = "visually-hidden";
+    descs.id = "session-tab-descs";
+
+    bar.append(list, actions, descs);
+    this.terminalArea.insertBefore(bar, this.terminalArea.firstChild);
+    this.sessionTabBar = bar;
+    this.sessionTabList = list;
+    this.sessionTabDescs = descs;
+
+    // The panel is app-wide (ADR-013) and its button lives here, outside the
+    // views that paint the panel itself, so the bar mirrors its state.
+    this.panelStateUnsub ??= subscribeSidePanel((state) => {
+      this.sessionTabBar
+        ?.querySelector(".tv-panel-btn")
+        ?.setAttribute("aria-expanded", String(state.open));
+    });
+  }
+
+  private updatePanelButtonShortcut(btn?: HTMLElement | null): void {
+    const target = btn ?? this.sessionTabBar?.querySelector<HTMLElement>(".tv-panel-btn");
+    target?.setAttribute("aria-keyshortcuts", ariaKeyShortcuts("toggle-side-panel"));
+  }
+
+  private renderSessionTabBar() {
+    this.closeTerminalControlsMenu(false);
+    this.ensureSessionTabBar();
+    const list = this.sessionTabList!;
+    const descs = this.sessionTabDescs!;
+    list.innerHTML = "";
+    descs.innerHTML = "";
 
     // Duplicate sessions to one host share a visible label by design, so the
     // accessible name carries the position instead — it still contains the
@@ -1240,12 +1331,16 @@ class App {
     for (const [sessionId, tab] of this.tabs) {
       const naming = labels.get(sessionId)!;
       const sessionSuffix = naming.suffix;
+      const text = tabText(tab.host, tab.view.detectedMode, tab.view.connectionStatus);
 
       const el = document.createElement("div");
       el.className = "session-tab" + (sessionId === this.activeTabId ? " active" : "");
       el.dataset.sessionId = String(sessionId);
       el.dataset.hostId = tab.host.id;
+      el.dataset.status = tab.view.connectionStatus;
       el.setAttribute("role", "tab");
+      el.setAttribute("aria-describedby", `session-desc-${sessionId}`);
+      el.title = text.title;
       if (sessionSuffix) {
         el.setAttribute("aria-label", naming.accessibleLabel);
       }
@@ -1257,6 +1352,14 @@ class App {
           this.activateTab(sessionId);
         }
       });
+
+      // The description sits outside the tablist: role="tablist" may only
+      // own tabs, and aria-describedby reaches it by id.
+      const desc = document.createElement("span");
+      desc.id = `session-desc-${sessionId}`;
+      desc.className = "session-tab-desc";
+      desc.textContent = text.description;
+      descs.appendChild(desc);
 
       const label = document.createElement("span");
       label.className = "session-tab-label";
@@ -1277,8 +1380,160 @@ class App {
       el.appendChild(label);
       el.appendChild(close);
       el.addEventListener("click", () => this.activateTab(sessionId));
-      this.sessionTabBar.appendChild(el);
+      list.appendChild(el);
     }
+  }
+
+  /**
+   * Refresh one tab's tooltip, description and data-status in place. Called
+   * from the status and mode observers, so the keystroke path never rebuilds
+   * the tab bar.
+   */
+  private updateTabFacts(sessionId: number): void {
+    const tab = this.tabs.get(sessionId);
+    const el = this.sessionTabList?.querySelector<HTMLElement>(
+      `.session-tab[data-session-id="${sessionId}"]`,
+    );
+    if (!tab || !el) return;
+
+    const status = tab.view.connectionStatus;
+    const text = tabText(tab.host, tab.view.detectedMode, status);
+    el.dataset.status = status;
+    el.title = text.title;
+    const desc = document.getElementById(`session-desc-${sessionId}`);
+    if (desc) desc.textContent = text.description;
+  }
+
+  // ─── Terminal controls menu ──────────────────────────────────────
+
+  private openTerminalControlsMenu(): void {
+    const view = this.activeTabId === null ? null : this.tabs.get(this.activeTabId)?.view;
+    const trigger = this.sessionTabBar?.querySelector<HTMLElement>(".tv-menu-btn");
+    if (!view || !trigger) return;
+
+    this.closeTerminalControlsMenu(false);
+
+    const menu = document.createElement("div");
+    menu.className = "context-menu";
+    menu.id = "tv-control-menu";
+
+    const item = (control: string, label: string, role: "menuitem" | "menuitemcheckbox") => {
+      const el = document.createElement("div");
+      el.className = "ctx-item";
+      el.dataset.control = control;
+      el.setAttribute("role", role);
+      el.textContent = label;
+      menu.appendChild(el);
+      return el;
+    };
+    const divider = () => {
+      const el = document.createElement("div");
+      el.className = "ctx-divider";
+      menu.appendChild(el);
+    };
+
+    item("timestamps", "Line timestamps", "menuitemcheckbox");
+    item("suggestions", "Command suggestions", "menuitemcheckbox");
+    item("auto-copy", "Auto-copy on selection", "menuitemcheckbox");
+    item("highlight", "Output highlighting", "menuitemcheckbox");
+    divider();
+    item("theme", "Terminal theme", "menuitem");
+    item("search", "Search scrollback", "menuitem");
+
+    menu.addEventListener("click", (e) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>(".ctx-item");
+      if (!target || target.classList.contains("ctx-disabled")) return;
+      const control = target.dataset.control;
+      // Return focus to the trigger; an action that needs focus elsewhere
+      // (scrollback search) takes it after this.
+      this.closeTerminalControlsMenu();
+      switch (control) {
+        case "timestamps": view.toggleTimestamps(); break;
+        case "suggestions": view.toggleSuggestions(); break;
+        case "auto-copy": view.toggleAutoCopy(); break;
+        case "highlight": view.toggleOutputHighlight(); break;
+        case "theme": view.cycleTerminalTheme(); break;
+        case "search": view.openSearch(); break;
+      }
+    });
+
+    document.body.appendChild(menu);
+    this.controlsMenuEl = menu;
+    this.syncTerminalControlsMenu();
+
+    const rect = menu.getBoundingClientRect();
+    const anchor = trigger.getBoundingClientRect();
+    menu.style.top = `${anchor.bottom + 4}px`;
+    menu.style.left = `${Math.max(4, Math.min(
+      anchor.right - rect.width,
+      window.innerWidth - rect.width - 4,
+    ))}px`;
+
+    trigger.setAttribute("aria-expanded", "true");
+    initContextMenu(menu, () => this.closeTerminalControlsMenu());
+
+    // A preference change from a shortcut or another tab must reach the open
+    // menu's checked state, not only the next time it opens.
+    const prefEvents = [
+      "comnd:timestamps", "comnd:suggestions", "comnd:auto-copy",
+      "comnd:output-highlight", "comnd:terminal-theme",
+    ];
+    const onPref = () => this.syncTerminalControlsMenu();
+    for (const name of prefEvents) window.addEventListener(name, onPref);
+    this.controlsMenuUnsubPrefs = () => {
+      for (const name of prefEvents) window.removeEventListener(name, onPref);
+    };
+
+    this.controlsMenuOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (this.controlsMenuEl?.contains(target) || trigger.contains(target)) return;
+      this.closeTerminalControlsMenu(false);
+    };
+    document.addEventListener("mousedown", this.controlsMenuOutside);
+  }
+
+  /** Paint the open menu from the active session's current control state. */
+  private syncTerminalControlsMenu(): void {
+    const view = this.activeTabId === null ? null : this.tabs.get(this.activeTabId)?.view;
+    if (!view) return;
+    const state = view.getControlState();
+
+    const setChecked = (control: string, on: boolean, disabled = false) => {
+      const item = this.controlsMenuEl?.querySelector<HTMLElement>(
+        `.ctx-item[data-control="${control}"]`,
+      );
+      if (!item) return;
+      item.setAttribute("aria-checked", String(on));
+      item.classList.toggle("ctx-disabled", disabled);
+      if (disabled) item.setAttribute("aria-disabled", "true");
+      else item.removeAttribute("aria-disabled");
+    };
+    setChecked("timestamps", state.timestamps);
+    setChecked("suggestions", state.suggestions);
+    setChecked("auto-copy", state.autoCopy);
+    setChecked("highlight", state.highlight, !state.highlightAvailable);
+
+    const theme = this.controlsMenuEl?.querySelector<HTMLElement>(
+      '.ctx-item[data-control="theme"]',
+    );
+    if (theme) {
+      theme.textContent = `Terminal theme: ${terminalThemeLabel(state.theme)}`
+        + ` — next ${terminalThemeLabel(nextTerminalTheme(state.theme))}`;
+    }
+  }
+
+  private closeTerminalControlsMenu(restoreFocus = true): void {
+    this.controlsMenuUnsubPrefs?.();
+    this.controlsMenuUnsubPrefs = null;
+    if (this.controlsMenuOutside) {
+      document.removeEventListener("mousedown", this.controlsMenuOutside);
+      this.controlsMenuOutside = null;
+    }
+    this.controlsMenuEl?.remove();
+    this.controlsMenuEl = null;
+    const trigger = this.sessionTabBar?.querySelector<HTMLElement>(".tv-menu-btn");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) trigger?.focus();
   }
 
   // ─── Close Confirm Modal ─────────────────────────────────────────

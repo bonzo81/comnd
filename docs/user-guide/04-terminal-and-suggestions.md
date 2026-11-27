@@ -4,11 +4,11 @@
 
 Once you connect to a device, the terminal view has four zones. For a walkthrough of connecting to a device, see [Getting Started](02-getting-started.md).
 
-**Top bar** — A back button (returns to the connection manager), the host name and platform, and a toggle for the side panel.
+**Session tab bar** — One tab per live session, with the device facts on each tab's tooltip and the controls menu and side-panel button at the right end.
 
 **Terminal area** — Your SSH session. Remote output appears here, and this is where you type commands. It behaves like any terminal you already use. Keystrokes go straight to the remote device. URLs in terminal output are clickable — click opens the link in your system browser.
 
-**Status bar** — A thin strip at the bottom showing at a glance what you are connected to and what mode you are in. It displays a connection indicator (a green, yellow, or red dot), the host name, and the platform and version. It also shows the current CLI mode and the round-trip latency.
+**Controls menu** — The slider button at the right end of the session tab bar opens the terminal controls: line timestamps, command suggestions, auto-copy on selection, output highlighting, terminal theme and scrollback search.
 
 **Side panel** — Hidden by default. When open, it shows detailed information about the currently highlighted suggestion. Covered in full in [Side Panel](05-side-panel.md).
 
@@ -39,7 +39,7 @@ Ghost text is designed to stay out of your way. The app shows it at reduced opac
 
 The dropdown is off by default. Turn it on to see every match while you type.
 
-- **Press `Ctrl+Space`** or click the lightbulb button in the terminal toolbar to toggle it (the setting persists between sessions)
+- **Press `Ctrl+Space`** or choose **Command suggestions** from the controls menu to toggle it (the setting persists between sessions)
 - When enabled, the dropdown appears as soon as you type a recognized prefix. The list shows below your cursor, or above it if there is not enough room.
 - Navigate with `↑` and `↓`
 - Accept with `Tab` (`Enter` always submits the typed command to the device)
@@ -49,7 +49,7 @@ Each item in the dropdown shows the **matched prefix in bold**, the full command
 
 ## Side Panel Integration
 
-Open the side panel with the **≡** button in the top bar to see full details of the highlighted suggestion. The highlight can be the ghost text or a selected dropdown item. The panel updates in real time as you type and as your selection changes.
+Open the side panel with the **≡** button in the session tab bar to see full details of the highlighted suggestion. The highlight can be the ghost text or a selected dropdown item. The panel updates in real time as you type and as your selection changes.
 
 See [Side Panel](05-side-panel.md) for the full panel layout and what it shows.
 
@@ -61,7 +61,7 @@ Comnd detects your current CLI mode from the device prompt. For example, on a Ci
 - `#` means privileged mode (full exec access)
 - `(config)#` means global configuration mode (changing device settings)
 
-Comnd filters suggestions to commands that are valid in the current mode. The detected mode is always visible in the status bar. For a full list of modes per platform, see [Knowledge Base](06-knowledge-base-overview.md).
+Comnd filters suggestions to commands that are valid in the current mode. The detected mode is shown on the session tab's tooltip. For a full list of modes per platform, see [Knowledge Base](06-knowledge-base-overview.md).
 
 ## How Input Works
 

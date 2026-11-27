@@ -9,7 +9,7 @@
   "readingComfort": "off",
   "terminalFontSize": 14,
   "terminalCursorBlink": false,
-  "suggestions": "enabled via the terminal toolbar toggle",
+  "suggestions": "enabled via the terminal controls menu",
   "shots": [
     {
       "file": "01-connections.png",
@@ -71,7 +71,7 @@
       "file": "08-terminal-sidebar-closed.png",
       "screen": "Terminal",
       "state": "\"ip \" typed at the mock prompt: 4 command row(s) (addr, route, link, neigh) with ghost text \"addr\"; side panel closed",
-      "sha256": "e7bcdffafb29e93464bfd5bc63a28a129e40c645b57ed302a1d2d29ddf9823a7",
+      "sha256": "2895448c9a4391b1071b88471ecb70f50fc56e9ccf3b92b67bbc200a28916681",
       "width": 2560,
       "height": 1600
     },
@@ -79,7 +79,7 @@
       "file": "09-terminal-sidebar-open.png",
       "screen": "Terminal",
       "state": "same command line with the side panel open showing the ip command detail",
-      "sha256": "c47fd97465828bf48f0dacbbf63b38d2aa799affaf37b8ee484300331e6e804c",
+      "sha256": "40a8e59c2971914b756e33569f1f51f987491df1161e6a3f88bf7ecfbcd72394",
       "width": 2560,
       "height": 1600
     }

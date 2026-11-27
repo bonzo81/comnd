@@ -67,7 +67,7 @@ Two complementary suggestion modes, matching modern IDE behaviour (e.g. VS Code)
 
 **Dropdown (toggleable auto-show)**
 
-* Off by default. Enabled via the lightbulb button in the terminal toolbar or `Ctrl+Space` (both toggle the same persisted state)
+* Off by default. Enabled via the **Command suggestions** item in the session tab bar's controls menu or `Ctrl+Space` (both toggle the same persisted state)
 * When enabled, shows top N matches as a popup list below the cursor automatically while typing
 * Navigate with arrow keys, accept with `Tab` (`Enter` always submits to the remote)
 * Dismiss with `Escape`; disabling the toggle hides it immediately

@@ -9,13 +9,14 @@ updated when interactive components change.
 Implemented and verified by code review + build:
 
 - ARIA roles on all interactive structures: dialogs (`role="dialog"`,
-  `aria-modal`, `aria-labelledby`), context menus (`menu`/`menuitem` with
-  full keyboard operation), list widgets (`listbox`/`option` with
-  `aria-selected`), session tabs (`tablist`/`tab`), toolbar (`toolbar`),
-  status regions (`role="status"`, `role="alert"`, `aria-live`).
-- Toggle controls expose state: topbar toolbar buttons use `aria-pressed`;
-  nav section headers use `aria-expanded`; the side panel button uses
-  `aria-expanded` + `aria-controls`.
+  `aria-modal`, `aria-labelledby`), context menus and the terminal controls
+  menu (`menu`/`menuitem`/`menuitemcheckbox` with full keyboard operation),
+  list widgets (`listbox`/`option` with `aria-selected`), session tabs
+  (`tablist`/`tab`, each with an `aria-describedby` device summary), status
+  regions (`role="status"`, `role="alert"`, `aria-live`).
+- Toggle controls expose state: the controls menu's checkbox items use
+  `aria-checked`; nav section headers use `aria-expanded`; the icon-only
+  session-tab-bar panel button uses `aria-expanded` + `aria-controls`.
 - Visible keyboard focus indicators on all controls: a global
   `*:focus-visible` outline (2px accent, see `src/styles/main.css`) plus
   component-specific focus styles for context-menu items, session tabs, KB
@@ -44,6 +45,14 @@ broken. What the suite covers:
 - Keyboard reachability and a visible focus indicator on the connection
   manager, the terminal with the side panel open and closed, settings, and the
   duplicate-session, KB import, replay-save and NetBox-configure dialogs.
+- The terminal's permanent chrome is only the session tab bar and the
+  terminal; each tab exposes host, platform, mode and connection state through
+  its tooltip and `aria-describedby`, and the hidden `role="status"` region
+  still announces connection transitions.
+- The controls menu opens with Enter/Space, moves with arrows, applies with
+  Enter/Space, and closes with Escape or Tab returning focus to its button;
+  its four toggles report `aria-checked` and the highlighting item is
+  disabled for a host with no highlighter.
 - Modal focus trapped while open and restored to the invoking element on close.
 - An accessible name on every control that has no visible label, and error
   toasts announced rather than merely drawn: a polite live region, an `alert`
@@ -83,8 +92,9 @@ conformance in release notes.
 5. Context menu (Shift+F10 on a host, or right-click): Arrow keys announce
    menu items; Enter activates; Escape closes and focus returns.
 6. Terminal: connect to any host; confirm NVDA does not crash on the xterm
-   canvas; confirm the connection status bar (`role="status"`) announces
-   "connected".
+   canvas; confirm the hidden connection live region (`role="status"`)
+   announces "Connected to …", and that each session tab's description reads
+   hostname, platform, mode and connection state.
 7. Toasts announce politely (`aria-live="polite"` on the toast container).
 
 ### VoiceOver (macOS)

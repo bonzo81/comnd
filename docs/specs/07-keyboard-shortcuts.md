@@ -11,7 +11,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `Tab`    | Accept ghost text suggestion (if showing) / pass through to remote (if no suggestion) | Terminal |
 | `Alt+→`  | Accept next word of ghost text suggestion (if showing) / pass through to remote | Terminal |
 | `Ctrl+Space` | Toggle command suggestions (auto-show dropdown while typing) | Terminal |
-| `Escape` | Dismiss dropdown / dismiss side panel | Dropdown or panel open |
+| `Escape` | Dismiss dropdown / controls menu / side panel, returning focus to the terminal or the menu button | Dropdown, menu or panel open |
 | `↑` / `↓` | Navigate dropdown (if open) / pass through to remote (if closed) | Terminal |
 | `Enter`  | Send command to remote (always); closes dropdown if open | Terminal |
 | `Ctrl+Shift+F` | Search terminal scrollback | Terminal |
@@ -54,7 +54,7 @@ The entire app must be navigable without a mouse. Network engineers work keyboar
 | `Ctrl+Shift+B` | Open / undock / dock the panel — see below |
 | `Escape` | In the undocked panel window: close it (the panel stays undocked for the next open) |
 
-`Ctrl+Shift+B` is the whole panel lifecycle from the keyboard, cycled rather than toggled so undocking is reachable without a mouse: closed → open docked → undocked in its own window → docked again. It works from both windows, so the same chord brings an undocked panel home. The mouse equivalents are the Dock and Close controls in the undocked window's header and the Undock control in the docked panel's tab strip; the `.tv-panel-btn` toolbar button still only shows and hides the docked panel. Because the undocked window is frameless, its header is also its drag region — the only way to move it.
+`Ctrl+Shift+B` is the whole panel lifecycle from the keyboard, cycled rather than toggled so undocking is reachable without a mouse: closed → open docked → undocked in its own window → docked again. It works from both windows, so the same chord brings an undocked panel home. The mouse equivalents are the Dock and Close controls in the undocked window's header and the Undock control in the docked panel's tab strip; the icon-only `.tv-panel-btn` in the session tab bar still only shows and hides the docked panel. Because the undocked window is frameless, its header is also its drag region — the only way to move it.
 
 The undocked window never opens itself at launch, even when the app was quit while undocked: the panel state is remembered, so the next open puts the panel straight back into its own window at the saved geometry.
 

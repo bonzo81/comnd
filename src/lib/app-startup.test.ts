@@ -162,11 +162,14 @@ describe("app startup with blocked storage", () => {
     const terminal = (
       view as unknown as { terminal: { options: { fontSize: number } } | null }
     ).terminal;
-    const suggestionsBtn = container.querySelector(".tv-suggestions-btn");
 
     expect(terminal?.options.fontSize).toBe(14);
-    expect(suggestionsBtn).not.toBeNull();
-    expect(suggestionsBtn?.classList.contains("active")).toBe(false);
+    expect(view.getControlState().suggestions).toBe(false);
+    // Permanent chrome is the session tab bar and the terminal content only;
+    // the device status lives on the tab and in a hidden live region.
+    expect(container.querySelector(".tv-topbar")).toBeNull();
+    expect(container.querySelector(".tv-statusbar")).toBeNull();
+    expect(container.querySelector(".tv-live-status")?.getAttribute("role")).toBe("status");
 
     (view as unknown as { cleanup(): void }).cleanup();
   });
@@ -216,14 +219,13 @@ describe("app startup with blocked storage", () => {
     const terminal = (
       view as unknown as { terminal: { options: { fontSize: number } } | null }
     ).terminal;
-    const suggestionsBtn = container.querySelector<HTMLButtonElement>(".tv-suggestions-btn")!;
 
     // Each listener re-reads the key, so a discarded write would revert the change.
     setTerminalFontSize(18);
-    suggestionsBtn.click();
+    view.toggleSuggestions();
 
     expect(terminal?.options.fontSize).toBe(18);
-    expect(suggestionsBtn.classList.contains("active")).toBe(true);
+    expect(view.getControlState().suggestions).toBe(true);
 
     (view as unknown as { cleanup(): void }).cleanup();
   });

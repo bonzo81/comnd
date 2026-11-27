@@ -16,7 +16,7 @@ Style reference: Linear-inspired neutral slate surfaces, single green accent, su
 | App background / terminal background | `--color-surface-primary` | `#0F172A` (slate-900) | Deep blue-grey, easy on the eyes for long sessions |
 | Terminal foreground | — | `#F8FAFC` | Set via xterm theme (`src/lib/theme.ts`) |
 | Terminal cursor | — | `#22C55E` | Green, matches accent |
-| UI chrome (title bar, top bar, sidebar, status bar) | `--color-surface-secondary` | `#0A0F1C` | Differentiates chrome from terminal |
+| UI chrome (title bar, session tab bar, sidebar, app status bar) | `--color-surface-secondary` | `#0A0F1C` | Differentiates chrome from terminal |
 | Elevated surfaces (cards, modals, dropdowns, inputs) | `--color-surface-elevated` | `#1E293B` (slate-800) | |
 | Borders / dividers | `--color-border` | `rgba(255,255,255,0.20)` | Subtle, not prominent |
 | Accent / interactive | `--color-accent` | `#22C55E` | Green — links, selected items, focus indicators, badges |
@@ -27,7 +27,7 @@ Style reference: Linear-inspired neutral slate surfaces, single green accent, su
 | Muted metadata | `--color-text-secondary` | `#94A3B8` | Version, mode, tags in sidebar |
 | NX-OS badge | `--color-badge-nxos` | `#38BDF8` | Platform badge differentiation |
 
-Platform tints: each platform subtly tints the top/status bar chrome via `--color-chrome-tint` (IOS-XE green, NX-OS sky, TMOS amber, Bash green-dim). Purely ambient — never competes with content.
+Platform tints: each platform subtly tints the session tab bar via `--color-chrome-tint` (IOS-XE green, NX-OS sky, TMOS amber, Bash green-dim). Purely ambient — never competes with content.
 
 * **Light palette (shipped, theme-aware via `[data-theme="light"]`):**
 
@@ -87,7 +87,7 @@ Colour roles sit above the raw palette: a component reads `--color-fg-on-danger`
 
 **Terminal scrollback:** adjustable in Settings → Terminal and persisted via the `comnd-terminal-scrollback` localStorage key (1,000–50,000 lines, default 10,000). A change applies to already-open terminals. xterm stores 12 bytes per cell, so history is bounded by `lines × cols × 12` bytes — about 19 MB at 10,000 lines and 160 columns.
 
-**Terminal themes:** four states, cycled by the toolbar theme button — `dark`, `light`, `cream`, `warm-charcoal` (definitions in spec 12). See Reading Comfort mode (`docs/specs/12-dyslexia-mode.md`) for typography scaling (`--text-scale`), spacing, and prose-measure tokens.
+**Terminal themes:** four states, cycled by the **Terminal theme** item in the session tab bar's controls menu — `dark`, `light`, `cream`, `warm-charcoal` (definitions in spec 12). See Reading Comfort mode (`docs/specs/12-dyslexia-mode.md`) for typography scaling (`--text-scale`), spacing, and prose-measure tokens.
 
 ## Iconography
 
@@ -106,10 +106,10 @@ on one element.
 |---|---|---|---|
 | Commit | `.btn-primary` | dialog footers, form submits, one per footer | accent fill, pill, 8/16 padding, `--color-on-accent` label |
 | Alternative | `.btn-secondary` | beside an input, or beside a `.btn-primary` | `--color-surface-selected` fill, 1px border, pill |
-| Tertiary / Cancel | `.btn-text` | every Cancel, row actions, toolbar toggles | no chrome, `--color-text-secondary`, hover to primary |
+| Tertiary / Cancel | `.btn-text` | every Cancel, row actions | no chrome, `--color-text-secondary`, hover to primary |
 | Destructive | `.btn-danger` | the confirm of a destructive dialog only | `--color-error` fill, `--color-fg-on-danger` label |
 | Inline link | `.btn-link` | "Reset", "Refresh status" inside a row | accent text, underline on hover |
-| Icon-only | `.btn-icon` | KB viewer actions, square toolbar icons | 24×24, `--radius-sm`, no border, hover fill |
+| Icon-only | `.btn-icon` | KB viewer actions, session tab bar controls | 24×24, `--radius-sm`, no border, hover fill |
 | Choice card | `.modal-choice` | a dialog offering two paths | recessed card, stacked title + description |
 | Size | `.btn-small`, `.btn-xs` | modifiers, compose with any role | smaller padding / font-size |
 
@@ -164,7 +164,7 @@ Rules that the table implies:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ [← Back]  core-rtr-lon01 (IOS-XE 17.6)           [≡ Panel] │  ← Top bar
+│ [core-rtr-lon01 ×]  [edge-fw-01 ×]        [⚙ controls] [≡]    │  ← Session tab bar
 ├─────────────────────────────────┬────────────────────────────┤
 │                                 │                            │
 │     SSH Terminal                │  show ip interface brief   │
@@ -189,35 +189,42 @@ Rules that the table implies:
 │                                 │  IOS-XE · ≥12.0 · exec    │
 │                                 │  [interfaces] [networking] │
 │                                 │  Official docs →           │
-├─────────────────────────────────┴────────────────────────────┤
-│ ● core-rtr-lon01 │ IOS-XE 17.6 │ privileged-exec │ 12ms     │  ← Status bar
-└──────────────────────────────────────────────────────────────┘
+└─────────────────────────────────┴────────────────────────────┘
 ```
 
 The screen is inset `--space-2` (8px) inside the 1px frame on all four sides, so no glyph sits against the border and ghost text on row 0 keeps its pill background and descenders. `.tv-terminal` is `box-sizing: content-box` so FitAddon's `parseInt(getComputedStyle(...).width)` sees the *content* width; under `border-box` Chrome reports the border box there and the inset would be invisible to the fit, hanging the grid past the padding and clipping the last row and column. The timestamps gutter adds its width to the left inset instead of replacing it.
 
-## Top Bar
+## Session Tab Bar
 
-* **← Back** — returns to connection manager (keyboard: `Escape` when no dropdown/panel open)
-* **Host name + platform** — always visible context
-* **≡ Panel button** — toggles side panel
+One tab per live session, plus two icon-only controls at the right end. It is
+the terminal view's only permanent chrome above the terminal; there is no
+separate top bar or device status bar.
 
-## Status Bar
+* **Session tabs** — the visible label is the host display name (duplicate
+  sessions to the same host keep the same label). Hovering a tab shows host
+  name, hostname, platform + version, detected mode and connection state; the
+  same facts are the tab's accessible description (`aria-describedby`),
+  refreshed in place when status or mode changes. Tabs keep the
+  `tablist`/`tab` roles and Tab reachability.
+* **Controls menu** — the sliders button opens a `role="menu"` popover with
+  line timestamps, command suggestions, auto-copy on selection, output
+  highlighting (disabled for a host with no highlighter), terminal theme and
+  scrollback search. The first four are `menuitemcheckbox` items exposing
+  `aria-checked`; theme and search are plain `menuitem`s. Enter/Space opens,
+  arrows/Home/End move, Enter/Space applies, Escape or Tab closes and returns
+  focus to the button.
+* **≡ panel button** — icon-only, toggles the side panel and keeps
+  `aria-expanded` and `aria-controls="tv-sidebar"`. `Ctrl+Shift+B` reaches the
+  same lifecycle (spec 07), and a rebinding updates `aria-keyshortcuts`.
 
-Thin bar at the bottom of the terminal view. Always visible. Monospace. Shows at a glance:
-
-| Element | Description |
-|---------|-------------|
-| Connection indicator | Colored dot (`●`) — green = connected, red = disconnected, amber = connecting |
-| Host display name | Which device am I on? |
-| Platform + version | What OS is this? |
-| Current mode | Updated in real time by prompt detection — confirms the app is tracking correctly |
-| Latency (optional) | Round-trip time if measurable. Helps diagnose slow sessions. |
-| Shortcuts help button | Keyboard glyph at the right end. Opens the shortcuts help modal (same as pressing `?`). Tooltip: "Keyboard shortcuts (?)". Registry-driven — see docs/specs/11-shortcut-customization.md. |
+The tabs and both buttons stay in the Tab order. Connection-state changes are
+still announced: each terminal view owns a visually hidden `role="status"`
+live region, so prompt-detection mode changes never re-announce on every
+keystroke.
 
 ## Side Panel
 
-Hidden by default. Opened via the `≡` panel button; closed with the button again or `Escape` (after any open dropdown). Pushes terminal (does not overlay). Resizable by dragging the divider. Default 320px, minimum 240px. The tab strip holds at the default width; at the 240px minimum with the largest UI text scale it wraps its items onto extra rows rather than letting a label paint over its neighbour.
+Hidden by default. Opened via the icon-only panel button at the right end of the session tab bar; closed with the button again or `Escape` (after any open dropdown). Pushes terminal (does not overlay). Resizable by dragging the divider. Default 320px, minimum 240px. The tab strip holds at the default width; at the 240px minimum with the largest UI text scale it wraps its items onto extra rows rather than letting a label paint over its neighbour.
 
 **Undocked window.** The panel can also leave the app window entirely and live in its own OS window — the only form of detachment available: nothing floats inside the app window, and only the panel moves, never a terminal tab. `Ctrl+Shift+B` cycles closed → docked → undocked → docked; the Undock control sits in the docked panel's tab strip and the Dock control heads the undocked window's header, both carrying a word beside their icon so the pair reads as one action. Undocked, the terminal takes the full width back through the same fit → PTY resize path a docked panel uses in reverse, and docking restores the panel at its saved width. The undocked window is frameless, like the main window, so its header is the drag region and carries Dock and Close; it is a single instance, and asking for it again reuses it. It never opens itself at launch, even when the app was quit while undocked — the panel stays hidden, and the next open returns to the window at its saved geometry, clamped back onto a visible monitor if that geometry no longer fits.
 
@@ -346,7 +353,7 @@ Cancel button available at all stages. On failure, error overlay with retry butt
   settles in the panel is its content (220ms), when the panel opens or its tab changes; a resize does
   not settle it, since nothing is arriving. Animating the pane itself would show the old terminal
   through it and read as an overlay, which ADR-003 forbids.
-* **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the toolbar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). Focus also draws the app's shared focus ring: `--focus-ring-width` at `--focus-ring-offset`, transparent at rest and colour-animated, so the ring appears outside the frame with a clear gap. It sits outside rather than inset because an inset outline at `outline-offset: -1px` paints *over* the border instead of adding to it — measured on the light theme as one device pixel of `#88898a` at rest and one of `#166534` focused, with no ink added. That reads on the dark themes, whose border is a faint 1.8:1 hairline, but not on the light ones, where the border is already a strong 3.3:1 line and is the only thing separating the pane (`#F8FAFC`) from the page (`#E2E8F0`, 1.13:1). Outside, focus goes from no ink beyond the frame to a 2px ring plus a 2px gap in every theme — same light-theme column, three device pixels of `#166534`, three of surface, then the border, against one pixel of `#88898a` at rest. Width and offset are constant, the wrap's 8px margin leaves room for the ring, and no layout moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colour and extent.
+* **Terminal focus tint** — the terminal is the app's keystroke surface, so its frame (`.tv-terminal-wrap`) says whether typing lands on the remote: 140ms colour-only transition from the neutral hairline to `--color-focus-ring` while `.tv-terminal` holds `:focus-within`, back to neutral when focus moves to the scrollback search field, the side panel or the session tab bar. The match is on `.tv-terminal` rather than the wrap, so search focus — a sibling inside the wrap — reads as "not typing to the remote", which is also the moment xterm hollows its cursor (its default `cursorInactiveStyle: "outline"`). Focus also draws the app's shared focus ring: `--focus-ring-width` at `--focus-ring-offset`, transparent at rest and colour-animated, so the ring appears outside the frame with a clear gap. It sits outside rather than inset because an inset outline at `outline-offset: -1px` paints *over* the border instead of adding to it — measured on the light theme as one device pixel of `#88898a` at rest and one of `#166534` focused, with no ink added. That reads on the dark themes, whose border is a faint 1.8:1 hairline, but not on the light ones, where the border is already a strong 3.3:1 line and is the only thing separating the pane (`#F8FAFC`) from the page (`#E2E8F0`, 1.13:1). Outside, focus goes from no ink beyond the frame to a 2px ring plus a 2px gap in every theme — same light-theme column, three device pixels of `#166534`, three of surface, then the border, against one pixel of `#88898a` at rest. Width and offset are constant, the wrap's 8px margin leaves room for the ring, and no layout moves. `prefers-reduced-motion: reduce` drops the transition; both states remain distinguishable as static colour and extent.
 * The navigation animates too, because the nav is where the user's place in the app is decided:
   * nav row hover, keyboard focus and selection tint cross-fade (140–160ms), so switching views hands the highlight from one row to the next instead of blinking it;
   * section expand/collapse eases `max-height` (120ms, decelerating) under an 80ms opacity fade, and a collapsed section sits 2px high so the list drops into place. A closed section is `inert`, so its rows, search field and action buttons leave the tab order the moment it closes rather than when `visibility: hidden` lands;

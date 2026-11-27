@@ -29,20 +29,29 @@ Committed set: `test/smoke/visual-baseline/windows/`.
 `manifest.json` sits beside them and records the geometry the set was captured
 at, plus each shot's screen, state, SHA-256 and pixel size.
 
-The committed set was last captured on 2026-11-26 on Windows 11 (WebView2
-158.0.4370.33, DPR 2, 1280×800), after the button-system pass that changed
-button typeface, labels and fills. The earlier 2026-11-03 set was captured on
-WebView2 156.0.4314.58, where five consecutive captures hashed identically.
+The committed set was last captured on 2026-11-27 on Windows 11 (WebView2
+158.0.4370.33, DPR 2, 1280×800). Only the two terminal shots were replaced:
+issue #231 removed the terminal toolbar and device status bar, so
+`08-terminal-sidebar-closed` and `09-terminal-sidebar-open` show the session
+tab bar as the only chrome. The other seven files were verified byte-identical
+before the commit and were left untouched. The 2026-11-26 set that preceded it
+was captured after the button-system pass that changed button typeface, labels
+and fills. The earlier 2026-11-03 set was captured on WebView2 156.0.4314.58,
+where five consecutive captures hashed identically.
 
-**Reproducibility on WebView2 158.** Captured five times. Five of the nine
-files hashed identically every time; the other four — `04-knowledge-base`,
-`06-replay`, `07-settings-general` and `09-terminal-sidebar-open` — differed by
-one or two isolated pixels whose blue channel moves by 1/255. That is
-sub-pixel text rasterisation inside the engine, not a layout difference, and
-the largest spread measured across the whole frame is 2 px. So `--check` can
-report `DIFFERS` on one or two of those files while the UI is correct; compare
-the difference rather than assuming a regression. A real one moves thousands
-of pixels — the button-system re-capture moved 0.2%–3.1% of each frame.
+**Reproducibility on WebView2 158.** Across the 2026-11-27 captures,
+`01-connections`, `02-dialog-new-connection`, `03-dialog-shortcuts`,
+`06-replay` and `08-terminal-sidebar-closed` hashed identically every time;
+`09-terminal-sidebar-open` moved by one pixel on the pane border. The small
+text regions in `04-knowledge-base`, `05-dialog-confirm-delete` and
+`07-settings-general` varied by 0.004%–0.127% of their frames with a maximum
+channel delta of 11–142 over a glyph-sized box — sub-pixel text
+rasterisation inside the engine, not a layout difference; those images were
+deliberately not replaced. So `--check` can report `DIFFERS` on those three
+while the UI is correct; compare the difference rather than assuming a
+regression. A real one moves thousands of pixels over a large area — the
+button-system re-capture moved 0.2%–3.1% of each frame, and the terminal
+chrome change moved 11.9%–15.8%.
 
 ### What is deliberately not covered
 
@@ -85,9 +94,10 @@ The manifest is the source of truth; this section explains it.
 - **Dark app theme, dark terminal theme, Reading Comfort off, terminal font
   14px**, all written to `localStorage` explicitly and then reloaded, so the
   capture never inherits preferences left behind by an earlier manual run.
-- **Suggestions are enabled through the terminal toolbar toggle** during the
+- **Suggestions are enabled through the terminal controls menu** during the
   capture so the dropdown and ghost text are reviewable; the stored default is
-  off.
+  off. The menu and the icon-only panel button sit at the right end of the
+  session tab bar.
 - **Animations, transitions and the text caret are disabled** by a stylesheet
   injected before the first shot, so nothing is caught mid-fade.
 - **The pointer is parked at the viewport origin before every shot.** Element
