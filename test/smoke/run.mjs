@@ -1694,30 +1694,42 @@ async function launchAndConnect(browser, dataDir) {
 // Suggestions are off until the controls menu's checkbox is checked, and the
 // menu is rebuilt on every open, so act through actOn and prove the state by
 // reopening the menu rather than holding a handle across the render.
+// `syncTerminalControlsMenu` writes aria-checked after the items exist, so a
+// missing attribute is "state unknown", never "off" — the persisted value can
+// be on. A click can also be lost while the menu is torn down under parallel
+// workers, so re-check and retry once instead of assuming one click landed.
 async function enableSuggestions(browser) {
+  const item = '#tv-control-menu .ctx-item[data-control="suggestions"]';
   const checked = async () => browser.execute(() =>
     document.querySelector('#tv-control-menu .ctx-item[data-control="suggestions"]')
       ?.getAttribute("aria-checked") ?? null,
   );
 
-  await actOn(browser, ".tv-menu-btn");
-  await waitForSelector(
-    browser,
-    '#tv-control-menu .ctx-item[data-control="suggestions"]',
-    "Suggestions: the controls menu did not open",
-  );
+  const open = async (message) => {
+    const alreadyOpen = await browser.execute(
+      () => document.getElementById("tv-control-menu") !== null,
+    );
+    if (!alreadyOpen) await actOn(browser, ".tv-menu-btn");
+    await waitForSelector(browser, item, message);
+    await browser.waitUntil(
+      async () => (await checked()) !== null,
+      {
+        timeout: 5000,
+        timeoutMsg: "Suggestions: the menu checkbox never reported its state",
+      },
+    );
+  };
+
+  await open("Suggestions: the controls menu did not open");
   if ((await checked()) !== "true") {
-    await actOn(browser, '#tv-control-menu .ctx-item[data-control="suggestions"]');
-  } else {
-    await browser.keys("\uE00C"); // Escape — leave the menu without toggling
+    await actOn(browser, item);
   }
 
-  await actOn(browser, ".tv-menu-btn");
-  await waitForSelector(
-    browser,
-    '#tv-control-menu .ctx-item[data-control="suggestions"]',
-    "Suggestions: the controls menu did not reopen",
-  );
+  await open("Suggestions: the controls menu did not reopen");
+  if ((await checked()) !== "true") {
+    await actOn(browser, item);
+    await open("Suggestions: the controls menu did not reopen");
+  }
   await waitFor(
     browser,
     () => document.querySelector('#tv-control-menu .ctx-item[data-control="suggestions"]')
