@@ -983,7 +983,9 @@ export class TerminalView {
           touchHost(this.host.id).catch(() => {});
         }
         this.hideOverlay();
-        this.terminal?.focus();
+        // A menu or dialog can be open while the connection completes; it owns
+        // keyboard focus, so this event must not pull focus into xterm.
+        if (!this.focusOwnedByOverlay()) this.terminal?.focus();
         this.updateStatusBar("connected");
         this.updateModeDisplay(this.currentMode);
         this.controller.setConnected(true);
@@ -1255,6 +1257,16 @@ export class TerminalView {
    */
   get connectionStatus(): SessionLifecycle {
     return this.status;
+  }
+
+  /**
+   * True when an open menu or modal owns keyboard focus. An asynchronous
+   * connection event must not move focus into xterm and leave a visible menu
+   * unable to receive arrows and Enter.
+   */
+  private focusOwnedByOverlay(): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    return !!active?.closest('[role="menu"], [role="dialog"], .modal-panel');
   }
 
   private updateStatusBar(status: SessionLifecycle) {

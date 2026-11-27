@@ -349,7 +349,7 @@ export async function acceptHostKeyIfNeeded(browser) {
       accept: [...document.querySelectorAll("button")].some(
         (button) => button.textContent?.trim() === "Accept and save",
       ),
-      connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+      connected: !!document.querySelector('.session-tab[data-status="connected"]'),
       failed: !!document.querySelector(".tv-overlay-error:not(.hidden)"),
     }));
     if (state.accept) {
@@ -785,7 +785,7 @@ async function describeFailure(browser, caught) {
   const state = await withTimeout(browser.execute(() => ({
     text: document.body.innerText,
     terminal: !!document.querySelector(".tv-terminal"),
-    connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+    connected: !!document.querySelector('.session-tab[data-status="connected"]'),
   })), 15_000, "failure state capture").catch(() => null);
   if (!state) return caught;
   return new Error(
