@@ -199,9 +199,8 @@ async function inputState(browser) {
       ghost: style(".ghost-text"),
       ghostText: document.querySelector(".ghost-text")?.textContent ?? null,
       dropdown: style(".suggestion-dropdown"),
-      suggestionsPressed: document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null,
       focused: document.activeElement?.className ?? null,
-      connected: !!document.querySelector(".tv-sb-dot.sb-connected"),
+      connected: !!document.querySelector('.session-tab[data-status="connected"]'),
       banner: style(".tv-banner"),
       hostList: style(".hs-host-list"),
       overlayError: style(".tv-overlay-error"),
@@ -1621,9 +1620,10 @@ async function createAndConnect(
 
 async function waitForConnection(browser) {
   await browser.waitUntil(async () => {
-    const classes = await browser.execute(() =>
-      document.querySelector(".tv-sb-dot")?.getAttribute("class") ?? "");
-    return classes.includes("sb-connected");
+    const status = await browser.execute(() => [
+      ...document.querySelectorAll(".session-tab"),
+    ].map((tab) => tab.getAttribute("data-status")));
+    return status.includes("connected");
   }, {
     timeout: 20_000,
     interval: 100,
@@ -1633,10 +1633,9 @@ async function waitForConnection(browser) {
 }
 
 /**
- * Wait for the *active* session to connect, accepting its host key. The
- * global helper above is single-session (its `.tv-sb-dot` lookup is strict),
- * and "any connected dot" would pass on a session left running in the
- * background. Only the wrapper that is not `display: none` is the active one.
+ * Wait for the *active* session to connect, accepting its host key. "Any
+ * connected tab" would pass on a session left running in the background, so
+ * this reads the tab that is marked active.
  */
 async function waitForActiveConnection(browser, label) {
   await browser.waitUntil(async () =>
@@ -1648,10 +1647,8 @@ async function waitForActiveConnection(browser, label) {
         accept.click();
         return false;
       }
-      const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
-        .find((element) => element.style.display !== "none");
-      const dot = wrapper?.querySelector(".tv-sb-dot");
-      return dot?.classList.contains("sb-connected") ?? false;
+      return document.querySelector(".session-tab.active")
+        ?.getAttribute("data-status") === "connected";
     }), {
     timeout: 20_000,
     interval: 100,
@@ -1681,27 +1678,53 @@ async function waitForHostList(browser, label) {
 async function launchAndConnect(browser, dataDir) {
   const host = await createAndConnect(browser, dataDir);
   await waitForConnection(browser);
-  const statusHost = await browser.execute(() =>
-    document.querySelector(".tv-sb-host")?.textContent?.trim() ?? "",
+  const description = await browser.execute(() => {
+    const tab = document.querySelector(".session-tab.active");
+    const id = tab?.getAttribute("aria-describedby") ?? "";
+    return id ? document.getElementById(id)?.textContent?.trim() ?? "" : "";
+  });
+  assert(
+    description.includes("127.0.0.1"),
+    `Expected the active session tab to describe the host, saw ${JSON.stringify(description)}`,
   );
-  assert.equal(statusHost, "127.0.0.1");
   assert((await terminalText(browser)).includes("user@host:~$"));
   return host;
 }
 
-// Suggestions are off until the toolbar toggle is pressed, and the session
-// view is rebuilt under it, so act through actOn and read the state with one
-// execute per poll instead of holding a handle.
+// Suggestions are off until the controls menu's checkbox is checked, and the
+// menu is rebuilt on every open, so act through actOn and prove the state by
+// reopening the menu rather than holding a handle across the render.
 async function enableSuggestions(browser) {
-  const pressed = await browser.execute(() =>
-    document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null,
+  const checked = async () => browser.execute(() =>
+    document.querySelector('#tv-control-menu .ctx-item[data-control="suggestions"]')
+      ?.getAttribute("aria-checked") ?? null,
   );
-  if (pressed !== "true") await actOn(browser, ".tv-suggestions-btn");
+
+  await actOn(browser, ".tv-menu-btn");
+  await waitForSelector(
+    browser,
+    '#tv-control-menu .ctx-item[data-control="suggestions"]',
+    "Suggestions: the controls menu did not open",
+  );
+  if ((await checked()) !== "true") {
+    await actOn(browser, '#tv-control-menu .ctx-item[data-control="suggestions"]');
+  } else {
+    await browser.keys("\uE00C"); // Escape — leave the menu without toggling
+  }
+
+  await actOn(browser, ".tv-menu-btn");
+  await waitForSelector(
+    browser,
+    '#tv-control-menu .ctx-item[data-control="suggestions"]',
+    "Suggestions: the controls menu did not reopen",
+  );
   await waitFor(
     browser,
-    () => document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") === "true",
-    "Suggestions: the toolbar toggle never reported pressed",
+    () => document.querySelector('#tv-control-menu .ctx-item[data-control="suggestions"]')
+      ?.getAttribute("aria-checked") === "true",
+    "Suggestions: the menu checkbox never reported checked",
   );
+  await browser.keys("\uE00C");
 }
 
 /** Wait until the ghost shows exactly `text` in a box the user can actually see. */
@@ -2154,7 +2177,12 @@ async function main() {
         );
         await actOn(browser, ".tv-overlay-back");
         await waitForSessionCleanup(browser, "Rejected auth");
-        assert.equal(await browser.execute(() => !!document.querySelector(".tv-sb-dot")), false);
+        assert.equal(
+          await browser.execute(() =>
+            document.querySelectorAll('.session-tab[data-status="connected"]').length),
+          0,
+          "Rejected auth: a failed attempt must not leave a tab reporting connected",
+        );
       },
     },
     {
@@ -2428,7 +2456,7 @@ async function main() {
           "Duplicate session: both tabs must show the same host name with no suffix",
         );
         await browser.waitUntil(async () => browser.execute(() =>
-          document.querySelectorAll(".tv-sb-dot.sb-connected").length === 2), {
+          document.querySelectorAll('.session-tab[data-status="connected"]').length === 2), {
           timeout: WAIT_MS,
           interval: 100,
           timeoutMsg: "Duplicate session: both sessions did not reach the connected state",
@@ -2457,12 +2485,7 @@ async function main() {
 
         // Suggestion state is per session: typing in the new tab must not
         // reach the other session's ghost text or terminal.
-        await browser.execute(() => {
-          const wrapper = [...document.querySelectorAll(".session-tab-wrapper")]
-            .find((el) => el.style.display !== "none");
-          const toggle = wrapper?.querySelector(".tv-suggestions-btn");
-          if (toggle && toggle.getAttribute("aria-pressed") !== "true") toggle.click();
-        });
+        await enableSuggestions(browser);
         await sendKeys(browser, "ip r", { visibleOnly: true });
         await browser.waitUntil(async () => {
           const state = await wrapperState();
@@ -2803,8 +2826,8 @@ async function main() {
 
         // Terminal chrome is reachable and visibly focused. The walk steps over
         // the search input and the terminal's own Tab handling (both documented
-        // interceptors) and keeps going, so the toolbar is still reached by
-        // real Tab presses.
+        // interceptors) and keeps going, so the session tab controls are still
+        // reached by real Tab presses.
         const chromeWalk = await tabWalk(browser, 40);
         const chrome = chromeWalk.stops;
         assert(
@@ -2845,9 +2868,8 @@ async function main() {
 
         assert.equal((await sidebar()).visible, false, "Terminal focus: the sidebar should start closed");
 
-        // Open by keyboard. Activating a toolbar toggle must leave focus on
-        // that toggle: the toolbar keeps focus in the terminal for mouse
-        // clicks only, so a keyboard user can operate it a second time.
+        // Open by keyboard. Activating the panel button must leave focus on
+        // that button, so a keyboard user can operate it a second time.
         await browser.execute(() => document.querySelector(".tv-panel-btn")?.focus());
         await browser.keys("\uE007");
         await browser.waitUntil(async () => {
@@ -2930,6 +2952,244 @@ async function main() {
           ?.closest(".settings-row")?.querySelector(".settings-row-value")?.textContent);
         assert.equal(readout, "20000 lines",
           `Terminal scrollback: the readout did not follow the slider (got ${JSON.stringify(readout)})`);
+      },
+    },
+    {
+      // Issue #231: the toolbar and device status bar collapse into the
+      // session tab bar. The tab carries the device facts; one controls menu
+      // hosts the six former toolbar buttons; the panel button is icon-only.
+      name: "terminal-chrome",
+      async run(browser, dataDir) {
+        await installSmokeHelpers(browser);
+        const host = await createAndConnect(browser, dataDir);
+
+        // Tag the tab while it is still connecting. A status transition that
+        // rebuilt the bar would replace this node.
+        await waitForSelector(browser, ".session-tab", "Terminal chrome: the session tab did not render");
+        await browser.execute(() => {
+          const tab = document.querySelector(".session-tab");
+          window.__chromeProbe = tab;
+          if (tab) tab.dataset.probe = "1";
+        });
+
+        await waitForConnection(browser);
+
+        // 1. Only the tab bar and the terminal are permanent chrome.
+        const chrome = await browser.execute(() => ({
+          tabBar: !!document.querySelector(".session-tab-bar"),
+          topbar: !!document.querySelector(".tv-topbar"),
+          statusbar: !!document.querySelector(".tv-statusbar"),
+          probeSurvived: window.__chromeProbe?.dataset.probe === "1",
+          liveRole: document.querySelector(".tv-live-status")?.getAttribute("role"),
+          liveText: document.querySelector(".tv-live-status")?.textContent ?? "",
+        }));
+        assert(chrome.tabBar, "Terminal chrome: the session tab bar did not render");
+        assert.equal(chrome.topbar, false, "Terminal chrome: .tv-topbar is still rendered");
+        assert.equal(chrome.statusbar, false, "Terminal chrome: .tv-statusbar is still rendered");
+        assert(chrome.probeSurvived,
+          "Terminal chrome: the tab was rebuilt when the session connected (the tooltip would go stale)");
+        assert.equal(chrome.liveRole, "status",
+          "Terminal chrome: the connection live region must keep role=\"status\"");
+        assert(chrome.liveText.includes("Connected") && chrome.liveText.includes("127.0.0.1"),
+          `Terminal chrome: the live region did not announce the connection, saw ${JSON.stringify(chrome.liveText)}`);
+
+        // 2. The tab's tooltip and accessible description carry host,
+        //    platform + version, mode and connection state.
+        const facts = await browser.execute(() => {
+          const tab = document.querySelector(".session-tab.active");
+          const id = tab?.getAttribute("aria-describedby") ?? "";
+          const desc = id ? document.getElementById(id) : null;
+          const style = desc ? getComputedStyle(desc) : null;
+          return {
+            status: tab?.getAttribute("data-status") ?? null,
+            title: tab?.title ?? "",
+            describedby: id,
+            description: desc?.textContent ?? "",
+            describedHidden: !!desc && style?.display !== "none" && style?.visibility !== "hidden",
+          };
+        });
+        assert.equal(facts.status, "connected",
+          `Terminal chrome: the tab data-status did not follow the connection (got ${JSON.stringify(facts.status)})`);
+        assert(facts.title.includes(host.display_name),
+          `Terminal chrome: the tab tooltip is missing the display name (${JSON.stringify(facts.title)})`);
+        for (const expected of ["127.0.0.1", "Linux Bash", "Shell", "Connected"]) {
+          assert(facts.title.includes(expected),
+            `Terminal chrome: the tab tooltip is missing ${JSON.stringify(expected)} (${JSON.stringify(facts.title)})`);
+          assert(facts.description.includes(expected),
+            `Terminal chrome: the tab description is missing ${JSON.stringify(expected)} (${JSON.stringify(facts.description)})`);
+        }
+        assert(facts.describedby.length > 0 && facts.description.length > 0 && facts.describedHidden,
+          "Terminal chrome: the tab has no reachable aria-describedby text");
+
+        // 3. The controls menu follows the WAI-ARIA menu-button pattern.
+        await browser.execute(() => document.querySelector(".tv-menu-btn")?.focus());
+        await browser.keys("\uE007"); // Enter opens the menu and focuses its first item
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: Enter did not open the controls menu");
+        const opened = await browser.execute(() => ({
+          expanded: document.querySelector(".tv-menu-btn")?.getAttribute("aria-expanded"),
+          haspopup: document.querySelector(".tv-menu-btn")?.getAttribute("aria-haspopup"),
+          role: document.querySelector("#tv-control-menu")?.getAttribute("role"),
+          focused: document.activeElement?.dataset?.control ?? null,
+          items: [...document.querySelectorAll("#tv-control-menu .ctx-item")].map((el) => ({
+            control: el.dataset.control,
+            role: el.getAttribute("role"),
+            checked: el.getAttribute("aria-checked"),
+            disabled: el.classList.contains("ctx-disabled"),
+          })),
+        }));
+        assert.equal(opened.expanded, "true", "Terminal chrome: the menu button did not report aria-expanded");
+        assert.equal(opened.haspopup, "menu", "Terminal chrome: the menu button does not advertise aria-haspopup");
+        assert.equal(opened.role, "menu", "Terminal chrome: the popover is not a role=\"menu\"");
+        assert.equal(opened.focused, "timestamps",
+          "Terminal chrome: opening the menu did not focus its first item");
+        assert.deepEqual(
+          opened.items.map((item) => item.control),
+          ["timestamps", "suggestions", "auto-copy", "highlight", "theme", "search"],
+          "Terminal chrome: the menu does not host all six controls",
+        );
+        assert.deepEqual(
+          opened.items.slice(0, 4).map((item) => item.role),
+          ["menuitemcheckbox", "menuitemcheckbox", "menuitemcheckbox", "menuitemcheckbox"],
+          "Terminal chrome: the toggles are not menuitemcheckbox items",
+        );
+        assert.equal(opened.items[4].role, "menuitem");
+        assert.equal(opened.items[5].role, "menuitem");
+        // This host has highlight_profile "none": the toggle must be disabled.
+        assert.equal(opened.items[3].disabled, true,
+          "Terminal chrome: output highlighting is not disabled for a host with no highlighter");
+
+        await browser.keys("\uE015"); // ArrowDown
+        assert.equal(
+          await browser.execute(() => document.activeElement?.dataset?.control ?? null),
+          "suggestions",
+          "Terminal chrome: ArrowDown did not move menu focus",
+        );
+
+        await browser.keys("\uE00C"); // Escape
+        await waitFor(browser, () => !document.querySelector("#tv-control-menu"),
+          "Terminal chrome: Escape did not close the menu");
+        assert.equal(
+          await browser.execute(() => document.querySelector(".tv-menu-btn")?.getAttribute("aria-expanded")),
+          "false",
+          "Terminal chrome: Escape left aria-expanded true",
+        );
+        assert(
+          await browser.execute(() => document.activeElement?.classList.contains("tv-menu-btn") ?? false),
+          "Terminal chrome: Escape did not return focus to the menu button",
+        );
+
+        // Tab closes the menu too (focus is on the trigger, so the next Tab
+        // continues to the panel button).
+        await browser.keys("\uE007"); // reopen
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not reopen");
+        await browser.keys("\uE004"); // Tab
+        await waitFor(browser, () => !document.querySelector("#tv-control-menu"),
+          "Terminal chrome: Tab did not close the menu");
+
+        // 4. Toggle wiring: each checkbox applies the existing behaviour and
+        //    reports its state.
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not open for timestamps");
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="timestamps"]');
+        await waitFor(
+          browser,
+          () => document.querySelector(".tv-terminal")?.classList.contains("timestamps-on")
+            ?? false,
+          "Terminal chrome: the timestamps toggle did not reach the terminal",
+        );
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not reopen for timestamps");
+        await waitFor(
+          browser,
+          () => document.querySelector('#tv-control-menu .ctx-item[data-control="timestamps"]')
+            ?.getAttribute("aria-checked") === "true",
+          "Terminal chrome: the timestamps checkbox did not report checked",
+        );
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="timestamps"]');
+        await waitFor(
+          browser,
+          () => !(document.querySelector(".tv-terminal")?.classList.contains("timestamps-on") ?? true),
+          "Terminal chrome: the timestamps toggle did not turn back off",
+        );
+
+        // Auto-copy is the third checkbox; its state is persisted the same way.
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not open for auto-copy");
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="auto-copy"]');
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not reopen for auto-copy");
+        await waitFor(
+          browser,
+          () => document.querySelector('#tv-control-menu .ctx-item[data-control="auto-copy"]')
+            ?.getAttribute("aria-checked") === "true",
+          "Terminal chrome: the auto-copy checkbox did not report checked",
+        );
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="auto-copy"]');
+
+        // Theme cycles and its label names the next state.
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not open for the theme");
+        assert.match(
+          await browser.execute(() => document.querySelector('#tv-control-menu .ctx-item[data-control="theme"]')
+            ?.textContent ?? ""),
+          /Terminal theme: Dark — next Warm charcoal/,
+          "Terminal chrome: the theme item does not name the current and next theme",
+        );
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="theme"]');
+        await actOn(browser, ".tv-menu-btn");
+        await waitForSelector(browser, "#tv-control-menu", "Terminal chrome: the menu did not reopen after the theme change");
+        assert.match(
+          await browser.execute(() => document.querySelector('#tv-control-menu .ctx-item[data-control="theme"]')
+            ?.textContent ?? ""),
+          /Terminal theme: Warm charcoal — next Cream/,
+          "Terminal chrome: the theme did not cycle",
+        );
+
+        // Search opens the transient bar and focuses its input.
+        await actOn(browser, '#tv-control-menu .ctx-item[data-control="search"]');
+        await waitFor(browser, () => {
+          const bar = document.querySelector(".tv-search-bar");
+          return !!bar && !bar.classList.contains("hidden");
+        }, "Terminal chrome: the search item did not open the search bar");
+        assert(
+          await browser.execute(() => document.activeElement?.classList.contains("tv-search-input") ?? false),
+          "Terminal chrome: the search item did not focus the search input",
+        );
+        await browser.keys("\uE00C"); // close the transient search bar
+
+        // 5. The panel toggle is icon-only, sits beside the menu button, and
+        //    keeps its aria-expanded state.
+        const panelButton = await browser.execute(() => {
+          const btn = document.querySelector(".tv-panel-btn");
+          return {
+            text: btn?.textContent?.trim() ?? "",
+            label: btn?.getAttribute("aria-label") ?? "",
+            controls: btn?.getAttribute("aria-controls") ?? "",
+            expanded: btn?.getAttribute("aria-expanded") ?? "",
+            inTabBar: !!btn?.closest(".session-tab-bar"),
+            besideMenu: !!btn?.previousElementSibling?.classList.contains("tv-menu-btn"),
+          };
+        });
+        assert.equal(panelButton.text, "≡", "Terminal chrome: the panel button still carries text");
+        assert.equal(panelButton.label, "Toggle side panel", "Terminal chrome: the panel button lost its accessible name");
+        assert.equal(panelButton.controls, "tv-sidebar", "Terminal chrome: the panel button lost aria-controls");
+        assert(panelButton.inTabBar && panelButton.besideMenu,
+          "Terminal chrome: the panel button is not beside the menu button in the tab bar");
+        assert.equal(panelButton.expanded, "false",
+          "Terminal chrome: the panel button should start with aria-expanded=\"false\"");
+
+        await actOn(browser, ".tv-panel-btn");
+        await waitFor(
+          browser,
+          () => document.querySelector(".tv-panel-btn")?.getAttribute("aria-expanded") === "true",
+          "Terminal chrome: the icon-only panel button did not open the panel",
+        );
+        await actOn(browser, ".tv-panel-btn");
+        await waitFor(
+          browser,
+          () => document.querySelector(".tv-panel-btn")?.getAttribute("aria-expanded") === "false",
+          "Terminal chrome: the icon-only panel button did not close the panel",
+        );
       },
     },
     {
@@ -3208,26 +3468,32 @@ async function main() {
         // flex container so the bar's height comes off the session wrapper; if
         // the wrapper goes back to filling the host's whole height from below
         // the bar, the bottom of the terminal view hangs past that edge and the
-        // status bar and the pane frame's bottom border are clipped away.
+        // pane frame's bottom border is clipped away. This also proves the
+        // toolbar and device status bar are gone: only the tab bar and the
+        // terminal remain.
         const clip = await browser.execute(() => {
           const content = document.querySelector(".app-content");
           const wrap = document.querySelector(".tv-terminal-wrap");
-          const statusbar = document.querySelector(".tv-statusbar");
-          if (!content || !wrap || !statusbar) return null;
+          if (!content || !wrap) return null;
           const bottom = content.getBoundingClientRect().bottom
             - parseFloat(getComputedStyle(content).borderBottomWidth);
           return {
             wrap: wrap.getBoundingClientRect().bottom - bottom,
-            statusbar: statusbar.getBoundingClientRect().bottom - bottom,
+            permanentChrome: document.querySelectorAll(".tv-topbar, .tv-statusbar").length,
+            tabBar: !!document.querySelector(".session-tab-bar"),
           };
         });
-        assert(clip, "Terminal sidebar layout: the terminal pane or status bar was never rendered");
+        assert(clip, "Terminal sidebar layout: the terminal pane was never rendered");
+        assert(
+          clip.tabBar && clip.permanentChrome === 0,
+          `Terminal sidebar layout: expected only the session tab bar as permanent chrome, `
+            + `saw ${clip.permanentChrome} leftover band(s)`,
+        );
         // 1px tolerance for subpixel rounding at fractional display scale.
         assert(
-          clip.wrap <= 1 && clip.statusbar <= 1,
+          clip.wrap <= 1,
           `Terminal sidebar layout: the bottom of the terminal view is clipped `
-            + `(frame ${clip.wrap}px, status bar ${clip.statusbar}px past the bottom of `
-            + `.app-content)`,
+            + `(frame ${clip.wrap}px past the bottom of .app-content)`,
         );
 
         // Issues #176/#177: the three tab buttons are icon-only, while the

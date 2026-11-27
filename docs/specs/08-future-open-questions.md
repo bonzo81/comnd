@@ -47,7 +47,7 @@
 | 2026-03-03 | Tauri v2 (not v1) | v2 is current stable, different IPC system, better plugin API |
 | 2026-03-03 | Dark-first theme, follow OS preference | Terminal apps are almost always dark. Match OS setting by default, allow override. |
 | 2026-03-03 | JetBrains Mono as bundled terminal font | High-quality monospace, ligature support, user-configurable |
-| 2026-03-03 | Status bar always visible in terminal view | Immediate context: host, platform, mode, connection state. Core to the value proposition. |
+| 2026-03-03 | Status bar always visible in terminal view | Immediate context: host, platform, mode, connection state. Core to the value proposition. Superseded 2026-11-27: the same facts moved into each session tab's tooltip and accessible description. |
 | 2026-03-03 | Side panel pushes terminal (not overlay) | Overlay would obscure terminal output — unacceptable for SSH work |
 | 2026-03-03 | Sidebar examples are clickable (insert to terminal) | Reduces friction from "reading about a command" to "using it" |
 | 2026-03-03 | Ghost text shows match count badge `(+N)` | Teaches dropdown feature organically without onboarding |
@@ -55,10 +55,11 @@
 | 2026-03-03 | Empty state with single CTA + tip | First-run experience must be frictionless. One button, one tip, no wizard. |
 | 2026-03-03 | Platform icons in connection manager | Visual scanning is faster than reading text labels for device type |
 | 2026-03-03 | Escape cascades: dropdown → panel → connection manager | Consistent "back out" behaviour across all contexts |
-| 2026-08-24 | Suggestion dropdown auto-show is a persisted toggle (off by default) | Toolbar lightbulb button + `Ctrl+Space` flip the same state; ghost text stays always-on. Resolves the open "dropdown mode" question. |
+| 2026-08-24 | Suggestion dropdown auto-show is a persisted toggle (off by default) | Controls-menu Command suggestions item + `Ctrl+Space` flip the same state; ghost text stays always-on. Resolves the open "dropdown mode" question. |
 | 2026-08-28 | Host sources use a generic `host_sources` config map (keyed by source id) | LibreNMS becomes a second instance (`librenms.rs`, own cache + keyring prefix), not a refactor |
 | 2026-08-28 | NetBox sync caches to a separate `netbox-cache.json`; merge at read time | `hosts.json` stays a pure user-owned store; NetBox deletions propagate on next sync |
 | 2026-08-28 | NetBox refresh is manual-only (button, no interval task) | Host list must never block on or poll a remote API; cache loads instantly from disk |
 | 2026-08-28 | LibreNMS host source deferred (design hook only) | Same shape as NetBox (config map entry, `librenms-cache.json`, `comnd_source_librenms_*` keyring keys, own platform table); build after NetBox proves the pattern |
 | 2026-11-18 | Dropdown translucency set by blur radius, not alpha | Over the dark terminal the composited panel tone is 43.3 at 35-100% alpha, because the blurred backdrop averages to the elevated surface's luminance. Only the texture changes, so a 4px blur carries the effect (ADR-023) |
+| 2026-11-27 | Device status lives on the session tab; the terminal toolbar and status bar collapse into one controls menu | Removes two permanent horizontal bands from the terminal view. Host, platform, mode and connection state stay one hover or focus away, and a hidden `role="status"` region keeps connection announcements (issue #231) |
 

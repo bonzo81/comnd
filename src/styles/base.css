@@ -25,6 +25,20 @@
     padding: 0 var(--space-2) var(--space-2);
   }
 
+  /* Accessible to assistive tech, invisible on screen: names and descriptions
+     that must not be redrawn (session-tab device facts, live status text). */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   /* A browser gives form controls their own font-family rather than inheriting
      the body's, and nothing here reset it. Classes that named Inter looked
      right; classes that did not (.btn-primary, .btn-text, nav-row-btn,

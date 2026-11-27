@@ -4,7 +4,7 @@
 
 The side panel starts hidden. You open it only when you want to inspect a command in detail:
 
-- Click the **≡** button on the right side of the top bar to open it. Click the button again to close it.
+- Click the **≡** button at the right end of the session tab bar to open it. Click the button again to close it.
 - Press **Escape** to close it — the behavior depends on what is open. If a suggestion dropdown is open, the first Escape closes the dropdown. A second Escape closes the panel. If no dropdown is showing, Escape closes the panel immediately.
 
 The panel remembers whether it was open or closed for the current session.

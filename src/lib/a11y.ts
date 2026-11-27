@@ -12,7 +12,9 @@ export function initContextMenu(menu: HTMLElement, onClose: () => void): void {
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-orientation", "vertical");
   menu.querySelectorAll<HTMLElement>(".ctx-item").forEach((el) => {
-    el.setAttribute("role", "menuitem");
+    // A checkbox item declares its own role before it reaches this helper;
+    // overriding it would make a toggled item announce as a plain action.
+    if (!el.hasAttribute("role")) el.setAttribute("role", "menuitem");
     if (!el.hasAttribute("tabindex")) el.tabIndex = -1;
   });
 

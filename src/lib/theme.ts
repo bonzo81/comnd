@@ -41,6 +41,15 @@ export function setTerminalTheme(t: TerminalTheme): void {
   window.dispatchEvent(new CustomEvent("comnd:terminal-theme", { detail: t }));
 }
 
+export function terminalThemeLabel(t: TerminalTheme): string {
+  return t === "warm-charcoal" ? "Warm charcoal" : t[0].toUpperCase() + t.slice(1);
+}
+
+/** The theme a click on the cycle control applies. */
+export function nextTerminalTheme(t: TerminalTheme): TerminalTheme {
+  return TERMINAL_THEME_ORDER[(TERMINAL_THEME_ORDER.indexOf(t) + 1) % TERMINAL_THEME_ORDER.length];
+}
+
 export const TERMINAL_THEMES: Record<TerminalTheme, ITheme> = {
   dark: { background: "#0F172A", foreground: "#F8FAFC", cursor: "#22C55E", selectionBackground: "#334155" },
   "warm-charcoal": { background: "#1A1A1F", foreground: "#EDEDED", cursor: "#22C55E", selectionBackground: "#3A3A42" },

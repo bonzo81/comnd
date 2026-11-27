@@ -48,7 +48,7 @@ const PREFS = {
   "comnd-terminal-theme": "dark",
   "comnd-terminal-font-size": "14",
   // Off on a fresh install; the terminal captures switch it on through the
-  // toolbar toggle so the suggestion surface is reviewable.
+  // controls menu so the suggestion surface is reviewable.
   "comnd-suggestions": "0",
   "comnd-timestamps": "0",
   "comnd-timestamps-format": "24h",
@@ -297,7 +297,7 @@ async function captureAll(browser, outDir) {
     readingComfort: "off",
     terminalFontSize: Number(PREFS["comnd-terminal-font-size"]),
     terminalCursorBlink: false,
-    suggestions: "enabled via the terminal toolbar toggle",
+    suggestions: "enabled via the terminal controls menu",
     shots: [],
   };
   const capture = createCapture(browser, outDir, manifest);
@@ -377,16 +377,27 @@ async function captureAll(browser, outDir) {
   await actOn(browser, `.nav-host-row[data-host-id="${seeded.mockHostId}"]`, { action: "dblclick" });
   await acceptHostKeyIfNeeded(browser);
   await browser.waitUntil(async () => browser.execute(() =>
-    (document.querySelector(".tv-sb-dot")?.getAttribute("class") ?? "").includes("sb-connected")), {
+    document.querySelector('.session-tab[data-status="connected"]') !== null), {
     timeout: 20_000,
     interval: 100,
     timeoutMsg: "SSH connection did not reach the connected state",
   });
   await waitForTerminal(browser, "user@host:~$", "the mock prompt did not appear");
 
-  const pressed = await browser.execute(() =>
-    document.querySelector(".tv-suggestions-btn")?.getAttribute("aria-pressed") ?? null);
-  if (pressed !== "true") await actOn(browser, ".tv-suggestions-btn");
+  await actOn(browser, ".tv-menu-btn");
+  await waitForSelector(
+    browser,
+    '#tv-control-menu .ctx-item[data-control="suggestions"]',
+    "the controls menu did not open",
+  );
+  const checked = await browser.execute(() =>
+    document.querySelector('#tv-control-menu .ctx-item[data-control="suggestions"]')
+      ?.getAttribute("aria-checked") ?? null);
+  if (checked !== "true") {
+    await actOn(browser, '#tv-control-menu .ctx-item[data-control="suggestions"]');
+  } else {
+    await browser.keys("\uE00C");
+  }
 
   await sendKeys(browser, "ip ");
   await browser.waitUntil(async () => visible(browser, ".suggestion-dropdown"), {

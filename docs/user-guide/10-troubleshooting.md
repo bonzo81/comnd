@@ -64,7 +64,7 @@ The hostname or IP can point to a network that is not accessible from your curre
 
 1. **Platform** — set in host settings. If the wrong platform is selected (for example, `linux-bash` for a Cisco device), you are searching the wrong knowledge base. Make sure that the platform matches the device OS.
 2. **OS version** — also in host settings. A specific version filters out commands that do not apply to that release. Clear this field to see every command available for the platform.
-3. **CLI mode** — shown in the status bar. Suggestions are filtered to the current mode. At a shell prompt, you will see shell commands. In config mode, you will see config commands.
+3. **CLI mode** — shown on the session tab's tooltip. Suggestions are filtered to the current mode. At a shell prompt, you will see shell commands. In config mode, you will see config commands.
 
 If all three look correct but you still see nothing, check whether the terminal is inside an interactive program. Suggestions pause when the terminal is inside programs like `vi`, `more`, `less`, or `top`. Exit back to the shell prompt and suggestions will resume.
 
@@ -77,12 +77,12 @@ If the lag continues, heavy terminal output with formatting codes can slow down 
 ### Wrong suggestions showing
 
 **Suggestions do not match the commands you expect for this device.**
-Check the platform first. Edit the host and make sure that it matches the OS of the remote device. If the platform is correct, look at the status bar for the detected CLI mode. Mode detection is automatic, but it can misdetect during rapid command sequences or when prompt patterns are unusual. Wait a moment after you reach a prompt so detection can settle. If you are in config mode, only config-mode commands appear. Return to exec mode to see the full command set.
+Check the platform first. Edit the host and make sure that it matches the OS of the remote device. If the platform is correct, hover the session tab to see the detected CLI mode. Mode detection is automatic, but it can misdetect during rapid command sequences or when prompt patterns are unusual. Wait a moment after you reach a prompt so detection can settle. If you are in config mode, only config-mode commands appear. Return to exec mode to see the full command set.
 
 ### Dropdown not showing
 
 **The suggestion dropdown does not appear while typing.**
-The dropdown is off by default. Press `Ctrl+Space` or click the lightbulb button in the terminal toolbar to enable auto-show. The setting persists. If `Ctrl+Space` does nothing, it is usually reserved by the input method editor (IME) on Linux and Windows, or by Spotlight on macOS. Check your OS keyboard settings. Unbind the conflicting shortcut or remap it. The toolbar button works regardless.
+The dropdown is off by default. Press `Ctrl+Space` or choose **Command suggestions** from the controls menu to enable auto-show. The setting persists. If `Ctrl+Space` does nothing, it is usually reserved by the input method editor (IME) on Linux and Windows, or by Spotlight on macOS. Check your OS keyboard settings. Unbind the conflicting shortcut or remap it. The controls-menu item works regardless.
 
 ### Suggestion panel shows commands from the wrong device
 
@@ -111,7 +111,7 @@ If `Ctrl+Shift+V` is not pasting, another application or your window manager can
 
 ### Side panel will not open
 
-Click the **≡** button at the right end of the top bar to open the side panel — there is no keyboard shortcut for opening it. `Escape` closes it if already open and returns focus to the terminal. If the panel is open but shows no command details, nothing is highlighted yet — type in the terminal or open the dropdown with `Ctrl+Space` to pick a command first.
+Click the **≡** button at the right end of the session tab bar to open the side panel, or press `Ctrl+Shift+B` to cycle it open, undocked and docked. `Escape` closes it if already open and returns focus to the terminal. If the panel is open but shows no command details, nothing is highlighted yet — type in the terminal or open the dropdown with `Ctrl+Space` to pick a command first.
 
 ### App will not launch
 

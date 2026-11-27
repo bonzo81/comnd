@@ -88,8 +88,7 @@ Comnd remembers accepted keys. You see this prompt only once per device.
 After the SSH session starts, you see:
 
 - The terminal prompt from your remote device
-- The top bar showing the device name, platform, and OS version
-- A green connection indicator in the status bar
+- The session tab above the terminal, whose tooltip shows the device name, platform, OS version, current mode and connection state
 - The current CLI mode (for Cisco and F5 devices — this determines which commands are suggested)
 
 You are now connected to the device. The app sends each command that you type directly to the remote device. The app does not store commands locally. Your keystrokes go directly to the device, and the output from the device appears on your screen.
@@ -110,7 +109,7 @@ Press **Ctrl+Space** to open a dropdown listing every command that matches what 
 
 ### Side Panel
 
-Click the **≡** (panel) button at the right end of the top bar to open the side panel; press `Escape` to close it. It shows detailed syntax, parameter descriptions, and examples for the command currently highlighted in the dropdown or at your cursor.
+Click the **≡** (panel) button at the right end of the session tab bar to open the side panel; press `Escape` to close it. It shows detailed syntax, parameter descriptions, and examples for the command currently highlighted in the dropdown or at your cursor.
 
 Full details on the suggestion system are in [Terminal & Suggestions](04-terminal-and-suggestions.md).
 

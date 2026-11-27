@@ -44,7 +44,7 @@ Comnd detects the current CLI mode from the device prompt. This determines which
 - In `Router(config)#` (global config mode) → you see config commands like `hostname`, `interface`, `ip route`
 - In `Router(config-if)#` (interface config mode) → you see interface-specific config commands like `ip address`, `shutdown`
 
-The current mode is displayed in the **status bar** at the bottom of the terminal view.
+The current mode is shown on the session tab's tooltip.
 
 If Comnd cannot determine the mode (for example, a non-standard prompt format), it shows all commands for the platform. You keep access to suggestions in this case.
 
