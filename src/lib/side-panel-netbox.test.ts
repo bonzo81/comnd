@@ -5,6 +5,7 @@ import {
   __resetSidePanel,
   clearSidePanelNetboxHost,
   getSidePanelState,
+  notifySidePanelSessionsChanged,
   openSidePanel,
   retrySidePanelNetbox,
   setSidePanelMode,
@@ -12,6 +13,7 @@ import {
 } from "./side-panel";
 import { renderSidePanel, type SidePanelHandlers } from "./side-panel-render";
 import { resolvePeerHost } from "./netbox-peer";
+import type { NetBoxPeerSession } from "./netbox-peer";
 import type { NetBoxDeviceSummary } from "./tauri-api";
 
 beforeEach(() => __resetSidePanel());
@@ -23,10 +25,15 @@ function summary(over: Partial<NetBoxDeviceSummary> = {}): NetBoxDeviceSummary {
     name: "tab-device",
     status: "active",
     status_label: "Active",
+    tags: [],
     device_type: "Cisco C9300-48P",
+    device_type_id: 3,
     site: "DC1 London",
+    site_id: 7,
     location: "Rack 1",
+    location_id: 9,
     rack: "rack-1",
+    rack_id: 4,
     position: 12.5,
     face: "front",
     primary_ip: "127.0.0.1/32",
@@ -45,6 +52,8 @@ function handlers(over: Partial<SidePanelHandlers> = {}): SidePanelHandlers {
     runExample: vi.fn(),
     retryNetbox: () => retrySidePanelNetbox(),
     connect: vi.fn(),
+    switchSession: vi.fn(),
+    openLink: vi.fn(),
     ...over,
   };
 }
@@ -404,5 +413,187 @@ describe("NetBox side-panel tab", () => {
 
     buttons[2].click();
     expect(connect).toHaveBeenCalledWith("user-name");
+  });
+
+  it("renders device tags as the host rows' pills", async () => {
+    const h = createHarness();
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({ tags: ["prod", "edge", "london"] }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = renderCurrent();
+    const pills = [...root.querySelectorAll(".nbd-tags .hs-tag")];
+    expect(pills.map((pill) => pill.textContent)).toEqual(["prod", "edge", "london"]);
+  });
+
+  it("renders no tag container when the device has no tags", async () => {
+    await selectNetbox();
+    const root = renderCurrent();
+    expect(root.querySelector(".nbd-tags")).toBeNull();
+    expect(root.querySelector(".hs-tag")).toBeNull();
+  });
+
+  it("offers Switch for a peer with a live session and Connect for one without", async () => {
+    const h = createHarness();
+    const hosts = [
+      { id: "netbox:202", hostname: "10.0.0.2", display_name: "core" },
+      { id: "netbox:203", hostname: "10.0.0.3", display_name: "edge" },
+    ];
+    __configureSidePanel({
+      resolvePeerHost: (peer) => resolvePeerHost(peer, hosts),
+      resolvePeerSession: (hostId): NetBoxPeerSession | null =>
+        hostId === "netbox:202"
+          ? { sessionId: 9, label: "core, session 1 of 2" }
+          : null,
+    });
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        peers: [
+          { netbox_id: 202, name: "core", display: null, primary_ip: null },
+          { netbox_id: 203, name: "edge", display: null, primary_ip: null },
+        ],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const switchSession = vi.fn();
+    renderSidePanel(root, getSidePanelState().snapshot, handlers({ switchSession }));
+
+    const switchButton = root.querySelector<HTMLButtonElement>(".nbd-switch")!;
+    expect(switchButton.textContent).toBe("Switch");
+    expect(switchButton.dataset.sessionId).toBe("9");
+    expect(switchButton.getAttribute("aria-label")).toBe("Switch to core, session 1 of 2");
+    switchButton.click();
+    expect(switchSession).toHaveBeenCalledWith(9);
+
+    const connects = [...root.querySelectorAll<HTMLButtonElement>(".nbd-connect")];
+    expect(connects).toHaveLength(1);
+    expect(connects[0].getAttribute("aria-label")).toBe("Connect to edge");
+  });
+
+  it("falls back from Switch to Connect when the live session goes away", async () => {
+    let session: NetBoxPeerSession | null = { sessionId: 9, label: "core" };
+    const h = createHarness();
+    __configureSidePanel({
+      resolvePeerHost: () => ({ hostId: "netbox:201", label: "core" }),
+      resolvePeerSession: () => session,
+    });
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        peers: [{ netbox_id: 202, name: "core", display: null, primary_ip: null }],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = renderCurrent();
+    expect(root.querySelector(".nbd-switch")).not.toBeNull();
+
+    session = null;
+    notifySidePanelSessionsChanged();
+    renderSidePanel(root, getSidePanelState().snapshot, handlers());
+    expect(root.querySelector(".nbd-switch")).toBeNull();
+    expect(root.querySelector(".nbd-connect")).not.toBeNull();
+    // Re-annotation uses the cached summary; no second network fetch.
+    expect(h.ipc.calls("netbox_get_device_summary")).toHaveLength(1);
+  });
+
+  it("links every NetBox object through the configured base URL", async () => {
+    const h = createHarness();
+    __configureSidePanel({
+      getNetboxBaseUrl: async () => "https://nb.example.com/netbox/",
+    });
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        interfaces: [
+          {
+            id: 11,
+            name: "GigabitEthernet1/0/1",
+            addresses: [{ address: "10.0.0.10/24", vrf: null }],
+          },
+        ],
+        vlans: [{ id: 501, vid: 10, name: "users", group_id: 1, group: "DC1" }],
+        subnets: [{ id: 601, prefix: "10.0.0.0/24", vrf: null }],
+        peers: [{ netbox_id: 202, name: "core", display: null, primary_ip: null }],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const openLink = vi.fn();
+    renderSidePanel(root, getSidePanelState().snapshot, handlers({ openLink }));
+
+    const base = "https://nb.example.com/netbox";
+    const urlOf = (selector: string) =>
+      root.querySelector<HTMLButtonElement>(selector)?.dataset.url;
+    expect(urlOf(".nbd-name .nbd-link")).toBe(`${base}/dcim/devices/201/`);
+    expect(urlOf('.nbd-fact [aria-label="Open Device type Cisco C9300-48P in NetBox"]')).toBe(
+      `${base}/dcim/device-types/3/`,
+    );
+    expect(urlOf('.nbd-fact [aria-label="Open Site DC1 London in NetBox"]')).toBe(
+      `${base}/dcim/sites/7/`,
+    );
+    expect(urlOf('.nbd-fact [aria-label="Open Location Rack 1 in NetBox"]')).toBe(
+      `${base}/dcim/locations/9/`,
+    );
+    expect(urlOf('.nbd-fact [aria-label="Open Rack / U rack-1 · U12.5 · front in NetBox"]')).toBe(
+      `${base}/dcim/racks/4/`,
+    );
+    expect(urlOf(".nbd-iface-name .nbd-link")).toBe(`${base}/dcim/interfaces/11/`);
+    expect(urlOf(".nbd-vlan-name .nbd-link")).toBe(`${base}/ipam/vlans/501/`);
+    expect(urlOf(".nbd-subnet-prefix .nbd-link")).toBe(`${base}/ipam/prefixes/601/`);
+    expect(urlOf(".nbd-peer-name .nbd-link")).toBe(`${base}/dcim/devices/202/`);
+
+    // A real button, never an anchor the WebView could navigate.
+    expect(root.querySelector(".nbd-name .nbd-link")?.tagName).toBe("BUTTON");
+    root.querySelector<HTMLButtonElement>(".nbd-name .nbd-link")!.click();
+    expect(openLink).toHaveBeenCalledWith(`${base}/dcim/devices/201/`);
+  });
+
+  it("keeps every item as plain text when no base URL is configured", async () => {
+    const h = createHarness();
+    __configureSidePanel({ getNetboxBaseUrl: async () => "" });
+    h.ipc.mockImpl("netbox_get_device_summary", () =>
+      summary({
+        interfaces: [
+          {
+            id: 11,
+            name: "GigabitEthernet1/0/1",
+            addresses: [{ address: "10.0.0.10/24", vrf: null }],
+          },
+        ],
+        vlans: [{ id: 501, vid: 10, name: "users", group_id: 1, group: "DC1" }],
+        subnets: [{ id: 601, prefix: "10.0.0.0/24", vrf: null }],
+        peers: [{ netbox_id: 202, name: "core", display: null, primary_ip: null }],
+      }),
+    );
+    setSidePanelNetboxHost("netbox:201", {});
+    setSidePanelMode("netbox");
+    await vi.waitFor(() =>
+      expect(getSidePanelState().snapshot).toMatchObject({ kind: "netbox", phase: "ready" }),
+    );
+
+    const root = renderCurrent();
+    expect(root.querySelector(".nbd-link")).toBeNull();
+    expect(root.querySelector(".nbd-name")?.textContent).toBe("tab-device");
   });
 });

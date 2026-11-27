@@ -607,3 +607,153 @@ Windows rewrote line endings in `src-tauri/Cargo.toml` and
 `src-tauri/gen/schemas/*.json` during the smoke builds. `git diff` showed no content
 change for those files (the schema diffs were build-time regeneration, unrelated to this
 task), so they were reverted with `git checkout --` and are not part of the commit.
+
+---
+
+# Phase 3 — Switch, tags and NetBox links (issue #232)
+
+Status: implemented on `bonzo81-netbox-device-switch-tags-links`.
+
+## Scope
+
+- **Switch** — a cabled peer whose matched host has a live Comnd session shows **Switch**
+  instead of **Connect**. Activating it brings that exact existing tab to the front; a
+  second session to the same device is never opened.
+- **Tags** — the device’s NetBox tags render as the host list’s `.hs-tag` pills in the
+  identity band. A device with no tags renders no tag container at all.
+- **Links** — the device, device type, site, location, rack, interface, VLAN,
+  subnet/prefix and peer each open their NetBox page through `openUrl` (`open_url_cmd`).
+  URLs are composed from the configured `base_url`; an item with no id or no usable base
+  URL stays plain text.
+
+The integration stays read-only: no new command, no write verb, and every request still
+goes through `NetBoxClient::get_json` → `readonly_http::ReadOnlyHttp::get`.
+
+## Query plan and field list
+
+The device detail request adds only `tags` to `SUMMARY_DEVICE_FIELDS`:
+
+```
+fields=id,name,display,status,device_type,site,location,rack,position,face,
+       primary_ip4,primary_ip6,tags
+```
+
+NetBox’s brief nested serializers for `device_type`, `site`, `location` and `rack` already
+include `id`, so the new link ids cost no extra GET. No other request or field changes.
+
+| UI object | Id source | NetBox route |
+|---|---|---|
+| Device | `netbox_id` | `/dcim/devices/<id>/` |
+| Device type | `device_type.id` | `/dcim/device-types/<id>/` |
+| Site | `site.id` | `/dcim/sites/<id>/` |
+| Location | `location.id` | `/dcim/locations/<id>/` |
+| Rack | `rack.id` | `/dcim/racks/<id>/` |
+| Interface | interface `id` | `/dcim/interfaces/<id>/` |
+| VLAN | VLAN `id` | `/ipam/vlans/<id>/` |
+| Subnet / prefix | prefix `id` | `/ipam/prefixes/<id>/` |
+| Peer device | peer `netbox_id` | `/dcim/devices/<id>/` |
+
+The fixed request count is unchanged: **7 GETs** for a device with at least one VLAN and
+one cabled peer, with requests 4 and 7 skipped only when their sets are empty. Tags and ids
+come from requests that already existed.
+
+## Snapshot and two-window contract
+
+- The ready snapshot carries a `NetBoxLinkedSummary`: summary-level `url`, `*_url` fields,
+  a `url` on every interface/VLAN/subnet/peer, and each peer’s `sessionId` and
+  `sessionLabel`. It is still raw data — no markup crosses the window boundary.
+- Peer resolution happens in `side-panel.ts`. The main window supplies two pure lookups:
+  `resolvePeerHost` (host list) and `resolvePeerSession` (live tabs). The undocked window
+  receives only the resolved values and needs neither the host list nor app config.
+- `sessionLabel` is the tab bar’s own accessible label, duplicates included
+  (`core, session 1 of 2`). `session-label.ts` is now the single implementation of that
+  naming, used by both the tab bar and the panel.
+- `SidePanelAction` gains `{ type: "switch"; sessionId }` and
+  `{ type: "open-url"; url }`. The docked home routes them through
+  `applySidePanelAction`; the undocked home sends them over `comnd:panel-action`. Both
+  reach `main.ts` → `onPanelAction`, where Switch activates the tab and a URL goes through
+  `openUrl`.
+- `notifySidePanelSessionsChanged()` rebuilds the ready snapshot from a cached raw summary
+  when a tab is removed. A peer whose session closed therefore falls back to Connect
+  without a second NetBox fetch; the snapshot’s host id must still match the cache.
+- Every link is a real `<button class="nbd-link">` with an accessible name and the global
+  focus ring. No `<a target="_blank">` and no WebView navigation. `.nbd-tags` reuses the
+  existing `.hs-tag` pill styling; component CSS uses tokens only.
+
+## Files touched (phase 3)
+
+- `src-tauri/src/netbox/mod.rs`: `tags` and `*_id` fields on `DeviceSummary`.
+- `src-tauri/src/netbox/client.rs`: `tags` in the field list, shared `summary_tags`, nested
+  id helper, parse wiring, and updated/added unit tests.
+- `src/lib/tauri-api.ts`: matching `NetBoxDeviceSummary` fields.
+- `src/lib/netbox-url.ts` (new): base-URL validation, one builder per object type, and
+  `linkNetboxSummary` with the linked item/peer/summary types.
+- `src/lib/netbox-peer.ts`: `NetBoxPeerSession` and `sessionId`/`sessionLabel` on resolved
+  peers.
+- `src/lib/session-label.ts` (new): the tab bar’s label/suffix logic, shared with the panel.
+- `src/lib/side-panel.ts`: base-URL and peer-session deps, link composition, cached raw
+  summary, `notifySidePanelSessionsChanged`, and the two new actions.
+- `src/lib/side-panel-render.ts`: tag pills, link buttons, Switch/Connect selection and
+  their wiring.
+- `src/components/terminal-view.ts`: docked interactions routed through the shared action.
+- `src/components/panel-window.ts`: undocked interactions sent as the same actions.
+- `src/main.ts`: session resolver, tab-naming helper, docked action subscription, Switch and
+  open-URL handling, and session-change notification.
+- `src/styles/components/_netbox-device.css`: tag container, link-button reset and Switch
+  sizing, tokens only.
+- Tests: `src/lib/netbox-url.test.ts` (new), `src/lib/session-label.test.ts` (new),
+  `src/lib/side-panel-netbox.test.ts`, `src/components/panel-window.test.ts`, and the
+  device-summary tests in `src-tauri/src/netbox/client.rs`.
+- `docs/plans/067-plan-netbox-device-tab.md`: this phase.
+
+## Test plan (phase 3)
+
+- **URL composition:** one case per object type, plus a missing id/base URL and an invalid
+  scheme; `linkNetboxSummary` attaches links to interfaces, VLANs, subnets and peers.
+- **Tags:** tags render as `.hs-tag` pills; an empty list renders no `.nbd-tags`.
+- **Switch:** a peer with a resolved live session shows Switch, names the tab-bar label and
+  dispatches that session id; a matched peer without one keeps Connect.
+- **Freshness:** clearing the resolved session and calling
+  `notifySidePanelSessionsChanged()` turns Switch back into Connect without another
+  `netbox_get_device_summary` call.
+- **Links:** every rendered object carries the expected composed URL in either home; with no
+  base URL the pane renders no `.nbd-link` and keeps the visible text.
+- **Rust:** the parsed summary carries tags and nested ids; a device with no tags/null
+  nested objects parses to empty/None; the request-count test still sees the same seven
+  endpoints and the device field list now includes `tags`.
+
+## Verification (phase 3, this branch)
+
+Run on Windows with PowerShell. Exit codes are the command’s own code.
+
+- `npm ci` — exit 0. `node_modules` was absent in this worktree; no manifest changed.
+- `npm run build` — exit 0 (`tsc` + Vite; the >500 kB chunk advisory is pre-existing).
+- `npm run test` — exit 0, 60 files, 1073 tests. One earlier run under heavy parallel
+  load reported one failed test of 1073; six immediate reruns (one with the verbose
+  reporter) passed 1073/1073 and the failure was not reproducible.
+- `npm run lint` — exit 0.
+- `npm run lint:css` — exit 0, 82 tokens across 135 files.
+- `cargo check --all-targets` (in `src-tauri/`) — exit 0.
+- `cargo fmt --all -- --check` (in `src-tauri/`) — exit 0.
+- `cargo clippy --all-targets -- -D warnings` (in `src-tauri/`) — exit 0.
+- `cargo test` (in `src-tauri/`) — exit 0, 317 lib tests + 3 log-redaction tests.
+- `npm run smoke` — exit 0, 27 scenarios with 0 failures, including
+  `netbox-device-sections`, `panel-undock-dock` and `keyboard-focus`.
+
+The smoke build again rewrote line endings in `src-tauri/gen/schemas/*.json`. Each file’s
+diff disappeared under `--ignore-cr-at-eol`, so they were reverted with `git checkout --`
+and are not part of the change.
+
+## Risks / open points (phase 3)
+
+- `base_url` is read on each NetBox refresh. A config change therefore reaches an open
+  snapshot on the next tab selection or retry, not instantly.
+- Switch targets the oldest live session for the host, matching `focusExistingSession`.
+  Duplicate sessions are named as the tab bar names them, but the panel does not offer a
+  chooser between them.
+- Tags are shown in full and wrap; the host row’s 3-tag truncation is intentionally not
+  copied into the panel.
+- The NetBox tab only exists for an active NetBox-sourced host, so a peer’s Switch can only
+  appear while this device’s own session is live. If that session closes, the tab loses its
+  subject before a stale Switch can be acted on; a peer session closing is covered by
+  `notifySidePanelSessionsChanged`.

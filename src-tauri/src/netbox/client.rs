@@ -76,21 +76,7 @@ fn parse_device(v: &serde_json::Value) -> Option<RawNetBoxDevice> {
         .unwrap_or_default();
 
     // Rule 5: tags — nested objects take .slug; plain strings (ancient 2.x) verbatim
-    let tags = v
-        .get("tags")
-        .and_then(|t| t.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|t| match t {
-                    serde_json::Value::String(s) => Some(s.clone()),
-                    other => other
-                        .get("slug")
-                        .and_then(|s| s.as_str())
-                        .map(|s| s.to_string()),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags = summary_tags(v);
 
     let description = v
         .get("description")
@@ -125,8 +111,7 @@ fn nested_slug(v: &serde_json::Value, field: &str) -> Option<String> {
 /// Top-level fields for the device-detail request. Nested serializers default
 /// to their brief shape, so this keeps the payload to the facts the tab shows.
 /// `display` is requested because it is the fallback for an unnamed device.
-const SUMMARY_DEVICE_FIELDS: &str =
-    "id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6";
+const SUMMARY_DEVICE_FIELDS: &str = "id,name,display,status,device_type,site,location,rack,position,face,primary_ip4,primary_ip6,tags";
 /// Top-level fields for the IP request. `assigned_object` is brief (interface
 /// plus brief device), which is all the grouping needs.
 const SUMMARY_IP_FIELDS: &str =
@@ -160,6 +145,32 @@ fn summary_text(v: Option<&serde_json::Value>) -> Option<String> {
 fn summary_nested_name(v: &serde_json::Value, field: &str) -> Option<String> {
     let obj = v.get(field)?;
     summary_text(obj.get("name")).or_else(|| summary_text(obj.get("display")))
+}
+
+/// `id` from a nullable nested object. Brief serializers always include it, so
+/// this costs no extra request; the frontend builds a NetBox link from it.
+fn summary_nested_id(v: &serde_json::Value, field: &str) -> Option<u64> {
+    v.get(field)?.get("id")?.as_u64()
+}
+
+/// Tag slugs from the device detail request. Nested tags use `slug` (the same
+/// value the synced host list shows); plain strings from ancient 2.x pass
+/// through unchanged.
+fn summary_tags(v: &serde_json::Value) -> Vec<String> {
+    v.get("tags")
+        .and_then(|tags| tags.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| match tag {
+                    serde_json::Value::String(slug) => Some(slug.clone()),
+                    other => other
+                        .get("slug")
+                        .and_then(|slug| slug.as_str())
+                        .map(str::to_string),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Device `status` is a choice object (`{"value": "active", "label": "Active"}`)
@@ -564,10 +575,15 @@ fn parse_summary_device(device: &serde_json::Value, netbox_id: u64) -> DeviceSum
         name,
         status,
         status_label,
+        tags: summary_tags(device),
         device_type: summary_device_type(device),
+        device_type_id: summary_nested_id(device, "device_type"),
         site: summary_nested_name(device, "site"),
+        site_id: summary_nested_id(device, "site"),
         location: summary_nested_name(device, "location"),
+        location_id: summary_nested_id(device, "location"),
         rack: summary_nested_name(device, "rack"),
+        rack_id: summary_nested_id(device, "rack"),
         position: device.get("position").and_then(|position| {
             position
                 .as_f64()
@@ -1654,7 +1670,11 @@ mod tests {
             "position": "12.5",
             "face": { "value": "front", "label": "Front" },
             "primary_ip4": { "id": 21, "family": 4, "address": "10.0.0.1/24" },
-            "primary_ip6": null
+            "primary_ip6": null,
+            "tags": [
+                { "id": 5, "name": "prod", "slug": "prod" },
+                { "id": 6, "name": "edge", "slug": "edge" }
+            ]
         })
     }
 
@@ -1728,9 +1748,14 @@ mod tests {
         assert_eq!(summary.status, "active");
         assert_eq!(summary.status_label, "Active");
         assert_eq!(summary.device_type.as_deref(), Some("Cisco C9300-48P"));
+        assert_eq!(summary.device_type_id, Some(3));
         assert_eq!(summary.site.as_deref(), Some("DC1 London"));
+        assert_eq!(summary.site_id, Some(7));
         assert_eq!(summary.location.as_deref(), Some("Rack row 1"));
+        assert_eq!(summary.location_id, Some(9));
         assert_eq!(summary.rack.as_deref(), Some("rack-1"));
+        assert_eq!(summary.rack_id, Some(4));
+        assert_eq!(summary.tags, vec!["prod", "edge"]);
         assert_eq!(summary.position, Some(12.5));
         assert_eq!(summary.face.as_deref(), Some("front"));
         assert_eq!(summary.primary_ip.as_deref(), Some("10.0.0.1/24"));
@@ -1739,6 +1764,22 @@ mod tests {
         assert!(summary.subnets.is_empty());
         assert!(summary.peers.is_empty());
         server.abort();
+    }
+
+    #[test]
+    fn test_parse_summary_device_without_tags_or_nested_ids_is_plain() {
+        let mut device = summary_device_json(202);
+        device["tags"] = serde_json::json!([]);
+        device["device_type"] = serde_json::Value::Null;
+        device["site"] = serde_json::Value::Null;
+        device["location"] = serde_json::Value::Null;
+        device["rack"] = serde_json::Value::Null;
+        let summary = parse_summary_device(&device, 202);
+        assert!(summary.tags.is_empty());
+        assert_eq!(summary.device_type_id, None);
+        assert_eq!(summary.site_id, None);
+        assert_eq!(summary.location_id, None);
+        assert_eq!(summary.rack_id, None);
     }
 
     #[test]
@@ -1990,6 +2031,7 @@ mod tests {
             path.starts_with("/api/dcim/devices/1/")
                 && path.contains("fields=")
                 && path.contains("display")
+                && path.contains("tags")
         }));
         assert!(one_requests.iter().any(|path| {
             path.starts_with("/api/ipam/ip-addresses/")

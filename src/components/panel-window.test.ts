@@ -34,19 +34,50 @@ function netboxSummary(): NetBoxResolvedSummary {
     name: "tab-device",
     status: "active",
     status_label: "Active",
+    tags: [],
     device_type: null,
+    device_type_id: null,
     site: null,
+    site_id: null,
     location: null,
+    location_id: null,
     rack: null,
+    rack_id: null,
     position: null,
     face: null,
     primary_ip: "127.0.0.1/32",
+    url: "https://nb.example.com/dcim/devices/201/",
+    device_type_url: null,
+    site_url: null,
+    location_url: null,
+    rack_url: null,
     interfaces: [],
     vlans: [
-      { id: 1, vid: 10, name: "users", group_id: 1, group: "DC1" },
-      { id: 3, vid: 100, name: "mgmt", group_id: 2, group: "MGMT" },
+      {
+        id: 1,
+        vid: 10,
+        name: "users",
+        group_id: 1,
+        group: "DC1",
+        url: "https://nb.example.com/ipam/vlans/1/",
+      },
+      {
+        id: 3,
+        vid: 100,
+        name: "mgmt",
+        group_id: 2,
+        group: "MGMT",
+        url: "https://nb.example.com/ipam/vlans/3/",
+      },
     ],
-    subnets: [{ id: 601, prefix: "10.0.0.0/24", vrf: null }],
+    subnets: [
+      {
+        id: 601,
+        prefix: "10.0.0.0/24",
+        vrf: null,
+        url: "https://nb.example.com/ipam/prefixes/601/",
+      },
+    ],
     peers: [
       {
         netbox_id: 201,
@@ -55,6 +86,9 @@ function netboxSummary(): NetBoxResolvedSummary {
         primary_ip: null,
         hostId: "netbox:201",
         label: "core",
+        sessionId: null,
+        sessionLabel: null,
+        url: "https://nb.example.com/dcim/devices/201/",
       },
     ],
   };
@@ -227,6 +261,52 @@ describe("undocked panel window", () => {
     );
     root.querySelector<HTMLButtonElement>(".nbd-retry")!.click();
     expect(b.send).toHaveBeenCalledWith({ type: "retry-netbox" });
+  });
+
+  it("forwards Switch for a peer with a live session", () => {
+    const { root, b } = mount();
+    const summary = netboxSummary();
+    summary.peers[0].sessionId = 9;
+    summary.peers[0].sessionLabel = "core, session 1 of 2";
+    b.push(
+      state({
+        mode: "netbox",
+        netboxHostId: "netbox:201",
+        snapshot: { kind: "netbox", hostId: "netbox:201", phase: "ready", summary },
+      }),
+    );
+
+    const switchButton = root.querySelector<HTMLButtonElement>(".nbd-switch")!;
+    expect(switchButton.textContent).toBe("Switch");
+    expect(switchButton.getAttribute("aria-label")).toBe("Switch to core, session 1 of 2");
+    switchButton.click();
+    expect(b.send).toHaveBeenCalledWith({ type: "switch", sessionId: 9 });
+    expect(root.querySelector(".nbd-connect")).toBeNull();
+  });
+
+  it("forwards a NetBox link through the same action channel", () => {
+    const { root, b } = mount();
+    b.push(
+      state({
+        mode: "netbox",
+        netboxHostId: "netbox:201",
+        snapshot: {
+          kind: "netbox",
+          hostId: "netbox:201",
+          phase: "ready",
+          summary: netboxSummary(),
+        },
+      }),
+    );
+
+    const deviceLink = root.querySelector<HTMLButtonElement>(".nbd-name .nbd-link")!;
+    expect(deviceLink.tagName).toBe("BUTTON");
+    expect(deviceLink.getAttribute("aria-label")).toBe("Open device tab-device in NetBox");
+    deviceLink.click();
+    expect(b.send).toHaveBeenCalledWith({
+      type: "open-url",
+      url: "https://nb.example.com/dcim/devices/201/",
+    });
   });
 
   it("renders the same NetBox sections from the published snapshot and forwards Connect", () => {
